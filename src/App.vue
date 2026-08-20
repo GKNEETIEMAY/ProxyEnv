@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -16,11 +17,16 @@ const defaultSettings: AppSettings = {
 };
 
 const view = ref<"home" | "settings">("home");
+const settingsTab = ref<"general" | "about">("general");
 const loading = ref(true);
 const toggling = ref(false);
 const error = ref("");
 const settingsError = ref("");
 const settingsLoadError = ref("");
+const copiedEndpoint = ref(false);
+const appVersion = ref("0.1.0");
+const latestVersion = ref("");
+const updateState = ref<"idle" | "checking" | "latest" | "available" | "unpublished" | "error">("idle");
 const environment = ref<EnvironmentStatus>({ enabled: false, entries: [] });
 const candidates = ref<ProxyCandidate[]>([]);
 const draftSettings = ref<AppSettings>({ ...defaultSettings });
@@ -29,6 +35,7 @@ const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 const appWindow = getCurrentWindow();
 const reviewPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has("impeccable-review");
 let refreshTimer: number | undefined;
+let copyTimer: number | undefined;
 let refreshPending = false;
 let settingsSaveTimer: number | undefined;
 let settingsReady = false;
@@ -53,6 +60,15 @@ const clientIcons: Record<string, string> = {
 const detectedIcon = computed(() => detected.value
   ? clientIcons[detected.value.iconKey ?? ""] ?? clientIcons["generic-proxy"]
   : clientIcons["generic-proxy"]);
+const endpoint = computed(() => detected.value ? `${detected.value.host}:${detected.value.port}` : "");
+const updateMessage = computed(() => {
+  if (updateState.value === "checking") return copy.value.checkingUpdates;
+  if (updateState.value === "latest") return copy.value.latestVersion;
+  if (updateState.value === "available") return copy.value.updateAvailable.replace("{version}", latestVersion.value);
+  if (updateState.value === "unpublished") return copy.value.noPublishedRelease;
+  if (updateState.value === "error") return copy.value.updateCheckFailed;
+  return copy.value.notChecked;
+});
 
 function applyPresentation() {
   const theme = draftSettings.value.theme === "system"
@@ -162,6 +178,63 @@ function closeSettings() {
   view.value = "home";
 }
 
+async function copyEndpoint() {
+  if (!endpoint.value) return;
+  try {
+    try {
+      await navigator.clipboard.writeText(endpoint.value);
+    } catch {
+      const fallback = document.createElement("textarea");
+      fallback.value = endpoint.value;
+      fallback.style.position = "fixed";
+      fallback.style.opacity = "0";
+      document.body.appendChild(fallback);
+      fallback.select();
+      const copied = document.execCommand("copy");
+      fallback.remove();
+      if (!copied) throw new Error("clipboard permission denied");
+    }
+    copiedEndpoint.value = true;
+    if (copyTimer !== undefined) window.clearTimeout(copyTimer);
+    copyTimer = window.setTimeout(() => { copiedEndpoint.value = false; }, 1600);
+  } catch (cause) {
+    error.value = `${copy.value.copyFailed}: ${String(cause)}`;
+  }
+}
+
+function compareVersions(left: string, right: string): number {
+  const normalize = (value: string) => value.replace(/^v/i, "").split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const leftParts = normalize(left);
+  const rightParts = normalize(right);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+async function checkForUpdates() {
+  if (updateState.value === "checking") return;
+  updateState.value = "checking";
+  try {
+    const response = await fetch("https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/latest", {
+      headers: { Accept: "application/vnd.github+json" }
+    });
+    if (response.status === 404) {
+      updateState.value = "unpublished";
+      return;
+    }
+    if (!response.ok) throw new Error(`GitHub ${response.status}`);
+    const release = await response.json() as { tag_name?: string };
+    if (!release.tag_name) throw new Error("missing release tag");
+    latestVersion.value = release.tag_name.replace(/^v/i, "");
+    updateState.value = compareVersions(latestVersion.value, appVersion.value) > 0 ? "available" : "latest";
+  } catch {
+    updateState.value = "error";
+  }
+}
+
 function onViewShortcut(event: KeyboardEvent) {
   if (event.key === "," && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
@@ -182,6 +255,7 @@ async function minimizeWindow() {
 async function toggleMaximizeWindow() {
   await appWindow.toggleMaximize();
   maximized.value = await appWindow.isMaximized();
+  document.documentElement.classList.toggle("window-maximized", maximized.value);
 }
 
 async function closeWindow() {
@@ -234,6 +308,11 @@ watch(draftSettings, () => {
 
 onMounted(async () => {
   window.addEventListener("keydown", onViewShortcut);
+  try {
+    appVersion.value = await getVersion();
+  } catch {
+    appVersion.value = "0.1.0";
+  }
   if (reviewPreview) {
     draftSettings.value = copySettings({ ...defaultSettings, language: "zh-CN" });
     environment.value = {
@@ -257,8 +336,10 @@ onMounted(async () => {
       confidence: "veryHigh",
       listening: true
     }];
-    if (new URLSearchParams(window.location.search).get("impeccable-review") === "settings") {
+    const preview = new URLSearchParams(window.location.search).get("impeccable-review");
+    if (preview === "settings" || preview === "about") {
       view.value = "settings";
+      settingsTab.value = preview === "about" ? "about" : "general";
     }
     loading.value = false;
     return;
@@ -272,8 +353,10 @@ onMounted(async () => {
   }
   settingsReady = true;
   maximized.value = await appWindow.isMaximized();
+  document.documentElement.classList.toggle("window-maximized", maximized.value);
   unlistenResize = await appWindow.onResized(async () => {
     maximized.value = await appWindow.isMaximized();
+    document.documentElement.classList.toggle("window-maximized", maximized.value);
   });
   systemDark.addEventListener("change", onSystemThemeChange);
   unlisten = await Promise.all([
@@ -286,6 +369,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
+  if (copyTimer !== undefined) window.clearTimeout(copyTimer);
   if (settingsSaveTimer !== undefined) window.clearTimeout(settingsSaveTimer);
   unlistenResize?.();
   window.removeEventListener("keydown", onViewShortcut);
@@ -295,7 +379,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-frame">
+  <div class="app-frame" :class="{ maximized }">
     <header class="app-header">
       <div v-if="view === 'settings'" class="settings-header-context">
         <button class="header-back-button" type="button" :aria-label="copy.back" @click="closeSettings">
@@ -363,7 +447,13 @@ onBeforeUnmount(() => {
             <div><h1>{{ loading ? copy.detecting : copy.noProxy }}</h1><p>{{ copy.noProxyHint }}</p></div>
           </div>
           <div v-if="detected" class="endpoint-line">
-            <code>{{ detected.host }}:{{ detected.port }}</code>
+            <div class="endpoint-address">
+              <code>{{ endpoint }}</code>
+              <button type="button" :aria-label="copiedEndpoint ? copy.endpointCopied : copy.copyEndpoint" :title="copiedEndpoint ? copy.endpointCopied : copy.copyEndpoint" @click="copyEndpoint">
+                <svg v-if="!copiedEndpoint" viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg>
+                <svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8"/></svg>
+              </button>
+            </div>
             <span>{{ detected.protocol }} · {{ detected.confidence }} {{ copy.autoConfidence }}</span>
           </div>
         </div>
@@ -424,13 +514,19 @@ onBeforeUnmount(() => {
     </main>
 
     <main v-else key="settings" class="page settings-page">
-      <p class="settings-intro">{{ copy.settingsIntro }}</p>
+      <nav class="settings-tabs" :aria-label="copy.settingsTitle">
+        <button type="button" :class="{ active: settingsTab === 'general' }" :aria-current="settingsTab === 'general' ? 'page' : undefined" @click="settingsTab = 'general'">{{ copy.general }}</button>
+        <button type="button" :class="{ active: settingsTab === 'about' }" :aria-current="settingsTab === 'about' ? 'page' : undefined" @click="settingsTab = 'about'">{{ copy.about }}</button>
+      </nav>
+
+      <p class="settings-intro">{{ settingsTab === 'general' ? copy.settingsIntro : copy.aboutIntro }}</p>
 
       <div v-if="settingsLoadError || settingsError" class="notice notice-error" role="alert">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
         <p><strong>{{ settingsLoadError ? copy.settingsLoadFailed : copy.saveFailed }}</strong><span>{{ settingsLoadError || settingsError }}</span></p>
       </div>
 
+      <template v-if="settingsTab === 'general'">
       <section class="settings-group">
         <div class="group-heading"><h2>{{ copy.appearance }}</h2><p>{{ copy.appearanceHint }}</p></div>
         <div class="setting-row setting-row-select">
@@ -466,6 +562,37 @@ onBeforeUnmount(() => {
           <span><strong>{{ copy.closeToTray }}</strong><small>{{ copy.closeToTrayHint }}</small></span>
           <input v-model="draftSettings.closeToTray" class="switch-input" type="checkbox" />
         </label>
+      </section>
+
+      </template>
+
+      <section v-else class="about-panel">
+        <div class="about-identity">
+          <span class="brand-symbol about-symbol" aria-hidden="true">
+            <svg viewBox="0 0 28 28">
+              <path class="brand-arrow-blue" d="M4.5 9.4h13.2M14.4 5.2l4.2 4.2-4.2 4.2" />
+              <path class="brand-arrow-white" d="M23.5 18.6H10.3M13.6 22.8l-4.2-4.2 4.2-4.2" />
+            </svg>
+          </span>
+          <div><h2>{{ copy.appName }}</h2><p>{{ copy.appTagline }}</p></div>
+        </div>
+        <dl class="about-details">
+          <div><dt>{{ copy.version }}</dt><dd>v{{ appVersion }}</dd></div>
+          <div><dt>{{ copy.updateStatus }}</dt><dd :class="`update-${updateState}`"><span class="update-dot"></span>{{ updateMessage }}</dd></div>
+          <div><dt>{{ copy.updateSource }}</dt><dd>GitHub Releases</dd></div>
+        </dl>
+        <button class="check-update-button" type="button" :disabled="updateState === 'checking'" @click="checkForUpdates">
+          <svg :class="{ spinning: updateState === 'checking' }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>
+          {{ updateState === 'checking' ? copy.checkingUpdates : copy.checkForUpdates }}
+        </button>
+        <section class="changelog-section">
+          <div class="changelog-heading"><h3>{{ copy.changelog }}</h3><span>v{{ appVersion }} · {{ copy.developmentPreview }}</span></div>
+          <ul>
+            <li>{{ copy.changelogDiscovery }}</li>
+            <li>{{ copy.changelogVariables }}</li>
+            <li>{{ copy.changelogDesktop }}</li>
+          </ul>
+        </section>
       </section>
 
     </main>

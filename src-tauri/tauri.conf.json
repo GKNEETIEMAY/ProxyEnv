@@ -20,7 +20,8 @@
         "visible": true,
         "resizable": true,
         "decorations": false,
-        "shadow": true
+        "transparent": true,
+        "shadow": false
       }
     ],
     "security": { "csp": null }
