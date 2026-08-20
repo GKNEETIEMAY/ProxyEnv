@@ -1,438 +1,269 @@
-# ProxyEnv
+<p align="center">
+  <img src="assets/icon.svg" width="92" height="92" alt="ProxyEnv icon">
+</p>
 
-> A lightweight Windows environment variable manager; v0.1 focuses on proxy environment toggling and automatic local proxy detection.
+<h1 align="center">ProxyEnv</h1>
 
-**ProxyEnv**, Chinese name **境启**, is a lightweight Windows desktop utility for viewing, enabling, and disabling proxy-related environment variables while automatically detecting popular local proxy clients and their actual listening ports.
+<p align="center">
+  A lightweight proxy environment switch for Windows<br>
+  Detect local proxy clients, actual listening ports, and proxy protocols automatically
+</p>
 
-ProxyEnv does not replace Clash, v2rayN, Hiddify, or other proxy clients. It does not manage subscriptions, nodes, routing rules, or proxy cores.
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-Version 0.1 starts with one focused problem:
+<p align="center">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?style=flat-square">
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square">
+  <img alt="Status" src="https://img.shields.io/badge/status-v0.1%20in%20development-f59e0b?style=flat-square">
+</p>
 
-> Some applications require `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY` to access the network, while other applications stop working correctly when those variables exist.
-
-With ProxyEnv, you can temporarily remove proxy environment variables before launching an incompatible application, then restore them afterward without repeatedly editing Windows environment variables by hand.
-
----
+> [!IMPORTANT]
+> ProxyEnv is currently in v0.1 development and does not have an official release yet. The environment toggle and local proxy detection core are working; tray integration and release packaging are still in progress.
 
 ## Why ProxyEnv?
 
-Proxy behavior on Windows is inconsistent across applications.
+Windows applications do not share one proxy mechanism. Browsers and many desktop applications use the Windows system proxy, while Claude Code, Codex, Git, npm, pip, and other CLI tools or networking libraries often prefer `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY`.
 
-For example:
-
-```text
-Browser
-└─ Windows System Proxy
-   └─ Clash / v2rayN
-      └─ Works
-
-Some CLI / API tools
-└─ HTTP_PROXY / HTTPS_PROXY
-   └─ Clash / v2rayN
-      └─ Works
-
-Some direct-connect applications
-└─ Detect HTTP_PROXY
-   └─ Force proxy usage
-      └─ Connection fails
-```
-
-This creates a common conflict:
+That creates a frustrating conflict:
 
 ```text
 HTTP_PROXY exists
-├─ EasyCLIProxyAPI / CLI    ✅
-└─ Some direct apps         ❌
+├─ Claude Code / Codex / CLI    ✅
+└─ Some direct-connect apps      ❌
 
-HTTP_PROXY removed
-├─ EasyCLIProxyAPI / CLI    ❌
-└─ Some direct apps         ✅
+HTTP_PROXY is missing
+├─ Claude Code / Codex / CLI    ❌
+└─ Some direct-connect apps      ✅
 ```
+
+<p align="center">
+  <img src="docs/assets/proxy-conflict.png" width="880" alt="Cute stick-figure illustration of the HTTP_PROXY conflict">
+</p>
 
 ProxyEnv turns this workflow:
 
 ```text
 Open Windows Environment Variables
-→ Find HTTP_PROXY
-→ Delete it
-→ Launch application
-→ Re-create the variable later
+→ Find and remove proxy variables
+→ Launch the direct-connect application
+→ Recreate the original variables manually
 ```
 
 into:
 
 ```text
-Disable Proxy Env
-→ Launch application
-→ Restore Proxy Env
+Disable
+→ Launch the target application
+→ Enable
 ```
 
----
+Before disabling anything, ProxyEnv saves a complete snapshot. Enabling restores the original values instead of replacing them with a hard-coded port.
 
-## Core Features
+## Core capabilities
 
-### One-click Proxy Environment Toggle
+| Capability | Description |
+|---|---|
+| One-click toggle | Remove or restore user-level proxy variables; never write empty strings |
+| Safe snapshots | Persist the complete state before changes and atomically replace snapshot files |
+| Automatic discovery | Combine the Windows system proxy, processes, TCP listener PIDs, and protocol probes |
+| Actual ports | Read real listening ports instead of assuming 7890 or 10808 |
+| Protocol detection | Distinguish HTTP, SOCKS5, and mixed proxy ports |
+| Client identification | Recognize popular proxy clients and display their icons |
+| Read-back verification | Verify the registry after every Enable and Disable operation |
+| Windows notification | Broadcast environment changes through `WM_SETTINGCHANGE` |
+
+## Supported proxy clients
+
+| Client | Windows process identification | Icon | Status |
+|---|---|---|---|
+| Clash Verge Rev | `clash-verge.exe`, `verge-mihomo.exe`, service process | Official | Verified on Windows |
+| v2rayN | `v2rayN.exe` plus Xray / sing-box / Mihomo Core | Official | Rules integrated |
+| FlClash | `FlClash.exe` plus Mihomo Core | Official | Rules integrated |
+| Hiddify | `Hiddify.exe` plus sing-box Core | Official | Rules integrated |
+| Clash Nyanpasu | `clash-nyanpasu.exe` plus Mihomo / Clash RS | Official | Rules integrated |
+
+ProxyEnv does not assign a client name from a generic core process alone. Shared processes such as `mihomo.exe` and `sing-box.exe` are correlated with a running frontend, the system proxy endpoint, and the listener PID before attribution.
+
+Client icons come from their official repositories. Sources and licenses are documented in [`public/proxy-clients/ATTRIBUTION.md`](public/proxy-clients/ATTRIBUTION.md).
+
+## Managed variables
 
 Managed by default:
 
 ```text
-HTTP_PROXY
-HTTPS_PROXY
-ALL_PROXY
-
-http_proxy
-https_proxy
-all_proxy
+HTTP_PROXY      HTTPS_PROXY      ALL_PROXY
+http_proxy      https_proxy      all_proxy
 ```
 
 Displayed but not removed by default:
 
 ```text
-NO_PROXY
-no_proxy
+NO_PROXY        no_proxy
 ```
 
-Disable removes the variables completely instead of setting empty strings.
-
-Enable restores the last saved values whenever possible.
-
----
-
-## Automatic Local Proxy Detection
-
-ProxyEnv attempts to detect running proxy clients and their actual local listening ports.
-
-Initial compatibility targets:
-
-- Clash Verge Rev
-- v2rayN
-- FlClash
-- Hiddify
-- Clash Nyanpasu
-
-Generic compatibility is also planned for clients using:
-
-- Mihomo
-- sing-box
-- Xray
-
-Detection does not rely only on hard-coded default ports.
-
-The discovery pipeline is:
+ProxyEnv only modifies the current user:
 
 ```text
-Windows System Proxy
-        ↓
-Known Proxy Processes
-        ↓
-PID ↔ TCP Listening Ports
-        ↓
-HTTP / SOCKS5 Protocol Probe
-        ↓
-Client-specific Adapter
+HKEY_CURRENT_USER\Environment
 ```
 
-This allows ProxyEnv to discover custom ports whenever possible.
+It does not write to `HKLM`, so v0.1 does not require administrator privileges by default.
 
----
+## How it works
 
-## Proxy Protocol Detection
-
-Supported classifications:
+### Environment transaction
 
 ```text
-HTTP Proxy
-SOCKS5 Proxy
-Mixed Proxy
-```
-
-Example:
-
-```text
-Detected Proxy
-
-Clash Verge Rev
-127.0.0.1:7897
-Mixed Proxy
-● Listening
-```
-
-For a mixed proxy port, ProxyEnv can generate:
-
-```text
-HTTP_PROXY=http://127.0.0.1:7897
-HTTPS_PROXY=http://127.0.0.1:7897
-ALL_PROXY=socks5://127.0.0.1:7897
-```
-
----
-
-## Typical Workflow
-
-### Normal state
-
-```text
-Proxy Environment
-
-● ON
-```
-
-Applications that depend on proxy environment variables work normally.
-
-### Temporarily disable proxy variables
-
-Before launching an application that should not inherit proxy variables:
-
-```text
-ProxyEnv
-→ Disable
-→ Launch the application
-```
-
-After the application has started:
-
-```text
-ProxyEnv
-→ Enable
-```
-
-Already-running processes generally keep the process environment they received when they were created.
-
----
-
-## System Tray
-
-ProxyEnv is designed to live primarily in the Windows system tray.
-
-Example:
-
-```text
-🟢 Proxy Env ON
-```
-
-Left click:
-
-```text
-ON ↔ OFF
-```
-
-Context menu:
-
-```text
-ProxyEnv
-────────────────
-● Proxy Env ON
-
-Detected:
-Clash Verge Rev
-127.0.0.1:7897
+Disable
+Read → Persist snapshot → Delete → Broadcast → Read back and verify
 
 Enable
-Disable
-Refresh
-Open
-Exit
+Load snapshot → Restore exact values → Broadcast → Read back and verify
 ```
 
----
+The snapshot is stored at:
 
-## Non-Goals
+```text
+%LOCALAPPDATA%\ProxyEnv\env-snapshot.json
+```
 
-ProxyEnv is not a proxy client.
+### Proxy discovery pipeline
 
-The MVP will not include:
+```text
+Windows System Proxy ─┐
+Known Client Process ─┼─→ TCP Listener + PID
+Local Listener Table ─┘            │
+                                   ▼
+                         HTTP / SOCKS5 Probe
+                                   │
+                                   ▼
+                      Merge → Score → Recommend
+```
 
-- Node management
-- Subscription management
-- Clash API control
-- v2rayN control
-- TUN control
+Probing is limited to discovered local candidates. ProxyEnv does not scan ports `1–65535` and does not contact an external test website.
+
+## Quick start
+
+### Requirements
+
+- Windows 10 22H2 x64 or Windows 11 x64
+- Microsoft Edge WebView2 Runtime
+- Node.js 22 or newer
+- pnpm 10
+- Rust stable MSVC toolchain
+- Visual Studio Build Tools 2022 with Desktop development with C++
+
+### Run from source
+
+```powershell
+# After cloning the repository, enter the project directory
+cd ProxyEnv
+corepack enable
+pnpm install
+pnpm tauri dev
+```
+
+For VS Code, install the recommended workspace extensions, select `ProxyEnv: Tauri Debug`, and press `F5`.
+
+### Check and build
+
+```powershell
+# Frontend type check and production build
+pnpm build
+
+# Rust tests
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Strict static analysis
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+# Build the Windows NSIS installer
+pnpm tauri build
+```
+
+## Repository layout
+
+```text
+ProxyEnv/
+├─ src/                         # Vue 3 frontend
+│  ├─ App.vue
+│  ├─ services/                 # Tauri IPC wrappers
+│  └─ types/
+├─ src-tauri/                   # Rust / Tauri backend
+│  └─ src/
+│     ├─ environment/           # Registry, snapshots, broadcast, transactions
+│     └─ proxy/                 # System proxy, processes, listeners, probes
+├─ public/proxy-clients/        # Client icons and attribution
+├─ docs/assets/                 # README artwork
+└─ .vscode/                     # Local debugging configuration
+```
+
+## Security and privacy
+
+- Detection and environment operations stay on the local machine.
+- Proxy nodes, subscription URLs, passwords, tokens, and traffic are never read.
+- Process names, ports, and proxy settings are never uploaded.
+- The Windows system proxy is not modified.
+- System-level environment variables and `HKLM` are not modified.
+- Protocol probes use short timeouts and connect only to local candidate ports.
+- Disable stops before deletion if the snapshot cannot be saved successfully.
+
+See [`SECURITY.md`](SECURITY.md) for the security policy.
+
+## Non-goals
+
+ProxyEnv is not a proxy client. The v0.1 scope excludes:
+
+- Node, subscription, and rule management
+- Clash or v2rayN control APIs
+- TUN, VPN, or driver management
 - Windows System Proxy switching
-- Per-app proxy rules
-- Automatic application launching
-- Packet capture
-- VPN/TUN drivers
-- Domain-based routing
-- Bundled proxy cores
+- Per-app proxies or process injection
+- Full port scanning, packet capture, or traffic uploads
+- Bundled Mihomo, sing-box, Xray, or other proxy cores
 
-The product boundary is intentionally narrow:
+## Roadmap
 
-> **Manage proxy environment variables and help the user discover the active local proxy endpoint.**
+- [x] Vue 3 + Tauri 2 project foundation
+- [x] User environment variable reads
+- [x] Snapshot, delete, broadcast, and verification for Disable
+- [x] Exact restoration and verification for Enable
+- [x] Windows System Proxy parsing
+- [x] TCP listener-to-PID correlation
+- [x] HTTP / SOCKS5 / mixed protocol probes
+- [x] Popular client identification and official icons
+- [ ] Multiple-candidate selection UI
+- [ ] System tray Enable / Disable
+- [ ] Settings, startup, and start-minimized behavior
+- [ ] Windows integration compatibility matrix
+- [ ] Automated NSIS and portable releases
 
----
+## FAQ
 
----
+### Why does an already-running application not change immediately?
 
-## Long-term Direction
+Windows processes usually copy their parent's environment when they are created. ProxyEnv broadcasts the environment update, but it cannot force existing terminals or applications to rebuild their environment blocks. Launch the target application after switching, and reopen the terminal when necessary.
 
-ProxyEnv is not intended to remain limited to proxy variables.
+### Does Disable set variables to empty strings?
 
-After the proxy environment toggle becomes stable, the project may grow into a general-purpose Windows environment variable manager, including:
+No. ProxyEnv removes managed values from `HKCU\Environment` after saving a snapshot.
 
-```text
-Environment variable browsing and search
-PATH visualization, ordering, and invalid-entry detection
-Snapshots and rollback
-Developer environment profiles
-JAVA_HOME / CUDA_PATH / Node / Python environment switching
-API Base URL and developer-tool environment configuration
-```
+### Will Enable overwrite my custom proxy address?
 
-Design principle:
+Enable restores the exact values captured before the latest Disable operation. ProxyEnv does not silently overwrite existing variables during startup when no snapshot is available.
 
-> **Stabilize the Environment Core first, then expand gradually without making the v0.1 experience heavier.**
+### Why is a running proxy client not shown as a candidate?
 
+A running frontend does not prove that its proxy core is listening. ProxyEnv only displays candidates backed by the system proxy, a listener PID, or a successful protocol probe; it does not guess a port from the client name.
 
-## Tech Stack
+## Contributing
 
-```text
-Tauri 2
-Vue 3
-TypeScript
-Rust
-windows-rs
-NSIS
-GitHub Actions
-```
-
-Target platforms:
-
-```text
-Windows 10 22H2 x64
-Windows 11 x64
-```
-
-Planned later:
-
-```text
-Windows 11 ARM64
-```
-
----
-
-## Repository Layout
-
-```text
-proxyenv/
-├─ README.md
-├─ README.zh-CN.md
-├─ PRD.md
-├─ TECHNICAL_DESIGN.md
-├─ src/
-├─ src-tauri/
-└─ .github/
-```
-
----
-
-## Development Roadmap
-
-### Phase 1 — Environment Core
-
-Implement first:
-
-```text
-Read Environment
-→ Snapshot
-→ Disable
-→ Enable
-→ WM_SETTINGCHANGE
-→ Read-back Verification
-```
-
-### Phase 2 — Generic Proxy Detection
-
-Implement:
-
-```text
-Windows System Proxy
-Process Scan
-TCP PID Mapping
-HTTP Probe
-SOCKS5 Probe
-Candidate Merge
-Confidence Scoring
-```
-
-### Phase 3 — Client Identification
-
-Add identification support for:
-
-```text
-Clash Verge Rev
-v2rayN
-FlClash
-Hiddify
-Clash Nyanpasu
-```
-
-### Phase 4 — UI & Tray
-
-Implement:
-
-```text
-Status
-Toggle
-Refresh
-Detected Proxy
-Warnings
-Tray
-```
-
-### Phase 5 — Release
-
-Implement:
-
-```text
-NSIS Installer
-Portable ZIP
-SHA256
-GitHub Actions Release
-```
-
----
-
-## Development Principles
-
-- No administrator privileges required by default.
-- Only modify `HKCU\Environment`.
-- Always create a snapshot before removing variables.
-- Never silently overwrite the user's existing proxy values.
-- Never assume a client always uses a fixed default port.
-- Never scan all ports from 1–65535.
-- Probe only local candidate endpoints.
-- Keep all detection local.
-- Never collect or upload proxy subscriptions, nodes, credentials, or API tokens.
-- The main window and tray must share the same Rust core logic.
-
----
-
-## Releases
-
-Planned GitHub Release assets:
-
-```text
-ProxyEnv_x.x.x_x64-setup.exe
-ProxyEnv_x.x.x_x64-portable.zip
-SHA256SUMS.txt
-```
-
-Users should be able to download, install, and run ProxyEnv directly from GitHub Releases.
-
----
+Contributions and issue reports are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first and keep the Environment Core independent from Proxy Detection.
 
 ## License
 
-Recommended license:
-
-```text
-MIT License
-```
-
----
-
-## Project Statement
-
-**ProxyEnv / 境启**
-
-> Start with one-click proxy environment toggling, then grow into a simpler and more reliable Windows environment variable manager.
+ProxyEnv source code is available under the [MIT License](LICENSE). Third-party client icons remain subject to their upstream licenses; see the icon attribution document for details.
