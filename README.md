@@ -5,8 +5,8 @@
 <h1 align="center">ProxyEnv</h1>
 
 <p align="center">
-  A lightweight proxy environment switch for Windows<br>
-  Detect local proxy clients, actual listening ports, and proxy protocols automatically
+  A cross-platform proxy environment switch being built for Windows, Linux, and macOS<br>
+  Discover proxy clients, actual listening ports, and protocols, then keep proxy variables synchronized
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%201803%2B%20%7C%2011-0078D4?style=flat-square">
+  <img alt="Platform" src="https://img.shields.io/badge/targets-Windows%20%7C%20Linux%20%7C%20macOS-0078D4?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square">
@@ -22,11 +22,18 @@
 </p>
 
 > [!IMPORTANT]
-> ProxyEnv is currently in v0.1 development and does not have an official release yet. The environment toggle and local proxy detection core are working; tray integration and release packaging are still in progress.
+> ProxyEnv is currently in v0.1 development and does not have an official release yet. The Windows environment toggle, local proxy detection, system tray, and localized settings are working. Linux and macOS backends and release packaging are still in progress.
+
+| Platform            | Status                                 | Variable convention                                  |
+| ------------------- | -------------------------------------- | ---------------------------------------------------- |
+| Windows 10/11       | Implemented and tested on real systems | `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` |
+| Linux               | Planned                                | `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy` |
+| macOS               | Planned                                | `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy` |
+| Other Unix variants | Not planned                            | —                                                    |
 
 ## Why ProxyEnv?
 
-Windows applications do not share one proxy mechanism. Browsers and many desktop applications use the Windows system proxy, while Claude Code, Codex, Git, npm, pip, and other CLI tools or networking libraries often prefer `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY`.
+Desktop applications, CLIs, and networking libraries across Windows, Linux, and macOS do not always use the same proxy entry point. Claude Code, Codex, Git, npm, pip, and similar tools commonly read proxy environment variables, while some direct-connect applications can fail when those variables are present.
 
 That creates a frustrating conflict:
 
@@ -47,7 +54,7 @@ HTTP_PROXY is missing
 ProxyEnv turns this workflow:
 
 ```text
-Open Windows Environment Variables
+Open the operating system's environment configuration
 → Find and remove proxy variables
 → Launch the direct-connect application
 → Recreate the original variables manually
@@ -65,27 +72,42 @@ Before disabling anything, ProxyEnv saves a complete snapshot. Enabling restores
 
 ## Core capabilities
 
-| Capability | Description |
-|---|---|
-| One-click toggle | Remove or restore user-level proxy variables; never write empty strings |
-| Live endpoint sync | While enabled, follow the active proxy client instead of retaining a stale port |
-| Safe snapshots | Persist the complete state before changes and atomically replace snapshot files |
-| Automatic discovery | Combine the Windows system proxy, processes, TCP listener PIDs, and protocol probes |
-| Actual ports | Read real listening ports instead of assuming 7890 or 10808 |
-| Protocol detection | Distinguish HTTP, SOCKS5, and mixed proxy ports |
-| Client identification | Recognize popular proxy clients and display their icons |
-| Read-back verification | Verify the registry after every Enable and Disable operation |
-| Windows notification | Broadcast environment changes through `WM_SETTINGCHANGE` |
+| Capability             | Description                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| One-click toggle       | Remove or restore user-level proxy variables; never write empty strings             |
+| Live endpoint sync     | While enabled, follow the active proxy client instead of retaining a stale port     |
+| Safe snapshots         | Persist the complete state before changes and atomically replace snapshot files     |
+| Automatic discovery    | Combine the Windows system proxy, processes, TCP listener PIDs, and protocol probes |
+| Actual ports           | Read real listening ports instead of assuming 7890 or 10808                         |
+| Protocol detection     | Distinguish HTTP, SOCKS5, and mixed proxy ports                                     |
+| Client identification  | Recognize popular proxy clients and display their icons                             |
+| Read-back verification | Verify the registry after every Enable and Disable operation                        |
+| Windows notification   | Broadcast environment changes through `WM_SETTINGCHANGE`                            |
+| Selective variables    | Manage HTTP, HTTPS, and ALL proxy variables independently                           |
+| Tray and preferences   | Open or toggle from the tray; persist language, theme, and window behavior           |
+
+## Positioning against environment-variable tools
+
+Ratings reflect the scenario each tool serves best; they are not an absolute feature ranking. ProxyEnv focuses on automatic proxy discovery and switching, while the other tools are broader environment-variable or `PATH` managers.
+
+| Tool                                        | Recommendation | Best for                                                                                       | Main characteristics                                                                                            |
+| ------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **ProxyEnv**                                | ⭐⭐⭐⭐⭐     | Developers frequently switching between proxy and direct connections or multiple proxy clients | Rust + Tauri, cross-platform target, client/port/protocol discovery, snapshots, active-endpoint synchronization |
+| Microsoft PowerToys – Environment Variables | ⭐⭐⭐⭐⭐     | Most developers                                                                                | Microsoft-maintained, modern UI, profiles, user/system variables                                                |
+| EnvStudio                                   | ⭐⭐⭐⭐⭐     | Complex `PATH` values and multiple development environments                                    | Drag-and-drop `PATH`, deduplication, invalid-path and conflict detection, snapshot rollback                     |
+| Envarly                                     | ⭐⭐⭐⭐½      | Open-source users who want safer changes                                                       | Open source, pre-change diff, snapshots/rollback, `PATH` drag-and-drop, PowerShell/Ansible export               |
+| Rapid Environment Editor                    | ⭐⭐⭐⭐       | Traditional Windows development environments                                                   | Mature, tree-based `PATH` editing, error detection, backups, portable build                                     |
+| envx                                        | ⭐⭐⭐⭐       | Terminal/TUI users                                                                             | Rust, cross-platform, snapshots/profiles, search, CLI, `.env`/JSON/YAML import and export                       |
 
 ## Supported proxy clients
 
-| Client | Windows process identification | Icon | Status |
-|---|---|---|---|
+| Client          | Windows process identification                         | Icon     | Status              |
+| --------------- | ------------------------------------------------------ | -------- | ------------------- |
 | Clash Verge Rev | `clash-verge.exe`, `verge-mihomo.exe`, service process | Official | Verified on Windows |
-| v2rayN | `v2rayN.exe` plus Xray / sing-box / Mihomo Core | Official | Rules integrated |
-| FlClash | `FlClash.exe` plus Mihomo Core | Official | Rules integrated |
-| Hiddify | `Hiddify.exe` plus sing-box Core | Official | Rules integrated |
-| Clash Nyanpasu | `clash-nyanpasu.exe` plus Mihomo / Clash RS | Official | Rules integrated |
+| v2rayN          | `v2rayN.exe` plus Xray / sing-box / Mihomo Core        | Official | Rules integrated    |
+| FlClash         | `FlClash.exe` plus Mihomo Core                         | Official | Rules integrated    |
+| Hiddify         | `Hiddify.exe` plus sing-box Core                       | Official | Rules integrated    |
+| Clash Nyanpasu  | `clash-nyanpasu.exe` plus Mihomo / Clash RS            | Official | Rules integrated    |
 
 ProxyEnv does not assign a client name from a generic core process alone. Shared processes such as `mihomo.exe` and `sing-box.exe` are correlated with a running frontend, the system proxy endpoint, and the listener PID before attribution.
 
@@ -107,7 +129,9 @@ Windows:        NO_PROXY
 Linux / macOS:  no_proxy
 ```
 
-Windows environment variable names are case-insensitive, so upper- and lowercase aliases are the same value. Unix names are case-sensitive; ProxyEnv follows the widely compatible lowercase proxy convention there. The current v0.1 environment persistence and proxy discovery backend is implemented and tested on Windows; Linux and macOS backend support is planned and is not implied by the naming policy alone.
+Windows environment variable names are case-insensitive, so upper- and lowercase aliases are the same value. Linux and macOS names are case-sensitive, so ProxyEnv follows the widely compatible lowercase proxy convention there. The v0.1 environment persistence and proxy discovery backend is currently implemented and tested on Windows; Linux and macOS will not be marked supported until their backends are complete.
+
+`HTTP_PROXY` and `HTTPS_PROXY` are selected by default. `ALL_PROXY` is opt-in because it can affect more applications and package-search traffic; at least one managed proxy variable must remain selected. `NO_PROXY` / `no_proxy` stays read-only in the current UI.
 
 ProxyEnv only modifies the current user:
 
@@ -126,7 +150,7 @@ Disable
 Read → Persist snapshot → Delete → Broadcast → Read back and verify
 
 Enable
-Use detected active endpoint → Write current values → Broadcast → Read back and verify
+Use detected active endpoint → Write selected values → Broadcast → Read back and verify
 No active endpoint → Fall back to the saved snapshot
 ```
 
@@ -237,6 +261,7 @@ ProxyEnv is not a proxy client. The v0.1 scope excludes:
 - Per-app proxies or process injection
 - Full port scanning, packet capture, or traffic uploads
 - Bundled Mihomo, sing-box, Xray, or other proxy cores
+- Other Unix variants such as AIX or FreeBSD
 
 ## Roadmap
 
@@ -248,10 +273,15 @@ ProxyEnv is not a proxy client. The v0.1 scope excludes:
 - [x] TCP listener-to-PID correlation
 - [x] HTTP / SOCKS5 / mixed protocol probes
 - [x] Popular client identification and official icons
+- [x] Selective HTTP / HTTPS / ALL proxy controls
+- [x] System tray toggle, open, and exit actions
+- [x] Localized settings, startup, and window behavior
 - [ ] Multiple-candidate selection UI
-- [ ] System tray Enable / Disable
-- [ ] Settings, startup, and start-minimized behavior
+- [ ] Dynamic ON / OFF / Warning tray artwork
 - [ ] Windows integration compatibility matrix
+- [ ] Linux environment persistence, process, and listener backend
+- [ ] macOS environment persistence, system proxy, and process backend
+- [ ] Linux/macOS packaging and integration test matrix
 - [ ] Automated NSIS and portable releases
 
 ## FAQ
