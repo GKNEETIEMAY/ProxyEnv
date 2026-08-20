@@ -22,7 +22,7 @@
 </p>
 
 > [!IMPORTANT]
-> ProxyEnv is currently in v0.1 development and does not have an official release yet. The Windows environment toggle, local proxy detection, system tray, and localized settings are working. Linux and macOS backends and release packaging are still in progress.
+> ProxyEnv is currently in v0.1 development and does not have an official release yet. The Windows environment toggle, local proxy detection, system tray, and localized General / About settings are working. Linux and macOS backends and release packaging are still in progress.
 
 | Platform            | Status                                 | Variable convention                                  |
 | ------------------- | -------------------------------------- | ---------------------------------------------------- |
@@ -85,6 +85,9 @@ Before disabling anything, ProxyEnv saves a complete snapshot. Enabling restores
 | Windows notification   | Broadcast environment changes through `WM_SETTINGCHANGE`                            |
 | Selective variables    | Manage HTTP, HTTPS, and ALL proxy variables independently                           |
 | Tray and preferences   | Open or toggle from the tray; persist language, theme, and window behavior           |
+| Endpoint utilities     | Show protocol and confidence, and copy the active proxy address                      |
+| About and updates      | Show the runtime version, changelog, and user-triggered GitHub Releases status        |
+| Desktop shell          | Use a rounded frameless window with light, dark, and system appearance                |
 
 ## Positioning against environment-variable tools
 
@@ -203,7 +206,7 @@ pnpm install
 pnpm tauri dev
 ```
 
-For VS Code, install the recommended workspace extensions, select `ProxyEnv: Tauri Debug`, and press `F5`.
+For VS Code, install the recommended workspace extensions, select `ProxyEnv: Tauri Debug`, and press `F5`. The workspace task reuses an existing ProxyEnv Vite server and stops only stale debug instances from this repository before rebuilding.
 
 ### Check and build
 
@@ -227,12 +230,15 @@ pnpm tauri build
 ProxyEnv/
 ├─ src/                         # Vue 3 frontend
 │  ├─ App.vue
+│  ├─ i18n.ts                    # Simplified Chinese, English, Japanese, and Korean UI
 │  ├─ services/                 # Tauri IPC wrappers
 │  └─ types/
 ├─ src-tauri/                   # Rust / Tauri backend
 │  └─ src/
 │     ├─ environment/           # Registry, snapshots, broadcast, transactions
-│     └─ proxy/                 # System proxy, processes, listeners, probes
+│     ├─ proxy/                 # System proxy, processes, listeners, probes
+│     ├─ settings.rs            # Persistent user preferences
+│     └─ tray.rs                # Tray menu and window behavior
 ├─ public/proxy-clients/        # Client icons and attribution
 ├─ docs/assets/                 # README artwork
 └─ .vscode/                     # Local debugging configuration
@@ -243,6 +249,7 @@ ProxyEnv/
 - Detection and environment operations stay on the local machine.
 - Proxy nodes, subscription URLs, passwords, tokens, and traffic are never read.
 - Process names, ports, and proxy settings are never uploaded.
+- Only a user-triggered update check contacts the GitHub Releases API; it sends no proxy or environment data.
 - The Windows system proxy is not modified.
 - System-level environment variables and `HKLM` are not modified.
 - Protocol probes use short timeouts and connect only to local candidate ports.
@@ -276,6 +283,8 @@ ProxyEnv is not a proxy client. The v0.1 scope excludes:
 - [x] Selective HTTP / HTTPS / ALL proxy controls
 - [x] System tray toggle, open, and exit actions
 - [x] Localized settings, startup, and window behavior
+- [x] Endpoint copy, General / About settings, update status, and changelog
+- [x] Rounded frameless desktop shell
 - [ ] Multiple-candidate selection UI
 - [ ] Dynamic ON / OFF / Warning tray artwork
 - [ ] Windows integration compatibility matrix
