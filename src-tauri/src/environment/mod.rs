@@ -7,6 +7,7 @@ pub use models::{EnvironmentEntry, EnvironmentStatus, ProxyEnvironmentSnapshot};
 
 use crate::error::{ProxyEnvError, Result};
 use crate::proxy::ProxyProtocol;
+use crate::settings::ProxyVariable;
 use std::collections::HashMap;
 
 #[cfg(windows)]
@@ -56,12 +57,23 @@ impl EnvironmentManager {
         Self::status()
     }
 
-    pub fn enable() -> Result<EnvironmentStatus> {
+    pub fn enable(selected: &[ProxyVariable]) -> Result<EnvironmentStatus> {
         let snapshot = snapshot::load()?.ok_or(ProxyEnvError::SnapshotMissing)?;
-        registry::restore_entries(&snapshot.values)?;
+        let expected = MANAGED_PROXY_VARS
+            .iter()
+            .map(|name| {
+                let value = if variable_is_selected(name, selected) {
+                    snapshot.values.get(*name).cloned().unwrap_or(None)
+                } else {
+                    None
+                };
+                ((*name).to_owned(), value)
+            })
+            .collect::<HashMap<_, _>>();
+        registry::restore_entries(&expected)?;
         broadcast::environment_changed()?;
         let actual = registry::read_entries(MANAGED_PROXY_VARS)?;
-        if !snapshot.matches(&actual) {
+        if !entries_match(&expected, &actual) {
             return Err(ProxyEnvError::VerificationFailed(
                 "restored values differ from the saved snapshot".into(),
             ));
@@ -73,8 +85,9 @@ impl EnvironmentManager {
         host: &str,
         port: u16,
         protocol: ProxyProtocol,
+        selected: &[ProxyVariable],
     ) -> Result<EnvironmentStatus> {
-        let expected = proxy_values(host, port, protocol);
+        let expected = proxy_values(host, port, protocol, selected);
         let actual = registry::read_entries(MANAGED_PROXY_VARS)?;
         if entries_match(&expected, &actual) {
             return Self::status();
@@ -92,7 +105,12 @@ impl EnvironmentManager {
     }
 }
 
-fn proxy_values(host: &str, port: u16, protocol: ProxyProtocol) -> HashMap<String, Option<String>> {
+fn proxy_values(
+    host: &str,
+    port: u16,
+    protocol: ProxyProtocol,
+    selected: &[ProxyVariable],
+) -> HashMap<String, Option<String>> {
     let scheme = if matches!(protocol, ProxyProtocol::Socks5) {
         "socks5"
     } else {
@@ -106,8 +124,22 @@ fn proxy_values(host: &str, port: u16, protocol: ProxyProtocol) -> HashMap<Strin
     let value = format!("{scheme}://{host}:{port}");
     MANAGED_PROXY_VARS
         .iter()
-        .map(|name| ((*name).to_owned(), Some(value.clone())))
+        .map(|name| {
+            let value = variable_is_selected(name, selected).then(|| value.clone());
+            ((*name).to_owned(), value)
+        })
         .collect()
+}
+
+fn variable_is_selected(name: &str, selected: &[ProxyVariable]) -> bool {
+    let variable = if name.eq_ignore_ascii_case("HTTP_PROXY") {
+        ProxyVariable::Http
+    } else if name.eq_ignore_ascii_case("HTTPS_PROXY") {
+        ProxyVariable::Https
+    } else {
+        ProxyVariable::All
+    };
+    selected.contains(&variable)
 }
 
 fn entries_match(expected: &HashMap<String, Option<String>>, actual: &[EnvironmentEntry]) -> bool {
@@ -122,24 +154,39 @@ mod tests {
 
     #[test]
     fn builds_http_proxy_values_for_v2rayn_http_port() {
-        let values = proxy_values("127.0.0.1", 10809, ProxyProtocol::Http);
+        let selected = [ProxyVariable::Http, ProxyVariable::Https];
+        let values = proxy_values("127.0.0.1", 10809, ProxyProtocol::Http, &selected);
         assert_eq!(values.len(), MANAGED_PROXY_VARS.len());
         assert_eq!(
             values[MANAGED_PROXY_VARS[0]].as_deref(),
             Some("http://127.0.0.1:10809")
         );
-        assert_eq!(
-            values[MANAGED_PROXY_VARS[2]].as_deref(),
-            Some("http://127.0.0.1:10809")
-        );
+        assert_eq!(values[MANAGED_PROXY_VARS[2]], None);
     }
 
     #[test]
     fn brackets_ipv6_proxy_hosts() {
-        let values = proxy_values("::1", 10808, ProxyProtocol::Socks5);
+        let selected = [ProxyVariable::Http, ProxyVariable::Https];
+        let values = proxy_values("::1", 10808, ProxyProtocol::Socks5, &selected);
         assert_eq!(
             values[MANAGED_PROXY_VARS[1]].as_deref(),
             Some("socks5://[::1]:10808")
+        );
+    }
+
+    #[test]
+    fn writes_all_proxy_only_when_selected() {
+        let values = proxy_values(
+            "127.0.0.1",
+            10808,
+            ProxyProtocol::Socks5,
+            &[ProxyVariable::All],
+        );
+        assert_eq!(values[MANAGED_PROXY_VARS[0]], None);
+        assert_eq!(values[MANAGED_PROXY_VARS[1]], None);
+        assert_eq!(
+            values[MANAGED_PROXY_VARS[2]].as_deref(),
+            Some("socks5://127.0.0.1:10808")
         );
     }
 

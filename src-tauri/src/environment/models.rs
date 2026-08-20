@@ -36,12 +36,6 @@ impl ProxyEnvironmentSnapshot {
                 .collect(),
         }
     }
-
-    pub fn matches(&self, entries: &[EnvironmentEntry]) -> bool {
-        entries
-            .iter()
-            .all(|entry| self.values.get(&entry.name) == Some(&entry.value))
-    }
 }
 
 #[cfg(test)]

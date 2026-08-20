@@ -19,6 +19,12 @@ pub enum ProxyEnvError {
     VerificationFailed(String),
     #[error("proxy detection failed: {0}")]
     Detection(String),
+    #[error("failed to read application settings: {0}")]
+    SettingsRead(String),
+    #[error("failed to save application settings: {0}")]
+    SettingsWrite(String),
+    #[error("failed to update launch-at-startup: {0}")]
+    Autostart(String),
     #[cfg(not(windows))]
     #[error("this operation is only available on Windows")]
     UnsupportedPlatform,

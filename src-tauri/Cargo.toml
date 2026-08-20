@@ -1,7 +1,7 @@
 [package]
 name = "proxyenv"
 version = "0.1.0"
-description = "A lightweight Windows environment variable manager"
+description = "A cross-platform proxy environment manager"
 authors = ["ProxyEnv contributors"]
 edition = "2021"
 license = "MIT"
@@ -26,8 +26,12 @@ tracing = "0.1"
 netstat2 = "0.11"
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 windows = { version = "0.61", features = [
+  "Win32_Globalization",
   "Win32_Foundation",
   "Win32_Storage_FileSystem",
   "Win32_System_Registry",
   "Win32_UI_WindowsAndMessaging"
 ] }
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-autostart = "2.5.1"
