@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Platform" src="https://img.shields.io/badge/平台-Windows%2010%20%7C%2011-0078D4?style=flat-square">
+  <img alt="Platform" src="https://img.shields.io/badge/平台-Windows%2010%201803%2B%20%7C%2011-0078D4?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="License" src="https://img.shields.io/badge/许可证-MIT-22c55e?style=flat-square">
@@ -68,6 +68,7 @@ Disable 前会保存完整快照；Enable 时恢复原值，而不是覆盖成�
 | 能力 | 说明 |
 |---|---|
 | 一键启停 | 删除或恢复用户级代理环境变量，不写入空字符串 |
+| 实时端点同步 | 环境变量开启时跟随当前活动代理，不继续保留失效旧端口 |
 | 安全快照 | 修改前持久化完整快照，使用原子替换避免半写入文件 |
 | 自动发现 | 结合 Windows 系统代理、进程、TCP 监听 PID 和协议探测 |
 | 实际端口 | 读取真实监听端口，不假设客户端永远使用 7890 或 10808 |
@@ -92,18 +93,21 @@ Disable 前会保存完整快照；Enable 时恢复原值，而不是覆盖成�
 
 ## 管理哪些变量？
 
-默认管理：
+变量名根据操作系统选择，不再同时展示重复的大小写别名：
 
 ```text
-HTTP_PROXY      HTTPS_PROXY      ALL_PROXY
-http_proxy      https_proxy      all_proxy
+Windows：       HTTP_PROXY      HTTPS_PROXY      ALL_PROXY
+Linux / macOS： http_proxy      https_proxy      all_proxy
 ```
 
 仅展示、默认不删除：
 
 ```text
-NO_PROXY        no_proxy
+Windows：       NO_PROXY
+Linux / macOS： no_proxy
 ```
+
+Windows 环境变量名不区分大小写，因此大小写别名实际指向同一个值；Unix 环境变量名区分大小写，ProxyEnv 在 Linux/macOS 上采用兼容性更广的小写代理变量约定。当前 v0.1 的环境持久化与代理发现后端仅在 Windows 上实现并完成测试；这里的平台命名策略不代表 Linux/macOS 后端已经完成。
 
 ProxyEnv 只操作当前用户：
 
@@ -122,7 +126,8 @@ Disable
 读取当前值 → 保存快照 → 删除变量 → 广播变更 → 读回验证
 
 Enable
-加载快照 → 恢复原值 → 广播变更 → 读回验证
+使用检测到的活动端点 → 写入当前值 → 广播变更 → 读回验证
+没有活动端点 → 回退到最近保存的快照
 ```
 
 快照保存在：
@@ -148,14 +153,21 @@ Local Listener Table ─┘            │
 
 ## 快速开始
 
-### 系统要求
+### 用户运行要求
 
-- Windows 10 22H2 x64 或 Windows 11 x64
-- Microsoft Edge WebView2 Runtime
-- Node.js 22 或更高版本
-- pnpm 10
+- Windows 10 1803 或更高版本（x64），或 Windows 11 x64
+- Microsoft Edge WebView2 Runtime；较新的 Windows 10/11 通常已经预装
+
+安装打包后的 ProxyEnv 不需要用户安装 Node.js、pnpm、Rust 或 Visual Studio。
+
+### 源码开发要求
+
+- Node.js 20.19+ 或 22.12+；推荐 Node.js 22 LTS
+- 通过 Corepack 使用 pnpm 10
 - Rust stable MSVC 工具链
 - Visual Studio Build Tools 2022（Desktop development with C++）
+
+以上最低版本来自当前 Vite 7 与 Tauri 2 工具链的实际要求。建议使用仍受支持的 Node.js LTS，不要求追随最新 Current 版本。
 
 ### 从源码运行
 
@@ -252,9 +264,9 @@ Windows 进程通常在创建时复制父进程的环境变量。ProxyEnv 会广
 
 不会。ProxyEnv 会从 `HKCU\Environment` 中真正删除受管理变量，并在此之前保存快照。
 
-### Enable 会覆盖我自己的代理地址吗？
+### Enable 会更新我自己的代理地址吗？
 
-优先恢复最近一次 Disable 前保存的精确值。没有快照时，程序不会在启动阶段静默覆盖已有变量。
+会，但前提是检测到了经过验证的本机活动代理。环境变量开关开启期间，ProxyEnv 会让受管理变量跟随该端点，并且只在端点变化时写入；Enable 时如果没有活动端点，则回退到最近保存的快照。
 
 ### 为什么能看到代理客户端，却没有候选端口？
 
@@ -263,6 +275,11 @@ Windows 进程通常在创建时复制父进程的环境变量。ProxyEnv 会广
 ## 贡献
 
 欢迎提交问题和改进。开始前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，并保持 Environment Core 与 Proxy Detection 解耦。
+
+## 贡献者
+
+- ProxyEnv 维护者与社区贡献者
+- OpenAI Codex——参与实现、测试与文档编写的 AI 编程助手
 
 ## 许可证
 

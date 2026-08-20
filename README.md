@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?style=flat-square">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%201803%2B%20%7C%2011-0078D4?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square">
@@ -68,6 +68,7 @@ Before disabling anything, ProxyEnv saves a complete snapshot. Enabling restores
 | Capability | Description |
 |---|---|
 | One-click toggle | Remove or restore user-level proxy variables; never write empty strings |
+| Live endpoint sync | While enabled, follow the active proxy client instead of retaining a stale port |
 | Safe snapshots | Persist the complete state before changes and atomically replace snapshot files |
 | Automatic discovery | Combine the Windows system proxy, processes, TCP listener PIDs, and protocol probes |
 | Actual ports | Read real listening ports instead of assuming 7890 or 10808 |
@@ -92,18 +93,21 @@ Client icons come from their official repositories. Sources and licenses are doc
 
 ## Managed variables
 
-Managed by default:
+Variable names follow the host platform instead of displaying duplicate aliases:
 
 ```text
-HTTP_PROXY      HTTPS_PROXY      ALL_PROXY
-http_proxy      https_proxy      all_proxy
+Windows:        HTTP_PROXY      HTTPS_PROXY      ALL_PROXY
+Linux / macOS:  http_proxy      https_proxy      all_proxy
 ```
 
 Displayed but not removed by default:
 
 ```text
-NO_PROXY        no_proxy
+Windows:        NO_PROXY
+Linux / macOS:  no_proxy
 ```
+
+Windows environment variable names are case-insensitive, so upper- and lowercase aliases are the same value. Unix names are case-sensitive; ProxyEnv follows the widely compatible lowercase proxy convention there. The current v0.1 environment persistence and proxy discovery backend is implemented and tested on Windows; Linux and macOS backend support is planned and is not implied by the naming policy alone.
 
 ProxyEnv only modifies the current user:
 
@@ -122,7 +126,8 @@ Disable
 Read → Persist snapshot → Delete → Broadcast → Read back and verify
 
 Enable
-Load snapshot → Restore exact values → Broadcast → Read back and verify
+Use detected active endpoint → Write current values → Broadcast → Read back and verify
+No active endpoint → Fall back to the saved snapshot
 ```
 
 The snapshot is stored at:
@@ -148,14 +153,21 @@ Probing is limited to discovered local candidates. ProxyEnv does not scan ports 
 
 ## Quick start
 
-### Requirements
+### Runtime requirements
 
-- Windows 10 22H2 x64 or Windows 11 x64
-- Microsoft Edge WebView2 Runtime
-- Node.js 22 or newer
-- pnpm 10
+- Windows 10 1803 or newer (x64), or Windows 11 x64
+- Microsoft Edge WebView2 Runtime; it is normally preinstalled on current Windows 10/11 systems
+
+Packaged builds do not require Node.js, pnpm, Rust, or Visual Studio on the user's computer.
+
+### Development requirements
+
+- Node.js 20.19+ or 22.12+; Node.js 22 LTS is recommended
+- pnpm 10 through Corepack
 - Rust stable MSVC toolchain
 - Visual Studio Build Tools 2022 with Desktop development with C++
+
+These minimums follow the actual Vite 7 and Tauri 2 toolchain requirements. Using the current LTS Node.js release is preferred; installing the newest Current release is not required.
 
 ### Run from source
 
@@ -252,9 +264,9 @@ Windows processes usually copy their parent's environment when they are created.
 
 No. ProxyEnv removes managed values from `HKCU\Environment` after saving a snapshot.
 
-### Will Enable overwrite my custom proxy address?
+### Will Enable update my custom proxy address?
 
-Enable restores the exact values captured before the latest Disable operation. ProxyEnv does not silently overwrite existing variables during startup when no snapshot is available.
+Yes, when a verified active local proxy is detected. While the environment switch is enabled, ProxyEnv keeps the managed variables aligned with that endpoint and only writes when the endpoint changes. If no active endpoint is available during Enable, it falls back to the latest saved snapshot.
 
 ### Why is a running proxy client not shown as a candidate?
 
@@ -263,6 +275,11 @@ A running frontend does not prove that its proxy core is listening. ProxyEnv onl
 ## Contributing
 
 Contributions and issue reports are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first and keep the Environment Core independent from Proxy Detection.
+
+## Contributors
+
+- ProxyEnv maintainers and community contributors
+- OpenAI Codex — AI coding assistant for implementation, testing, and documentation
 
 ## License
 
