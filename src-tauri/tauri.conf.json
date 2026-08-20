@@ -13,18 +13,21 @@
     "windows": [
       {
         "title": "境启 ProxyEnv",
-        "width": 760,
-        "height": 650,
+        "width": 880,
+        "height": 720,
         "minWidth": 560,
-        "minHeight": 580,
-        "resizable": true
+        "minHeight": 620,
+        "visible": true,
+        "resizable": true,
+        "decorations": false,
+        "shadow": true
       }
     ],
     "security": { "csp": null }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": "all",
     "windows": {
       "nsis": { "installMode": "currentUser" }
     }

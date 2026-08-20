@@ -32,3 +32,16 @@ export interface ProxyCandidate {
   confidence: Confidence;
   listening: boolean;
 }
+
+export type AppLanguage = "system" | "zh-CN" | "en" | "ja" | "ko";
+export type AppTheme = "system" | "light" | "dark";
+export type ManagedProxyVariable = "http" | "https" | "all";
+
+export interface AppSettings {
+  language: AppLanguage;
+  theme: AppTheme;
+  launchAtStartup: boolean;
+  silentStart: boolean;
+  closeToTray: boolean;
+  proxyVariables: ManagedProxyVariable[];
+}

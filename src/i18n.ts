@@ -1,0 +1,118 @@
+import type { AppLanguage } from "./types";
+
+export type Locale = Exclude<AppLanguage, "system">;
+
+const en = {
+  appName: "ProxyEnv",
+  appTagline: "Proxy environment, without the friction.",
+  home: "Proxy",
+  settings: "Settings",
+  minimizeWindow: "Minimize window",
+  maximizeWindow: "Maximize window",
+  restoreWindow: "Restore window",
+  closeWindow: "Close window",
+  refresh: "Refresh status",
+  currentProxy: "Current proxy",
+  detecting: "Detecting local proxy…",
+  noProxy: "No listening proxy found",
+  noProxyHint: "Start a proxy client, then refresh. Unknown clients use a shared icon.",
+  localProxy: "Local proxy",
+  listening: "Listening",
+  notListening: "Not listening",
+  proxyEnvironment: "Proxy environment",
+  enabled: "On",
+  disabled: "Off",
+  enabling: "Applying…",
+  environmentOnHint: "New apps inherit this proxy endpoint.",
+  environmentOffHint: "New apps connect directly unless configured otherwise.",
+  variables: "Environment variables",
+  variablesHint: "Choose which variables ProxyEnv writes. Changes save and sync automatically.",
+  writeVariable: "Write {name}",
+  aboutVariable: "About {name}",
+  httpProxyDescription: "Used by programs making HTTP requests. This is the safest general default for command-line tools.",
+  httpsProxyDescription: "Used for HTTPS destinations. An http:// value is normal: clients create an encrypted tunnel through the local proxy.",
+  allProxyDescription: "Fallback for protocols without their own proxy setting. It has the broadest reach and can disrupt in-app or package search, local-network discovery, or apps with limited SOCKS support, so it stays off by default.",
+  noProxyDescription: "Lists addresses that should bypass the proxy, such as localhost. ProxyEnv currently displays this value but does not modify it.",
+  unset: "Not set",
+  operationFailed: "The change could not be applied",
+  attention: "Attention needed",
+  retryHint: "Check the proxy client, then try again.",
+  localOnly: "Everything stays on this device.",
+  settingsTitle: "Settings",
+  settingsIntro: "Make ProxyEnv feel at home on this computer.",
+  back: "Back",
+  appearance: "Language & appearance",
+  appearanceHint: "Changes apply immediately and save automatically.",
+  interfaceLanguage: "Interface language",
+  languageHint: "If the system language is unavailable, English is used.",
+  system: "Follow system",
+  chinese: "简体中文",
+  english: "English",
+  japanese: "日本語",
+  korean: "한국어",
+  theme: "Appearance theme",
+  themeSystem: "Follow system",
+  themeLight: "Light",
+  themeDark: "Dark",
+  windowBehavior: "Window behavior",
+  windowBehaviorHint: "Choose how ProxyEnv starts and leaves the desktop.",
+  launchAtStartup: "Launch at startup",
+  launchAtStartupHint: "Start ProxyEnv automatically when you sign in.",
+  silentStart: "Start silently",
+  silentStartHint: "When launched at startup, stay in the system tray.",
+  closeToTray: "Close to tray",
+  closeToTrayHint: "The close button hides the window instead of quitting.",
+  saveFailed: "Settings could not be saved",
+  settingsLoadFailed: "Saved settings could not be read",
+  autoConfidence: "confidence"
+} as const;
+
+type Copy = { [K in keyof typeof en]: string };
+
+const zh: Copy = {
+  appName: "境启 ProxyEnv", appTagline: "让代理环境切换回归简单。", home: "代理", settings: "设置", minimizeWindow: "最小化窗口", maximizeWindow: "最大化窗口", restoreWindow: "还原窗口", closeWindow: "关闭窗口", refresh: "刷新状态",
+  currentProxy: "当前代理", detecting: "正在检测本机代理…", noProxy: "未发现正在监听的代理", noProxyHint: "启动代理客户端后刷新；未知客户端会使用通用图标。", localProxy: "本机代理", listening: "正在监听", notListening: "未监听",
+  proxyEnvironment: "代理环境变量", enabled: "已开启", disabled: "已关闭", enabling: "正在应用…", environmentOnHint: "新启动的应用会继承此代理地址。", environmentOffHint: "未单独配置的应用将直接连接网络。",
+  variables: "环境变量", variablesHint: "选择 ProxyEnv 要写入的变量；更改会自动保存并立即同步。", writeVariable: "写入 {name}", aboutVariable: "了解 {name}", httpProxyDescription: "供发起 HTTP 请求的程序使用，是命令行工具最稳妥的通用默认项。", httpsProxyDescription: "供访问 HTTPS 地址的程序使用。值以 http:// 开头是正常的：程序会通过本机代理建立加密隧道。", allProxyDescription: "作为没有独立代理设置的协议的回退项，影响范围最广，可能干扰应用内或软件包搜索、局域网发现，以及不完整支持 SOCKS 的程序，因此默认关闭。", noProxyDescription: "列出 localhost 等应绕过代理的地址。ProxyEnv 目前只显示该值，不会修改。", unset: "未设置", operationFailed: "未能完成操作", attention: "需要注意", retryHint: "请检查代理客户端后重试。", localOnly: "所有数据仅在本机处理。",
+  settingsTitle: "设置", settingsIntro: "让 ProxyEnv 更贴合这台电脑与您的使用习惯。", back: "返回",
+  appearance: "语言与外观", appearanceHint: "修改后立即生效并自动保存。", interfaceLanguage: "界面语言", languageHint: "系统语言无法匹配时使用英文。", system: "跟随系统", chinese: "简体中文", english: "English", japanese: "日本語", korean: "한국어",
+  theme: "外观主题", themeSystem: "跟随系统", themeLight: "浅色", themeDark: "深色", windowBehavior: "窗口行为", windowBehaviorHint: "设置 ProxyEnv 启动与离开桌面时的方式。",
+  launchAtStartup: "开机自启", launchAtStartupHint: "登录系统后自动运行 ProxyEnv。", silentStart: "静默启动", silentStartHint: "开机自启时不显示主窗口，仅在系统托盘运行。", closeToTray: "关闭时最小化到托盘", closeToTrayHint: "点击关闭按钮时隐藏窗口，而不是退出应用。",
+  saveFailed: "设置保存失败", settingsLoadFailed: "无法读取已保存的设置", autoConfidence: "置信度"
+};
+
+const ja: Copy = {
+  appName: "ProxyEnv", appTagline: "プロキシ環境を、もっと手軽に。", home: "プロキシ", settings: "設定", minimizeWindow: "ウィンドウを最小化", maximizeWindow: "ウィンドウを最大化", restoreWindow: "ウィンドウを元に戻す", closeWindow: "ウィンドウを閉じる", refresh: "状態を更新",
+  currentProxy: "現在のプロキシ", detecting: "ローカルプロキシを検出中…", noProxy: "待機中のプロキシが見つかりません", noProxyHint: "プロキシクライアントを起動して更新してください。不明なクライアントには共通アイコンを使います。", localProxy: "ローカルプロキシ", listening: "待機中", notListening: "停止中",
+  proxyEnvironment: "プロキシ環境変数", enabled: "オン", disabled: "オフ", enabling: "適用中…", environmentOnHint: "新しく起動するアプリはこのプロキシを継承します。", environmentOffHint: "個別設定のないアプリは直接接続します。",
+  variables: "環境変数", variablesHint: "ProxyEnv が書き込む変数を選択します。変更は自動保存され、すぐに同期されます。", writeVariable: "{name} を書き込む", aboutVariable: "{name} について", httpProxyDescription: "HTTP リクエストを行うプログラムで使われます。コマンドラインツール向けの安全な標準設定です。", httpsProxyDescription: "HTTPS 接続先で使われます。http:// の値でも正常です。クライアントはローカルプロキシ経由で暗号化トンネルを作ります。", allProxyDescription: "個別のプロキシ設定がないプロトコルのフォールバックです。影響範囲が最も広く、アプリ内・パッケージ検索、LAN 検出、SOCKS 対応が不完全なアプリを妨げる場合があるため、既定ではオフです。", noProxyDescription: "localhost などプロキシを迂回するアドレスです。現在 ProxyEnv は表示のみ行い、変更しません。", unset: "未設定", operationFailed: "変更を適用できませんでした", attention: "確認が必要です", retryHint: "プロキシクライアントを確認して再試行してください。", localOnly: "データはすべてこの端末内で処理されます。",
+  settingsTitle: "設定", settingsIntro: "このコンピューターに合うよう ProxyEnv を整えます。", back: "戻る",
+  appearance: "言語と外観", appearanceHint: "変更はすぐに反映され、自動的に保存されます。", interfaceLanguage: "表示言語", languageHint: "システム言語に対応していない場合は英語を使用します。", system: "システムに従う", chinese: "简体中文", english: "English", japanese: "日本語", korean: "한국어",
+  theme: "外観テーマ", themeSystem: "システムに従う", themeLight: "ライト", themeDark: "ダーク", windowBehavior: "ウィンドウ動作", windowBehaviorHint: "ProxyEnv の起動方法と閉じ方を選びます。",
+  launchAtStartup: "起動時に実行", launchAtStartupHint: "サインイン時に ProxyEnv を自動起動します。", silentStart: "サイレント起動", silentStartHint: "自動起動時はウィンドウを表示せずトレイに常駐します。", closeToTray: "閉じるとトレイへ", closeToTrayHint: "閉じるボタンで終了せずウィンドウを隠します。",
+  saveFailed: "設定を保存できませんでした", settingsLoadFailed: "保存済みの設定を読み込めませんでした", autoConfidence: "信頼度"
+};
+
+const ko: Copy = {
+  appName: "ProxyEnv", appTagline: "프록시 환경 전환을 더 간단하게.", home: "프록시", settings: "설정", minimizeWindow: "창 최소화", maximizeWindow: "창 최대화", restoreWindow: "창 복원", closeWindow: "창 닫기", refresh: "상태 새로고침",
+  currentProxy: "현재 프록시", detecting: "로컬 프록시 감지 중…", noProxy: "수신 중인 프록시를 찾지 못했습니다", noProxyHint: "프록시 클라이언트를 시작한 후 새로고침하세요. 알 수 없는 클라이언트는 공용 아이콘을 사용합니다.", localProxy: "로컬 프록시", listening: "수신 중", notListening: "수신 안 함",
+  proxyEnvironment: "프록시 환경 변수", enabled: "켜짐", disabled: "꺼짐", enabling: "적용 중…", environmentOnHint: "새로 시작한 앱이 이 프록시 주소를 상속합니다.", environmentOffHint: "별도 설정이 없는 앱은 직접 연결합니다.",
+  variables: "환경 변수", variablesHint: "ProxyEnv가 기록할 변수를 선택하세요. 변경 사항은 자동 저장되고 즉시 동기화됩니다.", writeVariable: "{name} 기록", aboutVariable: "{name} 정보", httpProxyDescription: "HTTP 요청을 보내는 프로그램이 사용합니다. 명령줄 도구에 가장 안전한 기본 옵션입니다.", httpsProxyDescription: "HTTPS 대상에 사용합니다. http:// 값도 정상입니다. 클라이언트가 로컬 프록시를 통해 암호화 터널을 만듭니다.", allProxyDescription: "별도 프록시 설정이 없는 프로토콜의 대체 설정입니다. 영향 범위가 가장 넓어 앱 내·패키지 검색, 로컬 네트워크 검색, SOCKS 지원이 제한된 앱을 방해할 수 있으므로 기본값은 꺼짐입니다.", noProxyDescription: "localhost처럼 프록시를 우회할 주소 목록입니다. 현재 ProxyEnv는 이 값을 표시만 하고 수정하지 않습니다.", unset: "설정 안 됨", operationFailed: "변경 사항을 적용하지 못했습니다", attention: "확인이 필요합니다", retryHint: "프록시 클라이언트를 확인한 후 다시 시도하세요.", localOnly: "모든 데이터는 이 기기에서만 처리됩니다.",
+  settingsTitle: "설정", settingsIntro: "이 컴퓨터와 사용 방식에 맞게 ProxyEnv를 조정하세요.", back: "뒤로",
+  appearance: "언어 및 화면", appearanceHint: "변경 사항은 즉시 적용되고 자동으로 저장됩니다.", interfaceLanguage: "인터페이스 언어", languageHint: "시스템 언어를 지원하지 않으면 영어를 사용합니다.", system: "시스템 설정 사용", chinese: "简体中文", english: "English", japanese: "日本語", korean: "한국어",
+  theme: "화면 테마", themeSystem: "시스템 설정 사용", themeLight: "라이트", themeDark: "다크", windowBehavior: "창 동작", windowBehaviorHint: "ProxyEnv가 시작되고 닫히는 방식을 선택하세요.",
+  launchAtStartup: "시작 시 실행", launchAtStartupHint: "로그인할 때 ProxyEnv를 자동 실행합니다.", silentStart: "조용히 시작", silentStartHint: "자동 시작 시 창을 표시하지 않고 시스템 트레이에서 실행합니다.", closeToTray: "닫을 때 트레이로", closeToTrayHint: "닫기 버튼을 누르면 종료하지 않고 창을 숨깁니다.",
+  saveFailed: "설정을 저장하지 못했습니다", settingsLoadFailed: "저장된 설정을 읽지 못했습니다", autoConfidence: "신뢰도"
+};
+
+export const messages: Record<Locale, Copy> = { en, "zh-CN": zh, ja, ko };
+export type MessageKey = keyof Copy;
+
+export function resolveLocale(language: AppLanguage): Locale {
+  if (language !== "system") return language;
+  const locale = navigator.language.toLowerCase();
+  if (locale === "zh-cn" || locale === "zh-sg" || locale.startsWith("zh-hans")) return "zh-CN";
+  if (locale.startsWith("ja")) return "ja";
+  if (locale.startsWith("ko")) return "ko";
+  return "en";
+}

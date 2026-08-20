@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { EnvironmentStatus, ProxyCandidate } from "../types";
+import type { AppSettings, EnvironmentStatus, ProxyCandidate } from "../types";
 
 export const backend = {
   environmentStatus: () => invoke<EnvironmentStatus>("get_environment_status"),
@@ -12,5 +12,7 @@ export const backend = {
     protocol: proxy.protocol
   }),
   disableProxyEnvironment: () => invoke<EnvironmentStatus>("disable_proxy_environment"),
-  detectProxies: () => invoke<ProxyCandidate[]>("detect_proxies")
+  detectProxies: () => invoke<ProxyCandidate[]>("detect_proxies"),
+  appSettings: () => invoke<AppSettings>("get_app_settings"),
+  saveAppSettings: (settings: AppSettings) => invoke<AppSettings>("save_app_settings", { settings })
 };
