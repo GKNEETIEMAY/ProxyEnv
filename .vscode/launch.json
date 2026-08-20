@@ -6,6 +6,7 @@
       "type": "lldb",
       "request": "launch",
       "preLaunchTask": "proxyenv: prepare debug",
+      "postDebugTask": "proxyenv: stop stale debug instance",
       "program": "${workspaceFolder}/.cargo-target/debug/proxyenv.exe",
       "cwd": "${workspaceFolder}",
       "sourceLanguages": ["rust"],
