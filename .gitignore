@@ -1,0 +1,50 @@
+# Node / frontend
+node_modules/
+dist/
+.vite/
+.corepack/
+*.tsbuildinfo
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Rust / Tauri
+target/
+src-tauri/target/
+*.pdb
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local product and technical design documents
+PRD.md
+TECHNICAL_DESIGN.md
+
+# ProxyEnv runtime data and generated releases
+.proxyenv/
+artifacts/
+release/
+*.msi
+*.msi.zip
+*.appx
+*.exe
+*.zip
+SHA256SUMS.txt
+
+# Editors / operating systems
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Test output
+coverage/
+test-results/

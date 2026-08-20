@@ -1,0 +1,26 @@
+{
+  "name": "proxyenv",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "check": "pnpm build && cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "vue": "^3.5.18"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.3",
+    "vue-tsc": "^3.0.6"
+  }
+}
+
