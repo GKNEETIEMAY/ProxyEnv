@@ -1,0 +1,74 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "proxyenv: frontend dev",
+      "type": "process",
+      "command": "D:\\nodejs\\corepack.cmd",
+      "args": [
+        "pnpm",
+        "dev"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "COREPACK_HOME": "${workspaceFolder}\\.corepack"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": {
+          "regexp": "^(PROXYENV_VITE_DIAGNOSTIC_NEVER_MATCHES)$",
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "(?:pnpm dev|> vite|VITE v)",
+          "endsPattern": "ready in\\s+\\d+\\s*ms"
+        }
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      },
+      "presentation": {
+        "reveal": "never",
+        "panel": "dedicated",
+        "close": true
+      }
+    },
+    {
+      "label": "proxyenv: rust debug build",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$ErrorActionPreference='Stop'; $debugTemp='${workspaceFolder}\\.debug-tmp'; New-Item -ItemType Directory -Force -Path $debugTemp | Out-Null; $env:TEMP=$debugTemp; $env:TMP=$debugTemp; Import-Module 'D:\\VisualStudio\\BuildTools\\Common7\\Tools\\Microsoft.VisualStudio.DevShell.dll'; Enter-VsDevShell -VsInstallPath 'D:\\VisualStudio\\BuildTools' -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'; $env:CARGO_HOME='D:\\Rust\\cargo'; $env:RUSTUP_HOME='D:\\Rust\\rustup'; $env:Path='D:\\Rust\\cargo\\bin;' + $env:Path; & 'D:\\Rust\\cargo\\bin\\cargo.exe' build --manifest-path '${workspaceFolder}\\src-tauri\\Cargo.toml' --target-dir '${workspaceFolder}\\.cargo-target'; exit $LASTEXITCODE"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "TEMP": "${workspaceFolder}\\.debug-tmp",
+          "TMP": "${workspaceFolder}\\.debug-tmp"
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "proxyenv: prepare debug",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "proxyenv: rust debug build",
+        "proxyenv: frontend dev"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
