@@ -1,6 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub enum ProxyProtocol {

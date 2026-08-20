@@ -5,7 +5,7 @@ mod probe;
 mod processes;
 mod system_proxy;
 
-pub use models::ProxyCandidate;
+pub use models::{ProxyCandidate, ProxyProtocol};
 
 use crate::error::Result;
 

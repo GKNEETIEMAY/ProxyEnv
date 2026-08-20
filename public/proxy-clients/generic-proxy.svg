@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Generic proxy client">
+  <rect width="64" height="64" rx="16" fill="#172033"/>
+  <path d="M18 25h21l-5-5 4-4 12 12-12 12-4-4 5-5H18v-6Z" fill="#80b2ff"/>
+  <path d="M46 39H25l5 5-4 4-12-12 12-12 4 4-5 5h21v6Z" fill="#f4a261"/>
+</svg>

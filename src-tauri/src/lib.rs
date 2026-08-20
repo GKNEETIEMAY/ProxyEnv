@@ -8,6 +8,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_environment_status,
             commands::enable_proxy_environment,
+            commands::sync_proxy_environment,
             commands::disable_proxy_environment,
             commands::detect_proxies,
         ])

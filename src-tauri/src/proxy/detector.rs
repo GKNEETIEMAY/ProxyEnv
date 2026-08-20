@@ -144,8 +144,8 @@ pub fn detect() -> Result<Vec<ProxyCandidate>> {
         };
         candidates.push(ProxyCandidate {
             id: format!("{}:{}", listener.host, listener.port),
-            client_name: client.map(|client| client.name.into()),
-            icon_key: client.map(|client| client.icon.into()),
+            client_name: Some(client.map_or("其他代理", |client| client.name).into()),
+            icon_key: Some(client.map_or("generic-proxy", |client| client.icon).into()),
             process_name: process.map(|process| process.name.clone()),
             pid: process.map(|process| process.pid),
             host: listener.host.clone(),
@@ -178,8 +178,8 @@ pub fn detect() -> Result<Vec<ProxyCandidate>> {
             let listening = probe::listening(&endpoint.host, endpoint.port);
             candidates.push(ProxyCandidate {
                 id: format!("{}:{}", endpoint.host, endpoint.port),
-                client_name: client.map(|client| client.name.into()),
-                icon_key: client.map(|client| client.icon.into()),
+                client_name: Some(client.map_or("其他代理", |client| client.name).into()),
+                icon_key: Some(client.map_or("generic-proxy", |client| client.icon).into()),
                 process_name: None,
                 pid: None,
                 host: endpoint.host,
@@ -196,13 +196,31 @@ pub fn detect() -> Result<Vec<ProxyCandidate>> {
         }
     }
 
-    candidates.sort_by_key(|candidate| match candidate.confidence {
+    candidates.sort_by_key(candidate_priority);
+    Ok(candidates)
+}
+
+fn candidate_priority(candidate: &ProxyCandidate) -> (u8, u8, u8, u8) {
+    let listening = u8::from(!candidate.listening);
+    let system_proxy = u8::from(
+        !candidate
+            .source
+            .iter()
+            .any(|source| matches!(source, DetectionSource::WindowsSystemProxy)),
+    );
+    let protocol = match candidate.protocol {
+        ProxyProtocol::Mixed => 0,
+        ProxyProtocol::Http => 1,
+        ProxyProtocol::Socks5 => 2,
+        ProxyProtocol::Unknown => 3,
+    };
+    let confidence = match candidate.confidence {
         Confidence::VeryHigh => 0,
         Confidence::High => 1,
         Confidence::Medium => 2,
         Confidence::Low => 3,
-    });
-    Ok(candidates)
+    };
+    (listening, system_proxy, confidence, protocol)
 }
 
 #[cfg(test)]
@@ -218,5 +236,49 @@ mod integration_tests {
             candidates.iter().any(|candidate| candidate.listening),
             "expected at least one listening local proxy candidate"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate(port: u16, protocol: ProxyProtocol, listening: bool) -> ProxyCandidate {
+        ProxyCandidate {
+            id: format!("127.0.0.1:{port}"),
+            client_name: Some("test".into()),
+            icon_key: Some("generic-proxy".into()),
+            process_name: None,
+            pid: None,
+            host: "127.0.0.1".into(),
+            port,
+            protocol,
+            source: vec![],
+            confidence: Confidence::High,
+            listening,
+        }
+    }
+
+    #[test]
+    fn active_http_proxy_beats_stale_system_endpoint() {
+        let active = candidate(10809, ProxyProtocol::Http, true);
+        let stale = candidate(7897, ProxyProtocol::Unknown, false);
+        assert!(candidate_priority(&active) < candidate_priority(&stale));
+    }
+
+    #[test]
+    fn http_proxy_beats_socks_when_both_are_active() {
+        let http = candidate(10809, ProxyProtocol::Http, true);
+        let socks = candidate(10808, ProxyProtocol::Socks5, true);
+        assert!(candidate_priority(&http) < candidate_priority(&socks));
+    }
+
+    #[test]
+    fn current_windows_proxy_beats_another_active_client() {
+        let mut current = candidate(10809, ProxyProtocol::Http, true);
+        current.source.push(DetectionSource::WindowsSystemProxy);
+        current.confidence = Confidence::VeryHigh;
+        let old_client = candidate(7897, ProxyProtocol::Mixed, true);
+        assert!(candidate_priority(&current) < candidate_priority(&old_client));
     }
 }

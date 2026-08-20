@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { backend } from "./services/backend";
 import type { EnvironmentStatus, ProxyCandidate } from "./types";
 
@@ -8,6 +8,8 @@ const toggling = ref(false);
 const error = ref("");
 const environment = ref<EnvironmentStatus>({ enabled: false, entries: [] });
 const candidates = ref<ProxyCandidate[]>([]);
+let refreshTimer: number | undefined;
+let refreshPending = false;
 
 const detected = computed(() => candidates.value[0]);
 const clientIcons: Record<string, string> = {
@@ -15,20 +17,35 @@ const clientIcons: Record<string, string> = {
   "v2rayn": "/proxy-clients/v2rayn.png",
   "flclash": "/proxy-clients/flclash.ico",
   "hiddify": "/proxy-clients/hiddify.ico",
-  "clash-nyanpasu": "/proxy-clients/clash-nyanpasu.png"
+  "clash-nyanpasu": "/proxy-clients/clash-nyanpasu.png",
+  "generic-proxy": "/proxy-clients/generic-proxy.svg"
 };
-const detectedIcon = computed(() => detected.value?.iconKey ? clientIcons[detected.value.iconKey] : undefined);
+const detectedIcon = computed(() => detected.value
+  ? clientIcons[detected.value.iconKey ?? ""] ?? clientIcons["generic-proxy"]
+  : undefined);
 
-async function refresh() {
-  loading.value = true;
-  error.value = "";
+async function refresh(silent = false) {
+  if (refreshPending) return;
+  refreshPending = true;
+  if (!silent) {
+    loading.value = true;
+    error.value = "";
+  }
   try {
-    environment.value = await backend.environmentStatus();
-    candidates.value = await backend.detectProxies();
+    const [status, detectedCandidates] = await Promise.all([
+      backend.environmentStatus(),
+      backend.detectProxies()
+    ]);
+    candidates.value = detectedCandidates;
+    const activeProxy = detectedCandidates.find((candidate) => candidate.listening);
+    environment.value = status.enabled && activeProxy
+      ? await backend.syncProxyEnvironment(activeProxy)
+      : status;
   } catch (cause) {
-    error.value = String(cause);
+    if (!silent) error.value = String(cause);
   } finally {
-    loading.value = false;
+    refreshPending = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -38,7 +55,7 @@ async function toggle() {
   try {
     environment.value = environment.value.enabled
       ? await backend.disableProxyEnvironment()
-      : await backend.enableProxyEnvironment();
+      : await backend.enableProxyEnvironment(detected.value?.listening ? detected.value : undefined);
   } catch (cause) {
     error.value = String(cause);
   } finally {
@@ -46,7 +63,14 @@ async function toggle() {
   }
 }
 
-onMounted(refresh);
+onMounted(() => {
+  void refresh();
+  refreshTimer = window.setInterval(() => void refresh(true), 5000);
+});
+
+onBeforeUnmount(() => {
+  if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
+});
 </script>
 
 <template>
@@ -61,7 +85,7 @@ onMounted(refresh);
           <p>本机代理环境控制</p>
         </div>
       </div>
-      <button class="icon-button" :class="{ spinning: loading }" :disabled="loading" title="刷新状态" @click="refresh">
+      <button class="icon-button" :class="{ spinning: loading }" :disabled="loading" title="刷新状态" @click="refresh(false)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35Z" /></svg>
       </button>
     </header>
