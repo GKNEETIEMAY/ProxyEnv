@@ -228,21 +228,23 @@ pnpm tauri build
 
 ```text
 ProxyEnv/
-├─ src/                         # Vue 3 前端
-│  ├─ App.vue
-│  ├─ i18n.ts                    # 简体中文、英文、日语与韩语界面
-│  ├─ services/                 # Tauri IPC 封装
-│  └─ types/
-├─ src-tauri/                   # Rust / Tauri 后端
+├─ src/                         # 按功能域组织的 Vue 前端
+│  ├─ app/                      # 应用外壳与桌面生命周期编排
+│  ├─ features/                 # 代理与设置功能模块
+│  └─ shared/                   # 类型化 IPC、i18n、样式和共享类型
+├─ src-tauri/                   # 分层的 Rust / Tauri 后端
 │  └─ src/
+│     ├─ commands/              # 按领域拆分的轻量 Tauri 命令适配器
+│     ├─ desktop/               # 托盘与原生窗口集成
 │     ├─ environment/           # 注册表、快照、广播与事务
 │     ├─ proxy/                 # 系统代理、进程、监听端口与协议探测
-│     ├─ settings.rs            # 用户偏好持久化
-│     └─ tray.rs                # 托盘菜单与窗口行为
+│     └─ services/              # 持久化应用服务
 ├─ public/proxy-clients/        # 客户端图标及归属说明
-├─ docs/assets/                 # README 插图
+├─ docs/                        # 架构说明与 README 插图
 └─ .vscode/                     # 本地调试配置
 ```
+
+依赖边界与新增功能流程见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 
 ## 安全与隐私
 

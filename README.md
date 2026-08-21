@@ -228,21 +228,23 @@ pnpm tauri build
 
 ```text
 ProxyEnv/
-├─ src/                         # Vue 3 frontend
-│  ├─ App.vue
-│  ├─ i18n.ts                    # Simplified Chinese, English, Japanese, and Korean UI
-│  ├─ services/                 # Tauri IPC wrappers
-│  └─ types/
-├─ src-tauri/                   # Rust / Tauri backend
+├─ src/                         # Feature-oriented Vue frontend
+│  ├─ app/                      # App shell and desktop orchestration
+│  ├─ features/                 # Proxy and settings feature modules
+│  └─ shared/                   # Typed IPC, i18n, styles, and shared types
+├─ src-tauri/                   # Layered Rust / Tauri backend
 │  └─ src/
+│     ├─ commands/              # Thin Tauri command adapters by domain
+│     ├─ desktop/               # Tray and native-window integration
 │     ├─ environment/           # Registry, snapshots, broadcast, transactions
 │     ├─ proxy/                 # System proxy, processes, listeners, probes
-│     ├─ settings.rs            # Persistent user preferences
-│     └─ tray.rs                # Tray menu and window behavior
+│     └─ services/              # Persistent application services
 ├─ public/proxy-clients/        # Client icons and attribution
-├─ docs/assets/                 # README artwork
+├─ docs/                        # Architecture notes and README artwork
 └─ .vscode/                     # Local debugging configuration
 ```
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for dependency rules and the feature-extension workflow.
 
 ## Security and privacy
 
