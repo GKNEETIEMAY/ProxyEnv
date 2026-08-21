@@ -254,9 +254,11 @@ fn protocol_scheme(protocol: ProxyProtocol, variable: ProxyVariable) -> Option<&
 }
 
 fn entries_match(expected: &HashMap<String, Option<String>>, actual: &[EnvironmentEntry]) -> bool {
-    actual
-        .iter()
-        .all(|entry| expected.get(&entry.name) == Some(&entry.value))
+    expected.iter().all(|(name, value)| {
+        actual
+            .iter()
+            .any(|entry| entry.name == *name && entry.value == *value)
+    })
 }
 
 #[cfg(test)]
@@ -426,5 +428,27 @@ mod tests {
             environment_state(&actual, &selected, true),
             ProxyEnvironmentState::Mismatch
         );
+    }
+
+    #[test]
+    fn ignores_display_only_variables_when_matching_an_endpoint() {
+        let selected = [ProxyVariable::Http, ProxyVariable::Https];
+        let expected = proxy_values("127.0.0.1", 7897, ProxyProtocol::Http, &selected);
+        let mut actual = expected
+            .iter()
+            .map(|(name, value)| EnvironmentEntry {
+                name: name.clone(),
+                value: value.clone(),
+                exists: value.is_some(),
+                scope: EnvironmentScope::User,
+            })
+            .collect::<Vec<_>>();
+        actual.push(EnvironmentEntry {
+            name: DISPLAY_VARIABLES[0].into(),
+            value: Some("localhost,127.0.0.1".into()),
+            exists: true,
+            scope: EnvironmentScope::User,
+        });
+        assert!(entries_match(&expected, &actual));
     }
 }
