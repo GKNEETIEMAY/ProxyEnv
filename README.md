@@ -22,7 +22,7 @@
 </p>
 
 > [!IMPORTANT]
-> ProxyEnv is currently in v0.1 development and does not have an official release yet. The Windows environment toggle, local proxy detection, system tray, and localized General / About settings are working. Linux and macOS backends and release packaging are still in progress.
+> ProxyEnv is currently in v0.1 development and does not have an official release yet. The Windows environment toggle, local proxy detection, system tray, single-instance window recovery, and localized General / About settings are working. Linux and macOS backends and release packaging are still in progress.
 
 | Platform            | Status                                 | Variable convention                                  |
 | ------------------- | -------------------------------------- | ---------------------------------------------------- |
@@ -85,6 +85,7 @@ Before disabling anything, ProxyEnv saves a complete snapshot. Enabling restores
 | Windows notification   | Broadcast environment changes through `WM_SETTINGCHANGE`                            |
 | Selective variables    | Manage HTTP, HTTPS, and ALL proxy variables independently                           |
 | Tray and preferences   | Open or toggle from the tray; persist language, theme, and window behavior           |
+| Single-instance launch | Reuse, restore, and focus the running window instead of opening duplicate processes  |
 | Endpoint utilities     | Show protocol and confidence, and copy the active proxy address                      |
 | About and updates      | Show the runtime version, changelog, and user-triggered GitHub Releases status        |
 | Desktop shell          | Use a rounded frameless window with light, dark, and system appearance                |
@@ -208,6 +209,8 @@ pnpm tauri dev
 
 For VS Code, install the recommended workspace extensions, select `ProxyEnv: Tauri Debug`, and press `F5`. The workspace task reuses an existing ProxyEnv Vite server and stops only stale debug instances from this repository before rebuilding.
 
+ProxyEnv is single-instance. Launching the executable again restores and focuses the existing window—even when it is hidden in the system tray—and shows a brief localized confirmation instead of opening another process.
+
 ### Check and build
 
 ```powershell
@@ -235,7 +238,7 @@ ProxyEnv/
 ├─ src-tauri/                   # Layered Rust / Tauri backend
 │  └─ src/
 │     ├─ commands/              # Thin Tauri command adapters by domain
-│     ├─ desktop/               # Tray and native-window integration
+│     ├─ desktop/               # Tray, single-instance, and native-window integration
 │     ├─ environment/           # Registry, snapshots, broadcast, transactions
 │     ├─ proxy/                 # System proxy, processes, listeners, probes
 │     └─ services/              # Persistent application services
@@ -284,6 +287,7 @@ ProxyEnv is not a proxy client. The v0.1 scope excludes:
 - [x] Popular client identification and official icons
 - [x] Selective HTTP / HTTPS / ALL proxy controls
 - [x] System tray toggle, open, and exit actions
+- [x] Single-instance launch with tray/window recovery
 - [x] Localized settings, startup, and window behavior
 - [x] Endpoint copy, General / About settings, update status, and changelog
 - [x] Rounded frameless desktop shell
