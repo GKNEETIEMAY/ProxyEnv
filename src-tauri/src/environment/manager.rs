@@ -71,7 +71,6 @@ impl EnvironmentManager {
         snapshot::load_latest()
     }
 
-    #[allow(dead_code)]
     pub fn restore(snapshot: &EnvironmentSnapshot) -> Result<EnvironmentApplyResult> {
         let mutations = snapshot
             .entries

@@ -49,7 +49,6 @@ let settingsSaveTimer: number | undefined;
 let settingsReady = false;
 let saveInFlight = false;
 let pendingSettings: AppSettings | undefined;
-let persistedProxyVariables: ManagedProxyVariable[] = [...defaultSettings.proxyVariables];
 let unlistenResize: UnlistenFn | undefined;
 let unlisten: UnlistenFn[] = [];
 
@@ -119,10 +118,7 @@ async function refresh(silent = false) {
       backend.detectProxies()
     ]);
     candidates.value = detectedCandidates;
-    const activeProxy = detectedCandidates.find((candidate) => candidate.listening);
-    environment.value = status.state !== "disabled" && activeProxy
-      ? await backend.syncProxyEnvironment(activeProxy)
-      : status;
+    environment.value = status;
   } catch (cause) {
     if (!silent) error.value = String(cause);
   } finally {
@@ -244,20 +240,8 @@ async function flushSettings() {
   saveInFlight = true;
   settingsError.value = "";
   try {
-    const proxySelectionChanged = settings.proxyVariables.join(",") !== persistedProxyVariables.join(",");
-    const saved = await backend.saveAppSettings(settings);
-    persistedProxyVariables = [...saved.proxyVariables];
+    await backend.saveAppSettings(settings);
     settingsLoadError.value = "";
-    if (proxySelectionChanged && environmentConfigured.value) {
-      const activeProxy = candidates.value.find((candidate) => candidate.listening);
-      if (activeProxy) {
-        try {
-          environment.value = await backend.syncProxyEnvironment(activeProxy);
-        } catch (cause) {
-          error.value = String(cause);
-        }
-      }
-    }
   } catch (cause) {
     if (view.value === "settings") settingsError.value = String(cause);
     else error.value = String(cause);
@@ -330,7 +314,6 @@ onMounted(async () => {
   try {
     const settings = await backend.appSettings();
     draftSettings.value = copySettings(settings);
-    persistedProxyVariables = [...settings.proxyVariables];
   } catch (cause) {
     settingsLoadError.value = String(cause);
   }

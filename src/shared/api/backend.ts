@@ -12,6 +12,7 @@ export const backend = {
     protocol: proxy.protocol
   }),
   disableProxyEnvironment: () => invoke<EnvironmentStatus>("disable_proxy_environment"),
+  restoreProxyEnvironment: () => invoke<EnvironmentStatus>("restore_proxy_environment"),
   detectProxies: () => invoke<ProxyCandidate[]>("detect_proxies"),
   appSettings: () => invoke<AppSettings>("get_app_settings"),
   saveAppSettings: (settings: AppSettings) => invoke<AppSettings>("save_app_settings", { settings })

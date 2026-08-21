@@ -22,13 +22,10 @@ pub async fn enable_proxy_environment(
 ) -> Result<ProxyEnvironmentStatus> {
     let settings = settings::load()?;
     let status = match (host, port, protocol) {
-        (Some(host), Some(port), Some(protocol)) => ProxyEnvironmentService::enable_for_proxy(
-            &host,
-            port,
-            protocol,
-            &settings.proxy_variables,
-        ),
-        _ => ProxyEnvironmentService::enable(&settings.proxy_variables),
+        (Some(host), Some(port), Some(protocol)) => {
+            ProxyEnvironmentService::sync(&host, port, protocol, &settings.proxy_variables)
+        }
+        _ => Err(crate::error::ProxyEnvError::ActiveProxyMissing),
     }?;
     tray::update_proxy_state(&app, status.state.is_configured());
     Ok(status)
@@ -46,12 +43,15 @@ pub async fn sync_proxy_environment(
     if !status.state.is_configured() {
         return Ok(status);
     }
-    let status = ProxyEnvironmentService::enable_for_proxy(
-        &host,
-        port,
-        protocol,
-        &settings.proxy_variables,
-    )?;
+    let status = ProxyEnvironmentService::sync(&host, port, protocol, &settings.proxy_variables)?;
+    tray::update_proxy_state(&app, status.state.is_configured());
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn restore_proxy_environment(app: AppHandle) -> Result<ProxyEnvironmentStatus> {
+    let settings = settings::load()?;
+    let status = ProxyEnvironmentService::restore(&settings.proxy_variables)?;
     tray::update_proxy_state(&app, status.state.is_configured());
     Ok(status)
 }

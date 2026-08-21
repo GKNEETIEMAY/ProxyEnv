@@ -126,14 +126,14 @@ fn toggle_proxy<R: Runtime>(app: &AppHandle<R>) {
                     .into_iter()
                     .find(|candidate| candidate.listening);
                 if let Some(candidate) = candidate {
-                    ProxyEnvironmentService::enable_for_proxy(
+                    ProxyEnvironmentService::sync(
                         &candidate.host,
                         candidate.port,
                         candidate.protocol,
                         &settings.proxy_variables,
                     )
                 } else {
-                    ProxyEnvironmentService::enable(&settings.proxy_variables)
+                    Err(crate::error::ProxyEnvError::ActiveProxyMissing)
                 }
             }
         })

@@ -53,28 +53,14 @@ impl ProxyEnvironmentService {
         Self::status(&[])
     }
 
-    pub fn enable(selected: &[ProxyVariable]) -> Result<ProxyEnvironmentStatus> {
+    pub fn restore(selected: &[ProxyVariable]) -> Result<ProxyEnvironmentStatus> {
         let snapshot =
             EnvironmentManager::latest_snapshot()?.ok_or(ProxyEnvError::SnapshotMissing)?;
-        let values = snapshot
-            .entries
-            .into_iter()
-            .map(|entry| (entry.name, entry.value))
-            .collect::<HashMap<_, _>>();
-        let mutations = MANAGED_VARIABLES
-            .iter()
-            .map(|name| {
-                let value = variable_is_selected(name, selected)
-                    .then(|| values.get(*name).cloned().unwrap_or(None))
-                    .flatten();
-                mutation((*name).to_owned(), value)
-            })
-            .collect::<Vec<_>>();
-        EnvironmentManager::apply(&mutations, EnvironmentScope::User)?;
+        EnvironmentManager::restore(&snapshot)?;
         Self::status(selected)
     }
 
-    pub fn enable_for_proxy(
+    pub fn sync(
         host: &str,
         port: u16,
         protocol: ProxyProtocol,
@@ -85,6 +71,11 @@ impl ProxyEnvironmentService {
         if entries_match(&values, &actual) {
             return Self::status(selected);
         }
+        EnvironmentManager::snapshot(
+            &managed_names(),
+            EnvironmentScope::User,
+            SnapshotReason::BeforeApply,
+        )?;
         let mutations = values
             .into_iter()
             .map(|(name, value)| mutation(name, value))
@@ -171,12 +162,6 @@ fn proxy_values(
             ((*name).to_owned(), value)
         })
         .collect()
-}
-
-fn variable_is_selected(name: &str, selected: &[ProxyVariable]) -> bool {
-    selected
-        .iter()
-        .any(|variable| variable_matches_name(*variable, name))
 }
 
 fn variable_matches_name(variable: ProxyVariable, name: &str) -> bool {
