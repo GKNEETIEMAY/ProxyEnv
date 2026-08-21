@@ -1,9 +1,12 @@
 mod commands;
+mod desktop;
 mod environment;
 mod error;
 mod proxy;
-mod settings;
-mod tray;
+mod services;
+
+use desktop::tray;
+use services::settings;
 
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -32,13 +35,13 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            commands::get_environment_status,
-            commands::enable_proxy_environment,
-            commands::sync_proxy_environment,
-            commands::disable_proxy_environment,
-            commands::detect_proxies,
-            commands::get_app_settings,
-            commands::save_app_settings,
+            commands::environment::get_environment_status,
+            commands::environment::enable_proxy_environment,
+            commands::environment::sync_proxy_environment,
+            commands::environment::disable_proxy_environment,
+            commands::proxy::detect_proxies,
+            commands::settings::get_app_settings,
+            commands::settings::save_app_settings,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run ProxyEnv");

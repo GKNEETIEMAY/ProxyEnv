@@ -7,7 +7,7 @@ use tauri::{
 use crate::{
     environment::EnvironmentManager,
     proxy,
-    settings::{self, AppSettings},
+    services::settings::{self, AppSettings},
 };
 
 const PROXY_TOGGLE_ID: &str = "proxy-toggle";
@@ -168,14 +168,14 @@ pub fn update_language<R: Runtime>(app: &AppHandle<R>, language: &str) {
 }
 
 pub fn should_hide_on_close() -> bool {
-    crate::settings::load()
+    settings::load()
         .map(|settings| settings.close_to_tray)
         .unwrap_or(true)
 }
 
 pub fn should_start_silent() -> bool {
     std::env::args().any(|arg| arg == "--autostart")
-        && crate::settings::load()
+        && settings::load()
             .map(|settings| settings.silent_start)
             .unwrap_or(false)
 }

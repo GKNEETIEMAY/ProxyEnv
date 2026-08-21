@@ -7,7 +7,7 @@ pub use models::{EnvironmentEntry, EnvironmentStatus, ProxyEnvironmentSnapshot};
 
 use crate::error::{ProxyEnvError, Result};
 use crate::proxy::ProxyProtocol;
-use crate::settings::ProxyVariable;
+use crate::services::settings::ProxyVariable;
 use std::collections::HashMap;
 
 #[cfg(windows)]
