@@ -1,73 +1,126 @@
-# ProxyEnv architecture / 工程结构
+# ProxyEnv architecture / 工程架构
 
-ProxyEnv uses a feature-oriented Vue frontend and a layered Rust/Tauri backend. The structure is intentionally small, but every directory has one reason to change.
+ProxyEnv uses a feature-oriented Vue frontend and a layered Rust/Tauri backend. v0.1 is Windows-first: platform effects are implemented for Windows while the domain boundaries leave room for future Linux and macOS adapters.
 
-ProxyEnv 前端按功能域组织，Rust/Tauri 后端按职责分层。结构保持克制，但每个目录都只有一种变化原因。
+ProxyEnv 前端按功能域组织，Rust/Tauri 后端按职责分层。v0.1 定位为 Windows-first：平台副作用当前由 Windows 实现，领域边界为未来 Linux/macOS 适配保留空间。
 
 ## Directory map / 目录地图
 
 ```text
 ProxyEnv/
-├─ src/                              # Vue frontend / Vue 前端
-│  ├─ app/                           # Application shell and desktop orchestration
-│  │  ├─ components/                 # Shell-only components
-│  │  └─ AppShell.vue                # Lifecycle, navigation and cross-feature state
+├─ src/
+│  ├─ app/                           # Shell, lifecycle, cross-feature orchestration
 │  ├─ features/
-│  │  ├─ proxy/components/           # Proxy status and environment-variable UI
-│  │  └─ settings/components/        # General settings and About UI
-│  ├─ shared/
-│  │  ├─ api/                        # Typed Tauri IPC boundary
-│  │  ├─ i18n/                       # Locale resolution and copy
-│  │  ├─ styles/                     # Global tokens and application styles
-│  │  └─ types/                      # Types shared by multiple features
-│  ├─ App.vue                        # Minimal Vue root
-│  └─ main.ts                        # Browser entry
-├─ src-tauri/src/                    # Rust backend / Rust 后端
-│  ├─ commands/                      # Thin Tauri command adapters by domain
-│  ├─ desktop/                       # Tray, single-instance and native-window integration
-│  ├─ environment/                   # Environment mutation, snapshots and broadcast
-│  ├─ proxy/                         # Detection, listeners, probes and client identity
-│  ├─ services/                      # Persistent application services
-│  ├─ error.rs                       # Shared error contract
-│  ├─ lib.rs                         # Tauri composition root
-│  └─ main.rs                        # Native binary entry
-├─ public/proxy-clients/             # Runtime client icons and attribution
-└─ docs/                             # Maintainer-facing documentation
+│  │  ├─ proxy/components/           # Three-layer proxy status and actions
+│  │  └─ settings/components/        # General and About surfaces
+│  └─ shared/                        # Typed IPC, i18n, types, design tokens
+├─ src-tauri/src/
+│  ├─ commands/                      # Thin Tauri command adapters
+│  ├─ desktop/                       # Tray, native window, single instance
+│  ├─ environment/                   # Generic environment core
+│  │  ├─ manager.rs                  # Read/apply/snapshot/restore orchestration
+│  │  ├─ models.rs                   # Scope, entry, mutation, result, snapshot
+│  │  ├─ registry.rs                 # Windows user Registry adapter
+│  │  ├─ broadcast.rs                # WM_SETTINGCHANGE
+│  │  └─ snapshot.rs                 # Atomic persistence and legacy migration
+│  ├─ features/proxy/
+│  │  ├─ service.rs                  # State, plans, Disable/Restore/Sync/manual endpoint
+│  │  ├─ models.rs                   # Proxy domain types
+│  │  ├─ detector.rs                 # Candidate merge and confidence
+│  │  ├─ system_proxy.rs             # Read-only Windows System Proxy
+│  │  ├─ processes.rs                # Known process discovery
+│  │  ├─ listeners.rs                # Listener/PID correlation
+│  │  └─ probe.rs                    # Local HTTP/SOCKS protocol probes
+│  ├─ services/settings.rs           # Durable application preferences
+│  ├─ error.rs                       # Serializable error contract
+│  └─ lib.rs                         # Tauri composition root
+└─ public/proxy-clients/             # Client icons and attribution
 ```
 
-## Dependency rules / 依赖规则
+## Dependency direction / 依赖方向
 
-Frontend dependencies flow inward: `App.vue → app → features → shared`. A feature may use `shared`, but one feature must not import another feature's private component. Cross-feature state and desktop lifecycle stay in `AppShell.vue`; presentation and feature-specific interaction stay in the feature component.
+```text
+Tauri Commands / Desktop Tray
+             │
+             ▼
+      Proxy Feature Service ─────→ Proxy Discovery
+             │
+             ▼
+      Environment Manager
+             │
+       ┌─────┼────────┐
+       ▼     ▼        ▼
+   Registry Snapshot Broadcast
+```
 
-前端依赖方向固定为 `App.vue → app → features → shared`。功能域可以依赖 `shared`，但不能引用另一个功能域的私有组件。跨功能状态与桌面生命周期放在 `AppShell.vue`，展示和域内交互放在对应功能组件。
+The dependency is one-way. `features/proxy` may depend on `environment`; the Environment Core must not reference `ProxyProtocol`, `ProxyVariable`, proxy variable names, or client brands.
 
-Backend commands deserialize IPC input, call domain or service code, then synchronize desktop state. They must not contain platform registry or proxy-detection implementation. Platform effects belong to `environment`, `proxy`, or `desktop`; durable preferences belong to `services`.
+依赖只能单向流动：`features/proxy` 可以依赖 `environment`；Environment Core 不得引用 `ProxyProtocol`、`ProxyVariable`、代理变量名或客户端品牌。
 
-后端命令层只负责接收 IPC 参数、调用领域/服务代码并同步桌面状态，不放注册表或代理识别实现。平台副作用归入 `environment`、`proxy` 或 `desktop`，持久化偏好归入 `services`。
+## Environment Core / 通用环境核心
+
+`EnvironmentManager` operates on generic `EnvironmentMutation::Set/Delete`, `EnvironmentScope`, `EnvironmentEntry`, and `EnvironmentSnapshot`. Apply operations always:
+
+```text
+validate unique names → read before → mutate → broadcast → read after → verify
+```
+
+Snapshots preserve both present values and missing values. Writes use an atomic temporary-file replacement. The current schema is stored at `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.json`; the legacy snapshot remains readable.
+
+`EnvironmentManager` 只处理通用的 Set/Delete、Scope、Entry 与 Snapshot。快照同时保留“存在的值”和“不存在”状态，并通过临时文件原子替换写入。
+
+## Proxy Feature / 代理功能域
+
+`ProxyEnvironmentService` owns all proxy-specific policy:
+
+- variable names and selected variables;
+- HTTP, SOCKS5, and Mixed value plans;
+- `Disabled`, `Partial`, `Enabled`, and `Mismatch` states;
+- active candidate comparison;
+- manual endpoint validation;
+- Disable, Restore, and Sync semantics.
+
+Refresh and discovery are read-only. A detected endpoint change produces `Mismatch`; only an explicit Apply/Sync/Disable/Restore action can mutate the Registry.
+
+刷新与自动识别保持只读。检测到端点变化时只产生 `Mismatch`，只有用户明确触发 Apply/Sync/Disable/Restore 才能修改注册表。
+
+## Command semantics / 命令语义
+
+| Command | Purpose | Snapshot | Registry write |
+| --- | --- | --- | --- |
+| `get_environment_status` | Read entries, detect active candidate, diagnose state | No | No |
+| `detect_proxies` | Discover and score local candidates | No | No |
+| `sync_proxy_environment` | Apply a detected endpoint | Before apply | Yes |
+| `sync_manual_proxy_environment` | Validate and apply a manual endpoint | Before apply | Yes |
+| `disable_proxy_environment` | Remove managed values | Before delete | Yes |
+| `restore_proxy_environment` | Restore the latest snapshot exactly | Uses existing | Yes |
+
+The Windows System Proxy is a read-only discovery source. v0.1 never toggles it.
+
+## Frontend boundary / 前端边界
+
+Frontend dependencies flow `App.vue → app → features → shared`. `AppShell.vue` owns lifecycle, IPC orchestration, periodic read-only refresh, and cross-feature state. Feature components own presentation and local form interaction.
+
+The home surface exposes three distinct layers:
+
+1. Proxy Client — detected process, listener, protocol, and confidence.
+2. Windows System Proxy — read-only on/off state and endpoint.
+3. Proxy Environment — state, source choice, explicit actions, and managed values.
+
+All user-facing changes are explicit. Variable checkboxes save preference immediately but are not applied until the next Apply or Sync action.
 
 ## Desktop lifecycle / 桌面生命周期
 
-`tauri-plugin-single-instance` is registered before every other plugin in `lib.rs`. A second executable launch exits without creating another application instance. Its callback calls the shared tray/window helper to unminimize, show, and focus the existing main window, then emits `second-instance-opened` to the webview. `AppShell.vue` turns that event into a localized, polite live-region notice and removes it after 3.2 seconds.
+The single-instance plugin establishes process ownership before tray and window setup. A second executable launch restores and focuses the existing window and emits a localized notice. Closing may hide to tray according to saved settings; left-click opens the window and the tray menu exposes proxy environment control.
 
-`tauri-plugin-single-instance` 必须在 `lib.rs` 中早于其他插件注册。第二次启动 EXE 时，新进程不会创建另一套应用实例；回调复用托盘/窗口帮助函数，依次取消最小化、显示并聚焦现有主窗口，然后向 WebView 发送 `second-instance-opened`。`AppShell.vue` 将事件呈现为本地化的礼貌级 live region 提示，并在 3.2 秒后自动移除。
-
-The callback must remain UI-state agnostic: it does not navigate away from the user's current page, mutate proxy state, or depend on frontend readiness during first launch. The single-instance plugin remains first in the builder chain because it establishes process ownership before autostart, tray, or window setup.
-
-回调不得改变当前页面或代理状态，也不能参与首次启动的前端初始化。单实例插件必须保持在 Builder 插件链首位，确保在开机启动、托盘和窗口初始化前建立进程所有权。
-
-## Adding a feature / 新增功能
-
-1. Add the user-facing component under `src/features/<feature>/components`.
-2. Add shared IPC types to `src/shared/types` only when multiple features need them.
-3. Add the typed invoke wrapper to `src/shared/api/backend.ts`.
-4. Add a thin Rust adapter under `src-tauri/src/commands/<feature>.rs`.
-5. Put reusable business or persistence logic in a domain module or `services`.
-6. Register the command in `commands/mod.rs` and `lib.rs`, then run the frontend build and Rust tests.
-
-新增功能时，依次建立功能组件、共享类型和 IPC 包装；Rust 侧新增薄命令适配器，并把可复用业务/持久化逻辑放入领域模块或 `services`。最后在 `commands/mod.rs` 与 `lib.rs` 注册，并执行前端构建及 Rust 测试。
+单实例插件先于托盘和窗口初始化。第二次启动不会多开，而是恢复并聚焦现有窗口。关闭按钮是否隐藏到托盘由已保存设置决定。
 
 ## Verification / 验证
 
-Run `pnpm build`, `cargo test --manifest-path src-tauri/Cargo.toml`, and `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets` after changing either boundary. Desktop lifecycle changes also require launching the same built EXE twice: the second process must exit successfully, exactly one process for that executable path must remain, and the first instance must restore and receive the notice event.
+```powershell
+pnpm build
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+```
 
-修改前后端边界后需执行前端构建、Rust 测试和 Clippy。桌面生命周期变更还必须用同一构建产物连续启动两次：第二个进程应正常退出，同一 EXE 路径只保留一个进程，并且首个实例能够恢复窗口并收到提示事件。
+Changes to Registry, broadcast, snapshots, tray, or single-instance behavior also require Windows integration testing. At minimum verify exact deletion/restoration, `WM_SETTINGCHANGE`, new-process inheritance, unchanged running-process environments, mismatch after a client port change, and explicit Sync to the new port.

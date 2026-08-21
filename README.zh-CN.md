@@ -1,41 +1,22 @@
-<p align="center">
-  <img src="assets/icon.svg" width="92" height="92" alt="ProxyEnv 图标">
-</p>
-
+<p align="center"><img src="assets/icon.svg" width="92" height="92" alt="ProxyEnv 图标"></p>
 <h1 align="center">境启 ProxyEnv</h1>
+<p align="center">Windows-first 的代理环境变量桌面管理器。<br>自动发现本机代理客户端与真实端口，由用户明确选择应用、诊断、关闭或恢复，不再猜测固定端口。</p>
+<p align="center"><a href="README.md">English</a> · <strong>简体中文</strong></p>
 
 <p align="center">
-  面向 Windows、Linux 与 macOS 开发的跨平台代理环境变量开关<br>
-  自动发现代理客户端、实际监听端口与协议，并同步代理环境变量
-</p>
-
-<p align="center">
-  <a href="README.md">English</a> · <strong>简体中文</strong>
-</p>
-
-<p align="center">
-  <img alt="Platform" src="https://img.shields.io/badge/目标平台-Windows%20%7C%20Linux%20%7C%20macOS-0078D4?style=flat-square">
+  <img alt="平台" src="https://img.shields.io/badge/平台-Windows%2010%20%7C%2011-0078D4?style=flat-square">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
-  <img alt="License" src="https://img.shields.io/badge/许可证-MIT-22c55e?style=flat-square">
-  <img alt="Status" src="https://img.shields.io/badge/状态-v0.1%20开发中-f59e0b?style=flat-square">
+  <img alt="许可证" src="https://img.shields.io/badge/许可证-MIT-22c55e?style=flat-square">
+  <img alt="状态" src="https://img.shields.io/badge/状态-v0.1%20开发中-f59e0b?style=flat-square">
 </p>
 
 > [!IMPORTANT]
-> ProxyEnv 目前处于 v0.1 开发阶段，尚未提供正式 Release。Windows 核心环境变量开关、本机代理识别、系统托盘、单实例窗口恢复与多语言“通用 / 关于”设置已经可用；Linux 与 macOS 后端和安装包仍在开发中。
+> ProxyEnv 仍处于 v0.1 开发阶段，尚无正式 Release。当前已经实现并实机验证的目标平台是 Windows 10/11。Linux 与 macOS 是后续架构方向，不属于当前支持平台；其他 Unix 变体不在计划内。
 
-| 平台           | 当前状态             | 变量命名                                             |
-| -------------- | -------------------- | ---------------------------------------------------- |
-| Windows 10/11  | 已实现并进行实机验证 | `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` |
-| Linux          | 计划支持             | `http_proxy`、`https_proxy`、`all_proxy`、`no_proxy` |
-| macOS          | 计划支持             | `http_proxy`、`https_proxy`、`all_proxy`、`no_proxy` |
-| 其他 Unix 变体 | 不在支持计划内       | —                                                    |
+## 要解决的问题
 
-## 为什么需要 ProxyEnv？
-
-Windows、Linux 与 macOS 上的桌面软件、CLI 和网络库并不总是使用同一套代理入口。Claude Code、Codex、Git、npm、pip 等工具通常会读取代理环境变量，而某些需要直连的软件可能因此无法正常连接。
-
-这会形成一个让人反复打开“环境变量”窗口的典型冲突：
+许多 CLI 会读取 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY`，但一些需要直连的软件会在这些变量存在时出现异常。
 
 ```text
 HTTP_PROXY 存在
@@ -47,285 +28,145 @@ HTTP_PROXY 不存在
 └─ 某些直连软件                  ✅
 ```
 
-<p align="center">
-  <img src="docs/assets/proxy-conflict.png" width="880" alt="HTTP_PROXY 开关冲突的可爱火柴人简笔画">
-</p>
+<p align="center"><img src="docs/assets/proxy-conflict.png" width="880" alt="HTTP_PROXY 冲突的可爱火柴人简笔画"></p>
 
-ProxyEnv 把原本繁琐的操作：
+ProxyEnv 把这些状态清晰展示出来，并把手工编辑注册表变成明确、可恢复的操作。产品遵循一个安全原则：
 
-```text
-打开操作系统的环境变量配置
-→ 找到并删除代理变量
-→ 启动需要直连的软件
-→ 手动重建原来的变量
-```
+> 自动发现，手动修改。
 
-简化为：
-
-```text
-Disable
-→ 启动目标软件
-→ Enable
-```
-
-Disable 前会保存完整快照；Enable 时恢复原值，而不是覆盖成固定端口。
+检测与定时刷新不会写注册表。当代理客户端从端口 `7890` 切换到 `7897` 时，ProxyEnv 会显示 `Mismatch`，等待用户点击“同步到活动代理”。
 
 ## 核心能力
 
-| 能力         | 说明                                                 |
-| ------------ | ---------------------------------------------------- |
-| 一键启停     | 删除或恢复用户级代理环境变量，不写入空字符串         |
-| 实时端点同步 | 环境变量开启时跟随当前活动代理，不继续保留失效旧端口 |
-| 安全快照     | 修改前持久化完整快照，使用原子替换避免半写入文件     |
-| 自动发现     | 结合 Windows 系统代理、进程、TCP 监听 PID 和协议探测 |
-| 实际端口     | 读取真实监听端口，不假设客户端永远使用 7890 或 10808 |
-| 协议识别     | 区分 HTTP、SOCKS5 与 Mixed 代理端口                  |
-| 客户端识别   | 识别主流代理客户端并展示对应图标                     |
-| 写回验证     | 每次 Enable / Disable 后重新读取注册表确认结果       |
-| 环境广播     | 通过 `WM_SETTINGCHANGE` 通知 Windows 环境已更新      |
-| 变量选择     | 可分别选择是否管理 HTTP、HTTPS 与 ALL 代理变量       |
-| 托盘与偏好   | 从托盘打开或切换，并持久化语言、主题和窗口行为       |
-| 单实例启动   | 再次启动时复用、恢复并聚焦现有窗口，不创建重复进程   |
-| 端点工具     | 展示协议与置信度，并可复制当前代理地址               |
-| 关于与更新   | 展示运行版本、更新日志和手动触发的 GitHub 更新状态    |
-| 桌面外壳     | 提供支持浅色、深色与跟随系统的圆角无边框窗口         |
+- 识别本机代理客户端、监听 PID、真实端口及 HTTP/SOCKS5/Mixed 协议。
+- 只读显示 Windows 系统代理，不修改其开关或地址。
+- 用 `Disabled`、`Partial`、`Enabled`、`Mismatch` 四种状态描述代理环境。
+- 支持应用自动检测端点，也支持手动输入 Host、Port 与 Protocol。
+- 正确映射协议：HTTP 变量使用 `http://`，适用时 `ALL_PROXY` 使用 `socks5://`。
+- 选择下一次应用/同步要管理的 `HTTP_PROXY`、`HTTPS_PROXY` 与 `ALL_PROXY`。
+- `NO_PROXY` 保持只读。
+- 修改前保存快照，安全删除，精确恢复，广播 `WM_SETTINGCHANGE`，并读回注册表验证。
+- 支持系统托盘、开机启动/窗口偏好，以及第二次启动时唤醒现有窗口。
+- 提供简体中文、英文、日语与韩语，以及浅色、深色、跟随系统主题。
 
-## 与环境变量工具的定位对比
+## 三层代理状态
 
-推荐度按各工具最擅长的使用场景评估，并非通用功能排名。ProxyEnv 专注代理变量自动发现与切换；其余工具更适合通用环境变量或 `PATH` 管理。
+ProxyEnv 明确区分三个容易混淆的概念：
 
-| 工具                                        | 推荐度     | 适合什么情况                          | 主要特点                                                                   |
-| ------------------------------------------- | ---------- | ------------------------------------- | -------------------------------------------------------------------------- |
-| **ProxyEnv**                                | ⭐⭐⭐⭐⭐ | 经常切换代理/直连、使用多个代理客户端 | Rust + Tauri、目标跨平台、自动发现客户端/端口/协议、快照回滚、活动端点同步 |
-| Microsoft PowerToys – Environment Variables | ⭐⭐⭐⭐⭐ | 大多数开发者                          | 微软官方、界面现代、支持 Profile、User/System 变量                         |
-| EnvStudio                                   | ⭐⭐⭐⭐⭐ | `PATH` 很复杂、多开发环境             | 拖拽 `PATH`、去重、失效路径检测、冲突检测、快照回滚                        |
-| Envarly                                     | ⭐⭐⭐⭐½  | 喜欢开源、希望修改更安全              | 开源、修改前 Diff、快照/回滚、`PATH` 拖拽、PowerShell/Ansible 导出         |
-| Rapid Environment Editor                    | ⭐⭐⭐⭐   | 传统 Windows 开发环境                 | 很成熟、`PATH` 树状管理、错误检测、备份、便携版                            |
-| envx                                        | ⭐⭐⭐⭐   | 喜欢终端/TUI                          | Rust、跨平台、快照/Profile、搜索、CLI、`.env`/JSON/YAML 导入导出           |
+| 层级 | 含义 | ProxyEnv 的行为 |
+| --- | --- | --- |
+| 代理客户端 | v2rayN 等本机进程及其监听端点，例如 `127.0.0.1:10809` | 检测与探测 |
+| Windows 系统代理 | 供兼容软件读取的 Windows 网络设置 | 只读 |
+| 代理环境变量 | 新启动进程继承的用户变量 | 仅在用户明确操作后修改 |
 
-## 支持的代理客户端
+修改环境变量不会配置代理客户端、不会切换 Windows 系统代理、不会让整台电脑的流量自动改道，也不会改变已经运行进程的环境。新启动的应用会继承此代理地址，已运行的应用需要重启才生效。
 
-| 客户端          | Windows 进程识别                                | 图标     | 当前状态              |
-| --------------- | ----------------------------------------------- | -------- | --------------------- |
-| Clash Verge Rev | `clash-verge.exe`、`verge-mihomo.exe`、服务进程 | 官方图标 | 已在 Windows 实机验证 |
-| v2rayN          | `v2rayN.exe` + Xray / sing-box / Mihomo Core    | 官方图标 | 规则已接入            |
-| FlClash         | `FlClash.exe` + Mihomo Core                     | 官方图标 | 规则已接入            |
-| Hiddify         | `Hiddify.exe` + sing-box Core                   | 官方图标 | 规则已接入            |
-| Clash Nyanpasu  | `clash-nyanpasu.exe` + Mihomo / Clash RS        | 官方图标 | 规则已接入            |
+## 管理范围
 
-检测不会仅凭一个通用 Core 进程武断判断客户端。对于 `mihomo.exe`、`sing-box.exe` 等可能被多个 GUI 使用的进程，ProxyEnv 会结合正在运行的前端进程、系统代理端点和监听 PID 再做归属。
-
-客户端图标来自各自官方仓库，许可与来源见 [`public/proxy-clients/ATTRIBUTION.md`](public/proxy-clients/ATTRIBUTION.md)。
-
-## 管理哪些变量？
-
-变量名根据操作系统选择，不再同时展示重复的大小写别名：
-
-```text
-Windows：       HTTP_PROXY      HTTPS_PROXY      ALL_PROXY
-Linux / macOS： http_proxy      https_proxy      all_proxy
-```
-
-仅展示、默认不删除：
-
-```text
-Windows：       NO_PROXY
-Linux / macOS： no_proxy
-```
-
-Windows 环境变量名不区分大小写，因此大小写别名实际指向同一个值；Linux 与 macOS 环境变量名区分大小写，ProxyEnv 采用兼容性更广的小写代理变量约定。当前 v0.1 的环境持久化与代理发现后端仅在 Windows 上实现并完成测试；Linux/macOS 后端完成前不会标记为正式支持。
-
-默认勾选 `HTTP_PROXY` 与 `HTTPS_PROXY`。`ALL_PROXY` 需要用户主动启用，因为它可能影响更多应用及包搜索流量；至少需要保留一个代理变量。当前界面仅只读展示 `NO_PROXY` / `no_proxy`。
-
-ProxyEnv 只操作当前用户：
+ProxyEnv v0.1 只修改当前用户的：
 
 ```text
 HKEY_CURRENT_USER\Environment
 ```
 
-它不会写入 `HKLM`，v0.1 默认不需要管理员权限。
+不会写入 `HKLM`，通常不需要管理员权限。
 
-## 工作原理
+| 协议 | `HTTP_PROXY` | `HTTPS_PROXY` | `ALL_PROXY` |
+| --- | --- | --- | --- |
+| HTTP | `http://host:port` | `http://host:port` | 删除 |
+| SOCKS5 | 删除 | 删除 | `socks5://host:port` |
+| Mixed | `http://host:port` | `http://host:port` | `socks5://host:port` |
 
-### 环境变量事务
+默认选择 `HTTP_PROXY` 与 `HTTPS_PROXY`。`ALL_PROXY` 需要用户主动选择，因为它的回退范围更广，可能影响包搜索、局域网发现或 SOCKS 支持不完整的软件。
 
-```text
-Disable
-读取当前值 → 保存快照 → 删除变量 → 广播变更 → 读回验证
-
-Enable
-使用检测到的活动端点 → 写入所选变量 → 广播变更 → 读回验证
-没有活动端点 → 回退到最近保存的快照
-```
-
-快照保存在：
+## 安全操作语义
 
 ```text
-%LOCALAPPDATA%\ProxyEnv\env-snapshot.json
+关闭：读取 → 保存快照 → 删除 → 广播 → 读回 → 验证
+恢复：读取最近快照 → 精确恢复旧值 → 广播 → 验证
+同步：根据选中端点生成计划 → 保存快照 → 写入/删除 → 广播 → 验证
+刷新：只检测与比较，绝不写入
 ```
 
-### 代理发现链
+快照原子保存在 `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.json`，旧版 `env-snapshot.json` 仍可读取。
 
-```text
-Windows System Proxy ─┐
-Known Client Process ─┼─→ TCP Listener + PID
-Local Listener Table ─┘            │
-                                   ▼
-                         HTTP / SOCKS5 Probe
-                                   │
-                                   ▼
-                      Merge → Score → Recommend
-```
+## 支持的代理客户端
 
-探测仅访问已经发现的本机候选端点，不扫描 `1–65535` 全端口，也不访问外部测试站点。
+当前内置 Clash Verge Rev、v2rayN、FlClash、Hiddify 与 Clash Nyanpasu 的识别规则及授权图标。未知客户端只要暴露本地监听端口，也会使用通用图标；自动识别失败时可改用手动端点。
 
-## 快速开始
+图标来自官方上游仓库，来源与许可见 [`public/proxy-clients/ATTRIBUTION.md`](public/proxy-clients/ATTRIBUTION.md)。
 
-### 用户运行要求
+## 运行要求
+
+### 使用打包版本
 
 - Windows 10 1803 或更高版本（x64），或 Windows 11 x64
-- Microsoft Edge WebView2 Runtime；较新的 Windows 10/11 通常已经预装
+- Microsoft Edge WebView2 Runtime；受支持的较新 Windows 通常已预装
 
-安装打包后的 ProxyEnv 不需要用户安装 Node.js、pnpm、Rust 或 Visual Studio。
+打包版本不要求用户安装 Node.js、pnpm、Rust 或 Visual Studio。
 
-### 源码开发要求
+### 源码开发
 
-- Node.js 20.19+ 或 22.12+；推荐 Node.js 22 LTS
+- Node.js `20.19+` 或 `22.12+`；推荐 Node.js 22 LTS
 - 通过 Corepack 使用 pnpm 10
 - Rust stable MSVC 工具链
-- Visual Studio Build Tools 2022（Desktop development with C++）
+- Visual Studio Build Tools 2022，并安装 **Desktop development with C++**
 
-以上最低版本来自当前 Vite 7 与 Tauri 2 工具链的实际要求。建议使用仍受支持的 Node.js LTS，不要求追随最新 Current 版本。
-
-### 从源码运行
+这些版本是当前 Vite 7 与 Tauri 2 工具链的实际最低要求，无需追随最新 Node Current 版本。
 
 ```powershell
-# 克隆仓库后进入项目目录
 cd ProxyEnv
 corepack enable
 pnpm install
 pnpm tauri dev
 ```
 
-也可以使用 VS Code：安装工作区推荐扩展，选择 `ProxyEnv: Tauri Debug`，然后按 `F5`。工作区任务会复用已有的 ProxyEnv Vite 服务，并且在重新构建前只清理本仓库遗留的调试实例。
+在 VS Code 中安装工作区推荐扩展，选择 `ProxyEnv: Tauri Debug`，按 `F5` 即可。
 
-ProxyEnv 采用单实例运行。再次启动 EXE 时，即使现有窗口已隐藏到系统托盘，也会恢复并聚焦该窗口，同时显示一条简短的本地化提示，不会创建第二个应用进程。
-
-### 检查与构建
+## 验证与构建
 
 ```powershell
-# 前端类型检查与生产构建
 pnpm build
-
-# Rust 测试
 cargo test --manifest-path src-tauri/Cargo.toml
-
-# 严格静态检查
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-
-# 构建 Windows NSIS 安装包
 pnpm tauri build
 ```
 
-## 项目结构
+## 工程结构
 
 ```text
 ProxyEnv/
-├─ src/                         # 按功能域组织的 Vue 前端
-│  ├─ app/                      # 应用外壳与桌面生命周期编排
-│  ├─ features/                 # 代理与设置功能模块
-│  └─ shared/                   # 类型化 IPC、i18n、样式和共享类型
-├─ src-tauri/                   # 分层的 Rust / Tauri 后端
-│  └─ src/
-│     ├─ commands/              # 按领域拆分的轻量 Tauri 命令适配器
-│     ├─ desktop/               # 托盘、单实例与原生窗口集成
-│     ├─ environment/           # 注册表、快照、广播与事务
-│     ├─ proxy/                 # 系统代理、进程、监听端口与协议探测
-│     └─ services/              # 持久化应用服务
-├─ public/proxy-clients/        # 客户端图标及归属说明
-├─ docs/                        # 架构说明与 README 插图
-└─ .vscode/                     # 本地调试配置
+├─ src/
+│  ├─ app/                       # Vue 外壳与桌面编排
+│  ├─ features/                  # 代理与设置界面
+│  └─ shared/                    # IPC、i18n、类型和视觉令牌
+├─ src-tauri/src/
+│  ├─ commands/                  # 轻量 Tauri IPC 适配器
+│  ├─ desktop/                   # 托盘、单实例、原生窗口
+│  ├─ environment/               # 通用 mutation、快照、广播、验证
+│  ├─ features/proxy/            # 代理检测、计划、状态、同步/恢复/关闭
+│  └─ services/                  # 持久化应用设置
+├─ public/proxy-clients/         # 运行时图标与归属说明
+└─ docs/                         # 架构文档与 README 插图
 ```
 
-依赖边界与新增功能流程见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+通用 Environment Core 不包含代理客户端或代理变量知识。完整依赖规则见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 
-## 安全与隐私
+## 边界与隐私
 
-- 所有检测和环境变量操作均在本机完成。
-- 不读取代理节点、订阅 URL、密码、Token 或用户流量。
-- 不上传进程、端口或代理配置。
-- 只有用户主动点击检查更新时才访问 GitHub Releases API，且不会携带代理或环境变量数据。
-- 不修改 Windows 系统代理。
-- 不写入系统级环境变量或 `HKLM`。
-- 协议探测使用短超时，并且只连接本机候选端口。
-- Disable 前必须成功保存快照，失败则不会继续删除变量。
+ProxyEnv 不是代理客户端、VPN、订阅管理器或流量路由器。v0.1 不控制 Clash/v2rayN API、TUN、节点、规则、Windows 系统代理、单应用路由或系统级环境变量。
 
-安全问题请参阅 [`SECURITY.md`](SECURITY.md)。
-
-## 不会做什么
-
-ProxyEnv 不是代理客户端。v0.1 不提供：
-
-- 节点、订阅或规则管理
-- Clash / v2rayN 控制 API
-- TUN、VPN 或驱动管理
-- Windows System Proxy 开关
-- Per-App Proxy 或进程注入
-- 全端口扫描、抓包或流量上传
-- 内置 Mihomo、sing-box、Xray 等代理核心
-- AIX、FreeBSD 等其他 Unix 变体
-
-## 开发路线
-
-- [x] Vue 3 + Tauri 2 项目骨架
-- [x] 用户级环境变量读取
-- [x] Disable 快照、删除、广播与验证
-- [x] Enable 原值恢复与验证
-- [x] Windows System Proxy 解析
-- [x] TCP 监听端口与 PID 关联
-- [x] HTTP / SOCKS5 / Mixed 协议探测
-- [x] 主流客户端识别与官方图标
-- [x] HTTP / HTTPS / ALL 代理变量选择
-- [x] 系统托盘切换、打开与退出操作
-- [x] 单实例启动与托盘/窗口恢复
-- [x] 多语言设置、开机启动与窗口行为
-- [x] 端点复制、通用 / 关于设置、更新状态与更新日志
-- [x] 圆角无边框桌面外壳
-- [ ] 多候选代理选择界面
-- [ ] 托盘 ON / OFF / Warning 动态图标
-- [ ] Windows 集成测试矩阵
-- [ ] Linux 环境持久化、进程与监听端口后端
-- [ ] macOS 环境持久化、系统代理与进程后端
-- [ ] Linux/macOS 安装包与集成测试矩阵
-- [ ] NSIS 与 Portable 自动发布
-
-## 常见问题
-
-### 为什么切换后，已经运行的软件没有立即变化？
-
-Windows 进程通常在创建时复制父进程的环境变量。ProxyEnv 会广播环境变更，但无法强制已经运行的终端或应用重建自己的 environment block。请在切换后启动目标软件，必要时重新打开终端。
-
-### Disable 会把变量设置为空字符串吗？
-
-不会。ProxyEnv 会从 `HKCU\Environment` 中真正删除受管理变量，并在此之前保存快照。
-
-### Enable 会更新我自己的代理地址吗？
-
-会，但前提是检测到了经过验证的本机活动代理。环境变量开关开启期间，ProxyEnv 会让受管理变量跟随该端点，并且只在端点变化时写入；Enable 时如果没有活动端点，则回退到最近保存的快照。
-
-### 为什么能看到代理客户端，却没有候选端口？
-
-客户端进程存在不代表代理 Core 已经监听。ProxyEnv 只展示经过系统代理、监听 PID 或协议探测支持的候选，不根据客户端名称猜端口。
+代理检测、协议探测和环境变量管理均在本机完成。软件不会读取订阅、节点、Token、密码或流量；只有用户主动检查更新时才访问 GitHub Releases。详见 [`SECURITY.md`](SECURITY.md)。
 
 ## 贡献
 
-欢迎提交问题和改进。开始前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，并保持 Environment Core 与 Proxy Detection 解耦。
+欢迎贡献。请先阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)，并保持依赖方向：Proxy Feature 可以依赖 Environment Core，Environment Core 不能反向依赖 Proxy Feature。
 
 ## 贡献者
 
 - ProxyEnv 维护者与社区贡献者
-- OpenAI Codex——参与实现、测试与文档编写的 AI 编程助手
+- OpenAI Codex——参与实现、测试、设计与文档编写的 AI 编程助手
 
 ## 许可证
 
-ProxyEnv 源代码基于 [MIT License](LICENSE) 发布。第三方客户端图标适用各自上游许可证，详见图标归属说明。
+ProxyEnv 基于 [MIT License](LICENSE) 发布，第三方图标继续遵循各自上游许可证。
