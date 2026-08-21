@@ -41,7 +41,7 @@ Detection and periodic refreshes never rewrite the Registry. When a client chang
 - Detect local proxy clients, listener PIDs, actual ports, and HTTP/SOCKS5/Mixed protocols.
 - Show Windows System Proxy status without modifying it.
 - Model the proxy environment as `Disabled`, `Partial`, `Enabled`, or `Mismatch`.
-- Apply an automatically detected endpoint or a manually entered endpoint.
+- Apply an automatically detected proxy address or a manually entered host, port, and protocol.
 - Map protocols correctly: HTTP variables use `http://`; `ALL_PROXY` uses `socks5://` where applicable.
 - Select which of `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` the next Apply/Sync action manages.
 - Keep `NO_PROXY` read-only.
@@ -55,7 +55,7 @@ ProxyEnv deliberately keeps these concepts separate:
 
 | Layer | Meaning | ProxyEnv behavior |
 | --- | --- | --- |
-| Proxy client | A local process and listening endpoint, such as v2rayN on `127.0.0.1:10809` | Detect and probe |
+| Proxy client | A local process and listening address, such as v2rayN on `127.0.0.1:10809` | Detect and probe |
 | Windows System Proxy | The Windows networking setting used by compatible applications | Read-only |
 | Proxy environment | User variables inherited by newly started processes | Change only after an explicit action |
 
@@ -84,7 +84,7 @@ It never writes `HKLM` and normally needs no administrator privileges.
 ```text
 Disable: read → snapshot → delete → broadcast → read back → verify
 Restore: load latest snapshot → restore exact values → broadcast → verify
-Sync:    build plan from selected endpoint → snapshot → write/delete → broadcast → verify
+Sync:    build plan from selected proxy address → snapshot → write/delete → broadcast → verify
 Refresh: detect and compare only; never write
 ```
 
@@ -92,7 +92,7 @@ Snapshots are stored atomically under `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.
 
 ## Supported proxy clients
 
-ProxyEnv includes identification rules and attributed icons for Clash Verge Rev, v2rayN, FlClash, Hiddify, and Clash Nyanpasu. Unknown clients that expose a local listener remain usable through the generic icon, and detection failure can be bypassed with a manual host, port, and protocol.
+ProxyEnv identifies Clash Verge Rev, v2rayN, FlClash, Hiddify, Clash Nyanpasu, Clash Party, Mihomo Party, NekoBox/NekoRay, Clash for Windows, and GUI.for.Clash. The first five use attributed upstream icons; the additional and unknown clients use the shared proxy icon. Detection failure can be bypassed with a manual host, port, and protocol.
 
 Icons come from official upstream repositories; see [`public/proxy-clients/ATTRIBUTION.md`](public/proxy-clients/ATTRIBUTION.md).
 

@@ -41,7 +41,7 @@ ProxyEnv 把这些状态清晰展示出来，并把手工编辑注册表变成�
 - 识别本机代理客户端、监听 PID、真实端口及 HTTP/SOCKS5/Mixed 协议。
 - 只读显示 Windows 系统代理，不修改其开关或地址。
 - 用 `Disabled`、`Partial`、`Enabled`、`Mismatch` 四种状态描述代理环境。
-- 支持应用自动检测端点，也支持手动输入 Host、Port 与 Protocol。
+- 支持应用自动检测到的代理地址，也支持手动输入主机、端口与协议。
 - 正确映射协议：HTTP 变量使用 `http://`，适用时 `ALL_PROXY` 使用 `socks5://`。
 - 选择下一次应用/同步要管理的 `HTTP_PROXY`、`HTTPS_PROXY` 与 `ALL_PROXY`。
 - `NO_PROXY` 保持只读。
@@ -55,7 +55,7 @@ ProxyEnv 明确区分三个容易混淆的概念：
 
 | 层级 | 含义 | ProxyEnv 的行为 |
 | --- | --- | --- |
-| 代理客户端 | v2rayN 等本机进程及其监听端点，例如 `127.0.0.1:10809` | 检测与探测 |
+| 代理客户端 | v2rayN 等本机进程及其监听地址，例如 `127.0.0.1:10809` | 检测与探测 |
 | Windows 系统代理 | 供兼容软件读取的 Windows 网络设置 | 只读 |
 | 代理环境变量 | 新启动进程继承的用户变量 | 仅在用户明确操作后修改 |
 
@@ -84,7 +84,7 @@ HKEY_CURRENT_USER\Environment
 ```text
 关闭：读取 → 保存快照 → 删除 → 广播 → 读回 → 验证
 恢复：读取最近快照 → 精确恢复旧值 → 广播 → 验证
-同步：根据选中端点生成计划 → 保存快照 → 写入/删除 → 广播 → 验证
+同步：根据选中的代理地址生成计划 → 保存快照 → 写入/删除 → 广播 → 验证
 刷新：只检测与比较，绝不写入
 ```
 
@@ -92,7 +92,7 @@ HKEY_CURRENT_USER\Environment
 
 ## 支持的代理客户端
 
-当前内置 Clash Verge Rev、v2rayN、FlClash、Hiddify 与 Clash Nyanpasu 的识别规则及授权图标。未知客户端只要暴露本地监听端口，也会使用通用图标；自动识别失败时可改用手动端点。
+当前可识别 Clash Verge Rev、v2rayN、FlClash、Hiddify、Clash Nyanpasu、Clash Party、Mihomo Party、NekoBox/NekoRay、Clash for Windows 与 GUI.for.Clash。前五项使用已注明来源的上游图标，新增客户端与未知客户端使用通用代理图标；自动识别失败时可手动填写主机、端口与协议。
 
 图标来自官方上游仓库，来源与许可见 [`public/proxy-clients/ATTRIBUTION.md`](public/proxy-clients/ATTRIBUTION.md)。
 
