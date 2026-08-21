@@ -159,6 +159,10 @@ async function applyManualProxy(endpoint: ProxyEndpoint) {
   }
 }
 
+function inspectManualEndpoint(endpoint: ProxyEndpoint) {
+  return backend.inspectProxyEndpoint(endpoint);
+}
+
 async function disableEnvironment() {
   toggling.value = true;
   error.value = "";
@@ -347,7 +351,7 @@ onMounted(async () => {
       host: "127.0.0.1",
       port: 10809,
       protocol: "mixed",
-      source: ["processListener", "protocolProbe"],
+      source: ["windowsSystemProxy", "processListener", "protocolProbe"],
       confidence: "veryHigh",
       listening: true
     }];
@@ -428,6 +432,7 @@ onBeforeUnmount(() => {
       :toggling="toggling"
       :copied-endpoint="copiedEndpoint"
       :selected-variables="draftSettings.proxyVariables"
+      :inspect-manual-endpoint="inspectManualEndpoint"
       @refresh="refresh(false)"
       @apply-detected="applyDetectedProxy"
       @apply-manual="applyManualProxy"

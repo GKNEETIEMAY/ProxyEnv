@@ -140,14 +140,24 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .layer-heading { display: flex; margin-bottom: 20px; align-items: baseline; justify-content: space-between; gap: 16px; }
 .layer-heading h2, .system-layer h2, .environment-summary h2 { margin: 0; font-size: 13px; font-weight: 680; letter-spacing: -.015em; }
 .layer-heading > span, .system-layer > div:first-child p, .environment-summary > div:first-child p { margin: 4px 0 0; color: var(--faint); font-size: 10px; }
-.client-layer .client-heading { display: grid; grid-template-columns: 56px minmax(145px, 1fr) auto; }
-.client-layer .endpoint-line { margin: 0; align-items: flex-end; }
-.system-layer { display: flex; min-height: 78px; padding-top: 17px; padding-bottom: 17px; align-items: center; justify-content: space-between; gap: 24px; background: color-mix(in srgb, var(--surface) 72%, var(--canvas)); }
-.system-state { display: flex; align-items: center; gap: 10px; text-align: right; }
-.system-state .status-dot { margin: 0; }
-.system-state strong, .system-state code { display: block; }
-.system-state strong { font-size: 12px; }
-.system-state code { margin-top: 3px; color: var(--muted); font: 10px/1.4 "Cascadia Mono", Consolas, monospace; }
+.client-layer .client-heading { display: grid; grid-template-columns: 56px minmax(145px, 1fr) 270px; }
+.client-layer .endpoint-line { width: 270px; margin: 0; align-items: flex-end; }
+.system-layer { display: flex; min-height: 92px; padding-top: 18px; padding-bottom: 18px; align-items: center; justify-content: space-between; gap: 28px; background: color-mix(in srgb, var(--surface) 72%, var(--canvas)); }
+.system-heading { display: flex; min-width: 0; align-items: center; gap: 13px; }
+.system-symbol { display: grid; width: 38px; height: 38px; flex: none; place-items: center; border-radius: 12px; color: var(--muted); background: var(--surface-strong); box-shadow: inset 0 0 0 1px var(--line); }
+.system-symbol svg { width: 20px; fill: currentColor; }
+.system-layer.active .system-symbol { color: var(--accent-strong); background: var(--accent-soft); }
+.system-state { display: grid; width: 270px; min-width: 270px; align-items: center; justify-content: end; grid-template-columns: 30px auto; gap: 8px; text-align: right; }
+.system-state-mark { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; color: var(--danger); background: var(--danger-soft); }
+.system-state-mark svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.system-layer.active .system-state-mark { color: var(--success); background: var(--success-soft); }
+.system-state-copy { min-width: 0; }
+.system-state-title { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.system-state-copy strong, .system-state-copy code, .system-state-copy > span { display: block; }
+.system-state-copy strong { font-size: 12px; font-weight: 670; }
+.system-state-copy code, .system-state-copy > span { margin-top: 3px; overflow: hidden; color: var(--muted); font: 10px/1.4 "Cascadia Mono", Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.read-only-badge { display: inline-flex; padding: 3px 7px; align-items: center; border-radius: 999px; color: var(--muted); background: var(--surface-strong); box-shadow: inset 0 0 0 1px var(--line); font-size: 10px; font-weight: 650; white-space: nowrap; }
+.read-only-badge svg { width: 12px; fill: none; stroke: currentColor; stroke-width: 1.45; stroke-linecap: round; stroke-linejoin: round; }
 .environment-layer { padding: 25px 28px 27px; }
 .environment-summary { display: grid; align-items: start; grid-template-columns: minmax(180px, .6fr) minmax(0, 1fr); gap: 28px; }
 .environment-state { padding-left: 24px; border-left: 1px solid var(--line); }
@@ -170,11 +180,14 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .secondary-action { border: 1px solid var(--line-strong); color: var(--ink); background: var(--surface-strong); }
 .secondary-action:hover { border-color: var(--accent); background: var(--accent-soft); }
 .danger-action { color: var(--danger); }
-.manual-endpoint { display: grid; margin-top: 16px; align-items: end; grid-template-columns: minmax(130px, 1.3fr) 100px 128px auto; gap: 9px; }
+.manual-endpoint { display: grid; margin-top: 16px; grid-template-columns: minmax(130px, 1.3fr) 100px 128px auto; gap: 9px; }
 .manual-endpoint label { display: grid; gap: 5px; }
-.manual-endpoint label > span { color: var(--muted); font-size: 10px; font-weight: 620; }
+.manual-endpoint .field-label { display: flex; min-height: 20px; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 620; }
 .manual-endpoint input, .manual-endpoint select { width: 100%; height: 36px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface-strong); font: 11px/1.4 "Cascadia Mono", Consolas, monospace; }
 .manual-endpoint input[aria-invalid="true"] { border-color: var(--danger); }
+.manual-endpoint input[aria-invalid="true"]:focus { outline-color: color-mix(in srgb, var(--danger) 32%, transparent); }
+.manual-endpoint > button { align-self: start; margin-top: 25px; }
+.field-error { color: var(--danger); font-size: 10px; font-weight: 540; line-height: 1.4; }
 
 .variables-section { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .section-header { display: flex; padding: 22px 2px 18px; align-items: end; justify-content: space-between; gap: 20px; }
@@ -194,12 +207,12 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .variable-value { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
 .variable-value.unset { color: var(--faint); }
 .variable-label { display: flex; min-width: 0; align-items: center; gap: 7px; }
-.variable-help { position: relative; display: grid; width: 20px; height: 20px; flex: none; place-items: center; border-radius: 50%; color: var(--faint); cursor: help; transition: color .18s, background .18s; }
-.variable-help:hover, .variable-help:focus { color: var(--accent-strong); background: var(--accent-soft); }
-.variable-help:focus-visible { outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent); outline-offset: 2px; }
-.variable-help > svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.45; stroke-linecap: round; stroke-linejoin: round; }
-.variable-help p { position: absolute; z-index: 5; top: 24px; left: -8px; width: min(390px, calc(100vw - 72px)); margin: 0; padding: 12px 14px; visibility: hidden; border: 1px solid var(--line); border-radius: 12px; opacity: 0; color: var(--ink); background: var(--surface-strong); box-shadow: 0 12px 28px rgba(30, 25, 21, .16); font-size: 11px; line-height: 1.55; pointer-events: none; transform: translateY(-2px); transition: opacity .12s, visibility .12s, transform .12s; }
-.variable-help:hover p, .variable-help:focus p { visibility: visible; opacity: 1; transform: translateY(0); }
+.help-tooltip { position: relative; display: grid; width: 20px; height: 20px; flex: none; place-items: center; border-radius: 50%; color: var(--faint); cursor: help; transition: color .18s, background .18s; }
+.help-tooltip:hover, .help-tooltip:focus { color: var(--accent-strong); background: var(--accent-soft); }
+.help-tooltip:focus-visible { outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent); outline-offset: 2px; }
+.help-tooltip > svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.45; stroke-linecap: round; stroke-linejoin: round; }
+.help-tooltip-content { position: fixed; z-index: 80; margin: 0; padding: 12px 14px; opacity: 0; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--surface-strong); box-shadow: 0 12px 28px color-mix(in srgb, var(--ink) 16%, transparent); font-size: 11px; font-weight: 400; line-height: 1.55; pointer-events: none; transform: translateY(-3px); transition: opacity .12s ease-out, transform .14s cubic-bezier(.16, 1, .3, 1); }
+.help-tooltip-content.positioned { opacity: 1; transform: translateY(0); }
 .variable-choice { position: relative; display: grid; width: 22px; height: 22px; place-items: center; cursor: pointer; }
 .variable-choice input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .variable-choice > span { display: grid; width: 18px; height: 18px; place-items: center; border: 1px solid var(--line-strong); border-radius: 5px; color: transparent; background: var(--surface-strong); transition: border-color .18s, color .18s, background .18s; }
@@ -219,6 +232,23 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .notice strong { margin-bottom: 2px; font-size: 12px; }
 .notice-error { color: var(--danger); background: var(--danger-soft); }
 .notice-warning { color: var(--warning); background: var(--warning-soft); }
+.confirmation-dialog { width: min(430px, calc(100vw - 40px)); padding: 0; border: 0; border-radius: 16px; color: var(--ink); background: var(--surface-strong); box-shadow: 0 26px 72px color-mix(in srgb, var(--ink) 28%, transparent); }
+.confirmation-dialog::backdrop { background: color-mix(in srgb, var(--ink) 42%, transparent); backdrop-filter: blur(2px); }
+.confirmation-dialog form { padding: 25px; }
+.confirmation-icon { display: grid; width: 36px; height: 36px; margin-bottom: 16px; place-items: center; border-radius: 10px; color: var(--warning); background: var(--warning-soft); }
+.confirmation-icon.verified { color: var(--success); background: var(--success-soft); }
+.confirmation-icon svg { width: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.confirmation-dialog h2 { margin: 0; font-family: "Newsreader", "Noto Serif SC", serif; font-size: 19px; font-weight: 650; letter-spacing: -.025em; }
+.confirmation-dialog > form > p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.confirmation-endpoint { margin: 18px 0 0; border-top: 1px solid var(--line); }
+.confirmation-endpoint > div { display: grid; min-height: 38px; padding: 8px 0; align-items: center; grid-template-columns: 92px minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.confirmation-endpoint dt { color: var(--muted); font-size: 11px; }
+.confirmation-endpoint dd { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.confirmation-endpoint code { font: 11px/1.45 "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+.confirmation-dialog .confirmation-consequence { margin-top: 15px; color: var(--muted); }
+.confirmation-dialog .confirmation-consequence.warning { color: var(--warning); }
+.confirmation-actions { display: flex; margin-top: 22px; justify-content: flex-end; gap: 9px; }
+.warning-action { background: var(--warning); }
 .instance-toast { position: fixed; z-index: 40; top: 82px; right: 22px; display: flex; width: min(390px, calc(100vw - 44px)); padding: 12px 14px; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 13px; color: var(--ink); background: var(--surface-strong); box-shadow: 0 14px 34px rgba(62, 48, 34, .14); font-size: 12px; line-height: 1.5; }
 .instance-toast svg { width: 18px; flex: none; fill: none; stroke: var(--success); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .instance-toast-enter-active { transition: opacity .2s ease-out, transform .24s cubic-bezier(.16, 1, .3, 1); }
@@ -299,9 +329,12 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
   .proxy-action { min-height: 180px; }
   .proxy-action p { white-space: normal; }
   .client-layer .client-heading { grid-template-columns: 56px 1fr; }
-  .client-layer .endpoint-line { grid-column: 1 / -1; margin-top: 18px; align-items: flex-start; }
+  .client-layer .endpoint-line { width: 100%; margin-top: 18px; grid-column: 1 / -1; align-items: flex-start; }
   .environment-summary { grid-template-columns: 1fr; gap: 16px; }
   .environment-state { padding: 16px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+  .system-layer { align-items: stretch; flex-direction: column; gap: 16px; }
+  .system-state { min-width: 0; width: 100%; justify-content: start; text-align: left; }
+  .system-state-title { justify-content: flex-start; }
   .source-selector { grid-template-columns: 1fr; }
   .manual-endpoint { grid-template-columns: 1fr 1fr; }
   .manual-endpoint label:first-child { grid-column: 1 / -1; }

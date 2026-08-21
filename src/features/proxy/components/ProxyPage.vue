@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref } from "vue";
 import type { Copy } from "../../../shared/i18n";
-import type { EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, ProxyProtocol } from "../../../shared/types";
+import type { EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, ProxyProtocol } from "../../../shared/types";
+import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 
-const props = defineProps<{ copy: Copy; environment: EnvironmentStatus; detected?: ProxyCandidate; systemProxy?: ProxyCandidate; endpoint: string; error: string; loading: boolean; toggling: boolean; copiedEndpoint: boolean; selectedVariables: ManagedProxyVariable[] }>();
+const props = defineProps<{ copy: Copy; environment: EnvironmentStatus; detected?: ProxyCandidate; systemProxy?: ProxyCandidate; endpoint: string; error: string; loading: boolean; toggling: boolean; copiedEndpoint: boolean; selectedVariables: ManagedProxyVariable[]; inspectManualEndpoint: (endpoint: ProxyEndpoint) => Promise<ProxyEndpointInspection> }>();
 const emit = defineEmits<{ refresh: []; applyDetected: []; applyManual: [endpoint: ProxyEndpoint]; disable: []; restore: []; copyEndpoint: []; toggleVariable: [name: string] }>();
 
 const clientIcons: Record<string, string> = { "clash-verge-rev": "/proxy-clients/clash-verge-rev.png", v2rayn: "/proxy-clients/v2rayn.png", flclash: "/proxy-clients/flclash.ico", hiddify: "/proxy-clients/hiddify.ico", "clash-nyanpasu": "/proxy-clients/clash-nyanpasu.png", "generic-proxy": "/proxy-clients/generic-proxy.svg" };
@@ -11,17 +12,68 @@ const sourceMode = ref<"automatic" | "manual">("automatic");
 const manualHost = ref("127.0.0.1");
 const manualPort = ref("7897");
 const manualProtocol = ref<Exclude<ProxyProtocol, "unknown">>("mixed");
+const pendingManualEndpoint = ref<ProxyEndpoint>();
+const confirmationDialog = ref<HTMLDialogElement>();
+const manualAttempted = ref(false);
+const inspectingManual = ref(false);
+const inspectionWarning = ref<"notListening" | "unknownProtocol" | "protocolMismatch" | "inspectionFailed">();
 const activeCount = computed(() => props.environment.entries.filter((entry) => entry.exists).length);
 const detectedIcon = computed(() => props.detected ? clientIcons[props.detected.iconKey ?? ""] ?? clientIcons["generic-proxy"] : clientIcons["generic-proxy"]);
 const stateLabel = computed(() => ({ disabled: props.copy.environmentDisabled, partial: props.copy.environmentPartial, enabled: props.copy.environmentEnabled, mismatch: props.copy.environmentMismatch })[props.environment.state]);
 const stateHint = computed(() => ({ disabled: props.copy.environmentOffHint, partial: props.copy.partialHint, enabled: props.copy.environmentOnHint, mismatch: props.copy.mismatchHint })[props.environment.state]);
 const canApplyAutomatic = computed(() => Boolean(props.detected?.listening));
+const manualHostValid = computed(() => {
+  const host = manualHost.value.trim();
+  return host.length > 0 && !/\s|\/|\\/.test(host) && !host.includes("://");
+});
 const manualPortValid = computed(() => { const port = Number(manualPort.value); return Number.isInteger(port) && port >= 1 && port <= 65535; });
-const manualValid = computed(() => manualHost.value.trim().length > 0 && manualPortValid.value);
+const manualValid = computed(() => manualHostValid.value && manualPortValid.value);
+const inspectionWarningText = computed(() => inspectionWarning.value ? ({
+  notListening: props.copy.manualNotListening,
+  unknownProtocol: props.copy.manualProtocolUnknown,
+  protocolMismatch: props.copy.manualProtocolMismatch,
+  inspectionFailed: props.copy.manualInspectionFailed
+})[inspectionWarning.value] : "");
 
-watch(() => props.detected, (candidate) => { if (!candidate) return; manualHost.value = candidate.host; manualPort.value = String(candidate.port); if (candidate.protocol !== "unknown") manualProtocol.value = candidate.protocol; }, { immediate: true });
+function protocolsCompatible(selected: ProxyProtocol, detected: ProxyProtocol): boolean {
+  return selected === detected
+    || detected === "mixed" && (selected === "http" || selected === "socks5");
+}
 
-function applyManual() { if (manualValid.value) emit("applyManual", { host: manualHost.value.trim(), port: Number(manualPort.value), protocol: manualProtocol.value }); }
+function matchesDetectedEndpoint(endpoint: ProxyEndpoint): boolean {
+  if (!props.detected?.listening) return false;
+  const host = endpoint.host.toLowerCase();
+  const detectedHost = props.detected.host.toLowerCase();
+  const sameHost = host === detectedHost
+    || [host, detectedHost].every((value) => value === "localhost" || value === "127.0.0.1" || value === "::1");
+  return sameHost && endpoint.port === props.detected.port;
+}
+
+async function requestManualApply() {
+  manualAttempted.value = true;
+  if (!manualValid.value) return;
+  pendingManualEndpoint.value = { host: manualHost.value.trim(), port: Number(manualPort.value), protocol: manualProtocol.value };
+  inspectionWarning.value = undefined;
+  inspectingManual.value = true;
+  try {
+    if (matchesDetectedEndpoint(pendingManualEndpoint.value)) {
+      if (!protocolsCompatible(pendingManualEndpoint.value.protocol, props.detected!.protocol)) inspectionWarning.value = "protocolMismatch";
+    } else {
+      const inspection = await props.inspectManualEndpoint(pendingManualEndpoint.value);
+      if (!inspection.listening) inspectionWarning.value = "notListening";
+      else if (inspection.detectedProtocol === "unknown") inspectionWarning.value = "unknownProtocol";
+      else if (!inspection.protocolMatches) inspectionWarning.value = "protocolMismatch";
+    }
+  } catch {
+    inspectionWarning.value = "inspectionFailed";
+  } finally {
+    inspectingManual.value = false;
+  }
+  await nextTick();
+  confirmationDialog.value?.showModal();
+}
+function cancelManualApply() { confirmationDialog.value?.close(); pendingManualEndpoint.value = undefined; inspectionWarning.value = undefined; }
+function confirmManualApply() { if (pendingManualEndpoint.value) emit("applyManual", pendingManualEndpoint.value); cancelManualApply(); }
 function managedVariableKey(name: string): ManagedProxyVariable | undefined { const normalized = name.toUpperCase(); if (normalized === "HTTP_PROXY") return "http"; if (normalized === "HTTPS_PROXY") return "https"; if (normalized === "ALL_PROXY") return "all"; return undefined; }
 function variableDescription(name: string): string { const normalized = name.toUpperCase(); if (normalized === "HTTP_PROXY") return props.copy.httpProxyDescription; if (normalized === "HTTPS_PROXY") return props.copy.httpsProxyDescription; if (normalized === "ALL_PROXY") return props.copy.allProxyDescription; return props.copy.noProxyDescription; }
 function variableActionLabel(name: string, action: "write" | "about"): string { return (action === "write" ? props.copy.writeVariable : props.copy.aboutVariable).replace("{name}", name); }
@@ -44,9 +96,9 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
         <div v-else class="empty-state"><span class="client-art generic"><img :src="detectedIcon" alt="" /></span><div><h1>{{ loading ? copy.detecting : copy.noProxy }}</h1><p>{{ copy.noProxyHint }}</p></div></div>
       </div>
 
-      <div class="layer-row system-layer">
-        <div><h2>{{ copy.windowsSystemProxy }}</h2><p>{{ copy.systemProxyReadOnly }}</p></div>
-        <div class="system-state" :class="{ active: systemProxy }"><span class="status-dot" :class="{ quiet: !systemProxy }"></span><div><strong>{{ systemProxy ? copy.systemProxyOn : copy.systemProxyOff }}</strong><code v-if="systemProxy">{{ systemProxy.host }}:{{ systemProxy.port }}</code></div></div>
+      <div class="layer-row system-layer" :class="{ active: systemProxy }">
+        <div class="system-heading"><span class="system-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5 10.6 4v7H4v-5.5Zm8.1-1.8L20 2v9h-7.9V3.7ZM4 12.6h6.6v7L4 18.2v-5.6Zm8.1 0H20v9l-7.9-1.7v-7.3Z" /></svg></span><div><h2>{{ copy.windowsSystemProxy }}</h2><p>{{ copy.systemProxyReadOnly }}</p></div></div>
+        <div class="system-state"><span class="system-state-mark" aria-hidden="true"><svg v-if="systemProxy" viewBox="0 0 20 20"><path d="m4.5 10.2 3.2 3.2 7.8-7.8" /></svg><svg v-else viewBox="0 0 20 20"><path d="m6 6 8 8m0-8-8 8" /></svg></span><div class="system-state-copy"><div class="system-state-title"><strong>{{ systemProxy ? copy.systemProxyOn : copy.systemProxyOff }}</strong><span class="read-only-badge"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="8.5" width="10" height="7.5" rx="2"/><path d="M7.5 8.5V6.7a2.5 2.5 0 0 1 5 0v1.8"/></svg>{{ copy.readOnly }}</span></div><code v-if="systemProxy">{{ systemProxy.host }}:{{ systemProxy.port }}</code><span v-else>{{ copy.systemProxyDirect }}</span></div></div>
       </div>
 
       <div class="environment-layer" :class="`state-${environment.state}`">
@@ -55,11 +107,11 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
           <button type="button" :class="{ active: sourceMode === 'automatic' }" @click="sourceMode = 'automatic'"><span></span><strong>{{ copy.autoDetect }}</strong><small>{{ detected ? endpoint : copy.noProxy }}</small></button>
           <button type="button" :class="{ active: sourceMode === 'manual' }" @click="sourceMode = 'manual'"><span></span><strong>{{ copy.manualProxy }}</strong><small>{{ copy.manualProxyHint }}</small></button>
         </div>
-        <form v-if="sourceMode === 'manual'" class="manual-endpoint" @submit.prevent="applyManual">
-          <label><span>{{ copy.host }}</span><input v-model="manualHost" autocomplete="off" spellcheck="false" placeholder="127.0.0.1" /></label>
-          <label><span>{{ copy.port }}</span><input v-model="manualPort" inputmode="numeric" autocomplete="off" placeholder="7897" :aria-invalid="!manualPortValid" /></label>
-          <label><span>{{ copy.protocol }}</span><select v-model="manualProtocol"><option value="http">HTTP</option><option value="socks5">SOCKS5</option><option value="mixed">Mixed</option></select></label>
-          <button class="primary-action" type="submit" :disabled="!manualValid || toggling">{{ toggling ? copy.enabling : copy.applyManualProxy }}</button>
+        <form v-if="sourceMode === 'manual'" class="manual-endpoint" @submit.prevent="requestManualApply">
+          <label><span class="field-label"><span>{{ copy.host }}</span><HelpTooltip :label="copy.aboutHost" :text="copy.hostDescription" /></span><input v-model="manualHost" autocomplete="off" spellcheck="false" placeholder="127.0.0.1" :aria-invalid="manualAttempted && !manualHostValid" aria-describedby="manual-host-error" /><small v-if="manualAttempted && !manualHostValid" id="manual-host-error" class="field-error">{{ copy.invalidHost }}</small></label>
+          <label><span class="field-label"><span>{{ copy.port }}</span><HelpTooltip :label="copy.aboutPort" :text="copy.portDescription" /></span><input v-model="manualPort" inputmode="numeric" autocomplete="off" placeholder="7897" :aria-invalid="manualAttempted && !manualPortValid" aria-describedby="manual-port-error" /><small v-if="manualAttempted && !manualPortValid" id="manual-port-error" class="field-error">{{ copy.invalidPort }}</small></label>
+          <label><span class="field-label"><span>{{ copy.protocol }}</span><HelpTooltip :label="copy.aboutProtocol" :text="copy.protocolDescription" /></span><select v-model="manualProtocol"><option value="http">HTTP</option><option value="socks5">SOCKS5</option><option value="mixed">Mixed</option></select></label>
+          <button class="primary-action" type="submit" :disabled="toggling || inspectingManual">{{ inspectingManual ? copy.checkingEndpoint : toggling ? copy.enabling : copy.applyManualProxy }}</button>
         </form>
         <div v-else class="environment-actions">
           <button v-if="environment.state === 'disabled' || environment.state === 'mismatch' || !environment.matchesActiveProxy" class="primary-action" type="button" :disabled="!canApplyAutomatic || toggling" @click="emit('applyDetected')">{{ toggling ? copy.enabling : environment.state === 'mismatch' ? copy.syncToActive : copy.applyDetectedProxy }}</button>
@@ -74,7 +126,7 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
       <div v-if="environment.entries.length" class="variable-table">
         <div v-for="entry in environment.entries" :key="entry.name" class="variable-row">
           <span class="variable-indicator" :class="{ active: entry.exists }"></span>
-          <div class="variable-label"><code class="variable-name">{{ entry.name }}</code><span class="variable-help" tabindex="0" :aria-label="variableActionLabel(entry.name, 'about')" :aria-describedby="`variable-help-${entry.name}`"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M7.9 7.8a2.25 2.25 0 0 1 4.3.9c0 1.55-2.2 1.75-2.2 3.2M10 14.6v.01"/></svg><p :id="`variable-help-${entry.name}`" role="tooltip">{{ variableDescription(entry.name) }}</p></span></div>
+          <div class="variable-label"><code class="variable-name">{{ entry.name }}</code><HelpTooltip :label="variableActionLabel(entry.name, 'about')" :text="variableDescription(entry.name)" /></div>
           <code class="variable-value" :class="{ unset: !entry.exists }">{{ entry.value ?? copy.unset }}</code>
           <label v-if="managedVariableKey(entry.name)" class="variable-choice" :class="{ locked: isLastManagedVariable(entry.name) }"><input type="checkbox" :checked="isManagedVariableSelected(entry.name)" :disabled="isLastManagedVariable(entry.name)" :aria-label="variableActionLabel(entry.name, 'write')" @change="emit('toggleVariable', entry.name)" /><span aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m4 8.2 2.5 2.5L12 5.5"/></svg></span></label><span v-else class="variable-choice-spacer"></span>
         </div>
@@ -82,5 +134,24 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
       <div v-else class="skeleton-list" :aria-label="copy.detecting"><span v-for="item in 4" :key="item"></span></div>
       <p class="table-caption">{{ activeCount }} / {{ environment.entries.length }} · {{ copy.localOnly }}</p>
     </section>
+
+    <dialog ref="confirmationDialog" class="confirmation-dialog" @cancel="cancelManualApply">
+      <form method="dialog" @submit.prevent>
+        <div class="confirmation-icon" :class="{ verified: !inspectionWarning }" aria-hidden="true"><svg v-if="inspectionWarning" viewBox="0 0 24 24"><path d="M12 8v5m0 3.5v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg><svg v-else viewBox="0 0 24 24"><path d="m7 12.3 3.2 3.2L17.5 8M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></div>
+        <h2>{{ inspectionWarning ? copy.manualWarningTitle : copy.manualConfirmTitle }}</h2>
+        <p>{{ inspectionWarning ? inspectionWarningText : copy.manualConfirmBody }}</p>
+        <dl v-if="pendingManualEndpoint" class="confirmation-endpoint">
+          <div><dt>{{ copy.host }}</dt><dd><code>{{ pendingManualEndpoint.host }}</code></dd></div>
+          <div><dt>{{ copy.port }}</dt><dd><code>{{ pendingManualEndpoint.port }}</code></dd></div>
+          <div><dt>{{ copy.protocol }}</dt><dd><code>{{ pendingManualEndpoint.protocol }}</code></dd></div>
+          <div><dt>{{ copy.variables }}</dt><dd><code>{{ selectedVariables.join(', ') }}</code></dd></div>
+        </dl>
+        <p class="confirmation-consequence" :class="{ warning: inspectionWarning }">{{ inspectionWarning ? copy.manualOverrideConsequence : copy.manualConfirmConsequence }}</p>
+        <div class="confirmation-actions">
+          <button class="secondary-action" type="button" autofocus @click="cancelManualApply">{{ inspectionWarning ? copy.backToEdit : copy.cancel }}</button>
+          <button class="primary-action" :class="{ 'warning-action': inspectionWarning }" type="button" @click="confirmManualApply">{{ inspectionWarning ? copy.applyAnyway : copy.confirmApply }}</button>
+        </div>
+      </form>
+    </dialog>
   </main>
 </template>
