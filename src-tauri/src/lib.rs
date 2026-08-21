@@ -47,6 +47,7 @@ pub fn run() {
             commands::environment::disable_proxy_environment,
             commands::environment::restore_proxy_environment,
             commands::proxy::detect_proxies,
+            commands::proxy::inspect_proxy_endpoint,
             commands::settings::get_app_settings,
             commands::settings::save_app_settings,
         ])

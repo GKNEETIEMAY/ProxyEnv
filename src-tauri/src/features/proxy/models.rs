@@ -20,6 +20,14 @@ pub struct ProxyEndpoint {
     pub protocol: ProxyProtocol,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyEndpointInspection {
+    pub listening: bool,
+    pub detected_protocol: ProxyProtocol,
+    pub protocol_matches: bool,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyVariable {

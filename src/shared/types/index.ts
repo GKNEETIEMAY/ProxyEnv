@@ -30,6 +30,12 @@ export interface ProxyEndpoint {
   protocol: ProxyProtocol;
 }
 
+export interface ProxyEndpointInspection {
+  listening: boolean;
+  detectedProtocol: ProxyProtocol;
+  protocolMatches: boolean;
+}
+
 export interface ProxyCandidate {
   id: string;
   clientName?: string;

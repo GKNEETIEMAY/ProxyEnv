@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, EnvironmentStatus, ProxyCandidate, ProxyEndpoint } from "../types";
+import type { AppSettings, EnvironmentStatus, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection } from "../types";
 
 export const backend = {
   environmentStatus: () => invoke<EnvironmentStatus>("get_environment_status"),
@@ -12,6 +12,7 @@ export const backend = {
     protocol: proxy.protocol
   }),
   syncManualProxyEnvironment: (endpoint: ProxyEndpoint) => invoke<EnvironmentStatus>("sync_manual_proxy_environment", { endpoint }),
+  inspectProxyEndpoint: (endpoint: ProxyEndpoint) => invoke<ProxyEndpointInspection>("inspect_proxy_endpoint", { endpoint }),
   disableProxyEnvironment: () => invoke<EnvironmentStatus>("disable_proxy_environment"),
   restoreProxyEnvironment: () => invoke<EnvironmentStatus>("restore_proxy_environment"),
   detectProxies: () => invoke<ProxyCandidate[]>("detect_proxies"),
