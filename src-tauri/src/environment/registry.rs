@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
 use crate::error::{ProxyEnvError, Result};
 
-use super::EnvironmentEntry;
+use super::{EnvironmentEntry, EnvironmentMutation, EnvironmentScope};
 
 #[cfg(windows)]
 mod platform {
@@ -102,42 +100,35 @@ mod platform {
         Ok(Some(String::from_utf16_lossy(&words)))
     }
 
-    pub fn read_entries(names: &[&str]) -> Result<Vec<EnvironmentEntry>> {
+    pub fn read_entries(
+        names: &[String],
+        scope: EnvironmentScope,
+    ) -> Result<Vec<EnvironmentEntry>> {
         let key = open(KEY_READ)?;
         names
             .iter()
             .map(|name| {
                 let value = read_value(key.0, name)?;
                 Ok(EnvironmentEntry {
-                    name: (*name).into(),
+                    name: name.clone(),
                     exists: value.is_some(),
                     value,
+                    scope,
                 })
             })
             .collect()
     }
 
-    pub fn delete_entries(names: &[&str]) -> Result<()> {
+    pub fn apply_mutations(
+        mutations: &[EnvironmentMutation],
+        _scope: EnvironmentScope,
+    ) -> Result<()> {
         let key = open(KEY_SET_VALUE)?;
-        for name in names {
-            let name = wide(name);
-            let result = unsafe { RegDeleteValueW(key.0, PCWSTR(name.as_ptr())) };
-            if result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND {
-                return Err(ProxyEnvError::RegistryWrite(registry_error(
-                    "delete environment value",
-                    result,
-                )));
-            }
-        }
-        Ok(())
-    }
-
-    pub fn restore_entries(values: &HashMap<String, Option<String>>) -> Result<()> {
-        let key = open(KEY_SET_VALUE)?;
-        for (name, value) in values {
+        for mutation in mutations {
+            let name = mutation.name();
             let name_wide = wide(name);
-            match value {
-                Some(value) => {
+            match mutation {
+                EnvironmentMutation::Set { value, .. } => {
                     let value_wide = wide(value);
                     let bytes = unsafe {
                         std::slice::from_raw_parts(
@@ -155,7 +146,7 @@ mod platform {
                         )));
                     }
                 }
-                None => {
+                EnvironmentMutation::Delete { .. } => {
                     let result = unsafe { RegDeleteValueW(key.0, PCWSTR(name_wide.as_ptr())) };
                     if result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND {
                         return Err(ProxyEnvError::RegistryWrite(registry_error(
@@ -173,13 +164,10 @@ mod platform {
 #[cfg(not(windows))]
 mod platform {
     use super::*;
-    pub fn read_entries(_: &[&str]) -> Result<Vec<EnvironmentEntry>> {
+    pub fn read_entries(_: &[String], _: EnvironmentScope) -> Result<Vec<EnvironmentEntry>> {
         Err(ProxyEnvError::UnsupportedPlatform)
     }
-    pub fn delete_entries(_: &[&str]) -> Result<()> {
-        Err(ProxyEnvError::UnsupportedPlatform)
-    }
-    pub fn restore_entries(_: &HashMap<String, Option<String>>) -> Result<()> {
+    pub fn apply_mutations(_: &[EnvironmentMutation], _: EnvironmentScope) -> Result<()> {
         Err(ProxyEnvError::UnsupportedPlatform)
     }
 }

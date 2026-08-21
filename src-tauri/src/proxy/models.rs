@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::environment::EnvironmentEntry;
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -45,4 +47,12 @@ pub struct ProxyCandidate {
     pub source: Vec<DetectionSource>,
     pub confidence: Confidence,
     pub listening: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyEnvironmentStatus {
+    pub enabled: bool,
+    pub entries: Vec<EnvironmentEntry>,
+    pub warning: Option<String>,
 }

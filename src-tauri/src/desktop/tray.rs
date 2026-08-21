@@ -5,8 +5,7 @@ use tauri::{
 };
 
 use crate::{
-    environment::EnvironmentManager,
-    proxy,
+    proxy::{self, ProxyEnvironmentService},
     services::settings::{self, AppSettings},
 };
 
@@ -54,7 +53,7 @@ fn labels(language: &str) -> TrayLabels {
 pub fn setup<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::Result<()> {
     let language = settings.clone().resolved_language();
     let labels = labels(language);
-    let enabled = EnvironmentManager::status()
+    let enabled = ProxyEnvironmentService::status()
         .map(|status| status.enabled)
         .unwrap_or(false);
     let proxy_toggle = CheckMenuItemBuilder::with_id(PROXY_TOGGLE_ID, labels.proxy)
@@ -118,23 +117,23 @@ pub fn hide_main_window<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn toggle_proxy<R: Runtime>(app: &AppHandle<R>) {
-    let result = EnvironmentManager::status().and_then(|status| {
+    let result = ProxyEnvironmentService::status().and_then(|status| {
         let settings = settings::load()?;
         if status.enabled {
-            EnvironmentManager::disable()
+            ProxyEnvironmentService::disable()
         } else {
             let candidate = proxy::detect()?
                 .into_iter()
                 .find(|candidate| candidate.listening);
             if let Some(candidate) = candidate {
-                EnvironmentManager::enable_for_proxy(
+                ProxyEnvironmentService::enable_for_proxy(
                     &candidate.host,
                     candidate.port,
                     candidate.protocol,
                     &settings.proxy_variables,
                 )
             } else {
-                EnvironmentManager::enable(&settings.proxy_variables)
+                ProxyEnvironmentService::enable(&settings.proxy_variables)
             }
         }
     });
@@ -145,7 +144,7 @@ fn toggle_proxy<R: Runtime>(app: &AppHandle<R>) {
         }
         Err(error) => {
             let _ = app.emit("operation-error", error.to_string());
-            if let Ok(status) = EnvironmentManager::status() {
+            if let Ok(status) = ProxyEnvironmentService::status() {
                 update_proxy_state(app, status.enabled);
             }
         }
