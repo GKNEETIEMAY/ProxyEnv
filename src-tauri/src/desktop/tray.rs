@@ -53,7 +53,10 @@ fn labels(language: &str) -> TrayLabels {
 pub fn setup<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::Result<()> {
     let language = settings.clone().resolved_language();
     let labels = labels(language);
-    let enabled = ProxyEnvironmentService::status(&settings.proxy_variables)
+    let active = proxy::detect()
+        .ok()
+        .and_then(|candidates| candidates.into_iter().find(|candidate| candidate.listening));
+    let enabled = ProxyEnvironmentService::status(&settings.proxy_variables, active)
         .map(|status| status.state.is_configured())
         .unwrap_or(false);
     let proxy_toggle = CheckMenuItemBuilder::with_id(PROXY_TOGGLE_ID, labels.proxy)
@@ -118,25 +121,27 @@ pub fn hide_main_window<R: Runtime>(app: &AppHandle<R>) {
 
 fn toggle_proxy<R: Runtime>(app: &AppHandle<R>) {
     let result = settings::load().and_then(|settings| {
-        ProxyEnvironmentService::status(&settings.proxy_variables).and_then(|status| {
-            if status.state.is_configured() {
-                ProxyEnvironmentService::disable()
-            } else {
-                let candidate = proxy::detect()?
-                    .into_iter()
-                    .find(|candidate| candidate.listening);
-                if let Some(candidate) = candidate {
-                    ProxyEnvironmentService::sync(
-                        &candidate.host,
-                        candidate.port,
-                        candidate.protocol,
-                        &settings.proxy_variables,
-                    )
+        let active = proxy::detect()?
+            .into_iter()
+            .find(|candidate| candidate.listening);
+        ProxyEnvironmentService::status(&settings.proxy_variables, active.clone()).and_then(
+            |status| {
+                if status.state.is_configured() {
+                    ProxyEnvironmentService::disable()
                 } else {
-                    Err(crate::error::ProxyEnvError::ActiveProxyMissing)
+                    if let Some(candidate) = active {
+                        ProxyEnvironmentService::sync(
+                            &candidate.host,
+                            candidate.port,
+                            candidate.protocol,
+                            &settings.proxy_variables,
+                        )
+                    } else {
+                        Err(crate::error::ProxyEnvError::ActiveProxyMissing)
+                    }
                 }
-            }
-        })
+            },
+        )
     });
     match result {
         Ok(status) => {
@@ -146,7 +151,12 @@ fn toggle_proxy<R: Runtime>(app: &AppHandle<R>) {
         Err(error) => {
             let _ = app.emit("operation-error", error.to_string());
             if let Ok(settings) = settings::load() {
-                if let Ok(status) = ProxyEnvironmentService::status(&settings.proxy_variables) {
+                let active = proxy::detect().ok().and_then(|candidates| {
+                    candidates.into_iter().find(|candidate| candidate.listening)
+                });
+                if let Ok(status) =
+                    ProxyEnvironmentService::status(&settings.proxy_variables, active)
+                {
                     update_proxy_state(app, status.state.is_configured());
                 }
             }

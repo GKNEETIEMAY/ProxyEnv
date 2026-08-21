@@ -7,7 +7,8 @@ mod service;
 mod system_proxy;
 
 pub use models::{
-    ProxyCandidate, ProxyEnvironmentState, ProxyEnvironmentStatus, ProxyProtocol, ProxyVariable,
+    ProxyCandidate, ProxyEndpoint, ProxyEnvironmentState, ProxyEnvironmentStatus, ProxyProtocol,
+    ProxyVariable,
 };
 pub use service::ProxyEnvironmentService;
 

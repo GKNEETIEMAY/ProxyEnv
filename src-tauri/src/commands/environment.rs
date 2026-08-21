@@ -3,14 +3,19 @@ use tauri::AppHandle;
 use crate::{
     desktop::tray,
     error::Result,
-    features::proxy::{ProxyEnvironmentService, ProxyEnvironmentStatus, ProxyProtocol},
+    features::proxy::{
+        self, ProxyEndpoint, ProxyEnvironmentService, ProxyEnvironmentStatus, ProxyProtocol,
+    },
     services::settings,
 };
 
 #[tauri::command]
 pub async fn get_environment_status() -> Result<ProxyEnvironmentStatus> {
     let settings = settings::load()?;
-    ProxyEnvironmentService::status(&settings.proxy_variables)
+    let active = proxy::detect()?
+        .into_iter()
+        .find(|candidate| candidate.listening);
+    ProxyEnvironmentService::status(&settings.proxy_variables, active)
 }
 
 #[tauri::command]
@@ -39,11 +44,25 @@ pub async fn sync_proxy_environment(
     protocol: ProxyProtocol,
 ) -> Result<ProxyEnvironmentStatus> {
     let settings = settings::load()?;
-    let status = ProxyEnvironmentService::status(&settings.proxy_variables)?;
+    let active = proxy::detect()?
+        .into_iter()
+        .find(|candidate| candidate.listening);
+    let status = ProxyEnvironmentService::status(&settings.proxy_variables, active)?;
     if !status.state.is_configured() {
         return Ok(status);
     }
     let status = ProxyEnvironmentService::sync(&host, port, protocol, &settings.proxy_variables)?;
+    tray::update_proxy_state(&app, status.state.is_configured());
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn sync_manual_proxy_environment(
+    app: AppHandle,
+    endpoint: ProxyEndpoint,
+) -> Result<ProxyEnvironmentStatus> {
+    let settings = settings::load()?;
+    let status = ProxyEnvironmentService::sync_manual(&endpoint, &settings.proxy_variables)?;
     tray::update_proxy_state(&app, status.state.is_configured());
     Ok(status)
 }

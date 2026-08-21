@@ -12,6 +12,14 @@ pub enum ProxyProtocol {
     Unknown,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyEndpoint {
+    pub host: String,
+    pub port: u16,
+    pub protocol: ProxyProtocol,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyVariable {
@@ -62,6 +70,10 @@ pub struct ProxyCandidate {
 pub struct ProxyEnvironmentStatus {
     pub state: ProxyEnvironmentState,
     pub entries: Vec<EnvironmentEntry>,
+    pub selected_variables: Vec<ProxyVariable>,
+    pub active_candidate: Option<ProxyCandidate>,
+    pub matches_active_proxy: bool,
+    pub snapshot_available: bool,
     pub warning: Option<String>,
 }
 

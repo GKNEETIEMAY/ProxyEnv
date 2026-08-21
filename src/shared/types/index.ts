@@ -16,7 +16,17 @@ export interface EnvironmentEntry {
 export interface EnvironmentStatus {
   state: "disabled" | "partial" | "enabled" | "mismatch";
   entries: EnvironmentEntry[];
+  selectedVariables: ManagedProxyVariable[];
+  activeCandidate?: ProxyCandidate;
+  matchesActiveProxy: boolean;
+  snapshotAvailable: boolean;
   warning?: string;
+}
+
+export interface ProxyEndpoint {
+  host: string;
+  port: number;
+  protocol: ProxyProtocol;
 }
 
 export interface ProxyCandidate {

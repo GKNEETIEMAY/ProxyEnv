@@ -21,6 +21,8 @@ pub enum ProxyEnvError {
     Detection(String),
     #[error("no active proxy endpoint is available")]
     ActiveProxyMissing,
+    #[error("invalid proxy endpoint: {0}")]
+    InvalidProxyEndpoint(String),
     #[error("failed to read application settings: {0}")]
     SettingsRead(String),
     #[error("failed to save application settings: {0}")]

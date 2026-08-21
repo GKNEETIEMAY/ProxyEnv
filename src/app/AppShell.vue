@@ -34,7 +34,13 @@ const instanceNoticeVisible = ref(false);
 const appVersion = ref("0.1.0");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
-const environment = ref<EnvironmentStatus>({ state: "disabled", entries: [] });
+const environment = ref<EnvironmentStatus>({
+  state: "disabled",
+  entries: [],
+  selectedVariables: [...defaultSettings.proxyVariables],
+  matchesActiveProxy: false,
+  snapshotAvailable: false
+});
 const candidates = ref<ProxyCandidate[]>([]);
 const draftSettings = ref<AppSettings>({ ...defaultSettings });
 const maximized = ref(false);
@@ -284,6 +290,9 @@ onMounted(async () => {
     draftSettings.value = copySettings({ ...defaultSettings, language: "zh-CN" });
     environment.value = {
       state: "enabled",
+      selectedVariables: ["http", "https"],
+      matchesActiveProxy: true,
+      snapshotAvailable: true,
       entries: [
         { name: "HTTP_PROXY", value: "http://127.0.0.1:10809", exists: true },
         { name: "HTTPS_PROXY", value: "http://127.0.0.1:10809", exists: true },
@@ -303,6 +312,7 @@ onMounted(async () => {
       confidence: "veryHigh",
       listening: true
     }];
+    environment.value.activeCandidate = candidates.value[0];
     const preview = new URLSearchParams(window.location.search).get("impeccable-review");
     if (preview === "settings" || preview === "about") {
       view.value = "settings";

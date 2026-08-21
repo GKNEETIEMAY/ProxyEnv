@@ -7,7 +7,10 @@ use crate::{
     error::{ProxyEnvError, Result},
 };
 
-use super::{ProxyEnvironmentState, ProxyEnvironmentStatus, ProxyProtocol, ProxyVariable};
+use super::{
+    ProxyCandidate, ProxyEndpoint, ProxyEnvironmentState, ProxyEnvironmentStatus, ProxyProtocol,
+    ProxyVariable,
+};
 
 #[cfg(windows)]
 const MANAGED_VARIABLES: &[&str] = &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
@@ -27,13 +30,36 @@ const DISPLAY_VARIABLES: &[&str] = &["NO_PROXY"];
 pub struct ProxyEnvironmentService;
 
 impl ProxyEnvironmentService {
-    pub fn status(selected: &[ProxyVariable]) -> Result<ProxyEnvironmentStatus> {
+    pub fn status(
+        selected: &[ProxyVariable],
+        active_candidate: Option<ProxyCandidate>,
+    ) -> Result<ProxyEnvironmentStatus> {
         let names = all_names();
         let entries = EnvironmentManager::read(&names, EnvironmentScope::User)?;
-        let state = environment_state(&entries, selected, false);
+        let expected = active_candidate.as_ref().map(|candidate| {
+            proxy_values(
+                &candidate.host,
+                candidate.port,
+                candidate.protocol,
+                selected,
+            )
+        });
+        let matches_active_proxy = expected
+            .as_ref()
+            .is_some_and(|expected| entries_match(expected, &entries));
+        let configured = entries
+            .iter()
+            .any(|entry| MANAGED_VARIABLES.contains(&entry.name.as_str()) && entry.exists);
+        let endpoint_mismatch = configured && expected.is_some() && !matches_active_proxy;
+        let state = environment_state(&entries, selected, endpoint_mismatch);
+        let snapshot_available = EnvironmentManager::latest_snapshot()?.is_some();
         Ok(ProxyEnvironmentStatus {
             state,
             entries,
+            selected_variables: selected.to_vec(),
+            active_candidate,
+            matches_active_proxy,
+            snapshot_available,
             warning: None,
         })
     }
@@ -50,14 +76,14 @@ impl ProxyEnvironmentService {
             .map(|name| EnvironmentMutation::Delete { name })
             .collect::<Vec<_>>();
         EnvironmentManager::apply(&mutations, EnvironmentScope::User)?;
-        Self::status(&[])
+        Self::status(&[], None)
     }
 
     pub fn restore(selected: &[ProxyVariable]) -> Result<ProxyEnvironmentStatus> {
         let snapshot =
             EnvironmentManager::latest_snapshot()?.ok_or(ProxyEnvError::SnapshotMissing)?;
         EnvironmentManager::restore(&snapshot)?;
-        Self::status(selected)
+        Self::status(selected, None)
     }
 
     pub fn sync(
@@ -69,7 +95,7 @@ impl ProxyEnvironmentService {
         let values = proxy_values(host, port, protocol, selected);
         let actual = EnvironmentManager::read(&managed_names(), EnvironmentScope::User)?;
         if entries_match(&values, &actual) {
-            return Self::status(selected);
+            return Self::status(selected, None);
         }
         EnvironmentManager::snapshot(
             &managed_names(),
@@ -81,8 +107,40 @@ impl ProxyEnvironmentService {
             .map(|(name, value)| mutation(name, value))
             .collect::<Vec<_>>();
         EnvironmentManager::apply(&mutations, EnvironmentScope::User)?;
-        Self::status(selected)
+        Self::status(selected, None)
     }
+
+    pub fn sync_manual(
+        endpoint: &ProxyEndpoint,
+        selected: &[ProxyVariable],
+    ) -> Result<ProxyEnvironmentStatus> {
+        validate_endpoint(endpoint)?;
+        Self::sync(
+            endpoint.host.trim(),
+            endpoint.port,
+            endpoint.protocol,
+            selected,
+        )
+    }
+}
+
+fn validate_endpoint(endpoint: &ProxyEndpoint) -> Result<()> {
+    if endpoint.host.trim().is_empty() {
+        return Err(ProxyEnvError::InvalidProxyEndpoint(
+            "host cannot be empty".into(),
+        ));
+    }
+    if endpoint.port == 0 {
+        return Err(ProxyEnvError::InvalidProxyEndpoint(
+            "port must be between 1 and 65535".into(),
+        ));
+    }
+    if matches!(endpoint.protocol, ProxyProtocol::Unknown) {
+        return Err(ProxyEnvError::InvalidProxyEndpoint(
+            "protocol must be HTTP, SOCKS5, or Mixed".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn environment_state(
@@ -282,6 +340,22 @@ mod tests {
         assert_eq!(values[MANAGED_VARIABLES[2]], None);
     }
 
+    #[test]
+    fn validates_manual_proxy_endpoints() {
+        let valid = ProxyEndpoint {
+            host: "127.0.0.1".into(),
+            port: 7897,
+            protocol: ProxyProtocol::Mixed,
+        };
+        assert!(validate_endpoint(&valid).is_ok());
+        assert!(validate_endpoint(&ProxyEndpoint {
+            host: "  ".into(),
+            ..valid.clone()
+        })
+        .is_err());
+        assert!(validate_endpoint(&ProxyEndpoint { port: 0, ..valid }).is_err());
+    }
+
     #[cfg(windows)]
     #[test]
     fn windows_uses_uppercase_variable_names() {
@@ -326,6 +400,30 @@ mod tests {
         );
         assert_eq!(
             environment_state(&enabled, &selected, true),
+            ProxyEnvironmentState::Mismatch
+        );
+    }
+
+    #[test]
+    fn detects_an_environment_endpoint_mismatch() {
+        let selected = [ProxyVariable::Http, ProxyVariable::Https];
+        let expected = proxy_values("127.0.0.1", 7897, ProxyProtocol::Http, &selected);
+        let actual = MANAGED_VARIABLES
+            .iter()
+            .map(|name| EnvironmentEntry {
+                name: (*name).to_owned(),
+                value: if name.eq_ignore_ascii_case("ALL_PROXY") {
+                    None
+                } else {
+                    Some("http://127.0.0.1:7890".into())
+                },
+                exists: !name.eq_ignore_ascii_case("ALL_PROXY"),
+                scope: EnvironmentScope::User,
+            })
+            .collect::<Vec<_>>();
+        assert!(!entries_match(&expected, &actual));
+        assert_eq!(
+            environment_state(&actual, &selected, true),
             ProxyEnvironmentState::Mismatch
         );
     }
