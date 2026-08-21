@@ -8,10 +8,15 @@ mod services;
 use desktop::tray;
 use services::settings;
 
+use tauri::Emitter;
 use tauri_plugin_autostart::MacosLauncher;
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main_window(app);
+            let _ = app.emit("second-instance-opened", ());
+        }))
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),

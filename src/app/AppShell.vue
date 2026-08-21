@@ -30,6 +30,7 @@ const error = ref("");
 const settingsError = ref("");
 const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
+const instanceNoticeVisible = ref(false);
 const appVersion = ref("0.1.0");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
@@ -42,6 +43,7 @@ const appWindow = getCurrentWindow();
 const reviewPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has("impeccable-review");
 let refreshTimer: number | undefined;
 let copyTimer: number | undefined;
+let instanceNoticeTimer: number | undefined;
 let refreshPending = false;
 let settingsSaveTimer: number | undefined;
 let settingsReady = false;
@@ -268,6 +270,14 @@ function onSystemThemeChange() {
   if (draftSettings.value.theme === "system") applyPresentation();
 }
 
+function showSecondInstanceNotice() {
+  instanceNoticeVisible.value = true;
+  if (instanceNoticeTimer !== undefined) window.clearTimeout(instanceNoticeTimer);
+  instanceNoticeTimer = window.setTimeout(() => {
+    instanceNoticeVisible.value = false;
+  }, 3200);
+}
+
 watch([draftSettings, locale], applyPresentation, { deep: true, immediate: true });
 watch(draftSettings, () => {
   if (!settingsReady || reviewPreview) return;
@@ -333,7 +343,8 @@ onMounted(async () => {
   systemDark.addEventListener("change", onSystemThemeChange);
   unlisten = await Promise.all([
     listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { environment.value = payload; }),
-    listen<string>("operation-error", ({ payload }) => { error.value = payload; })
+    listen<string>("operation-error", ({ payload }) => { error.value = payload; }),
+    listen("second-instance-opened", showSecondInstanceNotice)
   ]);
   await refresh();
   refreshTimer = window.setInterval(() => void refresh(true), 5000);
@@ -342,6 +353,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
   if (copyTimer !== undefined) window.clearTimeout(copyTimer);
+  if (instanceNoticeTimer !== undefined) window.clearTimeout(instanceNoticeTimer);
   if (settingsSaveTimer !== undefined) window.clearTimeout(settingsSaveTimer);
   unlistenResize?.();
   window.removeEventListener("keydown", onViewShortcut);
@@ -352,6 +364,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-frame" :class="{ maximized }">
+    <Transition name="instance-toast">
+      <div v-if="instanceNoticeVisible" class="instance-toast" role="status" aria-live="polite">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8" /></svg>
+        <span>{{ copy.secondInstanceOpened }}</span>
+      </div>
+    </Transition>
     <AppHeader
       :copy="copy"
       :maximized="maximized"
