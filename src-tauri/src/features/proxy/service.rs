@@ -155,21 +155,19 @@ fn proxy_values(
     protocol: ProxyProtocol,
     selected: &[ProxyVariable],
 ) -> HashMap<String, Option<String>> {
-    let scheme = if matches!(protocol, ProxyProtocol::Socks5) {
-        "socks5"
-    } else {
-        "http"
-    };
     let host = if host.contains(':') && !host.starts_with('[') {
         format!("[{host}]")
     } else {
         host.to_owned()
     };
-    let value = format!("{scheme}://{host}:{port}");
     MANAGED_VARIABLES
         .iter()
         .map(|name| {
-            let value = variable_is_selected(name, selected).then(|| value.clone());
+            let variable = variable_for_name(name);
+            let value = variable
+                .filter(|variable| selected.contains(variable))
+                .and_then(|variable| protocol_scheme(protocol, variable))
+                .map(|scheme| format!("{scheme}://{host}:{port}"));
             ((*name).to_owned(), value)
         })
         .collect()
@@ -186,6 +184,29 @@ fn variable_matches_name(variable: ProxyVariable, name: &str) -> bool {
         ProxyVariable::Http => name.eq_ignore_ascii_case("HTTP_PROXY"),
         ProxyVariable::Https => name.eq_ignore_ascii_case("HTTPS_PROXY"),
         ProxyVariable::All => name.eq_ignore_ascii_case("ALL_PROXY"),
+    }
+}
+
+fn variable_for_name(name: &str) -> Option<ProxyVariable> {
+    [
+        ProxyVariable::Http,
+        ProxyVariable::Https,
+        ProxyVariable::All,
+    ]
+    .into_iter()
+    .find(|variable| variable_matches_name(*variable, name))
+}
+
+fn protocol_scheme(protocol: ProxyProtocol, variable: ProxyVariable) -> Option<&'static str> {
+    match (protocol, variable) {
+        (
+            ProxyProtocol::Http | ProxyProtocol::Unknown,
+            ProxyVariable::Http | ProxyVariable::Https,
+        ) => Some("http"),
+        (ProxyProtocol::Socks5, ProxyVariable::All) => Some("socks5"),
+        (ProxyProtocol::Mixed, ProxyVariable::Http | ProxyVariable::Https) => Some("http"),
+        (ProxyProtocol::Mixed, ProxyVariable::All) => Some("socks5"),
+        _ => None,
     }
 }
 
@@ -217,6 +238,63 @@ mod tests {
             values[MANAGED_VARIABLES[2]].as_deref(),
             Some("socks5://[::1]:10808")
         );
+    }
+
+    #[test]
+    fn maps_http_socks5_and_mixed_protocols_to_compatible_variables() {
+        let selected = [
+            ProxyVariable::Http,
+            ProxyVariable::Https,
+            ProxyVariable::All,
+        ];
+        let http = proxy_values("127.0.0.1", 7890, ProxyProtocol::Http, &selected);
+        assert_eq!(
+            http[MANAGED_VARIABLES[0]].as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        assert_eq!(
+            http[MANAGED_VARIABLES[1]].as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        assert_eq!(http[MANAGED_VARIABLES[2]], None);
+
+        let socks = proxy_values("127.0.0.1", 10808, ProxyProtocol::Socks5, &selected);
+        assert_eq!(socks[MANAGED_VARIABLES[0]], None);
+        assert_eq!(socks[MANAGED_VARIABLES[1]], None);
+        assert_eq!(
+            socks[MANAGED_VARIABLES[2]].as_deref(),
+            Some("socks5://127.0.0.1:10808")
+        );
+
+        let mixed = proxy_values("127.0.0.1", 7897, ProxyProtocol::Mixed, &selected);
+        assert_eq!(
+            mixed[MANAGED_VARIABLES[0]].as_deref(),
+            Some("http://127.0.0.1:7897")
+        );
+        assert_eq!(
+            mixed[MANAGED_VARIABLES[1]].as_deref(),
+            Some("http://127.0.0.1:7897")
+        );
+        assert_eq!(
+            mixed[MANAGED_VARIABLES[2]].as_deref(),
+            Some("socks5://127.0.0.1:7897")
+        );
+    }
+
+    #[test]
+    fn selected_variables_still_limit_protocol_mapping() {
+        let values = proxy_values(
+            "127.0.0.1",
+            7897,
+            ProxyProtocol::Mixed,
+            &[ProxyVariable::Https],
+        );
+        assert_eq!(values[MANAGED_VARIABLES[0]], None);
+        assert_eq!(
+            values[MANAGED_VARIABLES[1]].as_deref(),
+            Some("http://127.0.0.1:7897")
+        );
+        assert_eq!(values[MANAGED_VARIABLES[2]], None);
     }
 
     #[cfg(windows)]
