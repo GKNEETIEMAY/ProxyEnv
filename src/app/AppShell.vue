@@ -10,7 +10,7 @@ import SettingsPage, {
 } from "../features/settings/components/SettingsPage.vue";
 import { backend } from "../shared/api/backend";
 import { messages, resolveLocale } from "../shared/i18n";
-import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate } from "../shared/types";
+import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint } from "../shared/types";
 import AppHeader from "./components/AppHeader.vue";
 
 const defaultSettings: AppSettings = {
@@ -45,8 +45,8 @@ const candidates = ref<ProxyCandidate[]>([]);
 const draftSettings = ref<AppSettings>({ ...defaultSettings });
 const maximized = ref(false);
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
-const appWindow = getCurrentWindow();
 const reviewPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has("impeccable-review");
+const appWindow = reviewPreview ? undefined : getCurrentWindow();
 let refreshTimer: number | undefined;
 let copyTimer: number | undefined;
 let instanceNoticeTimer: number | undefined;
@@ -61,6 +61,7 @@ let unlisten: UnlistenFn[] = [];
 const locale = computed(() => resolveLocale(draftSettings.value.language));
 const copy = computed(() => messages[locale.value]);
 const detected = computed(() => candidates.value.find((candidate) => candidate.listening) ?? candidates.value[0]);
+const systemProxy = computed(() => candidates.value.find((candidate) => candidate.source.includes("windowsSystemProxy")));
 const endpoint = computed(() => detected.value ? `${detected.value.host}:${detected.value.port}` : "");
 const updateMessage = computed(() => {
   if (updateState.value === "checking") return copy.value.checkingUpdates;
@@ -70,7 +71,6 @@ const updateMessage = computed(() => {
   if (updateState.value === "error") return copy.value.updateCheckFailed;
   return copy.value.notChecked;
 });
-const environmentConfigured = computed(() => environment.value.state !== "disabled");
 
 function applyPresentation() {
   const theme = draftSettings.value.theme === "system"
@@ -133,13 +133,49 @@ async function refresh(silent = false) {
   }
 }
 
-async function toggle() {
+async function applyDetectedProxy() {
   toggling.value = true;
   error.value = "";
   try {
-    environment.value = environmentConfigured.value
-      ? await backend.disableProxyEnvironment()
-      : await backend.enableProxyEnvironment(detected.value?.listening ? detected.value : undefined);
+    if (!detected.value?.listening) throw new Error(copy.value.noProxyHint);
+    environment.value = await backend.syncProxyEnvironment(detected.value);
+  } catch (cause) {
+    error.value = String(cause);
+  } finally {
+    toggling.value = false;
+  }
+}
+
+
+async function applyManualProxy(endpoint: ProxyEndpoint) {
+  toggling.value = true;
+  error.value = "";
+  try {
+    environment.value = await backend.syncManualProxyEnvironment(endpoint);
+  } catch (cause) {
+    error.value = String(cause);
+  } finally {
+    toggling.value = false;
+  }
+}
+
+async function disableEnvironment() {
+  toggling.value = true;
+  error.value = "";
+  try {
+    environment.value = await backend.disableProxyEnvironment();
+  } catch (cause) {
+    error.value = String(cause);
+  } finally {
+    toggling.value = false;
+  }
+}
+
+async function restoreEnvironment() {
+  toggling.value = true;
+  error.value = "";
+  try {
+    environment.value = await backend.restoreProxyEnvironment();
   } catch (cause) {
     error.value = String(cause);
   } finally {
@@ -226,17 +262,17 @@ function onViewShortcut(event: KeyboardEvent) {
 }
 
 async function minimizeWindow() {
-  await appWindow.minimize();
+  await appWindow?.minimize();
 }
 
 async function toggleMaximizeWindow() {
-  await appWindow.toggleMaximize();
-  maximized.value = await appWindow.isMaximized();
+  await appWindow?.toggleMaximize();
+  maximized.value = await appWindow?.isMaximized() ?? false;
   document.documentElement.classList.toggle("window-maximized", maximized.value);
 }
 
 async function closeWindow() {
-  await appWindow.close();
+  await appWindow?.close();
 }
 
 async function flushSettings() {
@@ -328,10 +364,10 @@ onMounted(async () => {
     settingsLoadError.value = String(cause);
   }
   settingsReady = true;
-  maximized.value = await appWindow.isMaximized();
+  maximized.value = await appWindow!.isMaximized();
   document.documentElement.classList.toggle("window-maximized", maximized.value);
-  unlistenResize = await appWindow.onResized(async () => {
-    maximized.value = await appWindow.isMaximized();
+  unlistenResize = await appWindow!.onResized(async () => {
+    maximized.value = await appWindow!.isMaximized();
     document.documentElement.classList.toggle("window-maximized", maximized.value);
   });
   systemDark.addEventListener("change", onSystemThemeChange);
@@ -382,6 +418,7 @@ onBeforeUnmount(() => {
       :copy="copy"
       :environment="environment"
       :detected="detected"
+      :system-proxy="systemProxy"
       :endpoint="endpoint"
       :error="error"
       :loading="loading"
@@ -389,7 +426,10 @@ onBeforeUnmount(() => {
       :copied-endpoint="copiedEndpoint"
       :selected-variables="draftSettings.proxyVariables"
       @refresh="refresh(false)"
-      @toggle="toggle"
+      @apply-detected="applyDetectedProxy"
+      @apply-manual="applyManualProxy"
+      @disable="disableEnvironment"
+      @restore="restoreEnvironment"
       @copy-endpoint="copyEndpoint"
       @toggle-variable="toggleManagedVariable"
     />
