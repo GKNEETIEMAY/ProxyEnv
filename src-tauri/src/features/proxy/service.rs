@@ -7,7 +7,7 @@ use crate::{
     error::{ProxyEnvError, Result},
 };
 
-use super::{ProxyEnvironmentStatus, ProxyProtocol, ProxyVariable};
+use super::{ProxyEnvironmentState, ProxyEnvironmentStatus, ProxyProtocol, ProxyVariable};
 
 #[cfg(windows)]
 const MANAGED_VARIABLES: &[&str] = &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
@@ -27,14 +27,12 @@ const DISPLAY_VARIABLES: &[&str] = &["NO_PROXY"];
 pub struct ProxyEnvironmentService;
 
 impl ProxyEnvironmentService {
-    pub fn status() -> Result<ProxyEnvironmentStatus> {
+    pub fn status(selected: &[ProxyVariable]) -> Result<ProxyEnvironmentStatus> {
         let names = all_names();
         let entries = EnvironmentManager::read(&names, EnvironmentScope::User)?;
-        let enabled = entries
-            .iter()
-            .any(|entry| MANAGED_VARIABLES.contains(&entry.name.as_str()) && entry.exists);
+        let state = environment_state(&entries, selected, false);
         Ok(ProxyEnvironmentStatus {
-            enabled,
+            state,
             entries,
             warning: None,
         })
@@ -52,7 +50,7 @@ impl ProxyEnvironmentService {
             .map(|name| EnvironmentMutation::Delete { name })
             .collect::<Vec<_>>();
         EnvironmentManager::apply(&mutations, EnvironmentScope::User)?;
-        Self::status()
+        Self::status(&[])
     }
 
     pub fn enable(selected: &[ProxyVariable]) -> Result<ProxyEnvironmentStatus> {
@@ -73,7 +71,7 @@ impl ProxyEnvironmentService {
             })
             .collect::<Vec<_>>();
         EnvironmentManager::apply(&mutations, EnvironmentScope::User)?;
-        Self::status()
+        Self::status(selected)
     }
 
     pub fn enable_for_proxy(
@@ -85,14 +83,47 @@ impl ProxyEnvironmentService {
         let values = proxy_values(host, port, protocol, selected);
         let actual = EnvironmentManager::read(&managed_names(), EnvironmentScope::User)?;
         if entries_match(&values, &actual) {
-            return Self::status();
+            return Self::status(selected);
         }
         let mutations = values
             .into_iter()
             .map(|(name, value)| mutation(name, value))
             .collect::<Vec<_>>();
         EnvironmentManager::apply(&mutations, EnvironmentScope::User)?;
-        Self::status()
+        Self::status(selected)
+    }
+}
+
+fn environment_state(
+    entries: &[EnvironmentEntry],
+    selected: &[ProxyVariable],
+    endpoint_mismatch: bool,
+) -> ProxyEnvironmentState {
+    let managed = entries
+        .iter()
+        .filter(|entry| MANAGED_VARIABLES.contains(&entry.name.as_str()))
+        .collect::<Vec<_>>();
+    if managed.iter().all(|entry| !entry.exists) {
+        return ProxyEnvironmentState::Disabled;
+    }
+    if endpoint_mismatch {
+        return ProxyEnvironmentState::Mismatch;
+    }
+    let selected_are_valid = !selected.is_empty()
+        && selected.iter().all(|variable| {
+            managed.iter().any(|entry| {
+                variable_matches_name(*variable, &entry.name)
+                    && entry.exists
+                    && entry
+                        .value
+                        .as_deref()
+                        .is_some_and(|value| !value.is_empty())
+            })
+        });
+    if selected_are_valid {
+        ProxyEnvironmentState::Enabled
+    } else {
+        ProxyEnvironmentState::Partial
     }
 }
 
@@ -145,14 +176,17 @@ fn proxy_values(
 }
 
 fn variable_is_selected(name: &str, selected: &[ProxyVariable]) -> bool {
-    let variable = if name.eq_ignore_ascii_case("HTTP_PROXY") {
-        ProxyVariable::Http
-    } else if name.eq_ignore_ascii_case("HTTPS_PROXY") {
-        ProxyVariable::Https
-    } else {
-        ProxyVariable::All
-    };
-    selected.contains(&variable)
+    selected
+        .iter()
+        .any(|variable| variable_matches_name(*variable, name))
+}
+
+fn variable_matches_name(variable: ProxyVariable, name: &str) -> bool {
+    match variable {
+        ProxyVariable::Http => name.eq_ignore_ascii_case("HTTP_PROXY"),
+        ProxyVariable::Https => name.eq_ignore_ascii_case("HTTPS_PROXY"),
+        ProxyVariable::All => name.eq_ignore_ascii_case("ALL_PROXY"),
+    }
 }
 
 fn entries_match(expected: &HashMap<String, Option<String>>, actual: &[EnvironmentEntry]) -> bool {
@@ -193,5 +227,43 @@ mod tests {
             &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"]
         );
         assert_eq!(DISPLAY_VARIABLES, &["NO_PROXY"]);
+    }
+
+    #[test]
+    fn classifies_disabled_partial_and_enabled_states() {
+        let entries = MANAGED_VARIABLES
+            .iter()
+            .map(|name| EnvironmentEntry {
+                name: (*name).to_owned(),
+                value: None,
+                exists: false,
+                scope: EnvironmentScope::User,
+            })
+            .collect::<Vec<_>>();
+        let selected = [ProxyVariable::Http, ProxyVariable::Https];
+        assert_eq!(
+            environment_state(&entries, &selected, false),
+            ProxyEnvironmentState::Disabled
+        );
+
+        let mut partial = entries.clone();
+        partial[0].exists = true;
+        partial[0].value = Some("http://127.0.0.1:7890".into());
+        assert_eq!(
+            environment_state(&partial, &selected, false),
+            ProxyEnvironmentState::Partial
+        );
+
+        let mut enabled = partial;
+        enabled[1].exists = true;
+        enabled[1].value = Some("http://127.0.0.1:7890".into());
+        assert_eq!(
+            environment_state(&enabled, &selected, false),
+            ProxyEnvironmentState::Enabled
+        );
+        assert_eq!(
+            environment_state(&enabled, &selected, true),
+            ProxyEnvironmentState::Mismatch
+        );
     }
 }

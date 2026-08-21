@@ -39,6 +39,7 @@ const detectedIcon = computed(() => props.detected
   ? clientIcons[props.detected.iconKey ?? ""] ?? clientIcons["generic-proxy"]
   : clientIcons["generic-proxy"]);
 const activeCount = computed(() => props.environment.entries.filter((entry) => entry.exists).length);
+const environmentConfigured = computed(() => props.environment.state !== "disabled");
 
 function managedVariableKey(name: string): ManagedProxyVariable | undefined {
   const normalized = name.toUpperCase();
@@ -82,7 +83,7 @@ function isLastManagedVariable(name: string): boolean {
       <p><strong>{{ copy.attention }}</strong><span>{{ environment.warning }}</span></p>
     </div>
 
-    <section class="proxy-stage" :class="{ enabled: environment.enabled }">
+    <section class="proxy-stage" :class="{ enabled: environmentConfigured }">
       <div class="proxy-identity">
         <span class="section-title">{{ copy.currentProxy }}</span>
         <div v-if="detected" class="client-heading">
@@ -111,12 +112,12 @@ function isLastManagedVariable(name: string): boolean {
       <div class="proxy-action">
         <div>
           <span class="section-title">{{ copy.proxyEnvironment }}</span>
-          <strong>{{ environment.enabled ? copy.enabled : copy.disabled }}</strong>
-          <p>{{ environment.enabled ? copy.environmentOnHint : copy.environmentOffHint }}</p>
+          <strong>{{ environmentConfigured ? copy.enabled : copy.disabled }}</strong>
+          <p>{{ environmentConfigured ? copy.environmentOnHint : copy.environmentOffHint }}</p>
         </div>
-        <button class="toggle-control" :class="{ active: environment.enabled }" type="button" :disabled="loading || toggling" :aria-pressed="environment.enabled" @click="emit('toggle')">
+        <button class="toggle-control" :class="{ active: environmentConfigured }" type="button" :disabled="loading || toggling" :aria-pressed="environmentConfigured" @click="emit('toggle')">
           <span class="toggle-track"><span></span></span>
-          <b>{{ toggling ? copy.enabling : environment.enabled ? copy.enabled : copy.disabled }}</b>
+          <b>{{ toggling ? copy.enabling : environmentConfigured ? copy.enabled : copy.disabled }}</b>
         </button>
       </div>
     </section>

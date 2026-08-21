@@ -9,7 +9,8 @@ use crate::{
 
 #[tauri::command]
 pub async fn get_environment_status() -> Result<ProxyEnvironmentStatus> {
-    ProxyEnvironmentService::status()
+    let settings = settings::load()?;
+    ProxyEnvironmentService::status(&settings.proxy_variables)
 }
 
 #[tauri::command]
@@ -29,7 +30,7 @@ pub async fn enable_proxy_environment(
         ),
         _ => ProxyEnvironmentService::enable(&settings.proxy_variables),
     }?;
-    tray::update_proxy_state(&app, status.enabled);
+    tray::update_proxy_state(&app, status.state.is_configured());
     Ok(status)
 }
 
@@ -40,24 +41,24 @@ pub async fn sync_proxy_environment(
     port: u16,
     protocol: ProxyProtocol,
 ) -> Result<ProxyEnvironmentStatus> {
-    let status = ProxyEnvironmentService::status()?;
-    if !status.enabled {
+    let settings = settings::load()?;
+    let status = ProxyEnvironmentService::status(&settings.proxy_variables)?;
+    if !status.state.is_configured() {
         return Ok(status);
     }
-    let settings = settings::load()?;
     let status = ProxyEnvironmentService::enable_for_proxy(
         &host,
         port,
         protocol,
         &settings.proxy_variables,
     )?;
-    tray::update_proxy_state(&app, status.enabled);
+    tray::update_proxy_state(&app, status.state.is_configured());
     Ok(status)
 }
 
 #[tauri::command]
 pub async fn disable_proxy_environment(app: AppHandle) -> Result<ProxyEnvironmentStatus> {
     let status = ProxyEnvironmentService::disable()?;
-    tray::update_proxy_state(&app, status.enabled);
+    tray::update_proxy_state(&app, status.state.is_configured());
     Ok(status)
 }

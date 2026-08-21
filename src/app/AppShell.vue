@@ -34,7 +34,7 @@ const instanceNoticeVisible = ref(false);
 const appVersion = ref("0.1.0");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
-const environment = ref<EnvironmentStatus>({ enabled: false, entries: [] });
+const environment = ref<EnvironmentStatus>({ state: "disabled", entries: [] });
 const candidates = ref<ProxyCandidate[]>([]);
 const draftSettings = ref<AppSettings>({ ...defaultSettings });
 const maximized = ref(false);
@@ -65,6 +65,7 @@ const updateMessage = computed(() => {
   if (updateState.value === "error") return copy.value.updateCheckFailed;
   return copy.value.notChecked;
 });
+const environmentConfigured = computed(() => environment.value.state !== "disabled");
 
 function applyPresentation() {
   const theme = draftSettings.value.theme === "system"
@@ -119,7 +120,7 @@ async function refresh(silent = false) {
     ]);
     candidates.value = detectedCandidates;
     const activeProxy = detectedCandidates.find((candidate) => candidate.listening);
-    environment.value = status.enabled && activeProxy
+    environment.value = status.state !== "disabled" && activeProxy
       ? await backend.syncProxyEnvironment(activeProxy)
       : status;
   } catch (cause) {
@@ -134,7 +135,7 @@ async function toggle() {
   toggling.value = true;
   error.value = "";
   try {
-    environment.value = environment.value.enabled
+    environment.value = environmentConfigured.value
       ? await backend.disableProxyEnvironment()
       : await backend.enableProxyEnvironment(detected.value?.listening ? detected.value : undefined);
   } catch (cause) {
@@ -247,7 +248,7 @@ async function flushSettings() {
     const saved = await backend.saveAppSettings(settings);
     persistedProxyVariables = [...saved.proxyVariables];
     settingsLoadError.value = "";
-    if (proxySelectionChanged && environment.value.enabled) {
+    if (proxySelectionChanged && environmentConfigured.value) {
       const activeProxy = candidates.value.find((candidate) => candidate.listening);
       if (activeProxy) {
         try {
@@ -298,7 +299,7 @@ onMounted(async () => {
   if (reviewPreview) {
     draftSettings.value = copySettings({ ...defaultSettings, language: "zh-CN" });
     environment.value = {
-      enabled: true,
+      state: "enabled",
       entries: [
         { name: "HTTP_PROXY", value: "http://127.0.0.1:10809", exists: true },
         { name: "HTTPS_PROXY", value: "http://127.0.0.1:10809", exists: true },

@@ -53,8 +53,8 @@ fn labels(language: &str) -> TrayLabels {
 pub fn setup<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::Result<()> {
     let language = settings.clone().resolved_language();
     let labels = labels(language);
-    let enabled = ProxyEnvironmentService::status()
-        .map(|status| status.enabled)
+    let enabled = ProxyEnvironmentService::status(&settings.proxy_variables)
+        .map(|status| status.state.is_configured())
         .unwrap_or(false);
     let proxy_toggle = CheckMenuItemBuilder::with_id(PROXY_TOGGLE_ID, labels.proxy)
         .checked(enabled)
@@ -117,35 +117,38 @@ pub fn hide_main_window<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn toggle_proxy<R: Runtime>(app: &AppHandle<R>) {
-    let result = ProxyEnvironmentService::status().and_then(|status| {
-        let settings = settings::load()?;
-        if status.enabled {
-            ProxyEnvironmentService::disable()
-        } else {
-            let candidate = proxy::detect()?
-                .into_iter()
-                .find(|candidate| candidate.listening);
-            if let Some(candidate) = candidate {
-                ProxyEnvironmentService::enable_for_proxy(
-                    &candidate.host,
-                    candidate.port,
-                    candidate.protocol,
-                    &settings.proxy_variables,
-                )
+    let result = settings::load().and_then(|settings| {
+        ProxyEnvironmentService::status(&settings.proxy_variables).and_then(|status| {
+            if status.state.is_configured() {
+                ProxyEnvironmentService::disable()
             } else {
-                ProxyEnvironmentService::enable(&settings.proxy_variables)
+                let candidate = proxy::detect()?
+                    .into_iter()
+                    .find(|candidate| candidate.listening);
+                if let Some(candidate) = candidate {
+                    ProxyEnvironmentService::enable_for_proxy(
+                        &candidate.host,
+                        candidate.port,
+                        candidate.protocol,
+                        &settings.proxy_variables,
+                    )
+                } else {
+                    ProxyEnvironmentService::enable(&settings.proxy_variables)
+                }
             }
-        }
+        })
     });
     match result {
         Ok(status) => {
-            update_proxy_state(app, status.enabled);
+            update_proxy_state(app, status.state.is_configured());
             let _ = app.emit("proxy-state-changed", status);
         }
         Err(error) => {
             let _ = app.emit("operation-error", error.to_string());
-            if let Ok(status) = ProxyEnvironmentService::status() {
-                update_proxy_state(app, status.enabled);
+            if let Ok(settings) = settings::load() {
+                if let Ok(status) = ProxyEnvironmentService::status(&settings.proxy_variables) {
+                    update_proxy_state(app, status.state.is_configured());
+                }
             }
         }
     }

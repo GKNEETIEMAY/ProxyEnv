@@ -60,7 +60,22 @@ pub struct ProxyCandidate {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyEnvironmentStatus {
-    pub enabled: bool,
+    pub state: ProxyEnvironmentState,
     pub entries: Vec<EnvironmentEntry>,
     pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyEnvironmentState {
+    Disabled,
+    Partial,
+    Enabled,
+    Mismatch,
+}
+
+impl ProxyEnvironmentState {
+    pub fn is_configured(self) -> bool {
+        matches!(self, Self::Partial | Self::Enabled | Self::Mismatch)
+    }
 }

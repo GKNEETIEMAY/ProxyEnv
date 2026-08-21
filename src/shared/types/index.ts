@@ -14,7 +14,7 @@ export interface EnvironmentEntry {
 }
 
 export interface EnvironmentStatus {
-  enabled: boolean;
+  state: "disabled" | "partial" | "enabled" | "mismatch";
   entries: EnvironmentEntry[];
   warning?: string;
 }
