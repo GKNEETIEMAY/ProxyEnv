@@ -1,13 +1,13 @@
 mod detector;
-mod environment;
 mod listeners;
 mod models;
 mod probe;
 mod processes;
+mod service;
 mod system_proxy;
 
-pub use environment::ProxyEnvironmentService;
-pub use models::{ProxyCandidate, ProxyEnvironmentStatus, ProxyProtocol};
+pub use models::{ProxyCandidate, ProxyEnvironmentStatus, ProxyProtocol, ProxyVariable};
+pub use service::ProxyEnvironmentService;
 
 use crate::error::Result;
 

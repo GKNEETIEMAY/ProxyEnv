@@ -2,7 +2,10 @@ use std::{fs, io::Write, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ProxyEnvError, Result};
+use crate::{
+    error::{ProxyEnvError, Result},
+    features::proxy::ProxyVariable,
+};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,14 +27,6 @@ pub enum ThemePreference {
     System,
     Light,
     Dark,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ProxyVariable {
-    Http,
-    Https,
-    All,
 }
 
 fn default_proxy_variables() -> Vec<ProxyVariable> {

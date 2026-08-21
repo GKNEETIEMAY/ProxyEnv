@@ -5,10 +5,9 @@ use crate::{
         EnvironmentEntry, EnvironmentManager, EnvironmentMutation, EnvironmentScope, SnapshotReason,
     },
     error::{ProxyEnvError, Result},
-    services::settings::ProxyVariable,
 };
 
-use super::{ProxyEnvironmentStatus, ProxyProtocol};
+use super::{ProxyEnvironmentStatus, ProxyProtocol, ProxyVariable};
 
 #[cfg(windows)]
 const MANAGED_VARIABLES: &[&str] = &["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];

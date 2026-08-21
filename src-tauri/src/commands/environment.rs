@@ -3,7 +3,7 @@ use tauri::AppHandle;
 use crate::{
     desktop::tray,
     error::Result,
-    proxy::{ProxyEnvironmentService, ProxyEnvironmentStatus, ProxyProtocol},
+    features::proxy::{ProxyEnvironmentService, ProxyEnvironmentStatus, ProxyProtocol},
     services::settings,
 };
 

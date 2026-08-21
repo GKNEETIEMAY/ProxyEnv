@@ -2,7 +2,7 @@ mod commands;
 mod desktop;
 mod environment;
 mod error;
-mod proxy;
+mod features;
 mod services;
 
 use desktop::tray;

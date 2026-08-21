@@ -5,7 +5,7 @@ use tauri::{
 };
 
 use crate::{
-    proxy::{self, ProxyEnvironmentService},
+    features::proxy::{self, ProxyEnvironmentService},
     services::settings::{self, AppSettings},
 };
 

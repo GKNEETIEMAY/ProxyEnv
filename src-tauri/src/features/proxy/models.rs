@@ -12,6 +12,14 @@ pub enum ProxyProtocol {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyVariable {
+    Http,
+    Https,
+    All,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]

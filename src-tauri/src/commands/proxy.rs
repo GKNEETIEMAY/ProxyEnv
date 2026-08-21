@@ -1,6 +1,6 @@
 use crate::{
     error::Result,
-    proxy::{self, ProxyCandidate},
+    features::proxy::{self, ProxyCandidate},
 };
 
 #[tauri::command]
