@@ -58,6 +58,7 @@ impl ProxyEnvironmentService {
             entries,
             selected_variables: selected.to_vec(),
             active_candidate,
+            candidates: Vec::new(),
             matches_active_proxy,
             snapshot_available,
             warning: None,

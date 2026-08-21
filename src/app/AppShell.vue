@@ -38,6 +38,7 @@ const environment = ref<EnvironmentStatus>({
   state: "disabled",
   entries: [],
   selectedVariables: [...defaultSettings.proxyVariables],
+  candidates: [],
   matchesActiveProxy: false,
   snapshotAvailable: false
 });
@@ -119,11 +120,8 @@ async function refresh(silent = false) {
     error.value = "";
   }
   try {
-    const [status, detectedCandidates] = await Promise.all([
-      backend.environmentStatus(),
-      backend.detectProxies()
-    ]);
-    candidates.value = detectedCandidates;
+    const status = await backend.environmentStatus();
+    candidates.value = status.candidates;
     environment.value = status;
   } catch (cause) {
     if (!silent) error.value = String(cause);
@@ -138,7 +136,8 @@ async function applyDetectedProxy() {
   error.value = "";
   try {
     if (!detected.value?.listening) throw new Error(copy.value.noProxyHint);
-    environment.value = await backend.syncProxyEnvironment(detected.value);
+    await backend.syncProxyEnvironment(detected.value);
+    await refresh(true);
   } catch (cause) {
     error.value = String(cause);
   } finally {
@@ -151,7 +150,8 @@ async function applyManualProxy(endpoint: ProxyEndpoint) {
   toggling.value = true;
   error.value = "";
   try {
-    environment.value = await backend.syncManualProxyEnvironment(endpoint);
+    await backend.syncManualProxyEnvironment(endpoint);
+    await refresh(true);
   } catch (cause) {
     error.value = String(cause);
   } finally {
@@ -163,7 +163,8 @@ async function disableEnvironment() {
   toggling.value = true;
   error.value = "";
   try {
-    environment.value = await backend.disableProxyEnvironment();
+    await backend.disableProxyEnvironment();
+    await refresh(true);
   } catch (cause) {
     error.value = String(cause);
   } finally {
@@ -175,7 +176,8 @@ async function restoreEnvironment() {
   toggling.value = true;
   error.value = "";
   try {
-    environment.value = await backend.restoreProxyEnvironment();
+    await backend.restoreProxyEnvironment();
+    await refresh(true);
   } catch (cause) {
     error.value = String(cause);
   } finally {
@@ -327,6 +329,7 @@ onMounted(async () => {
     environment.value = {
       state: "enabled",
       selectedVariables: ["http", "https"],
+      candidates: [],
       matchesActiveProxy: true,
       snapshotAvailable: true,
       entries: [

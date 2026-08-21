@@ -12,10 +12,14 @@ use crate::{
 #[tauri::command]
 pub async fn get_environment_status() -> Result<ProxyEnvironmentStatus> {
     let settings = settings::load()?;
-    let active = proxy::detect()?
-        .into_iter()
-        .find(|candidate| candidate.listening);
-    ProxyEnvironmentService::status(&settings.proxy_variables, active)
+    let candidates = proxy::detect()?;
+    let active = candidates
+        .iter()
+        .find(|candidate| candidate.listening)
+        .cloned();
+    let mut status = ProxyEnvironmentService::status(&settings.proxy_variables, active)?;
+    status.candidates = candidates;
+    Ok(status)
 }
 
 #[tauri::command]
@@ -44,13 +48,6 @@ pub async fn sync_proxy_environment(
     protocol: ProxyProtocol,
 ) -> Result<ProxyEnvironmentStatus> {
     let settings = settings::load()?;
-    let active = proxy::detect()?
-        .into_iter()
-        .find(|candidate| candidate.listening);
-    let status = ProxyEnvironmentService::status(&settings.proxy_variables, active)?;
-    if !status.state.is_configured() {
-        return Ok(status);
-    }
     let status = ProxyEnvironmentService::sync(&host, port, protocol, &settings.proxy_variables)?;
     tray::update_proxy_state(&app, status.state.is_configured());
     Ok(status)

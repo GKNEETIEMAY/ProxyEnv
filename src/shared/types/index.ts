@@ -18,6 +18,7 @@ export interface EnvironmentStatus {
   entries: EnvironmentEntry[];
   selectedVariables: ManagedProxyVariable[];
   activeCandidate?: ProxyCandidate;
+  candidates: ProxyCandidate[];
   matchesActiveProxy: boolean;
   snapshotAvailable: boolean;
   warning?: string;
