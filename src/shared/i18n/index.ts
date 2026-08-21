@@ -1,4 +1,4 @@
-import type { AppLanguage } from "./types";
+import type { AppLanguage } from "../types";
 
 export type Locale = Exclude<AppLanguage, "system">;
 
@@ -88,7 +88,7 @@ const en = {
   autoConfidence: "confidence"
 } as const;
 
-type Copy = { [K in keyof typeof en]: string };
+export type Copy = { [K in keyof typeof en]: string };
 
 const zh: Copy = {
   appName: "境启 ProxyEnv", appTagline: "让代理环境切换回归简单。", home: "代理", settings: "设置", minimizeWindow: "最小化窗口", maximizeWindow: "最大化窗口", restoreWindow: "还原窗口", closeWindow: "关闭窗口", refresh: "刷新状态",
