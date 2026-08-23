@@ -14,7 +14,6 @@ pub struct RunningApplication {
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub enum ApplicationActionKind {
     LaunchWithProxy,
     LaunchWithoutProxy,
@@ -22,7 +21,6 @@ pub enum ApplicationActionKind {
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct ManagedApplication {
     pub id: String,
     pub display_name: String,
@@ -30,4 +28,21 @@ pub struct ManagedApplication {
     pub icon_key: Option<String>,
     pub rule_id: Option<String>,
     pub last_action: Option<ApplicationActionKind>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LaunchEnvironmentMode {
+    #[allow(dead_code)]
+    Inherit,
+    UseCurrentProxy,
+    ClearProxyVariables,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchApplicationResult {
+    pub pid: u32,
+    pub executable_path: PathBuf,
+    pub environment_mode: LaunchEnvironmentMode,
 }
