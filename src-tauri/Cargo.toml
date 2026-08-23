@@ -45,3 +45,4 @@ windows = { version = "0.61", features = [
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-autostart = "2.5.1"
+tauri-plugin-dialog = "2"

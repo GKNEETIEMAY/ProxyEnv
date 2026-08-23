@@ -21,6 +21,7 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let settings = settings::load().unwrap_or_default();
             tray::setup(app.handle(), &settings)?;

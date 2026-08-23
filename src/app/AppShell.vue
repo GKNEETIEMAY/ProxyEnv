@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import ProxyPage from "../features/proxy/components/ProxyPage.vue";
+import ApplicationAssistantPage from "../features/application-assistant/components/ApplicationAssistantPage.vue";
 import SettingsPage, {
   type SettingsTab,
   type UpdateState
@@ -22,7 +23,7 @@ const defaultSettings: AppSettings = {
   proxyVariables: ["http", "https"]
 };
 
-const view = ref<"home" | "settings">("home");
+const view = ref<"home" | "assistant" | "settings">("home");
 const settingsTab = ref<SettingsTab>("general");
 const loading = ref(true);
 const toggling = ref(false);
@@ -197,6 +198,10 @@ function closeSettings() {
   view.value = "home";
 }
 
+function openAssistant() {
+  view.value = "assistant";
+}
+
 async function copyEndpoint() {
   if (!endpoint.value) return;
   try {
@@ -260,7 +265,7 @@ function onViewShortcut(event: KeyboardEvent) {
     openSettings();
     return;
   }
-  if (event.key !== "Escape" || view.value !== "settings" || event.defaultPrevented) return;
+  if (event.key !== "Escape" || view.value === "home" || event.defaultPrevented) return;
   const target = event.target;
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
   event.preventDefault();
@@ -360,6 +365,8 @@ onMounted(async () => {
     if (preview === "settings" || preview === "about") {
       view.value = "settings";
       settingsTab.value = preview === "about" ? "about" : "general";
+    } else if (preview === "assistant") {
+      view.value = "assistant";
     }
     loading.value = false;
     return;
@@ -440,10 +447,18 @@ onBeforeUnmount(() => {
       @restore="restoreEnvironment"
       @copy-endpoint="copyEndpoint"
       @toggle-variable="toggleManagedVariable"
+      @open-assistant="openAssistant"
+    />
+
+    <ApplicationAssistantPage
+      v-else-if="view === 'assistant'"
+      key="assistant"
+      :copy="copy"
+      :review-preview="reviewPreview"
     />
 
     <SettingsPage
-      v-else
+      v-else-if="view === 'settings'"
       key="settings"
       v-model:settings="draftSettings"
       v-model:tab="settingsTab"

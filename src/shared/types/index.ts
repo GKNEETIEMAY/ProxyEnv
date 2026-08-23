@@ -62,3 +62,102 @@ export interface AppSettings {
   closeToTray: boolean;
   proxyVariables: ManagedProxyVariable[];
 }
+
+export type TunObservationState = "notDetected" | "possible" | "detected" | "unknown";
+export type TunEvidenceKind = "tunnelInterfaceType" | "virtualAdapterName" | "interfaceOperational" | "enumerationUnavailable";
+
+export interface TunEvidence {
+  kind: TunEvidenceKind;
+  interfaceName?: string;
+  detail: string;
+}
+
+export interface TunObservation {
+  state: TunObservationState;
+  interfaceName?: string;
+  description?: string;
+  evidence: TunEvidence[];
+}
+
+export interface RunningApplication {
+  pid: number;
+  processName: string;
+  displayName: string;
+  executablePath?: string;
+  iconAvailable: boolean;
+}
+
+export type ApplicationActionKind = "launchWithProxy" | "launchWithoutProxy";
+
+export interface ManagedApplication {
+  id: string;
+  displayName: string;
+  executablePath: string;
+  iconKey: string | null;
+  ruleId: string | null;
+  lastAction: ApplicationActionKind | null;
+}
+
+export type ApplicationNetworkState = "unknown" | "ready" | "proxyLaunchRecommended" | "ruleSyncRecommended" | "ruleMismatch" | "unsupported" | "conflict";
+export type DiagnosisSummary = "normal" | "canLaunchWithProxy" | "knownApplicationRule" | "unsupported";
+
+export interface ApplicationDiagnosis {
+  application: ManagedApplication;
+  proxyAvailable: boolean;
+  systemProxyEnabled: boolean;
+  proxyEnvironmentState: EnvironmentStatus["state"];
+  tunObservation: TunObservationState;
+  knownRule?: string;
+  proxyConnectivityState?: "reachable" | "unreachable" | "unknown";
+  applicationNetworkState: ApplicationNetworkState;
+  recommendedAction: unknown;
+  summary: DiagnosisSummary;
+}
+
+export type ConfigValue = string | number | boolean | null;
+
+export interface RuleChangePlan {
+  ruleId: string;
+  targetFile: string;
+  fieldPath: string[];
+  oldValue: ConfigValue;
+  newValue: ConfigValue;
+  restartRequired: boolean;
+}
+
+export interface RuleChangePreview {
+  state: "ready" | "alreadyCurrent" | "noMatchingRule" | "ambiguousRule" | "activeProxyMissing" | "unsupportedProxyProtocol" | "fileMissing" | "readFailed" | "parseFailed" | "fieldMissing" | "unsupportedFieldValue";
+  ruleId?: string;
+  targetFile?: string;
+  plan?: RuleChangePlan;
+}
+
+export interface RuleBackup {
+  id: string;
+  ruleId: string;
+  targetFile: string;
+  fieldPath: string[];
+  oldValue: ConfigValue;
+  appliedValue: ConfigValue;
+  beforeHash: string;
+  afterHash: string;
+  createdAt: string;
+}
+
+export interface RuleApplyResult {
+  state: "applied" | "confirmationRequired" | "conflict" | "previewUnavailable" | "backupFailed" | "writeFailed" | "verificationFailed";
+  backup?: RuleBackup;
+  restartRequired: boolean;
+}
+
+export interface RuleRestoreResult {
+  state: "restored" | "confirmationRequired" | "backupMissing" | "conflict" | "writeFailed" | "verificationFailed";
+  backupId?: string;
+  restartRequired: boolean;
+}
+
+export interface LaunchApplicationResult {
+  pid: number;
+  executablePath: string;
+  environmentMode: "inherit" | "useCurrentProxy" | "clearProxyVariables";
+}

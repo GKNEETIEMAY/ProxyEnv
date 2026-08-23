@@ -4,7 +4,7 @@ import type { Copy } from "../../shared/i18n";
 defineProps<{
   copy: Copy;
   maximized: boolean;
-  view: "home" | "settings";
+  view: "home" | "assistant" | "settings";
 }>();
 
 defineEmits<{
@@ -18,11 +18,11 @@ defineEmits<{
 
 <template>
   <header class="app-header">
-    <div v-if="view === 'settings'" class="settings-header-context">
+    <div v-if="view !== 'home'" class="settings-header-context">
       <button class="header-back-button" type="button" :aria-label="copy.back" @click="$emit('closeSettings')">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 5-5 5 5 5" /></svg>
       </button>
-      <strong>{{ copy.settingsTitle }}</strong>
+      <strong>{{ view === 'assistant' ? copy.assistantTitle : copy.settingsTitle }}</strong>
     </div>
     <button v-else class="wordmark" type="button" @click="$emit('closeSettings')">
       <span class="brand-symbol" aria-hidden="true">

@@ -5,7 +5,7 @@ import type { EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndp
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 
 const props = defineProps<{ copy: Copy; environment: EnvironmentStatus; detected?: ProxyCandidate; systemProxy?: ProxyCandidate; endpoint: string; error: string; loading: boolean; toggling: boolean; copiedEndpoint: boolean; selectedVariables: ManagedProxyVariable[]; inspectManualEndpoint: (endpoint: ProxyEndpoint) => Promise<ProxyEndpointInspection> }>();
-const emit = defineEmits<{ refresh: []; applyDetected: []; applyManual: [endpoint: ProxyEndpoint]; disable: []; restore: []; copyEndpoint: []; toggleVariable: [name: string] }>();
+const emit = defineEmits<{ refresh: []; applyDetected: []; applyManual: [endpoint: ProxyEndpoint]; disable: []; restore: []; copyEndpoint: []; toggleVariable: [name: string]; openAssistant: [] }>();
 
 const clientIcons: Record<string, string> = { "clash-verge-rev": "/proxy-clients/clash-verge-rev.png", v2rayn: "/proxy-clients/v2rayn.png", flclash: "/proxy-clients/flclash.ico", hiddify: "/proxy-clients/hiddify.ico", "clash-nyanpasu": "/proxy-clients/clash-nyanpasu.png", "generic-proxy": "/proxy-clients/generic-proxy.svg" };
 const sourceMode = ref<"automatic" | "manual">("automatic");
@@ -119,6 +119,12 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
           <button v-if="environment.snapshotAvailable" class="secondary-action" type="button" :disabled="toggling" @click="emit('restore')">{{ copy.restorePrevious }}</button>
         </div>
       </div>
+    </section>
+
+    <section class="assistant-entry">
+      <span class="assistant-entry-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6.5h16v10H4zM8 20h8M12 16.5V20M8 10l2.2 2.2L14.8 8" /></svg></span>
+      <div><h2>{{ copy.assistantEntryTitle }}</h2><p>{{ copy.assistantEntryHint }}</p></div>
+      <button class="primary-action" type="button" @click="emit('openAssistant')">{{ copy.assistantEntryAction }}</button>
     </section>
 
     <section class="variables-section">
