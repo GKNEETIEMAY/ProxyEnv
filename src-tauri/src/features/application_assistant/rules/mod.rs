@@ -1,6 +1,6 @@
 mod loader;
 mod matcher;
+mod planner;
 mod schema;
 
-pub use loader::load_bundled;
-pub use matcher::{match_executable, RuleMatchResult};
+pub use planner::{preview_application, RuleChangePreview, RulePreviewState};

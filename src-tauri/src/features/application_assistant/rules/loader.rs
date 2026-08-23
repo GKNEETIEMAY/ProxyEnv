@@ -139,4 +139,12 @@ mod tests {
         assert!(catalog.rules.is_empty());
         assert!(catalog.issues[0].message.contains("unknown variant"));
     }
+
+    #[test]
+    fn rejects_ini_rules_without_an_exact_section_and_key() {
+        let json = changed(VALID_RULE, "\"format\": \"yaml\"", "\"format\": \"ini\"");
+        let catalog = load_sources([("ini-selector.json", json.as_str())]);
+        assert!(catalog.rules.is_empty());
+        assert!(catalog.issues[0].message.contains("exactly [section, key]"));
+    }
 }

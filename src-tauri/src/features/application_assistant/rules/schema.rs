@@ -66,6 +66,8 @@ pub enum RuleValidationError {
     InvalidPath(String),
     #[error("rule config field path cannot be empty")]
     EmptyField,
+    #[error("INI rules must declare field as exactly [section, key]")]
+    InvalidIniSelector,
     #[error("invalid rule config field segment: {0}")]
     InvalidFieldSegment(String),
 }
@@ -103,6 +105,9 @@ impl ApplicationRule {
         }
         if self.config.field.is_empty() {
             return Err(RuleValidationError::EmptyField);
+        }
+        if matches!(self.config.format, RuleConfigFormat::Ini) && self.config.field.len() != 2 {
+            return Err(RuleValidationError::InvalidIniSelector);
         }
         for segment in &self.config.field {
             if !is_valid_field_segment(segment) {

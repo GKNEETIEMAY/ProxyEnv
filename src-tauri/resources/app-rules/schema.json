@@ -55,5 +55,26 @@
       }
     },
     "restartRequired": { "type": "boolean" }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": { "format": { "const": "ini" } },
+            "required": ["format"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "field": { "minItems": 2, "maxItems": 2 }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

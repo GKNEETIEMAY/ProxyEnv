@@ -12,8 +12,7 @@ use crate::{
 };
 
 use super::{
-    rules::{self, RuleMatchResult},
-    ApplicationDiagnosis, ApplicationNetworkState, DiagnosisSummary, ManagedApplication,
+    rules, ApplicationDiagnosis, ApplicationNetworkState, DiagnosisSummary, ManagedApplication,
     RecommendedAction,
 };
 
@@ -31,20 +30,29 @@ pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis>
     });
     let proxy_connectivity_state =
         connectivity::get_last_result(active_candidate.as_ref()).map(|result| result.state);
-    let rule_catalog = rules::load_bundled();
-    let rule_match = rules::match_executable(&application.executable_path, &rule_catalog.rules);
-    let (known_rule, rule_match_ambiguous) = match rule_match {
-        RuleMatchResult::None => (None, false),
-        RuleMatchResult::Exact(rule) => (Some(rule.id.clone()), false),
-        RuleMatchResult::Ambiguous(_) => (None, true),
+    let active_endpoint = active_candidate
+        .as_ref()
+        .map(|candidate| proxy::ProxyEndpoint {
+            host: candidate.host.clone(),
+            port: candidate.port,
+            protocol: candidate.protocol,
+        });
+    let rule_preview =
+        rules::preview_application(&application.executable_path, active_endpoint.as_ref());
+    let rule_inspection = match rule_preview.state {
+        rules::RulePreviewState::NoMatchingRule => RuleInspectionState::None,
+        rules::RulePreviewState::AmbiguousRule => RuleInspectionState::Ambiguous,
+        rules::RulePreviewState::Ready => RuleInspectionState::Ready,
+        rules::RulePreviewState::AlreadyCurrent => RuleInspectionState::AlreadyCurrent,
+        _ => RuleInspectionState::Unavailable,
     };
     let input = DiagnosisInput {
         proxy_available,
         system_proxy_enabled: proxy::system_proxy_enabled(),
         proxy_environment_state: environment.state,
         tun_observation: TunObservationState::Unknown,
-        known_rule,
-        rule_match_ambiguous,
+        known_rule: rule_preview.rule_id,
+        rule_inspection,
         proxy_connectivity_state,
     };
     Ok(build_diagnosis(application, input))
@@ -57,8 +65,17 @@ struct DiagnosisInput {
     proxy_environment_state: ProxyEnvironmentState,
     tun_observation: TunObservationState,
     known_rule: Option<String>,
-    rule_match_ambiguous: bool,
+    rule_inspection: RuleInspectionState,
     proxy_connectivity_state: Option<ProxyConnectivityState>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum RuleInspectionState {
+    None,
+    Ready,
+    AlreadyCurrent,
+    Unavailable,
+    Ambiguous,
 }
 
 fn build_diagnosis(application: ManagedApplication, input: DiagnosisInput) -> ApplicationDiagnosis {
@@ -91,14 +108,29 @@ fn decide(
             DiagnosisSummary::Unsupported,
         );
     }
-    if input.rule_match_ambiguous {
+    if matches!(input.rule_inspection, RuleInspectionState::Ambiguous) {
         return (
             ApplicationNetworkState::Conflict,
             RecommendedAction::None,
             DiagnosisSummary::Unsupported,
         );
     }
-    if let Some(rule_id) = &input.known_rule {
+    if matches!(input.rule_inspection, RuleInspectionState::AlreadyCurrent) {
+        return (
+            ApplicationNetworkState::Ready,
+            RecommendedAction::None,
+            DiagnosisSummary::Normal,
+        );
+    }
+    if matches!(input.rule_inspection, RuleInspectionState::Unavailable) {
+        return (
+            ApplicationNetworkState::Unsupported,
+            RecommendedAction::None,
+            DiagnosisSummary::Unsupported,
+        );
+    }
+    if let (RuleInspectionState::Ready, Some(rule_id)) = (input.rule_inspection, &input.known_rule)
+    {
         return (
             ApplicationNetworkState::RuleSyncRecommended,
             RecommendedAction::ApplyKnownRule {
@@ -148,7 +180,7 @@ mod tests {
             proxy_environment_state: ProxyEnvironmentState::Disabled,
             tun_observation: TunObservationState::Unknown,
             known_rule: None,
-            rule_match_ambiguous: false,
+            rule_inspection: RuleInspectionState::None,
             proxy_connectivity_state: None,
         }
     }
@@ -184,6 +216,7 @@ mod tests {
     fn known_rule_takes_priority_over_generic_launch_advice() {
         let mut input = input();
         input.known_rule = Some("example-rule".into());
+        input.rule_inspection = RuleInspectionState::Ready;
         let diagnosis = build_diagnosis(application(), input);
         assert_eq!(
             diagnosis.application_network_state,
@@ -201,7 +234,7 @@ mod tests {
     #[test]
     fn ambiguous_rules_never_recommend_an_automatic_change() {
         let mut input = input();
-        input.rule_match_ambiguous = true;
+        input.rule_inspection = RuleInspectionState::Ambiguous;
         let diagnosis = build_diagnosis(application(), input);
         assert_eq!(
             diagnosis.application_network_state,
@@ -209,6 +242,32 @@ mod tests {
         );
         assert_eq!(diagnosis.recommended_action, RecommendedAction::None);
         assert_eq!(diagnosis.summary, DiagnosisSummary::Unsupported);
+    }
+
+    #[test]
+    fn an_already_current_rule_is_reported_as_ready() {
+        let mut input = input();
+        input.known_rule = Some("example-rule".into());
+        input.rule_inspection = RuleInspectionState::AlreadyCurrent;
+        let diagnosis = build_diagnosis(application(), input);
+        assert_eq!(
+            diagnosis.application_network_state,
+            ApplicationNetworkState::Ready
+        );
+        assert_eq!(diagnosis.recommended_action, RecommendedAction::None);
+    }
+
+    #[test]
+    fn an_unreadable_known_rule_never_recommends_a_write() {
+        let mut input = input();
+        input.known_rule = Some("example-rule".into());
+        input.rule_inspection = RuleInspectionState::Unavailable;
+        let diagnosis = build_diagnosis(application(), input);
+        assert_eq!(
+            diagnosis.application_network_state,
+            ApplicationNetworkState::Unsupported
+        );
+        assert_eq!(diagnosis.recommended_action, RecommendedAction::None);
     }
 
     #[test]
