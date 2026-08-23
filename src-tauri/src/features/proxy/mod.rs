@@ -1,3 +1,4 @@
+pub(crate) mod connectivity;
 mod detector;
 mod listeners;
 mod models;

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::environment::EnvironmentEntry;
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub enum ProxyProtocol {
@@ -12,7 +12,7 @@ pub enum ProxyProtocol {
     Unknown,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyEndpoint {
     pub host: String,
