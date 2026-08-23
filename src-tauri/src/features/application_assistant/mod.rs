@@ -8,7 +8,7 @@ pub use models::{
     ApplicationDiagnosis, ApplicationNetworkState, DiagnosisSummary, LaunchApplicationResult,
     LaunchEnvironmentMode, ManagedApplication, RecommendedAction, RunningApplication,
 };
-pub use rules::RuleChangePreview;
+pub use rules::{RuleApplyResult, RuleChangePlan, RuleChangePreview, RuleRestoreResult};
 
 pub fn list_running_applications() -> Vec<RunningApplication> {
     processes::enumerate()
@@ -36,4 +36,30 @@ pub fn preview_application_rule_fix(
         &application.executable_path,
         endpoint.as_ref(),
     ))
+}
+
+pub fn apply_application_rule_fix(
+    application: &ManagedApplication,
+    expected_plan: &RuleChangePlan,
+    confirmed: bool,
+) -> crate::error::Result<RuleApplyResult> {
+    let candidates = crate::features::proxy::detect()?;
+    let endpoint = candidates
+        .iter()
+        .find(|candidate| candidate.listening)
+        .map(|candidate| crate::features::proxy::ProxyEndpoint {
+            host: candidate.host.clone(),
+            port: candidate.port,
+            protocol: candidate.protocol,
+        });
+    Ok(rules::apply_application(
+        &application.executable_path,
+        endpoint.as_ref(),
+        expected_plan,
+        confirmed,
+    ))
+}
+
+pub fn restore_application_rule_change(backup_id: &str, confirmed: bool) -> RuleRestoreResult {
+    rules::restore_rule_change(backup_id, confirmed)
 }

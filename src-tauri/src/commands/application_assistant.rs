@@ -3,7 +3,8 @@ use crate::{
     features::{
         application_assistant::{
             self, launcher, ApplicationDiagnosis, LaunchApplicationResult, LaunchEnvironmentMode,
-            ManagedApplication, RuleChangePreview, RunningApplication,
+            ManagedApplication, RuleApplyResult, RuleChangePlan, RuleChangePreview,
+            RuleRestoreResult, RunningApplication,
         },
         proxy::{self, ProxyEndpoint},
     },
@@ -25,6 +26,31 @@ pub async fn preview_application_rule_fix(
     })
     .await
     .map_err(|error| ProxyEnvError::Detection(error.to_string()))?
+}
+
+#[tauri::command]
+pub async fn apply_application_rule_fix(
+    application: ManagedApplication,
+    expected_plan: RuleChangePlan,
+    confirmed: bool,
+) -> Result<RuleApplyResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        application_assistant::apply_application_rule_fix(&application, &expected_plan, confirmed)
+    })
+    .await
+    .map_err(|error| ProxyEnvError::Detection(error.to_string()))?
+}
+
+#[tauri::command]
+pub async fn restore_application_rule_change(
+    backup_id: String,
+    confirmed: bool,
+) -> Result<RuleRestoreResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        application_assistant::restore_application_rule_change(&backup_id, confirmed)
+    })
+    .await
+    .map_err(|error| ProxyEnvError::Detection(error.to_string()))
 }
 
 #[tauri::command]

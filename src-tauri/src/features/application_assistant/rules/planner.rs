@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::features::proxy::{ProxyEndpoint, ProxyProtocol};
 
@@ -12,7 +12,7 @@ use super::{
 
 const MAX_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum ConfigValue {
     String(String),
@@ -21,7 +21,7 @@ pub enum ConfigValue {
     Null,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuleChangePlan {
     pub rule_id: String,
@@ -78,7 +78,7 @@ pub fn preview_application(
     }
 }
 
-fn preview_rule(
+pub(super) fn preview_rule(
     rule: &ApplicationRule,
     endpoint: &ProxyEndpoint,
     roots: &EnvironmentRoots,
@@ -139,14 +139,14 @@ fn preview_state(
 }
 
 #[derive(Debug, Clone, Default)]
-struct EnvironmentRoots {
+pub(super) struct EnvironmentRoots {
     app_data: Option<PathBuf>,
     local_app_data: Option<PathBuf>,
     user_profile: Option<PathBuf>,
 }
 
 impl EnvironmentRoots {
-    fn from_process() -> Self {
+    pub(super) fn from_process() -> Self {
         Self {
             app_data: std::env::var_os("APPDATA").map(PathBuf::from),
             local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
@@ -154,7 +154,7 @@ impl EnvironmentRoots {
         }
     }
 
-    fn expand(&self, declared_path: &str) -> Option<PathBuf> {
+    pub(super) fn expand(&self, declared_path: &str) -> Option<PathBuf> {
         for (token, root) in [
             ("%APPDATA%", self.app_data.as_ref()),
             ("%LOCALAPPDATA%", self.local_app_data.as_ref()),
@@ -173,6 +173,15 @@ impl EnvironmentRoots {
             }
         }
         None
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_app_data(path: PathBuf) -> Self {
+        Self {
+            app_data: Some(path),
+            local_app_data: None,
+            user_profile: None,
+        }
     }
 }
 
@@ -194,7 +203,7 @@ fn locate_config(
     Err(RulePreviewState::FileMissing)
 }
 
-fn is_safe_regular_file(metadata: &fs::Metadata) -> bool {
+pub(super) fn is_safe_regular_file(metadata: &fs::Metadata) -> bool {
     if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
         return false;
     }
@@ -209,7 +218,56 @@ fn is_safe_regular_file(metadata: &fs::Metadata) -> bool {
     true
 }
 
-fn read_config(path: &std::path::Path) -> Result<String, RulePreviewState> {
+pub(super) fn validate_target_for_rule(
+    rule: &ApplicationRule,
+    target: &std::path::Path,
+    roots: &EnvironmentRoots,
+) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(target) else {
+        return false;
+    };
+    if !is_safe_regular_file(&metadata) {
+        return false;
+    }
+    let Ok(canonical_target) = fs::canonicalize(target) else {
+        return false;
+    };
+    rule.config.paths.iter().any(|declared_path| {
+        let Some(expanded) = roots.expand(declared_path) else {
+            return false;
+        };
+        let Some(root) = root_for_declared_path(declared_path, roots) else {
+            return false;
+        };
+        let (Ok(canonical_expanded), Ok(canonical_root)) =
+            (fs::canonicalize(expanded), fs::canonicalize(root))
+        else {
+            return false;
+        };
+        canonical_expanded == canonical_target && canonical_target.starts_with(canonical_root)
+    })
+}
+
+fn root_for_declared_path<'a>(
+    declared_path: &str,
+    roots: &'a EnvironmentRoots,
+) -> Option<&'a std::path::Path> {
+    for (token, root) in [
+        ("%APPDATA%", roots.app_data.as_deref()),
+        ("%LOCALAPPDATA%", roots.local_app_data.as_deref()),
+        ("%USERPROFILE%", roots.user_profile.as_deref()),
+    ] {
+        if declared_path
+            .get(..token.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(token))
+        {
+            return root;
+        }
+    }
+    None
+}
+
+pub(super) fn read_config(path: &std::path::Path) -> Result<String, RulePreviewState> {
     let metadata = fs::metadata(path).map_err(|_| RulePreviewState::ReadFailed)?;
     if metadata.len() > MAX_CONFIG_BYTES {
         return Err(RulePreviewState::ReadFailed);
@@ -217,7 +275,10 @@ fn read_config(path: &std::path::Path) -> Result<String, RulePreviewState> {
     fs::read_to_string(path).map_err(|_| RulePreviewState::ReadFailed)
 }
 
-fn inspect_field(rule: &ApplicationRule, content: &str) -> Result<ConfigValue, RulePreviewState> {
+pub(super) fn inspect_field(
+    rule: &ApplicationRule,
+    content: &str,
+) -> Result<ConfigValue, RulePreviewState> {
     match rule.config.format {
         RuleConfigFormat::Json => {
             let value: serde_json::Value =

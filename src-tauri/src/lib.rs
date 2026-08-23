@@ -43,6 +43,8 @@ pub fn run() {
             commands::application_assistant::list_running_applications,
             commands::application_assistant::diagnose_application,
             commands::application_assistant::preview_application_rule_fix,
+            commands::application_assistant::apply_application_rule_fix,
+            commands::application_assistant::restore_application_rule_change,
             commands::application_assistant::launch_application_with_current_proxy,
             commands::application_assistant::launch_application_without_proxy,
             commands::environment::get_environment_status,
