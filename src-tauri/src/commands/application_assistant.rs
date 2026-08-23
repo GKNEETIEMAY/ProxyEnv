@@ -2,8 +2,8 @@ use crate::{
     error::{ProxyEnvError, Result},
     features::{
         application_assistant::{
-            self, launcher, LaunchApplicationResult, LaunchEnvironmentMode, ManagedApplication,
-            RunningApplication,
+            self, launcher, ApplicationDiagnosis, LaunchApplicationResult, LaunchEnvironmentMode,
+            ManagedApplication, RunningApplication,
         },
         proxy::{self, ProxyEndpoint},
     },
@@ -14,6 +14,15 @@ pub async fn list_running_applications() -> Result<Vec<RunningApplication>> {
     tauri::async_runtime::spawn_blocking(application_assistant::list_running_applications)
         .await
         .map_err(|error| ProxyEnvError::Detection(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn diagnose_application(application: ManagedApplication) -> Result<ApplicationDiagnosis> {
+    tauri::async_runtime::spawn_blocking(move || {
+        application_assistant::diagnose_application(application)
+    })
+    .await
+    .map_err(|error| ProxyEnvError::Detection(error.to_string()))?
 }
 
 #[tauri::command]

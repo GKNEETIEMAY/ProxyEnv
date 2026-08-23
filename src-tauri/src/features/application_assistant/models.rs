@@ -2,6 +2,11 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::features::{
+    network_observation::TunObservationState,
+    proxy::{connectivity::ProxyConnectivityState, ProxyEnvironmentState},
+};
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunningApplication {
@@ -45,4 +50,51 @@ pub struct LaunchApplicationResult {
     pub pid: u32,
     pub executable_path: PathBuf,
     pub environment_mode: LaunchEnvironmentMode,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub enum RecommendedAction {
+    None,
+    LaunchWithProxy,
+    LaunchWithoutProxy,
+    ApplyKnownRule { rule_id: String },
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub enum ApplicationNetworkState {
+    Unknown,
+    Ready,
+    ProxyLaunchRecommended,
+    RuleSyncRecommended,
+    RuleMismatch,
+    Unsupported,
+    Conflict,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DiagnosisSummary {
+    Normal,
+    CanLaunchWithProxy,
+    KnownApplicationRule,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplicationDiagnosis {
+    pub application: ManagedApplication,
+    pub proxy_available: bool,
+    pub system_proxy_enabled: bool,
+    pub proxy_environment_state: ProxyEnvironmentState,
+    pub tun_observation: TunObservationState,
+    pub known_rule: Option<String>,
+    pub proxy_connectivity_state: Option<ProxyConnectivityState>,
+    pub application_network_state: ApplicationNetworkState,
+    pub recommended_action: RecommendedAction,
+    pub summary: DiagnosisSummary,
 }

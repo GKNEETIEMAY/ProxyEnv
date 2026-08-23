@@ -20,6 +20,10 @@ pub fn detect() -> Result<Vec<ProxyCandidate>> {
     detector::detect()
 }
 
+pub(crate) fn system_proxy_enabled() -> bool {
+    system_proxy::read().is_some()
+}
+
 pub fn inspect_endpoint(endpoint: &ProxyEndpoint) -> ProxyEndpointInspection {
     let listening = probe::listening(endpoint.host.trim(), endpoint.port);
     let detected_protocol = if listening {
