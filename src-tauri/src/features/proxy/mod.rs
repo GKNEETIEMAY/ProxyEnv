@@ -1,6 +1,7 @@
 mod detector;
 mod listeners;
 mod models;
+pub(crate) mod plan;
 mod probe;
 mod processes;
 mod service;
