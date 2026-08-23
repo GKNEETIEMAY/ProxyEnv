@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/icon.svg" width="92" height="92" alt="ProxyEnv 图标"></p>
 <h1 align="center">境启 ProxyEnv</h1>
-<p align="center">Windows-first 的代理环境变量桌面管理器。<br>自动发现本机代理客户端与真实端口，由用户明确选择应用、诊断、关闭或恢复，不再猜测固定端口。</p>
+<p align="center">Windows-first 的代理环境与应用联网桌面助手。<br>自动发现本机代理客户端，解释应用可能使用的网络层，并让用户选择明确、可逆的操作。</p>
 <p align="center"><a href="README.md">English</a> · <strong>简体中文</strong></p>
 
 <p align="center">
@@ -8,11 +8,11 @@
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="许可证" src="https://img.shields.io/badge/许可证-MIT-22c55e?style=flat-square">
-  <img alt="状态" src="https://img.shields.io/badge/状态-v0.1%20开发中-f59e0b?style=flat-square">
+  <img alt="状态" src="https://img.shields.io/badge/状态-v0.2%20开发中-f59e0b?style=flat-square">
 </p>
 
 > [!IMPORTANT]
-> ProxyEnv 仍处于 v0.1 开发阶段，尚无正式 Release。当前已经实现并实机验证的目标平台是 Windows 10/11。Linux 与 macOS 是后续架构方向，不属于当前支持平台；其他 Unix 变体不在计划内。
+> ProxyEnv 仍处于 v0.2 开发阶段，尚无正式 Release。当前已经实现并实机验证的目标平台是 Windows 10/11。Linux 与 macOS 是后续架构方向，不属于当前支持平台；其他 Unix 变体不在计划内。在本开发线完成兼容性测试前，安装包元数据仍保持 `0.1.0`。
 
 ## 要解决的问题
 
@@ -48,22 +48,40 @@ ProxyEnv 把这些状态清晰展示出来，并把手工编辑注册表变成�
 - 修改前保存快照，安全删除，精确恢复，广播 `WM_SETTINGCHANGE`，并读回注册表验证。
 - 支持系统托盘、开机启动/窗口偏好，以及第二次启动时唤醒现有窗口。
 - 提供简体中文、英文、日语与韩语，以及浅色、深色、跟随系统主题。
+- 可从可见的运行中应用选择或浏览可执行文件，并给出面向新手的网络诊断。
+- 将虚拟隧道证据表示为“未检测到 / 可能存在 / 已检测到 / 未知”，但不控制 TUN。
+- 用活动代理或清除代理变量的环境启动新进程，绝不向运行中进程注入或修改环境。
+- 当存在经过评审的内置应用规则时，先预览并确认，再备份、写入、验证，并支持冲突保护恢复。
 
-## 三层代理状态
+## 应用网络助手
 
-ProxyEnv 明确区分三个容易混淆的概念：
+应用助手保持一条短流程：
+
+```text
+选择应用 → 读取本机状态 → 解释可能的网络路径 → 推荐一个操作
+         → 如需写文件则预览并确认 → 验证结果
+```
+
+它会读取活动本机代理、Windows 系统代理、代理环境变量、虚拟网卡证据与内置应用规则目录。选择运行中应用只用于确定其可执行文件，不会修改该进程；“使用代理启动”和“直连启动”都会创建带有明确子进程环境的新进程。
+
+应用规则是声明式数据，不是可执行 Adapter。规则只能声明精确进程名、固定的用户目录配置路径、一个已有字段、受支持的格式（`JSON`、`YAML`、`TOML` 或 `INI`）以及有类型的代理值。没有经过评审的规则时，ProxyEnv 只提供启动回退方案，不扫描未知配置文件。
+
+## 四层可观测网络状态
+
+ProxyEnv 明确区分四个容易混淆的概念：
 
 | 层级 | 含义 | ProxyEnv 的行为 |
 | --- | --- | --- |
 | 代理客户端 | v2rayN 等本机进程及其监听地址，例如 `127.0.0.1:10809` | 检测与探测 |
 | Windows 系统代理 | 供兼容软件读取的 Windows 网络设置 | 只读 |
 | 代理环境变量 | 新启动进程继承的用户变量 | 仅在用户明确操作后修改 |
+| TUN / 虚拟网卡 | 可能让应用在没有代理变量时也改变网络路径的系统层通道 | 只读、基于多项证据观察 |
 
-修改环境变量不会配置代理客户端、不会切换 Windows 系统代理、不会让整台电脑的流量自动改道，也不会改变已经运行进程的环境。新启动的应用会继承此代理地址，已运行的应用需要重启才生效。
+修改环境变量不会配置代理客户端、不会切换 Windows 系统代理、不会控制 TUN、不会让整台电脑的流量自动改道，也不会改变已经运行进程的环境。新启动的应用会继承此代理地址，已运行的应用需要重启才生效。端口正在监听只说明代理客户端进程可用，不代表 Windows 系统代理或 TUN 路由已经开启。
 
 ## 管理范围
 
-ProxyEnv v0.1 只修改当前用户的：
+ProxyEnv 只修改当前用户的：
 
 ```text
 HKEY_CURRENT_USER\Environment
@@ -95,6 +113,19 @@ HKEY_CURRENT_USER\Environment
 当前可识别 Clash Verge Rev、v2rayN、FlClash、Hiddify、Clash Nyanpasu、Clash Party、Mihomo Party、NekoBox/NekoRay、Clash for Windows 与 GUI.for.Clash。前五项使用已注明来源的上游图标，新增客户端与未知客户端使用通用代理图标；自动识别失败时可手动填写主机、端口与协议。
 
 图标来自官方上游仓库，来源与许可见 [`public/proxy-clients/ATTRIBUTION.md`](public/proxy-clients/ATTRIBUTION.md)。
+
+## 与环境变量工具对比
+
+下列工具解决的是相邻问题。ProxyEnv 刻意保持更窄的范围，专注代理发现、网络层解释，以及安全的新进程启动或经过评审的规则修改。
+
+| 工具 | 推荐度 | 适合什么情况 | 主要特点 |
+| --- | --- | --- | --- |
+| **ProxyEnv** | ⭐⭐⭐⭐⭐ | 代理冲突与应用联网问题 | 识别活动代理端点，解释代理/系统代理/TUN 层，支持独立启动环境与可恢复的评审规则 |
+| Microsoft PowerToys – Environment Variables | ⭐⭐⭐⭐⭐ | 大多数 Windows 开发者 | 微软维护、界面现代、支持 Profile、User/System 变量 |
+| EnvStudio | ⭐⭐⭐⭐⭐ | PATH 很复杂、多开发环境 | 拖拽 PATH、去重、失效路径与冲突检测、快照回滚 |
+| Envarly | ⭐⭐⭐⭐½ | 喜欢开源、希望通用修改更安全 | 修改前 Diff、快照/回滚、PATH 拖拽、PowerShell/Ansible 导出 |
+| Rapid Environment Editor | ⭐⭐⭐⭐ | 传统 Windows 开发环境 | 成熟、PATH 树状管理、错误检测、备份、便携版 |
+| envx | ⭐⭐⭐⭐ | 喜欢终端/TUI | Rust、跨平台、快照/Profile、搜索、CLI、`.env`/JSON/YAML 导入导出 |
 
 ## 运行要求
 
@@ -138,13 +169,15 @@ pnpm tauri build
 ProxyEnv/
 ├─ src/
 │  ├─ app/                       # Vue 外壳与桌面编排
-│  ├─ features/                  # 代理与设置界面
+│  ├─ features/                  # 代理、应用助手与设置界面
 │  └─ shared/                    # IPC、i18n、类型和视觉令牌
 ├─ src-tauri/src/
 │  ├─ commands/                  # 轻量 Tauri IPC 适配器
 │  ├─ desktop/                   # 托盘、单实例、原生窗口
 │  ├─ environment/               # 通用 mutation、快照、广播、验证
 │  ├─ features/proxy/            # 代理检测、计划、状态、同步/恢复/关闭
+│  ├─ features/network_observation/ # 只读虚拟网卡证据
+│  ├─ features/application_assistant/ # 应用选择、诊断、启动、声明式规则
 │  └─ services/                  # 持久化应用设置
 ├─ public/proxy-clients/         # 运行时图标与归属说明
 └─ docs/                         # 架构文档与 README 插图
@@ -154,9 +187,9 @@ ProxyEnv/
 
 ## 边界与隐私
 
-ProxyEnv 不是代理客户端、VPN、订阅管理器或流量路由器。v0.1 不控制 Clash/v2rayN API、TUN、节点、规则、Windows 系统代理、单应用路由或系统级环境变量。
+ProxyEnv 不是代理客户端、VPN、订阅管理器、流量转发器或 TUN 控制器。它不控制 Clash/v2rayN API、节点、订阅、代理客户端规则、Windows 系统代理、路由、驱动或系统级环境变量，也不会向运行中进程注入、结束进程或改写其环境。
 
-代理检测、协议探测和环境变量管理均在本机完成。软件不会读取订阅、节点、Token、密码或流量；只有用户主动检查更新时才访问 GitHub Releases。详见 [`SECURITY.md`](SECURITY.md)。
+代理检测、协议探测、TUN 观测、应用枚举、规则预览和环境变量管理均在本机完成。软件不会读取订阅、节点、Token、密码或流量；除非用户明确触发现有代理测试，否则不会进行外部联网测试，只有用户主动检查更新时才访问 GitHub Releases。详见 [`SECURITY.md`](SECURITY.md)。
 
 ## 贡献
 

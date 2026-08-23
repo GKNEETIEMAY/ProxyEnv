@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/icon.svg" width="92" height="92" alt="ProxyEnv icon"></p>
 <h1 align="center">ProxyEnv</h1>
-<p align="center">A Windows-first desktop manager for proxy environment variables.<br>Discover local proxy clients and apply, diagnose, disable, or restore user-level proxy settings without guessing ports.</p>
+<p align="center">A Windows-first desktop assistant for proxy environments and application connectivity.<br>Discover local proxy clients, understand which network layer an app may use, and choose an explicit, reversible action.</p>
 <p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 
 <p align="center">
@@ -8,11 +8,11 @@
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square">
-  <img alt="Status" src="https://img.shields.io/badge/status-v0.1%20development-f59e0b?style=flat-square">
+  <img alt="Status" src="https://img.shields.io/badge/status-v0.2%20development-f59e0b?style=flat-square">
 </p>
 
 > [!IMPORTANT]
-> ProxyEnv is in v0.1 development and has no official release yet. Windows 10/11 is the implemented and tested target. Linux and macOS are architectural directions, not currently supported platforms; other Unix variants are out of scope.
+> ProxyEnv is in v0.2 development and has no official release yet. Windows 10/11 is the implemented and tested target. Linux and macOS are architectural directions, not currently supported platforms; other Unix variants are out of scope. Package metadata remains at `0.1.0` until this development line completes compatibility testing.
 
 ## The problem
 
@@ -48,8 +48,25 @@ Detection and periodic refreshes never rewrite the Registry. When a client chang
 - Snapshot before changes, delete values safely, restore exact previous values, broadcast `WM_SETTINGCHANGE`, and verify Registry results.
 - Run from the system tray, honor startup/window preferences, and reuse the existing window on a second launch.
 - Provide Simplified Chinese, English, Japanese, and Korean interfaces with light, dark, and system themes.
+- Choose a visible running application or browse to an executable, then receive a beginner-oriented network diagnosis.
+- Observe virtual tunnel evidence as `Not detected`, `Possible`, `Detected`, or `Unknown` without controlling TUN.
+- Launch a new application process with the active proxy or with proxy variables cleared; never inject into a running process.
+- Preview, confirm, back up, verify, and conflict-safely restore a known application setting when a reviewed bundled rule exists.
 
-## Three proxy layers
+## Application network assistant
+
+The assistant follows one short path:
+
+```text
+Choose an app → read local state → explain the likely path → recommend one action
+              → preview and confirm if a file write is needed → verify the result
+```
+
+It reads the active local proxy, Windows System Proxy, proxy environment, virtual-adapter evidence, and the bundled application-rule catalog. Selecting an already-running app identifies its executable; it does **not** change that process. “Launch with proxy” and “Launch directly” always start a new process with an explicit child environment.
+
+Application rules are declarative data, not executable adapters. A rule may name exact process names, fixed user-profile-relative configuration paths, one existing field, a supported format (`JSON`, `YAML`, `TOML`, or `INI`), and a typed proxy value. If no reviewed rule exists, ProxyEnv uses the launch fallback and does not scan for unknown configuration files.
+
+## Four observable network layers
 
 ProxyEnv deliberately keeps these concepts separate:
 
@@ -58,12 +75,13 @@ ProxyEnv deliberately keeps these concepts separate:
 | Proxy client | A local process and listening address, such as v2rayN on `127.0.0.1:10809` | Detect and probe |
 | Windows System Proxy | The Windows networking setting used by compatible applications | Read-only |
 | Proxy environment | User variables inherited by newly started processes | Change only after an explicit action |
+| TUN / virtual adapter | A possible OS-level traffic path that may affect apps without proxy variables | Read-only, evidence-based observation |
 
-Changing environment variables does not reconfigure a proxy client, toggle Windows System Proxy, route all machine traffic, or alter an already-running process. New applications inherit the updated address; running applications must be restarted for it to take effect.
+Changing environment variables does not reconfigure a proxy client, toggle Windows System Proxy, control TUN, route all machine traffic, or alter an already-running process. New applications inherit the updated address; running applications must be restarted for it to take effect. A listening proxy port only proves that the client process is available—it does not prove that Windows System Proxy or TUN routing is enabled.
 
 ## Managed values
 
-ProxyEnv v0.1 changes only the current user's values in:
+ProxyEnv changes only the current user's values in:
 
 ```text
 HKEY_CURRENT_USER\Environment
@@ -95,6 +113,19 @@ Snapshots are stored atomically under `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.
 ProxyEnv identifies Clash Verge Rev, v2rayN, FlClash, Hiddify, Clash Nyanpasu, Clash Party, Mihomo Party, NekoBox/NekoRay, Clash for Windows, and GUI.for.Clash. The first five use attributed upstream icons; the additional and unknown clients use the shared proxy icon. Detection failure can be bypassed with a manual host, port, and protocol.
 
 Icons come from official upstream repositories; see [`public/proxy-clients/ATTRIBUTION.md`](public/proxy-clients/ATTRIBUTION.md).
+
+## Compared with environment-variable tools
+
+These tools solve adjacent problems. ProxyEnv is deliberately narrower: it focuses on proxy discovery, network-layer explanation, and safe per-launch or reviewed-rule actions.
+
+| Tool | Recommendation | Best for | Main characteristics |
+| --- | --- | --- | --- |
+| **ProxyEnv** | ⭐⭐⭐⭐⭐ | Proxy conflicts and app connectivity | Detects active proxy endpoints, explains proxy/system-proxy/TUN layers, supports per-launch environments and reversible reviewed rules |
+| Microsoft PowerToys – Environment Variables | ⭐⭐⭐⭐⭐ | Most Windows developers | Microsoft-maintained, modern UI, profiles, User/System variables |
+| EnvStudio | ⭐⭐⭐⭐⭐ | Complex PATH and multiple dev environments | PATH drag-and-drop, deduplication, invalid-path and conflict checks, snapshot rollback |
+| Envarly | ⭐⭐⭐⭐½ | Open-source and safer general edits | Diff before changes, snapshots/rollback, PATH ordering, PowerShell/Ansible export |
+| Rapid Environment Editor | ⭐⭐⭐⭐ | Traditional Windows development | Mature PATH tree, error detection, backup, portable edition |
+| envx | ⭐⭐⭐⭐ | Terminal/TUI users | Rust, cross-platform, snapshots/profiles, search, CLI, `.env`/JSON/YAML import and export |
 
 ## Requirements
 
@@ -138,13 +169,15 @@ pnpm tauri build
 ProxyEnv/
 ├─ src/
 │  ├─ app/                       # Vue shell and desktop orchestration
-│  ├─ features/                  # Proxy and settings UI
+│  ├─ features/                  # Proxy, application-assistant, and settings UI
 │  └─ shared/                    # IPC, i18n, types, and visual tokens
 ├─ src-tauri/src/
 │  ├─ commands/                  # Thin Tauri IPC adapters
 │  ├─ desktop/                   # Tray, single instance, native window
 │  ├─ environment/               # Generic mutation, snapshot, broadcast, verification
 │  ├─ features/proxy/            # Proxy detection, plans, state, sync/restore/disable
+│  ├─ features/network_observation/ # Read-only virtual-adapter evidence
+│  ├─ features/application_assistant/ # Process selection, diagnosis, launch, declarative rules
 │  └─ services/                  # Persistent application settings
 ├─ public/proxy-clients/         # Runtime icons and attribution
 └─ docs/                         # Architecture and README artwork
@@ -154,9 +187,9 @@ The generic Environment Core has no proxy-client or proxy-variable knowledge. De
 
 ## Scope and privacy
 
-ProxyEnv is not a proxy client, VPN, subscription manager, or traffic router. v0.1 does not control Clash/v2rayN APIs, TUN, nodes, rules, Windows System Proxy, per-app routing, or system-level environment variables.
+ProxyEnv is not a proxy client, VPN, subscription manager, traffic forwarder, or TUN controller. It does not control Clash/v2rayN APIs, nodes, subscriptions, proxy-client rules, Windows System Proxy, routes, drivers, or system-level environment variables. It does not inject into, terminate, or rewrite the environment of running processes.
 
-Detection, protocol probing, and environment management stay on the local machine. ProxyEnv never reads subscriptions, nodes, tokens, passwords, or traffic. Only a user-triggered update check contacts GitHub Releases. See [`SECURITY.md`](SECURITY.md).
+Detection, protocol probing, TUN observation, application enumeration, rule preview, and environment management stay on the local machine. ProxyEnv never reads subscriptions, nodes, tokens, passwords, or traffic. It performs no external connectivity test unless the user explicitly requests the existing proxy test, and only a user-triggered update check contacts GitHub Releases. See [`SECURITY.md`](SECURITY.md).
 
 ## Contributing
 

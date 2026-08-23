@@ -1,5 +1,46 @@
 # Security Policy
 
-Please report suspected vulnerabilities privately to the repository maintainers rather than opening a public issue.
+Please report suspected vulnerabilities privately to the repository maintainers rather than opening a public issue. Include the affected version, operating system, reproduction steps, observed impact, and any relevant local logs with secrets removed.
 
-ProxyEnv must only modify the current user's environment (`HKCU\\Environment`). It must snapshot values before deletion, verify every update, probe localhost candidates only, and never collect or upload proxy subscriptions, credentials, tokens, or traffic data.
+## Trust model
+
+ProxyEnv treats discovery as untrusted evidence and every mutation as a protected operation. Its core principles are:
+
+1. **Automatic discovery, manual changes.** Refresh, process detection, listener inspection, system-proxy reading, and TUN observation never write settings.
+2. **Read before write.** Every managed environment or application-rule change is based on freshly read state.
+3. **Preview, confirm, back up, verify, restore.** Protected writes expose their exact target and consequence, require user intent, preserve the prior value, and read back the result.
+4. **Uncertain means no write.** Missing, malformed, unsupported, or ambiguous state stops the operation.
+5. **Conflict means no overwrite.** A stale plan or externally changed file is never replaced.
+6. **Rules are data only.** Bundled rules cannot execute commands, scripts, adapters, templates, or regular expressions.
+
+## Allowed effects
+
+ProxyEnv may:
+
+- read localhost listeners, visible user applications, Windows System Proxy, current-user proxy environment values, and network-adapter metadata;
+- probe only an explicitly selected or locally discovered proxy endpoint;
+- modify only selected current-user proxy values under `HKCU\\Environment`, with snapshot, broadcast, and verification;
+- launch a new child process with an explicit proxy environment or with managed proxy variables removed;
+- update one existing application configuration field only when a reviewed bundled rule identifies an exact process name, fixed user-profile-relative path, supported format, and typed value;
+- create a local rule backup and restore it only when the current field still equals the value ProxyEnv applied;
+- contact GitHub Releases only when the user explicitly selects **Check for updates**.
+
+## Prohibited capabilities
+
+ProxyEnv must not:
+
+- act as a VPN, proxy server, traffic forwarder, TUN controller, TUN driver installer, node manager, or subscription manager;
+- enable or disable TUN, adapters, routes, services, proxy clients, Windows System Proxy, proxy-client global settings, nodes, subscriptions, or client rules;
+- call Clash, v2rayN, or other proxy-client control APIs;
+- auto-download rules, run a rule marketplace, execute rule-provided code, shell commands, scripts, adapters, templates, or regular expressions;
+- inject into, hook, debug, suspend, terminate, or call `WriteProcessMemory` on a running process;
+- modify the environment of a running process or claim that registry broadcasts retroactively change it;
+- scan the full disk, search arbitrary configuration directories, accept user-defined rule paths/fields, or follow symlinks/reparse points;
+- modify settings, repair applications, follow changing ports, or run external connectivity tests in the background;
+- collect or upload traffic, subscriptions, nodes, credentials, tokens, passwords, application configuration contents, or process lists.
+
+## Local data
+
+Environment snapshots and application-rule backups are stored locally beneath the current user's application-data directories. They may contain previous proxy addresses or the specific application field value needed for restoration. Files are created atomically and should be protected with the same account-level access controls as the user's registry and application configuration.
+
+The application assistant displays executable paths and configuration targets locally. These values are not transmitted. Logs and screenshots shared in vulnerability reports should be reviewed for user names, directory names, proxy addresses, tokens, and other sensitive data.
