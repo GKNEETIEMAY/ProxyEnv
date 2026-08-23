@@ -29,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": ["resources/app-rules/*.json"],
     "windows": {
       "nsis": { "installMode": "currentUser" }
     }

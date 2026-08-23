@@ -2,6 +2,7 @@ mod diagnosis;
 pub(crate) mod launcher;
 pub(crate) mod models;
 mod processes;
+mod rules;
 
 pub use models::{
     ApplicationDiagnosis, ApplicationNetworkState, DiagnosisSummary, LaunchApplicationResult,

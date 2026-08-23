@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proxyenv.local/schemas/application-rule-v1.json",
+  "title": "ProxyEnv Application Compatibility Rule V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "displayName",
+    "match",
+    "config",
+    "restartRequired"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["processNames"],
+      "properties": {
+        "processNames": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[^\\\\/:*?%\\[\\]\\u0000]+\\.exe$"
+          }
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "paths", "field", "valueKind"],
+      "properties": {
+        "format": { "enum": ["json", "yaml", "toml", "ini"] },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "field": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "valueKind": {
+          "enum": ["httpProxyUrl", "socks5ProxyUrl", "host", "port"]
+        }
+      }
+    },
+    "restartRequired": { "type": "boolean" }
+  }
+}

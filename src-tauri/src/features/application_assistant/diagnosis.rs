@@ -12,6 +12,7 @@ use crate::{
 };
 
 use super::{
+    rules::{self, RuleMatchResult},
     ApplicationDiagnosis, ApplicationNetworkState, DiagnosisSummary, ManagedApplication,
     RecommendedAction,
 };
@@ -30,12 +31,20 @@ pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis>
     });
     let proxy_connectivity_state =
         connectivity::get_last_result(active_candidate.as_ref()).map(|result| result.state);
+    let rule_catalog = rules::load_bundled();
+    let rule_match = rules::match_executable(&application.executable_path, &rule_catalog.rules);
+    let (known_rule, rule_match_ambiguous) = match rule_match {
+        RuleMatchResult::None => (None, false),
+        RuleMatchResult::Exact(rule) => (Some(rule.id.clone()), false),
+        RuleMatchResult::Ambiguous(_) => (None, true),
+    };
     let input = DiagnosisInput {
         proxy_available,
         system_proxy_enabled: proxy::system_proxy_enabled(),
         proxy_environment_state: environment.state,
         tun_observation: TunObservationState::Unknown,
-        known_rule: None,
+        known_rule,
+        rule_match_ambiguous,
         proxy_connectivity_state,
     };
     Ok(build_diagnosis(application, input))
@@ -48,6 +57,7 @@ struct DiagnosisInput {
     proxy_environment_state: ProxyEnvironmentState,
     tun_observation: TunObservationState,
     known_rule: Option<String>,
+    rule_match_ambiguous: bool,
     proxy_connectivity_state: Option<ProxyConnectivityState>,
 }
 
@@ -77,6 +87,13 @@ fn decide(
     if !input.proxy_available || proxy_failed {
         return (
             ApplicationNetworkState::Unsupported,
+            RecommendedAction::None,
+            DiagnosisSummary::Unsupported,
+        );
+    }
+    if input.rule_match_ambiguous {
+        return (
+            ApplicationNetworkState::Conflict,
             RecommendedAction::None,
             DiagnosisSummary::Unsupported,
         );
@@ -131,6 +148,7 @@ mod tests {
             proxy_environment_state: ProxyEnvironmentState::Disabled,
             tun_observation: TunObservationState::Unknown,
             known_rule: None,
+            rule_match_ambiguous: false,
             proxy_connectivity_state: None,
         }
     }
@@ -178,6 +196,19 @@ mod tests {
             }
         );
         assert_eq!(diagnosis.summary, DiagnosisSummary::KnownApplicationRule);
+    }
+
+    #[test]
+    fn ambiguous_rules_never_recommend_an_automatic_change() {
+        let mut input = input();
+        input.rule_match_ambiguous = true;
+        let diagnosis = build_diagnosis(application(), input);
+        assert_eq!(
+            diagnosis.application_network_state,
+            ApplicationNetworkState::Conflict
+        );
+        assert_eq!(diagnosis.recommended_action, RecommendedAction::None);
+        assert_eq!(diagnosis.summary, DiagnosisSummary::Unsupported);
     }
 
     #[test]
