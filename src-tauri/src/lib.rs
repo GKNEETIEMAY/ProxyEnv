@@ -53,6 +53,7 @@ pub fn run() {
             commands::environment::sync_manual_proxy_environment,
             commands::environment::disable_proxy_environment,
             commands::environment::restore_proxy_environment,
+            commands::network_observation::get_tun_observation,
             commands::proxy::detect_proxies,
             commands::proxy::inspect_proxy_endpoint,
             commands::proxy::test_current_proxy_connectivity,

@@ -1,7 +1,7 @@
 use crate::{
     error::Result,
     features::{
-        network_observation::TunObservationState,
+        network_observation::{self, TunObservationState},
         proxy::{
             self,
             connectivity::{self, ProxyConnectivityState},
@@ -50,7 +50,7 @@ pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis>
         proxy_available,
         system_proxy_enabled: proxy::system_proxy_enabled(),
         proxy_environment_state: environment.state,
-        tun_observation: TunObservationState::Unknown,
+        tun_observation: network_observation::observe().state,
         known_rule: rule_preview.rule_id,
         rule_inspection,
         proxy_connectivity_state,
