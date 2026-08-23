@@ -210,7 +210,14 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .assistant-section-heading p, .assistant-section > p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .browse-action { display: inline-flex; align-items: center; gap: 7px; }
 .browse-action svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.application-list { border-top: 1px solid var(--line); }
+.browse-action svg.spinning { animation: spin .9s linear infinite; }
+.application-picker-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.application-picker-actions > span { margin-right: 2px; color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.application-list { max-height: 342px; overflow-y: auto; border-top: 1px solid var(--line); scrollbar-color: var(--line-strong) transparent; scrollbar-width: thin; }
+.application-list::-webkit-scrollbar { width: 8px; }
+.application-list::-webkit-scrollbar-track { background: transparent; }
+.application-list::-webkit-scrollbar-thumb { border: 2px solid var(--canvas); border-radius: 8px; background: var(--line-strong); }
+.application-list::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 .application-list button { display: grid; width: 100%; min-height: 62px; padding: 10px 8px; align-items: center; grid-template-columns: 38px minmax(0, 1fr) 20px; gap: 12px; border-bottom: 1px solid var(--line); color: var(--ink); background: transparent; text-align: left; cursor: pointer; transition: background .18s; }
 .application-list button:hover { background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
 .application-list button:disabled { cursor: not-allowed; opacity: .45; }
@@ -222,6 +229,7 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .application-glyph { display: grid; width: 36px; height: 36px; flex: none; place-items: center; border: 1px solid var(--line); border-radius: 10px; color: var(--accent-strong); background: var(--surface-strong); font-family: "Newsreader", serif; font-size: 16px; font-weight: 680; }
 .privacy-note { display: flex; margin: 14px 2px; align-items: center; gap: 8px; color: var(--faint); font-size: 10px; line-height: 1.5; }
 .privacy-note svg { width: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; }
+.application-list-note { margin: 11px 2px 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .assistant-empty, .assistant-loading { padding: 28px 2px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .assistant-empty { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .assistant-loading-panel { display: grid; min-height: 230px; padding: 38px 4px; place-items: center; align-content: center; text-align: center; }
@@ -421,6 +429,8 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
   .assistant-entry { grid-template-columns: 42px 1fr; }
   .assistant-entry > button { grid-column: 2; justify-self: start; }
   .assistant-intro { align-items: flex-start; flex-direction: column; gap: 15px; }
+  .application-picker .assistant-section-heading { align-items: flex-start; flex-direction: column; }
+  .application-picker-actions { justify-content: flex-start; }
   .diagnosis-hero { grid-template-columns: 1fr; }
   .selected-application { padding-right: 2px; border-right: 0; border-bottom: 1px solid var(--line); }
   .recommendation { padding-left: 2px; }

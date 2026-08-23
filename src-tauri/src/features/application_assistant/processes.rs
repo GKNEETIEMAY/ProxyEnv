@@ -136,14 +136,13 @@ fn selectable_process_ids(_: &System) -> HashSet<u32> {
         Win32::{
             Foundation::{HWND, LPARAM},
             UI::WindowsAndMessaging::{
-                EnumWindows, GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible,
+                EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
             },
         },
     };
 
     unsafe extern "system" fn collect_visible_window_pid(hwnd: HWND, state: LPARAM) -> BOOL {
-        if !unsafe { IsWindowVisible(hwnd).as_bool() } || unsafe { GetWindowTextLengthW(hwnd) } <= 0
-        {
+        if !unsafe { IsWindowVisible(hwnd).as_bool() } {
             return BOOL(1);
         }
         let mut pid = 0;

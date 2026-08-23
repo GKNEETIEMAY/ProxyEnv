@@ -30,6 +30,7 @@ const diagnosisTitle = computed(() => {
     unsupported: props.copy.assistantUnsupportedTitle
   })[diagnosis.value.summary];
 });
+const applicationCount = computed(() => props.copy.assistantFoundApps.replace("{count}", String(applications.value.length)));
 
 const diagnosisBody = computed(() => {
   if (!diagnosis.value) return "";
@@ -242,7 +243,7 @@ onMounted(async () => {
     <div v-if="error" class="notice notice-error" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg><p><strong>{{ copy.operationFailed }}</strong><span>{{ error }}</span></p></div>
 
     <section v-if="!diagnosis && !busy" class="assistant-section application-picker">
-      <div class="assistant-section-heading"><div><h2>{{ copy.assistantChooseApp }}</h2><p>{{ copy.assistantChooseHint }}</p></div><button class="secondary-action browse-action" type="button" @click="browseApplication"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.5h5l1.4 1.7h6.6v7.3h-13zM3.5 6.5V4.7h4.2l1.2 1.8" /></svg>{{ copy.assistantBrowse }}</button></div>
+      <div class="assistant-section-heading"><div><h2>{{ copy.assistantChooseApp }}</h2><p>{{ copy.assistantChooseHint }}</p></div><div class="application-picker-actions"><span role="status" aria-live="polite">{{ applicationCount }}</span><button class="secondary-action browse-action" type="button" :disabled="loadingApps" @click="loadApplications"><svg :class="{ spinning: loadingApps }" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 9.5a6.5 6.5 0 1 0-1.9 4.6M16.5 5v4.5H12" /></svg>{{ copy.assistantRefreshApps }}</button><button class="secondary-action browse-action" type="button" @click="browseApplication"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.5h5l1.4 1.7h6.6v7.3h-13zM3.5 6.5V4.7h4.2l1.2 1.8" /></svg>{{ copy.assistantBrowse }}</button></div></div>
       <div v-if="loadingApps" class="assistant-loading" role="status">{{ copy.assistantLoadingApps }}</div>
       <div v-else-if="applications.length" class="application-list">
         <button v-for="application in applications" :key="application.pid" type="button" :disabled="!application.executablePath" @click="managedFromRunning(application) && inspectApplication(managedFromRunning(application)!)">
@@ -252,6 +253,7 @@ onMounted(async () => {
         </button>
       </div>
       <div v-else class="assistant-empty"><p>{{ copy.assistantNoApps }}</p><button class="primary-action" type="button" @click="browseApplication">{{ copy.assistantBrowse }}</button></div>
+      <p v-if="applications.length" class="application-list-note">{{ copy.assistantListHint }}</p>
       <p class="privacy-note"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.5 4.5 5.7v4.1c0 3.3 2.2 5.7 5.5 6.8 3.3-1.1 5.5-3.5 5.5-6.8V5.7z" /></svg>{{ copy.assistantReadOnlyNote }}</p>
     </section>
 
