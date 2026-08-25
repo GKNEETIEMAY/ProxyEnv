@@ -3,16 +3,16 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { computed, onMounted, ref } from "vue";
 import { backend } from "../../../shared/api/backend";
 import type { Copy } from "../../../shared/i18n";
-import type { ApplicationDiagnosis, ManagedApplication, RuleChangePreview, RunningApplication, TunObservation } from "../../../shared/types";
+import type { ApplicationDiagnosis, ManagedApplication, ProxyCandidate, RuleChangePreview, RunningApplication, TunObservation } from "../../../shared/types";
+import NetworkObservationPanel from "../../network-observation/components/NetworkObservationPanel.vue";
 
-const props = defineProps<{ copy: Copy; reviewPreview?: boolean }>();
+const props = defineProps<{ copy: Copy; reviewPreview?: boolean; systemProxy?: ProxyCandidate; tun: TunObservation; proxyAvailable: boolean; networkLoading: boolean }>();
 
 type ResultState = { success: boolean; title: string; detail: string; backupId?: string };
 
 const applications = ref<RunningApplication[]>([]);
 const selected = ref<ManagedApplication>();
 const diagnosis = ref<ApplicationDiagnosis>();
-const tun = ref<TunObservation>();
 const rulePreview = ref<RuleChangePreview>();
 const result = ref<ResultState>();
 const busy = ref(false);
@@ -40,16 +40,6 @@ const diagnosisBody = computed(() => {
     knownApplicationRule: props.copy.assistantRuleBody,
     unsupported: props.copy.assistantUnsupportedBody
   })[diagnosis.value.summary];
-});
-
-const tunLabel = computed(() => {
-  const state = tun.value?.state ?? diagnosis.value?.tunObservation ?? "unknown";
-  return ({
-    notDetected: props.copy.tunNotDetected,
-    possible: props.copy.tunPossible,
-    detected: props.copy.tunDetected,
-    unknown: props.copy.tunUnknown
-  })[state];
 });
 
 function managedFromRunning(application: RunningApplication): ManagedApplication | undefined {
@@ -110,10 +100,7 @@ async function inspectApplication(application: ManagedApplication) {
   result.value = undefined;
   rulePreview.value = undefined;
   try {
-    [diagnosis.value, tun.value] = await Promise.all([
-      backend.diagnoseApplication(application),
-      backend.tunObservation()
-    ]);
+    diagnosis.value = await backend.diagnoseApplication(application);
   } catch (cause) {
     diagnosis.value = undefined;
     failure(cause);
@@ -224,7 +211,6 @@ onMounted(async () => {
       proxyConnectivityState: "reachable", applicationNetworkState: "proxyLaunchRecommended",
       recommendedAction: "launchWithProxy", summary: "canLaunchWithProxy"
     };
-    tun.value = { state: "possible", interfaceName: "Wintun Userspace Tunnel", description: "Virtual tunnel adapter", evidence: [{ kind: "virtualAdapterName", interfaceName: "Wintun Userspace Tunnel", detail: "virtual adapter name" }] };
     return;
   }
   await loadApplications();
@@ -253,7 +239,10 @@ onMounted(async () => {
         </button>
       </div>
       <div v-else class="assistant-empty"><p>{{ copy.assistantNoApps }}</p><button class="primary-action" type="button" @click="browseApplication">{{ copy.assistantBrowse }}</button></div>
-      <p v-if="applications.length" class="application-list-note">{{ copy.assistantListHint }}</p>
+      <div v-if="applications.length" class="notice notice-warning application-list-notice" role="note">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5v4.8m0 3.2v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+        <p><strong>{{ copy.assistantListNoticeTitle }}</strong><span>{{ copy.assistantListHint }}</span></p>
+      </div>
       <p class="privacy-note"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.5 4.5 5.7v4.1c0 3.3 2.2 5.7 5.5 6.8 3.3-1.1 5.5-3.5 5.5-6.8V5.7z" /></svg>{{ copy.assistantReadOnlyNote }}</p>
     </section>
 
@@ -273,14 +262,7 @@ onMounted(async () => {
         <div class="recommendation"><span>{{ copy.assistantRecommendation }}</span><h2>{{ diagnosisTitle }}</h2><p>{{ diagnosisBody }}</p></div>
       </section>
 
-      <section class="assistant-section network-observation">
-        <div class="assistant-section-heading"><div><h2>{{ copy.assistantCurrentNetwork }}</h2><p>{{ copy.assistantObservationHint }}</p></div><span class="read-only-badge">{{ copy.readOnly }}</span></div>
-        <div class="network-facts">
-          <div><span class="fact-dot" :class="{ on: diagnosis.proxyAvailable }"></span><span><strong>{{ copy.assistantLocalProxy }}</strong><small>{{ diagnosis.proxyAvailable ? copy.assistantAvailable : copy.assistantUnavailable }}</small></span></div>
-          <div><span class="fact-dot" :class="{ on: diagnosis.systemProxyEnabled }"></span><span><strong>{{ copy.windowsSystemProxy }}</strong><small>{{ diagnosis.systemProxyEnabled ? copy.systemProxyOn : copy.systemProxyOff }}</small></span></div>
-          <div><span class="fact-dot" :class="{ on: tun?.state === 'detected', possible: tun?.state === 'possible' }"></span><span><strong>{{ copy.assistantTun }}</strong><small>{{ tunLabel }}</small></span></div>
-        </div>
-      </section>
+      <NetworkObservationPanel :copy="copy" :system-proxy="systemProxy" :tun="tun" :proxy-available="proxyAvailable" :loading="networkLoading" show-local-proxy context="assistant" />
 
       <section v-if="rulePreview?.plan" class="assistant-section rule-confirmation">
         <span class="eyebrow">{{ copy.assistantConfirmChange }}</span><h2>{{ copy.assistantRulePreview }}</h2><p>{{ copy.assistantRulePreviewHint }}</p>
@@ -299,7 +281,7 @@ onMounted(async () => {
         </div>
       </section>
 
-      <details class="assistant-advanced" :open="showAdvanced" @toggle="showAdvanced = ($event.currentTarget as HTMLDetailsElement).open"><summary>{{ copy.assistantAdvanced }}</summary><dl><div><dt>{{ copy.assistantDiagnosisState }}</dt><dd><code>{{ diagnosis.applicationNetworkState }}</code></dd></div><div><dt>{{ copy.assistantEnvironmentState }}</dt><dd><code>{{ diagnosis.proxyEnvironmentState }}</code></dd></div><div><dt>{{ copy.assistantTunEvidence }}</dt><dd>{{ tun?.evidence.length || 0 }}</dd></div></dl></details>
+      <details class="assistant-advanced" :open="showAdvanced" @toggle="showAdvanced = ($event.currentTarget as HTMLDetailsElement).open"><summary>{{ copy.assistantAdvanced }}</summary><dl><div><dt>{{ copy.assistantDiagnosisState }}</dt><dd><code>{{ diagnosis.applicationNetworkState }}</code></dd></div><div><dt>{{ copy.assistantEnvironmentState }}</dt><dd><code>{{ diagnosis.proxyEnvironmentState }}</code></dd></div><div v-if="tun.interfaceName"><dt>{{ copy.assistantTunInterface }}</dt><dd><code>{{ tun.interfaceName }}</code></dd></div><div><dt>{{ copy.assistantTunEvidence }}</dt><dd>{{ tun.evidence.length }}</dd></div></dl></details>
     </template>
   </main>
 </template>

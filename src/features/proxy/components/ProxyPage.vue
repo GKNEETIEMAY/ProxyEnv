@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
 import type { Copy } from "../../../shared/i18n";
-import type { EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, ProxyProtocol } from "../../../shared/types";
+import type { EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, ProxyProtocol, TunObservation } from "../../../shared/types";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
+import NetworkObservationPanel from "../../network-observation/components/NetworkObservationPanel.vue";
 
-const props = defineProps<{ copy: Copy; environment: EnvironmentStatus; detected?: ProxyCandidate; systemProxy?: ProxyCandidate; endpoint: string; error: string; loading: boolean; toggling: boolean; copiedEndpoint: boolean; selectedVariables: ManagedProxyVariable[]; inspectManualEndpoint: (endpoint: ProxyEndpoint) => Promise<ProxyEndpointInspection> }>();
+const props = defineProps<{ copy: Copy; environment: EnvironmentStatus; candidates: ProxyCandidate[]; detected?: ProxyCandidate; systemProxy?: ProxyCandidate; tun: TunObservation; endpoint: string; error: string; loading: boolean; toggling: boolean; copiedEndpoint: boolean; selectedVariables: ManagedProxyVariable[]; inspectManualEndpoint: (endpoint: ProxyEndpoint) => Promise<ProxyEndpointInspection> }>();
 const emit = defineEmits<{ refresh: []; applyDetected: []; applyManual: [endpoint: ProxyEndpoint]; disable: []; restore: []; copyEndpoint: []; toggleVariable: [name: string]; openAssistant: [] }>();
 
 const clientIcons: Record<string, string> = { "clash-verge-rev": "/proxy-clients/clash-verge-rev.png", v2rayn: "/proxy-clients/v2rayn.png", flclash: "/proxy-clients/flclash.ico", hiddify: "/proxy-clients/hiddify.ico", "clash-nyanpasu": "/proxy-clients/clash-nyanpasu.png", "generic-proxy": "/proxy-clients/generic-proxy.svg" };
@@ -18,7 +19,20 @@ const manualAttempted = ref(false);
 const inspectingManual = ref(false);
 const inspectionWarning = ref<"notListening" | "unknownProtocol" | "protocolMismatch" | "inspectionFailed">();
 const activeCount = computed(() => props.environment.entries.filter((entry) => entry.exists).length);
-const detectedIcon = computed(() => props.detected ? clientIcons[props.detected.iconKey ?? ""] ?? clientIcons["generic-proxy"] : clientIcons["generic-proxy"]);
+const genericProxyIcon = clientIcons["generic-proxy"];
+const detectedIcon = computed(() => candidateIcon(props.detected));
+const tunSuspected = computed(() => !props.detected?.listening && (props.tun.state === "possible" || props.tun.state === "detected"));
+const secondaryCandidates = computed(() => tunSuspected.value
+  ? props.candidates
+  : props.candidates.filter((candidate) => candidate.id !== props.detected?.id));
+const activeCandidateCount = computed(() => props.candidates.filter((candidate) => candidate.listening).length);
+const observedCandidateCount = computed(() => props.candidates.length + (tunSuspected.value ? 1 : 0));
+const automaticDetectionLabel = computed(() => {
+  if (props.loading && observedCandidateCount.value === 0) return props.copy.autoDetected;
+  return props.copy.autoDetectedCount
+    .replace("{active}", String(activeCandidateCount.value))
+    .replace("{total}", String(observedCandidateCount.value));
+});
 const stateLabel = computed(() => ({ disabled: props.copy.environmentDisabled, partial: props.copy.environmentPartial, enabled: props.copy.environmentEnabled, mismatch: props.copy.environmentMismatch })[props.environment.state]);
 const stateHint = computed(() => ({ disabled: props.copy.environmentOffHint, partial: props.copy.partialHint, enabled: props.copy.environmentOnHint, mismatch: props.copy.mismatchHint })[props.environment.state]);
 const canApplyAutomatic = computed(() => Boolean(props.detected?.listening));
@@ -34,6 +48,14 @@ const inspectionWarningText = computed(() => inspectionWarning.value ? ({
   protocolMismatch: props.copy.manualProtocolMismatch,
   inspectionFailed: props.copy.manualInspectionFailed
 })[inspectionWarning.value] : "");
+
+function candidateIcon(candidate?: ProxyCandidate): string {
+  return candidate ? clientIcons[candidate.iconKey ?? ""] ?? genericProxyIcon : genericProxyIcon;
+}
+
+function candidateEndpoint(candidate: ProxyCandidate): string {
+  return `${candidate.host}:${candidate.port}`;
+}
 
 function protocolsCompatible(selected: ProxyProtocol, detected: ProxyProtocol): boolean {
   return selected === detected
@@ -87,19 +109,33 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
 
     <section class="proxy-console">
       <div class="layer-row client-layer">
-        <div class="layer-heading"><h2>{{ copy.proxyClient }}</h2><span>{{ copy.autoDetected }}</span></div>
-        <div v-if="detected" class="client-heading">
+        <div class="layer-heading"><h2>{{ copy.proxyClient }}</h2><span>{{ automaticDetectionLabel }}</span></div>
+        <div v-if="detected && !tunSuspected" class="client-heading">
           <span class="client-art"><img :src="detectedIcon" alt="" /></span>
           <div><h1>{{ detected.clientName || copy.localProxy }}</h1><p><span class="status-dot" :class="{ quiet: !detected.listening }"></span>{{ detected.listening ? copy.listening : copy.notListening }}</p></div>
           <div class="endpoint-line"><div class="endpoint-address"><code>{{ endpoint }}</code><button type="button" :aria-label="copiedEndpoint ? copy.endpointCopied : copy.copyEndpoint" :title="copiedEndpoint ? copy.endpointCopied : copy.copyEndpoint" @click="emit('copyEndpoint')"><svg v-if="!copiedEndpoint" viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg><svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8"/></svg></button></div><span>{{ detected.protocol }} · {{ detected.confidence }} {{ copy.autoConfidence }}</span></div>
         </div>
+        <div v-else-if="tunSuspected" class="client-heading suspected-client">
+          <span class="client-art generic"><img :src="genericProxyIcon" alt="" /></span>
+          <div><h1>{{ copy.suspectedTunProxy }}</h1><p><span class="status-dot warning"></span>{{ copy.suspectedTunProxyState }}</p></div>
+          <div class="endpoint-line suspected-endpoint"><code>{{ tun.interfaceName || copy.assistantTun }}</code><span>{{ copy.suspectedTunProxyHint }}</span></div>
+        </div>
         <div v-else class="empty-state"><span class="client-art generic"><img :src="detectedIcon" alt="" /></span><div><h1>{{ loading ? copy.detecting : copy.noProxy }}</h1><p>{{ copy.noProxyHint }}</p></div></div>
+
+        <div v-if="secondaryCandidates.length" class="proxy-candidate-results">
+          <div class="candidate-results-heading"><strong>{{ copy.otherProxyCandidates }}</strong><span>{{ secondaryCandidates.length }}</span></div>
+          <div class="candidate-results-list">
+            <div v-for="candidate in secondaryCandidates" :key="candidate.id" class="proxy-candidate-row">
+              <span class="candidate-icon"><img :src="candidateIcon(candidate)" alt="" /></span>
+              <div class="candidate-identity"><strong>{{ candidate.clientName || copy.localProxy }}</strong><small>{{ candidate.processName || candidate.protocol }}</small></div>
+              <code>{{ candidateEndpoint(candidate) }}</code>
+              <span class="candidate-state" :class="{ active: candidate.listening }">{{ candidate.listening ? copy.listening : copy.notListening }}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="layer-row system-layer" :class="{ active: systemProxy }">
-        <div class="system-heading"><span class="system-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5 10.6 4v7H4v-5.5Zm8.1-1.8L20 2v9h-7.9V3.7ZM4 12.6h6.6v7L4 18.2v-5.6Zm8.1 0H20v9l-7.9-1.7v-7.3Z" /></svg></span><div><h2>{{ copy.windowsSystemProxy }}</h2><p>{{ copy.systemProxyReadOnly }}</p></div></div>
-        <div class="system-state"><span class="system-state-mark" aria-hidden="true"><svg v-if="systemProxy" viewBox="0 0 20 20"><path d="m4.5 10.2 3.2 3.2 7.8-7.8" /></svg><svg v-else viewBox="0 0 20 20"><path d="m6 6 8 8m0-8-8 8" /></svg></span><div class="system-state-copy"><div class="system-state-title"><strong>{{ systemProxy ? copy.systemProxyOn : copy.systemProxyOff }}</strong><span class="read-only-badge"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="8.5" width="10" height="7.5" rx="2"/><path d="M7.5 8.5V6.7a2.5 2.5 0 0 1 5 0v1.8"/></svg>{{ copy.readOnly }}</span></div><code v-if="systemProxy">{{ systemProxy.host }}:{{ systemProxy.port }}</code><span v-else>{{ copy.systemProxyDirect }}</span></div></div>
-      </div>
+      <NetworkObservationPanel :copy="copy" :system-proxy="systemProxy" :tun="tun" :loading="loading" context="console" />
 
       <div class="environment-layer" :class="`state-${environment.state}`">
         <div class="environment-summary"><div><h2>{{ copy.proxyEnvironment }}</h2><p>{{ copy.environmentLayerHint }}</p></div><div class="environment-state"><span>{{ stateLabel }}</span><p>{{ stateHint }}</p></div></div>

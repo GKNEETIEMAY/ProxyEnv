@@ -11,7 +11,7 @@ import SettingsPage, {
 } from "../features/settings/components/SettingsPage.vue";
 import { backend } from "../shared/api/backend";
 import { messages, resolveLocale } from "../shared/i18n";
-import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint } from "../shared/types";
+import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, TunObservation } from "../shared/types";
 import AppHeader from "./components/AppHeader.vue";
 
 const defaultSettings: AppSettings = {
@@ -44,6 +44,7 @@ const environment = ref<EnvironmentStatus>({
   snapshotAvailable: false
 });
 const candidates = ref<ProxyCandidate[]>([]);
+const tun = ref<TunObservation>({ state: "unknown", evidence: [] });
 const draftSettings = ref<AppSettings>({ ...defaultSettings });
 const maximized = ref(false);
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
@@ -121,9 +122,16 @@ async function refresh(silent = false) {
     error.value = "";
   }
   try {
-    const status = await backend.environmentStatus();
+    const [status, tunObservation] = await Promise.all([
+      backend.environmentStatus(),
+      backend.tunObservation().catch((cause): TunObservation => ({
+        state: "unknown",
+        evidence: [{ kind: "enumerationUnavailable", detail: String(cause) }]
+      }))
+    ]);
     candidates.value = status.candidates;
     environment.value = status;
+    tun.value = tunObservation;
   } catch (cause) {
     if (!silent) error.value = String(cause);
   } finally {
@@ -334,6 +342,7 @@ onMounted(async () => {
     appVersion.value = "0.1.0";
   }
   if (reviewPreview) {
+    const preview = new URLSearchParams(window.location.search).get("impeccable-review");
     draftSettings.value = copySettings({ ...defaultSettings, language: "zh-CN" });
     environment.value = {
       state: "enabled",
@@ -348,7 +357,7 @@ onMounted(async () => {
         { name: "NO_PROXY", value: "localhost,127.0.0.1,::1", exists: true }
       ]
     };
-    candidates.value = [{
+    const primaryPreviewCandidate: ProxyCandidate = {
       id: "review-v2rayn",
       clientName: "v2rayN",
       iconKey: "v2rayn",
@@ -359,9 +368,46 @@ onMounted(async () => {
       source: ["windowsSystemProxy", "processListener", "protocolProbe"],
       confidence: "veryHigh",
       listening: true
-    }];
-    environment.value.activeCandidate = candidates.value[0];
-    const preview = new URLSearchParams(window.location.search).get("impeccable-review");
+    };
+    if (preview === "tun-only") {
+      candidates.value = [];
+    } else if (preview === "multi-client") {
+      candidates.value = [primaryPreviewCandidate, {
+        id: "review-clash-verge",
+        clientName: "Clash Verge Rev",
+        iconKey: "clash-verge-rev",
+        processName: "clash-verge.exe",
+        host: "127.0.0.1",
+        port: 7897,
+        protocol: "mixed",
+        source: ["processListener", "protocolProbe"],
+        confidence: "high",
+        listening: true
+      }, {
+        id: "review-hiddify-stale",
+        clientName: "Hiddify",
+        iconKey: "hiddify",
+        processName: "Hiddify.exe",
+        host: "127.0.0.1",
+        port: 2334,
+        protocol: "socks5",
+        source: ["windowsSystemProxy"],
+        confidence: "medium",
+        listening: false
+      }];
+    } else {
+      candidates.value = [primaryPreviewCandidate];
+    }
+    environment.value.activeCandidate = candidates.value.find((candidate) => candidate.listening);
+    tun.value = {
+      state: "detected",
+      interfaceName: preview === "tun-only" ? "bby104_2" : "singbox_tun",
+      description: preview === "tun-only" ? "Unknown virtual network adapter" : "Wintun Userspace Tunnel",
+      evidence: [
+        { kind: "virtualAdapterName", interfaceName: preview === "tun-only" ? "bby104_2" : "singbox_tun", detail: "recognized virtual adapter" },
+        { kind: "broadRoute", interfaceName: preview === "tun-only" ? "bby104_2" : "singbox_tun", detail: "split-default route" }
+      ]
+    };
     if (preview === "settings" || preview === "about") {
       view.value = "settings";
       settingsTab.value = preview === "about" ? "about" : "general";
@@ -431,8 +477,10 @@ onBeforeUnmount(() => {
       key="home"
       :copy="copy"
       :environment="environment"
+      :candidates="candidates"
       :detected="detected"
       :system-proxy="systemProxy"
+      :tun="tun"
       :endpoint="endpoint"
       :error="error"
       :loading="loading"
@@ -455,6 +503,10 @@ onBeforeUnmount(() => {
       key="assistant"
       :copy="copy"
       :review-preview="reviewPreview"
+      :system-proxy="systemProxy"
+      :tun="tun"
+      :proxy-available="Boolean(detected?.listening)"
+      :network-loading="loading"
     />
 
     <SettingsPage
