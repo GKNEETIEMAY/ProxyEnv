@@ -135,9 +135,7 @@ fn selectable_process_ids(_: &System) -> HashSet<u32> {
         core::BOOL,
         Win32::{
             Foundation::{HWND, LPARAM},
-            UI::WindowsAndMessaging::{
-                EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
-            },
+            UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible},
         },
     };
 

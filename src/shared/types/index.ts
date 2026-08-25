@@ -64,7 +64,7 @@ export interface AppSettings {
 }
 
 export type TunObservationState = "notDetected" | "possible" | "detected" | "unknown";
-export type TunEvidenceKind = "tunnelInterfaceType" | "virtualAdapterName" | "interfaceOperational" | "enumerationUnavailable";
+export type TunEvidenceKind = "tunnelInterfaceType" | "virtualAdapterName" | "interfaceOperational" | "broadRoute" | "enumerationUnavailable";
 
 export interface TunEvidence {
   kind: TunEvidenceKind;

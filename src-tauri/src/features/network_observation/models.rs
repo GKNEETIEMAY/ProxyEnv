@@ -15,6 +15,7 @@ pub enum TunEvidenceKind {
     TunnelInterfaceType,
     VirtualAdapterName,
     InterfaceOperational,
+    BroadRoute,
     EnumerationUnavailable,
 }
 

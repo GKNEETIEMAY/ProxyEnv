@@ -301,4 +301,16 @@ mod tests {
             RecommendedAction::LaunchWithProxy
         );
     }
+
+    #[test]
+    fn preserves_system_proxy_and_tun_as_independent_observations() {
+        let mut input = input();
+        input.system_proxy_enabled = true;
+        input.tun_observation = TunObservationState::Detected;
+
+        let diagnosis = build_diagnosis(application(), input);
+
+        assert!(diagnosis.system_proxy_enabled);
+        assert_eq!(diagnosis.tun_observation, TunObservationState::Detected);
+    }
 }
