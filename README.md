@@ -38,7 +38,7 @@ Detection and periodic refreshes never rewrite the Registry. When a client chang
 
 ## Capabilities
 
-- Detect local proxy clients, listener PIDs, actual ports, and HTTP/SOCKS5/Mixed protocols.
+- Detect local proxy clients, listener PIDs, actual ports, and HTTP/SOCKS5/Mixed protocols; when several candidates exist, show the active/total count and every additional result.
 - Show Windows System Proxy status without modifying it.
 - Model the proxy environment as `Disabled`, `Partial`, `Enabled`, or `Mismatch`.
 - Apply an automatically detected proxy address or a manually entered host, port, and protocol.
@@ -49,7 +49,7 @@ Detection and periodic refreshes never rewrite the Registry. When a client chang
 - Run from the system tray, honor startup/window preferences, and reuse the existing window on a second launch.
 - Provide Simplified Chinese, English, Japanese, and Korean interfaces with light, dark, and system themes.
 - Choose a visible running application or browse to an executable, then receive a beginner-oriented network diagnosis.
-- Observe virtual tunnel evidence as `Not detected`, `Possible`, `Detected`, or `Unknown` without controlling TUN.
+- Observe TUN virtual-adapter evidence as `Not detected`, `Possible`, `Detected`, or `Unknown` without controlling TUN. A TUN-only setup with no local proxy listener is shown as a suspected proxy client and is never treated as an environment-variable endpoint.
 - Launch a new application process with the active proxy or with proxy variables cleared; never inject into a running process.
 - Preview, confirm, back up, verify, and conflict-safely restore a known application setting when a reviewed bundled rule exists.
 
@@ -77,7 +77,7 @@ ProxyEnv deliberately keeps these concepts separate:
 | Proxy environment | User variables inherited by newly started processes | Change only after an explicit action |
 | TUN / virtual adapter | A possible OS-level traffic path that may affect apps without proxy variables | Read-only, evidence-based observation |
 
-Changing environment variables does not reconfigure a proxy client, toggle Windows System Proxy, control TUN, route all machine traffic, or alter an already-running process. New applications inherit the updated address; running applications must be restarted for it to take effect. A listening proxy port only proves that the client process is available—it does not prove that Windows System Proxy or TUN routing is enabled.
+Windows System Proxy and TUN are independent: either one, both, or neither may be active. Windows exposes an authoritative System Proxy setting but no universal client-independent TUN switch, so TUN remains an evidence-based observation using adapter identity, operational state, and default/split-default routes. Changing environment variables does not reconfigure a proxy client, toggle Windows System Proxy, control TUN, route all machine traffic, or alter an already-running process. New applications inherit the updated address; running applications must be restarted for it to take effect. A listening proxy port only proves that the client process is available—it does not prove that Windows System Proxy or TUN routing is enabled.
 
 ## Managed values
 

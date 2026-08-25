@@ -12,7 +12,8 @@ ProxyEnv/
 │  ├─ app/                           # Shell, lifecycle, cross-feature orchestration
 │  ├─ features/
 │  │  ├─ application-assistant/      # Guided app selection, diagnosis, actions, results
-│  │  ├─ proxy/components/           # Three-layer proxy status and actions
+│  │  ├─ network-observation/         # Shared live system-proxy and TUN presentation
+│  │  ├─ proxy/components/           # Proxy discovery, environment status, and actions
 │  │  └─ settings/components/        # General and About surfaces
 │  └─ shared/                        # Typed IPC, i18n, types, design tokens
 ├─ src-tauri/
@@ -88,16 +89,16 @@ Refresh and discovery are read-only. A detected endpoint change produces `Mismat
 
 ## Network Observation / 网络观测
 
-`features/network_observation` is read-only. On Windows it calls `GetAdaptersAddresses`, records interface type, name/description hints, and operational state, then classifies the evidence:
+`features/network_observation` is read-only. On Windows it combines `GetAdaptersAddresses` with the IPv4 routing table, recording interface type, name/description hints, operational state, and whether a default or split-default route uses the interface. It then classifies the evidence:
 
 - `NotDetected`: no relevant virtual-interface evidence;
 - `Possible`: one signal or ambiguous signals exist;
-- `Detected`: an operational adapter has both an OS tunnel type and a recognized virtual-tunnel description;
+- `Detected`: an operational candidate has at least two independent signals among tunnel type, recognized virtual-tunnel identity, and default/split-default route ownership;
 - `Unknown`: enumeration is unavailable or failed.
 
-A single adapter name never produces `Detected`. The observer does not inspect traffic, change routes, enable adapters, install drivers, or call a proxy client API. Linux and macOS currently return `Unknown` until platform observers are implemented.
+A single adapter name never produces `Detected`, and an ordinary physical adapter is not treated as TUN merely because it owns the default route. The observer does not inspect traffic, change routes, enable adapters, install drivers, or call a proxy client API. Linux and macOS currently return `Unknown` until platform observers are implemented.
 
-`features/network_observation` 始终只读。Windows 实现组合接口类型、名称/描述特征与运行状态；单个名称最多只能得到 `Possible`，不会直接宣称 TUN 已开启。模块不会检查流量、修改路由、启停网卡、安装驱动或调用代理客户端 API。
+`features/network_observation` 始终只读。Windows 实现组合接口类型、名称/描述特征、运行状态，以及接口是否承载默认或分流默认路由；至少两项独立信号一致时才得到 `Detected`。单个名称最多只能得到 `Possible`，普通物理网卡也不会仅因承载默认路由而被误判。模块不会检查流量、修改路由、启停网卡、安装驱动或调用代理客户端 API。
 
 ## Application Assistant / 应用网络助手
 
@@ -137,15 +138,20 @@ The Windows System Proxy and TUN observation are read-only sources. ProxyEnv nev
 
 ## Frontend boundary / 前端边界
 
-Frontend dependencies flow `App.vue → app → features → shared`. `AppShell.vue` owns lifecycle, view routing, periodic read-only refresh, and cross-feature state. Feature components own presentation, their own IPC orchestration, and local interaction.
+Frontend dependencies flow `App.vue → app → features → shared`. `AppShell.vue` owns lifecycle, view routing, periodic read-only refresh, and cross-feature state. Its single five-second refresh reads environment/proxy discovery and TUN observation together, then passes the same system-proxy and TUN snapshot to every active surface. A TUN observation failure becomes `Unknown` without preventing the other network layers from refreshing.
+
+`features/network-observation/components/NetworkObservationPanel.vue` is the shared presentation for live system-proxy and TUN virtual-adapter state. Home adds it below proxy-client discovery; the application assistant reuses it with the local-listener fact enabled. Neither feature starts another timer or duplicates state-label, help, or status-icon logic. Feature components otherwise own their local IPC orchestration and interaction.
+
+Proxy discovery keeps every endpoint candidate returned by the detector. Home selects the first listening candidate as the primary environment-variable endpoint, displays the remaining listening and stale candidates as read-only results, and labels automatic detection with an active/total count. When TUN evidence is `Possible` or `Detected` but no candidate is listening, the UI creates a presentation-only “suspected proxy client” observation. It never synthesizes a host or port, never becomes a `ProxyCandidate`, and cannot enable the automatic Apply action.
 
 The home surface exposes proxy-client, Windows System Proxy, and proxy-environment layers plus one clear entry to the application assistant. The assistant keeps selection, diagnosis, protected confirmation, and result in one guided surface. Advanced evidence is collapsed by default. Errors always state what happened, whether anything changed, and what to do next.
 
-The proxy console exposes three distinct layers:
+The proxy console exposes four distinct observable layers:
 
 1. Proxy Client — detected process, listener, protocol, and confidence.
 2. Windows System Proxy — read-only on/off state and endpoint.
-3. Proxy Environment — state, source choice, explicit actions, and managed values.
+3. TUN / virtual adapter — read-only evidence state and identified interface when available.
+4. Proxy Environment — state, source choice, explicit actions, and managed values.
 
 All user-facing changes are explicit. Variable checkboxes save preference immediately but are not applied until the next Apply or Sync action.
 
