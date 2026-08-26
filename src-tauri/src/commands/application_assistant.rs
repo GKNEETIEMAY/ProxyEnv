@@ -25,7 +25,10 @@ pub async fn list_running_applications() -> Result<Vec<RunningApplication>> {
 #[tauri::command]
 pub async fn pick_application(app: tauri::AppHandle) -> Result<Option<ManagedApplication>> {
     tauri::async_runtime::spawn_blocking(move || {
-        let Some(file) = app.dialog().file().blocking_pick_file() else {
+        let dialog = app.dialog().file();
+        #[cfg(windows)]
+        let dialog = dialog.add_filter("Windows applications (*.exe)", &["exe"]);
+        let Some(file) = dialog.blocking_pick_file() else {
             return Ok(None);
         };
         let path = file.into_path().map_err(|error| {

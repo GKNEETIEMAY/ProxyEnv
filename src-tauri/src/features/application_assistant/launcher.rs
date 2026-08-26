@@ -99,9 +99,40 @@ pub(crate) fn validate_executable(path: &Path) -> Result<PathBuf> {
 
 #[cfg(windows)]
 fn is_supported_executable(path: &Path) -> bool {
-    path.extension()
+    let has_exe_extension = path
+        .extension()
         .and_then(OsStr::to_str)
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"));
+    has_exe_extension && has_portable_executable_header(path)
+}
+
+#[cfg(windows)]
+fn has_portable_executable_header(path: &Path) -> bool {
+    use std::{
+        fs::File,
+        io::{Read, Seek, SeekFrom},
+    };
+
+    let Ok(mut file) = File::open(path) else {
+        return false;
+    };
+    let Ok(metadata) = file.metadata() else {
+        return false;
+    };
+    let mut dos_header = [0_u8; 64];
+    if file.read_exact(&mut dos_header).is_err() || &dos_header[..2] != b"MZ" {
+        return false;
+    }
+    let pe_offset = u32::from_le_bytes(dos_header[0x3c..0x40].try_into().unwrap()) as u64;
+    if pe_offset
+        .checked_add(4)
+        .is_none_or(|end| end > metadata.len())
+        || file.seek(SeekFrom::Start(pe_offset)).is_err()
+    {
+        return false;
+    }
+    let mut signature = [0_u8; 4];
+    file.read_exact(&mut signature).is_ok() && signature == *b"PE\0\0"
 }
 
 #[cfg(not(windows))]
@@ -274,6 +305,22 @@ mod tests {
             validate_executable(&std::env::current_exe().unwrap()).unwrap(),
             std::env::current_exe().unwrap().canonicalize().unwrap()
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_files_renamed_to_exe_without_a_windows_executable_header() {
+        let path = std::env::temp_dir().join(format!(
+            "proxyenv-invalid-executable-{}-{}.exe",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, b"not a Windows executable").unwrap();
+        assert!(validate_executable(&path).is_err());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[cfg(windows)]
