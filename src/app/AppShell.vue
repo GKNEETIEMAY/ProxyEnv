@@ -12,6 +12,7 @@ import SettingsPage, {
 import { backend } from "../shared/api/backend";
 import { messages, resolveLocale } from "../shared/i18n";
 import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, TunObservation } from "../shared/types";
+import { copyText } from "../shared/utils/clipboard";
 import AppHeader from "./components/AppHeader.vue";
 
 const defaultSettings: AppSettings = {
@@ -215,19 +216,7 @@ async function copyEndpoint(candidate?: ProxyCandidate) {
   const value = candidate ? `${candidate.host}:${candidate.port}` : endpoint.value;
   if (!value) return;
   try {
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {
-      const fallback = document.createElement("textarea");
-      fallback.value = value;
-      fallback.style.position = "fixed";
-      fallback.style.opacity = "0";
-      document.body.appendChild(fallback);
-      fallback.select();
-      const copied = document.execCommand("copy");
-      fallback.remove();
-      if (!copied) throw new Error("clipboard permission denied");
-    }
+    await copyText(value);
     copiedEndpoint.value = true;
     if (copyTimer !== undefined) window.clearTimeout(copyTimer);
     copyTimer = window.setTimeout(() => { copiedEndpoint.value = false; }, 1600);
@@ -413,7 +402,7 @@ onMounted(async () => {
     if (preview === "settings" || preview === "about") {
       view.value = "settings";
       settingsTab.value = preview === "about" ? "about" : "general";
-    } else if (preview === "assistant") {
+    } else if (preview === "assistant" || preview === "assistant-result") {
       view.value = "assistant";
     }
     loading.value = false;
@@ -505,6 +494,7 @@ onBeforeUnmount(() => {
       :copy="copy"
       :review-preview="reviewPreview"
       :system-proxy="systemProxy"
+      :active-proxy="detected?.listening ? detected : undefined"
       :tun="tun"
       :proxy-available="Boolean(detected?.listening)"
       :network-loading="loading"

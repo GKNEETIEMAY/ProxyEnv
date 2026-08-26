@@ -4,8 +4,9 @@ import { backend } from "../../../shared/api/backend";
 import type { Copy } from "../../../shared/i18n";
 import type { ApplicationDiagnosis, ManagedApplication, ProxyCandidate, RuleChangePreview, RunningApplication, TunObservation } from "../../../shared/types";
 import NetworkObservationPanel from "../../network-observation/components/NetworkObservationPanel.vue";
+import ApplicationProxyGuideDialog from "./ApplicationProxyGuideDialog.vue";
 
-const props = defineProps<{ copy: Copy; reviewPreview?: boolean; systemProxy?: ProxyCandidate; tun: TunObservation; proxyAvailable: boolean; networkLoading: boolean }>();
+const props = defineProps<{ copy: Copy; reviewPreview?: boolean; systemProxy?: ProxyCandidate; activeProxy?: ProxyCandidate; tun: TunObservation; proxyAvailable: boolean; networkLoading: boolean }>();
 
 type ResultState = { success: boolean; title: string; detail: string; backupId?: string };
 
@@ -19,6 +20,7 @@ const loadingApps = ref(true);
 const error = ref("");
 const restorePending = ref(false);
 const showAdvanced = ref(false);
+const proxyGuide = ref<InstanceType<typeof ApplicationProxyGuideDialog>>();
 const AUTHORIZATION_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
 let authorizationRefreshTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -55,8 +57,16 @@ function managedFromRunning(application: RunningApplication): ManagedApplication
   };
 }
 
+function failureDetail(cause: unknown): string {
+  const message = String(cause);
+  return message.toLocaleLowerCase("en-US").includes("invalid application:")
+    ? props.copy.assistantInvalidExecutable
+    : message;
+}
+
 function failure(cause: unknown) {
-  error.value = `${props.copy.assistantErrorWhat}: ${String(cause)} ${props.copy.assistantErrorUnchanged} ${props.copy.assistantErrorNext}`;
+  const detail = failureDetail(cause);
+  error.value = `${props.copy.assistantErrorWhat}: ${detail} ${props.copy.assistantErrorUnchanged} ${props.copy.assistantErrorNext}`;
 }
 
 function isExpiredAuthorization(cause: unknown): boolean {
@@ -214,25 +224,49 @@ async function applyRuleFix() {
   }
 }
 
-async function launch(mode: "proxy" | "direct") {
-  if (!selected.value) return;
-  busy.value = true;
+async function launchSelectedApplication(mode: "proxy" | "direct", trackGlobalBusy = true) {
+  if (!selected.value) throw props.copy.assistantAuthorizationExpired;
+  if (trackGlobalBusy) busy.value = true;
   error.value = "";
   try {
     const application = await ensureSelectedAuthorization();
-    const launched = mode === "proxy"
+    return mode === "proxy"
       ? await backend.launchApplicationWithProxy(application.id)
       : await backend.launchApplicationWithoutProxy(application.id);
+  } finally {
+    if (trackGlobalBusy) busy.value = false;
+  }
+}
+
+async function launch(mode: "proxy" | "direct") {
+  try {
+    const backupId = result.value?.backupId;
+    const launched = await launchSelectedApplication(mode);
     result.value = {
       success: true,
       title: mode === "proxy" ? props.copy.assistantLaunchedWithProxy : props.copy.assistantLaunchedDirect,
-      detail: props.copy.assistantLaunchResult.replace("{pid}", String(launched.pid))
+      detail: props.copy.assistantLaunchResult.replace("{pid}", String(launched.pid)),
+      backupId
     };
   } catch (cause) {
     failure(cause);
-  } finally {
-    busy.value = false;
   }
+}
+
+async function launchManualProxyProcess(): Promise<string> {
+  if (props.reviewPreview) {
+    return props.copy.assistantLaunchResult.replace("{pid}", "12480");
+  }
+  try {
+    const launched = await launchSelectedApplication("direct", false);
+    return props.copy.assistantLaunchResult.replace("{pid}", String(launched.pid));
+  } catch (cause) {
+    throw `${props.copy.assistantErrorWhat}: ${failureDetail(cause)} ${props.copy.assistantErrorUnchanged} ${props.copy.assistantErrorNext}`;
+  }
+}
+
+function openProxyGuide() {
+  proxyGuide.value?.open();
 }
 
 async function restoreRule() {
@@ -280,6 +314,13 @@ onMounted(async () => {
       proxyConnectivityState: "reachable", applicationNetworkState: "proxyLaunchRecommended",
       recommendedAction: "launchWithProxy", summary: "canLaunchWithProxy"
     };
+    if (new URLSearchParams(window.location.search).get("impeccable-review") === "assistant-result") {
+      result.value = {
+        success: true,
+        title: props.copy.assistantLaunchedWithProxy,
+        detail: props.copy.assistantLaunchResult.replace("{pid}", "12480")
+      };
+    }
     return;
   }
   await loadApplications();
@@ -325,9 +366,13 @@ onBeforeUnmount(() => {
     <section v-else-if="result" class="assistant-section result-panel">
       <span class="result-mark" :class="{ success: result.success }" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12.3 3.2 3.2L17.5 8M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span>
       <h2>{{ result.title }}</h2><p>{{ result.detail }}</p>
-      <div v-if="result.backupId && !restorePending" class="result-actions"><button class="secondary-action" type="button" @click="restorePending = true">{{ copy.assistantRestore }}</button><button class="primary-action" type="button" @click="startOver">{{ copy.assistantCheckAnother }}</button></div>
+      <div v-if="activeProxy" class="result-follow-up">
+        <span aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2.8a7.2 7.2 0 1 0 0 14.4 7.2 7.2 0 0 0 0-14.4Zm0 10.8v.1M10 6.2v4.6" /></svg></span>
+        <div><strong>{{ copy.assistantProxyStillOfflineTitle }}</strong><p>{{ copy.assistantProxyStillOffline }}</p></div>
+      </div>
+      <div v-if="result.backupId && !restorePending" class="result-actions"><button class="secondary-action" type="button" @click="restorePending = true">{{ copy.assistantRestore }}</button><button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button><button class="primary-action" type="button" @click="startOver">{{ copy.assistantCheckAnother }}</button></div>
       <div v-else-if="restorePending" class="restore-confirm"><p>{{ copy.assistantRestoreConfirm }}</p><div><button class="secondary-action" type="button" @click="restorePending = false">{{ copy.cancel }}</button><button class="primary-action" type="button" @click="restoreRule">{{ copy.assistantConfirmRestore }}</button></div></div>
-      <button v-else class="primary-action" type="button" @click="startOver">{{ copy.assistantCheckAnother }}</button>
+      <div v-else class="result-actions"><button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button><button class="primary-action" type="button" @click="startOver">{{ copy.assistantCheckAnother }}</button></div>
     </section>
 
     <template v-else-if="diagnosis && selected">
@@ -350,6 +395,7 @@ onBeforeUnmount(() => {
         <div class="assistant-actions">
           <button v-if="diagnosis.summary === 'knownApplicationRule'" class="primary-action" type="button" @click="prepareRuleFix">{{ copy.assistantPreviewFix }}</button>
           <button v-else class="primary-action" type="button" :disabled="!diagnosis.proxyAvailable" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
+          <button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button>
           <button class="secondary-action" type="button" @click="launch('direct')">{{ copy.assistantLaunchDirect }}</button>
           <button class="secondary-action" type="button" @click="startOver">{{ copy.assistantChooseAgain }}</button>
         </div>
@@ -357,5 +403,7 @@ onBeforeUnmount(() => {
 
       <details class="assistant-advanced" :open="showAdvanced" @toggle="showAdvanced = ($event.currentTarget as HTMLDetailsElement).open"><summary>{{ copy.assistantAdvanced }}</summary><dl><div><dt>{{ copy.assistantDiagnosisState }}</dt><dd><code>{{ diagnosis.applicationNetworkState }}</code></dd></div><div><dt>{{ copy.assistantEnvironmentState }}</dt><dd><code>{{ diagnosis.proxyEnvironmentState }}</code></dd></div><div v-if="tun.interfaceName"><dt>{{ copy.assistantTunInterface }}</dt><dd><code>{{ tun.interfaceName }}</code></dd></div><div><dt>{{ copy.assistantTunEvidence }}</dt><dd>{{ tun.evidence.length }}</dd></div></dl></details>
     </template>
+
+    <ApplicationProxyGuideDialog ref="proxyGuide" :copy="copy" :candidate="activeProxy" :busy="busy" :launch-process="launchManualProxyProcess" />
   </main>
 </template>
