@@ -26,15 +26,10 @@ This document defines the release trust model for ProxyEnv. Tauri Updater signin
 - backend IPC trust boundary;
 - snapshot schema, allowlist, link/reparse-point, and size validation;
 - lockfile-enforced CI and Release pipeline;
+- Windows Authenticode for the executable and every installer, including a trusted timestamp and post-build signature verification;
 - if automatic updates are enabled: Tauri Updater signature verification, a pinned HTTPS source, default anti-downgrade behavior, and signed updater artifacts.
 
-### P1 — future public-release hardening / 后续公开发行增强
-
-- Windows Authenticode through Microsoft Artifact Signing or a trusted OV code-signing certificate;
-- timestamped signatures for the executable and installers;
-- post-build `Get-AuthenticodeSignature` verification.
-
-An open-source Windows build can be published without Authenticode. This affects publisher identity and SmartScreen reputation; it does not replace or weaken the signature verification required for future automatic updater artifacts.
+Unsigned development builds and draft artifacts are permitted for internal testing, but they must remain clearly labeled and must not be promoted as a stable public Windows release. Authenticode may use Microsoft Artifact Signing or a trusted OV/EV code-signing certificate. It remains separate from, and does not replace, the signature verification required for future automatic updater artifacts.
 
 ## Mechanism comparison / 机制对比
 
@@ -42,7 +37,7 @@ An open-source Windows build can be published without Authenticode. This affects
 | --- | --- | --- | --- |
 | Tauri Updater signing | Update artifact authenticity and integrity before installation | No CA certificate cost | Mandatory before automatic update is enabled; not implemented yet |
 | SHA-256 | Manual artifact-integrity verification and release audit trail | Free | Generated for every tag release |
-| Windows Authenticode | Windows publisher identity, SmartScreen reputation, Unknown Publisher mitigation | May require a paid certificate or service | P1; not a current blocker |
+| Windows Authenticode | Windows publisher identity, SmartScreen reputation, Unknown Publisher mitigation | May require a paid certificate or service | P0 before a stable public Windows release; not implemented |
 | GitHub Actions Release | Controlled, repeatable build/test/package/upload path | Repository CI cost only | Implemented as a tag-triggered draft release |
 
 SHA-256 is not a digital signature. A checksum hosted beside a compromised artifact can also be replaced, while updater signing verifies the artifact against a public key embedded in the trusted application.
@@ -80,11 +75,11 @@ Official reference: [Tauri 2 Updater documentation](https://v2.tauri.app/plugin/
 
 ## Release workflow / 发布流程
 
-The current workflow intentionally passes `--no-sign` to avoid implying Authenticode. It produces the portable executable plus whatever installer types the existing Tauri bundle configuration creates; it does not force an installer migration. Each release remains a draft until a maintainer checks:
+The current workflow intentionally passes `--no-sign` to avoid implying Authenticode. Its artifacts are for draft/internal testing only and must not be promoted as a stable public Windows release. It produces the portable executable plus whatever installer types the existing Tauri bundle configuration creates; it does not force an installer migration. Each release remains a draft until a maintainer checks:
 
 1. the tag, `package.json`, and `tauri.conf.json` versions match;
 2. CI and dependency audits passed;
 3. `SHA256SUMS.txt` matches every uploaded binary;
 4. the installer and portable executable launch on a clean Windows 10/11 x64 machine;
-5. unsigned-artifact warnings are described in the release notes;
+5. the release remains a clearly labeled draft until the executable and every installer have valid timestamped Authenticode signatures;
 6. no updater claim is made until signed updater artifacts and `latest.json` are actually enabled.

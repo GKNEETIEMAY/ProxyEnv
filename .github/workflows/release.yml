@@ -74,7 +74,9 @@ jobs:
       - name: Run Clippy with locked dependencies
         run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-      # Authenticode and Tauri Updater signing are intentionally not configured here.
+      # These unsigned artifacts are draft/testing builds only. Authenticode is a
+      # P0 requirement before a stable public Windows release can be published.
+      # Tauri Updater signing is intentionally not configured here.
       # When the updater is enabled, its private key must be injected only through
       # TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets.
       - name: Build current Tauri bundles from lockfiles

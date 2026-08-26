@@ -164,7 +164,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D w
 pnpm tauri build
 ```
 
-Tag releases are built by GitHub Actions from frozen lockfiles and include `SHA256SUMS.txt`. The current manual update check does not download or execute software. Automatic updates will remain disabled until official Tauri Updater signature verification is configured. Windows artifacts are currently unsigned with Authenticode and may trigger Unknown Publisher or SmartScreen warnings; see [release security](docs/release-security.md).
+Tag releases are built by GitHub Actions from frozen lockfiles and include `SHA256SUMS.txt`. The current manual update check does not download or execute software. Automatic updates will remain disabled until official Tauri Updater signature verification is configured. Current Windows artifacts are unsigned draft/testing builds and may trigger Unknown Publisher or SmartScreen warnings; Authenticode is a blocker for a stable public Windows release. See [release security](docs/release-security.md).
 
 ## Repository structure
 
