@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { open } from "@tauri-apps/plugin-dialog";
 import { computed, onMounted, ref } from "vue";
 import { backend } from "../../../shared/api/backend";
 import type { Copy } from "../../../shared/i18n";
@@ -43,24 +42,11 @@ const diagnosisBody = computed(() => {
 });
 
 function managedFromRunning(application: RunningApplication): ManagedApplication | undefined {
-  if (!application.executablePath) return undefined;
+  if (!application.applicationId || !application.executablePath) return undefined;
   return {
-    id: `running:${application.executablePath.toLowerCase()}`,
+    id: application.applicationId,
     displayName: application.displayName,
     executablePath: application.executablePath,
-    iconKey: null,
-    ruleId: null,
-    lastAction: null
-  };
-}
-
-function managedFromPath(path: string): ManagedApplication {
-  const fileName = path.split(/[\\/]/).pop() || props.copy.assistantApplication;
-  const displayName = fileName.replace(/\.exe$/i, "").replace(/[-_]+/g, " ");
-  return {
-    id: `selected:${path.toLowerCase()}`,
-    displayName,
-    executablePath: path,
     iconKey: null,
     ruleId: null,
     lastAction: null
@@ -86,8 +72,8 @@ async function loadApplications() {
 async function browseApplication() {
   error.value = "";
   try {
-    const path = await open({ multiple: false, directory: false });
-    if (typeof path === "string") await inspectApplication(managedFromPath(path));
+    const application = await backend.pickApplication();
+    if (application) await inspectApplication(application);
   } catch (cause) {
     failure(cause);
   }
@@ -100,7 +86,7 @@ async function inspectApplication(application: ManagedApplication) {
   result.value = undefined;
   rulePreview.value = undefined;
   try {
-    diagnosis.value = await backend.diagnoseApplication(application);
+    diagnosis.value = await backend.diagnoseApplication(application.id);
   } catch (cause) {
     diagnosis.value = undefined;
     failure(cause);
@@ -114,7 +100,7 @@ async function prepareRuleFix() {
   busy.value = true;
   error.value = "";
   try {
-    rulePreview.value = await backend.previewApplicationRuleFix(selected.value);
+    rulePreview.value = await backend.previewApplicationRuleFix(selected.value.id);
     if (rulePreview.value.state !== "ready" || !rulePreview.value.plan) {
       throw new Error(`${props.copy.assistantRuleUnavailable} (${rulePreview.value.state})`);
     }
@@ -131,7 +117,7 @@ async function applyRuleFix() {
   busy.value = true;
   error.value = "";
   try {
-    const applied = await backend.applyApplicationRuleFix(selected.value, rulePreview.value.plan);
+    const applied = await backend.applyApplicationRuleFix(selected.value.id, rulePreview.value.plan);
     if (applied.state !== "applied") throw new Error(`${props.copy.assistantRuleApplyFailed} (${applied.state})`);
     result.value = {
       success: true,
@@ -152,8 +138,8 @@ async function launch(mode: "proxy" | "direct") {
   error.value = "";
   try {
     const launched = mode === "proxy"
-      ? await backend.launchApplicationWithProxy(selected.value)
-      : await backend.launchApplicationWithoutProxy(selected.value);
+      ? await backend.launchApplicationWithProxy(selected.value.id)
+      : await backend.launchApplicationWithoutProxy(selected.value.id);
     result.value = {
       success: true,
       title: mode === "proxy" ? props.copy.assistantLaunchedWithProxy : props.copy.assistantLaunchedDirect,
@@ -200,8 +186,8 @@ function configValue(value: unknown): string {
 onMounted(async () => {
   if (props.reviewPreview) {
     applications.value = [
-      { pid: 8420, processName: "Code.exe", displayName: "Visual Studio Code", executablePath: "C:\\Program Files\\Microsoft VS Code\\Code.exe", iconAvailable: false },
-      { pid: 9132, processName: "Discord.exe", displayName: "Discord", executablePath: "C:\\Users\\demo\\AppData\\Local\\Discord\\Discord.exe", iconAvailable: false }
+      { pid: 8420, applicationId: "review-code", processName: "Code.exe", displayName: "Visual Studio Code", executablePath: "C:\\Program Files\\Microsoft VS Code\\Code.exe", iconAvailable: false },
+      { pid: 9132, applicationId: "review-discord", processName: "Discord.exe", displayName: "Discord", executablePath: "C:\\Users\\demo\\AppData\\Local\\Discord\\Discord.exe", iconAvailable: false }
     ];
     loadingApps.value = false;
     selected.value = managedFromRunning(applications.value[0]);
@@ -232,7 +218,7 @@ onMounted(async () => {
       <div class="assistant-section-heading"><div><h2>{{ copy.assistantChooseApp }}</h2><p>{{ copy.assistantChooseHint }}</p></div><div class="application-picker-actions"><span role="status" aria-live="polite">{{ applicationCount }}</span><button class="secondary-action browse-action" type="button" :disabled="loadingApps" @click="loadApplications"><svg :class="{ spinning: loadingApps }" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 9.5a6.5 6.5 0 1 0-1.9 4.6M16.5 5v4.5H12" /></svg>{{ copy.assistantRefreshApps }}</button><button class="secondary-action browse-action" type="button" @click="browseApplication"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.5h5l1.4 1.7h6.6v7.3h-13zM3.5 6.5V4.7h4.2l1.2 1.8" /></svg>{{ copy.assistantBrowse }}</button></div></div>
       <div v-if="loadingApps" class="assistant-loading" role="status">{{ copy.assistantLoadingApps }}</div>
       <div v-else-if="applications.length" class="application-list">
-        <button v-for="application in applications" :key="application.pid" type="button" :disabled="!application.executablePath" @click="managedFromRunning(application) && inspectApplication(managedFromRunning(application)!)">
+        <button v-for="application in applications" :key="application.pid" type="button" :disabled="!application.applicationId || !application.executablePath" @click="managedFromRunning(application) && inspectApplication(managedFromRunning(application)!)">
           <span class="application-glyph" aria-hidden="true">{{ application.displayName.slice(0, 1).toUpperCase() }}</span>
           <span><strong>{{ application.displayName }}</strong><small>{{ application.executablePath || copy.assistantPathUnavailable }}</small></span>
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 5 5 5-5 5" /></svg>

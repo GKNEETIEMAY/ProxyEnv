@@ -72,7 +72,7 @@ fn clear_proxy_variables(command: &mut Command) {
     }
 }
 
-fn validate_executable(path: &Path) -> Result<PathBuf> {
+pub(crate) fn validate_executable(path: &Path) -> Result<PathBuf> {
     if !path.is_absolute() {
         return Err(ProxyEnvError::InvalidApplication(
             "the executable path must be absolute".into(),

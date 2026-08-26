@@ -17,6 +17,12 @@ pub enum ProxyEnvError {
     BroadcastFailed(String),
     #[error("environment update could not be verified: {0}")]
     VerificationFailed(String),
+    #[error("environment update failed but the previous values were restored: {0}")]
+    EnvironmentApplyRolledBack(String),
+    #[error("environment update failed and rollback was incomplete: {0}")]
+    EnvironmentRollbackIncomplete(String),
+    #[error("environment restore stopped because the variables were modified externally: {0}")]
+    EnvironmentRestoreConflict(String),
     #[error("proxy detection failed: {0}")]
     Detection(String),
     #[error("no active proxy endpoint is available")]
@@ -25,6 +31,8 @@ pub enum ProxyEnvError {
     InvalidProxyEndpoint(String),
     #[error("invalid application: {0}")]
     InvalidApplication(String),
+    #[error("application authorization failed: {0}")]
+    ApplicationAuthorization(String),
     #[error("failed to launch application: {0}")]
     ApplicationLaunch(String),
     #[error("failed to read application settings: {0}")]

@@ -13,7 +13,7 @@ pub async fn detect_proxies() -> Result<Vec<ProxyCandidate>> {
 }
 
 #[tauri::command]
-pub async fn inspect_proxy_endpoint(endpoint: ProxyEndpoint) -> ProxyEndpointInspection {
+pub async fn inspect_proxy_endpoint(endpoint: ProxyEndpoint) -> Result<ProxyEndpointInspection> {
     proxy::inspect_endpoint(&endpoint)
 }
 

@@ -81,6 +81,7 @@ export interface TunObservation {
 
 export interface RunningApplication {
   pid: number;
+  applicationId?: string;
   processName: string;
   displayName: string;
   executablePath?: string;

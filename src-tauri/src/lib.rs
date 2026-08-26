@@ -42,6 +42,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::application_assistant::list_running_applications,
+            commands::application_assistant::pick_application,
             commands::application_assistant::diagnose_application,
             commands::application_assistant::preview_application_rule_fix,
             commands::application_assistant::apply_application_rule_fix,

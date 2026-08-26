@@ -1,3 +1,4 @@
+mod authorization;
 mod diagnosis;
 pub(crate) mod launcher;
 pub(crate) mod models;
@@ -9,6 +10,10 @@ pub use models::{
     LaunchEnvironmentMode, ManagedApplication, RecommendedAction, RunningApplication,
 };
 pub use rules::{RuleApplyResult, RuleChangePlan, RuleChangePreview, RuleRestoreResult};
+
+pub(crate) use authorization::{
+    authorize_path, authorize_running_applications, resolve_application,
+};
 
 pub fn list_running_applications() -> Vec<RunningApplication> {
     processes::enumerate()

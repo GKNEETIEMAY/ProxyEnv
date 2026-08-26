@@ -1,4 +1,4 @@
-use std::{fs, io::Write, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -6,6 +6,10 @@ use crate::{
     error::{ProxyEnvError, Result},
     features::proxy::ProxyVariable,
 };
+
+use super::local_file;
+
+const MAX_SETTINGS_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,7 +38,7 @@ fn default_proxy_variables() -> Vec<ProxyVariable> {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppSettings {
     pub language: LanguagePreference,
     pub theme: ThemePreference,
@@ -112,73 +116,53 @@ fn settings_path() -> Result<PathBuf> {
 
 pub fn load() -> Result<AppSettings> {
     let path = settings_path().map_err(|error| ProxyEnvError::SettingsRead(error.to_string()))?;
-    if !path.exists() {
+    let Some(bytes) = local_file::safe_read(&path, MAX_SETTINGS_BYTES)
+        .map_err(|error| ProxyEnvError::SettingsRead(error.to_string()))?
+    else {
         return Ok(AppSettings::default());
-    }
-    let bytes = fs::read(path).map_err(|error| ProxyEnvError::SettingsRead(error.to_string()))?;
-    let mut settings: AppSettings = serde_json::from_slice(&bytes)
-        .map_err(|error| ProxyEnvError::SettingsRead(error.to_string()))?;
-    if settings.proxy_variables.is_empty() {
-        settings.proxy_variables = default_proxy_variables();
-    }
-    Ok(settings)
+    };
+    decode_settings(&bytes).map_err(ProxyEnvError::SettingsRead)
 }
 
 pub fn save(settings: &AppSettings) -> Result<()> {
+    validate_settings(settings).map_err(ProxyEnvError::SettingsWrite)?;
     let destination = settings_path()?;
     let directory = destination
         .parent()
         .ok_or_else(|| ProxyEnvError::SettingsWrite("settings directory is unavailable".into()))?;
     fs::create_dir_all(directory)
         .map_err(|error| ProxyEnvError::SettingsWrite(error.to_string()))?;
-    let temporary = directory.join("settings.json.tmp");
     let bytes = serde_json::to_vec_pretty(settings)
         .map_err(|error| ProxyEnvError::SettingsWrite(error.to_string()))?;
-    let mut file = fs::File::create(&temporary)
-        .map_err(|error| ProxyEnvError::SettingsWrite(error.to_string()))?;
-    file.write_all(&bytes)
-        .and_then(|_| file.sync_all())
-        .map_err(|error| ProxyEnvError::SettingsWrite(error.to_string()))?;
-    replace_file(&temporary, &destination)
+    if bytes.len() as u64 > MAX_SETTINGS_BYTES {
+        return Err(ProxyEnvError::SettingsWrite(
+            "settings exceed the size limit".into(),
+        ));
+    }
+    local_file::atomic_write(&destination, &bytes, "settings")
         .map_err(|error| ProxyEnvError::SettingsWrite(error.to_string()))
 }
 
-#[cfg(windows)]
-fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows::{
-        core::PCWSTR,
-        Win32::Storage::FileSystem::{
-            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-        },
-    };
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    unsafe {
-        MoveFileExW(
-            PCWSTR(source.as_ptr()),
-            PCWSTR(destination.as_ptr()),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
+fn decode_settings(bytes: &[u8]) -> std::result::Result<AppSettings, String> {
+    if bytes.len() as u64 > MAX_SETTINGS_BYTES {
+        return Err("settings exceed the size limit".into());
     }
-    .map_err(std::io::Error::other)
+    let mut settings: AppSettings =
+        serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+    if settings.proxy_variables.is_empty() {
+        settings.proxy_variables = default_proxy_variables();
+    }
+    validate_settings(&settings)?;
+    Ok(settings)
 }
 
-#[cfg(not(windows))]
-fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    if destination.exists() {
-        fs::remove_file(destination)?;
+fn validate_settings(settings: &AppSettings) -> std::result::Result<(), String> {
+    for (index, variable) in settings.proxy_variables.iter().enumerate() {
+        if settings.proxy_variables[..index].contains(variable) {
+            return Err("settings contain duplicate proxy variables".into());
+        }
     }
-    fs::rename(source, destination)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -202,5 +186,26 @@ mod tests {
         assert_eq!(locale_code("zh-TW"), "en");
         assert_eq!(locale_code("zh-HK"), "en");
         assert_eq!(locale_code("zh-Hans-CN"), "zh-CN");
+    }
+
+    #[test]
+    fn settings_schema_rejects_unknown_fields_and_duplicate_variables() {
+        let unknown = br#"{
+            "language":"system","theme":"system","launchAtStartup":false,
+            "silentStart":false,"closeToTray":true,"proxyVariables":["http"],
+            "unexpected":true
+        }"#;
+        assert!(decode_settings(unknown).is_err());
+
+        let duplicates = br#"{
+            "language":"system","theme":"system","launchAtStartup":false,
+            "silentStart":false,"closeToTray":true,"proxyVariables":["http","http"]
+        }"#;
+        assert!(decode_settings(duplicates).is_err());
+    }
+
+    #[test]
+    fn oversized_settings_are_rejected_before_parsing() {
+        assert!(decode_settings(&vec![b' '; MAX_SETTINGS_BYTES as usize + 1]).is_err());
     }
 }

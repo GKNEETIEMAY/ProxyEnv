@@ -140,12 +140,13 @@ async function refresh(silent = false) {
   }
 }
 
-async function applyDetectedProxy() {
+async function applyDetectedProxy(candidate?: ProxyCandidate) {
   toggling.value = true;
   error.value = "";
   try {
-    if (!detected.value?.listening) throw new Error(copy.value.noProxyHint);
-    await backend.syncProxyEnvironment(detected.value);
+    const target = candidate ?? detected.value;
+    if (!target?.listening) throw new Error(copy.value.noProxyHint);
+    await backend.syncProxyEnvironment(target);
     await refresh(true);
   } catch (cause) {
     error.value = String(cause);
@@ -210,14 +211,15 @@ function openAssistant() {
   view.value = "assistant";
 }
 
-async function copyEndpoint() {
-  if (!endpoint.value) return;
+async function copyEndpoint(candidate?: ProxyCandidate) {
+  const value = candidate ? `${candidate.host}:${candidate.port}` : endpoint.value;
+  if (!value) return;
   try {
     try {
-      await navigator.clipboard.writeText(endpoint.value);
+      await navigator.clipboard.writeText(value);
     } catch {
       const fallback = document.createElement("textarea");
-      fallback.value = endpoint.value;
+      fallback.value = value;
       fallback.style.position = "fixed";
       fallback.style.opacity = "0";
       document.body.appendChild(fallback);
@@ -481,7 +483,6 @@ onBeforeUnmount(() => {
       :detected="detected"
       :system-proxy="systemProxy"
       :tun="tun"
-      :endpoint="endpoint"
       :error="error"
       :loading="loading"
       :toggling="toggling"

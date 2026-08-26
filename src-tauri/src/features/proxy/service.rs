@@ -45,7 +45,9 @@ impl ProxyEnvironmentService {
             .any(|entry| is_managed_variable(&entry.name) && entry.exists);
         let endpoint_mismatch = configured && expected.is_some() && !matches_active_proxy;
         let state = environment_state(&entries, selected, endpoint_mismatch);
-        let snapshot_available = EnvironmentManager::latest_snapshot()?.is_some();
+        let snapshot_available = EnvironmentManager::latest_snapshot()?
+            .as_ref()
+            .is_some_and(|snapshot| EnvironmentManager::can_restore(snapshot, &entries));
         Ok(ProxyEnvironmentStatus {
             state,
             entries,
@@ -60,16 +62,15 @@ impl ProxyEnvironmentService {
 
     pub fn disable() -> Result<ProxyEnvironmentStatus> {
         let names = managed_variable_names();
-        EnvironmentManager::snapshot(
-            &names,
-            EnvironmentScope::User,
-            SnapshotReason::FeatureChange,
-        )?;
         let mutations = names
             .into_iter()
             .map(|name| EnvironmentMutation::Delete { name })
             .collect::<Vec<_>>();
-        EnvironmentManager::apply(&mutations, EnvironmentScope::User)?;
+        EnvironmentManager::apply(
+            &mutations,
+            EnvironmentScope::User,
+            SnapshotReason::FeatureChange,
+        )?;
         Self::status(&[], None)
     }
 
@@ -99,13 +100,16 @@ impl ProxyEnvironmentService {
         if entries_match(&plan, &actual) {
             return Self::status(selected, None);
         }
-        EnvironmentManager::snapshot(&names, EnvironmentScope::User, SnapshotReason::BeforeApply)?;
         let mutations = plan
             .variables
             .into_iter()
             .map(|entry| mutation(entry.name, entry.value))
             .collect::<Vec<_>>();
-        EnvironmentManager::apply(&mutations, EnvironmentScope::User)?;
+        EnvironmentManager::apply(
+            &mutations,
+            EnvironmentScope::User,
+            SnapshotReason::BeforeApply,
+        )?;
         Self::status(selected, None)
     }
 

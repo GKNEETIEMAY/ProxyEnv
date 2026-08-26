@@ -11,6 +11,7 @@ use crate::features::{
 #[serde(rename_all = "camelCase")]
 pub struct RunningApplication {
     pub pid: u32,
+    pub application_id: Option<String>,
     pub process_name: String,
     pub display_name: String,
     pub executable_path: Option<PathBuf>,

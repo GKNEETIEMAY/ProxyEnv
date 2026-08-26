@@ -6,6 +6,8 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use crate::services::local_file;
+
 use super::{file_io::operation_id, planner::ConfigValue};
 
 const MAX_BACKUP_BYTES: u64 = 1024 * 1024;
@@ -43,6 +45,7 @@ impl RuleBackupStore {
 
     pub fn create(&self, mut backup: RuleBackup) -> Result<RuleBackup, ()> {
         fs::create_dir_all(&self.directory).map_err(|_| ())?;
+        local_file::ensure_safe_directory(&self.directory).map_err(|_| ())?;
         backup.id = operation_id();
         if !valid_backup_id(&backup.id) {
             return Err(());
@@ -72,14 +75,9 @@ impl RuleBackupStore {
             return Err(());
         }
         let path = self.path(id);
-        let metadata = fs::symlink_metadata(&path).map_err(|_| ())?;
-        if !metadata.file_type().is_file()
-            || metadata.file_type().is_symlink()
-            || metadata.len() > MAX_BACKUP_BYTES
-        {
-            return Err(());
-        }
-        let bytes = fs::read(path).map_err(|_| ())?;
+        let bytes = local_file::safe_read(&path, MAX_BACKUP_BYTES)
+            .map_err(|_| ())?
+            .ok_or(())?;
         let backup: RuleBackup = serde_json::from_slice(&bytes).map_err(|_| ())?;
         if backup.id != id {
             return Err(());

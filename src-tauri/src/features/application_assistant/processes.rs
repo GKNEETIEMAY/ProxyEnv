@@ -49,6 +49,7 @@ pub fn enumerate() -> Vec<RunningApplication> {
                 && is_selectable_process(pid, executable_path.as_deref(), &selectable_pids))
             .then(|| RunningApplication {
                 pid,
+                application_id: None,
                 display_name: display_name(&process_name, executable_path.as_deref()),
                 process_name,
                 executable_path,
@@ -213,6 +214,7 @@ mod tests {
     fn application(pid: u32, name: &str, path: Option<&str>) -> RunningApplication {
         RunningApplication {
             pid,
+            application_id: None,
             process_name: name.into(),
             display_name: display_name(name, path.map(Path::new)),
             executable_path: path.map(PathBuf::from),

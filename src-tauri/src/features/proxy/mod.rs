@@ -24,19 +24,20 @@ pub(crate) fn system_proxy_enabled() -> bool {
     system_proxy::read().is_some()
 }
 
-pub fn inspect_endpoint(endpoint: &ProxyEndpoint) -> ProxyEndpointInspection {
-    let listening = probe::listening(endpoint.host.trim(), endpoint.port);
+pub fn inspect_endpoint(endpoint: &ProxyEndpoint) -> Result<ProxyEndpointInspection> {
+    let endpoint = plan::validate_and_normalize_endpoint(endpoint)?;
+    let listening = probe::listening(&endpoint.host, endpoint.port);
     let detected_protocol = if listening {
-        probe::protocol(endpoint.host.trim(), endpoint.port)
+        probe::protocol(&endpoint.host, endpoint.port)
     } else {
         ProxyProtocol::Unknown
     };
     let protocol_matches = protocol_matches(endpoint.protocol, detected_protocol);
-    ProxyEndpointInspection {
+    Ok(ProxyEndpointInspection {
         listening,
         detected_protocol,
         protocol_matches,
-    }
+    })
 }
 
 fn protocol_matches(selected: ProxyProtocol, detected: ProxyProtocol) -> bool {

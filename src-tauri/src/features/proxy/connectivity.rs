@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::error::{ProxyEnvError, Result};
 
-use super::{probe, protocol_matches, ProxyCandidate, ProxyEndpoint, ProxyProtocol};
+use super::{plan, probe, protocol_matches, ProxyCandidate, ProxyEndpoint, ProxyProtocol};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -106,7 +106,7 @@ static LAST_RESULT: OnceLock<Mutex<Option<CachedConnectivityResult>>> = OnceLock
 
 pub async fn test_current_proxy(candidate: &ProxyCandidate) -> Result<ProxyConnectivityResult> {
     let started = Instant::now();
-    let endpoint = endpoint_from_candidate(candidate);
+    let endpoint = plan::validate_and_normalize_endpoint(&endpoint_from_candidate(candidate))?;
     let tested_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let probe_endpoint = endpoint.clone();
     let (local_listener_ok, detected_protocol) = tauri::async_runtime::spawn_blocking(move || {
@@ -207,11 +207,7 @@ fn build_client(endpoint: &ProxyEndpoint) -> Result<Client> {
 }
 
 fn proxy_url(endpoint: &ProxyEndpoint) -> Result<String> {
-    if endpoint.host.trim().is_empty() || endpoint.port == 0 {
-        return Err(ProxyEnvError::InvalidProxyEndpoint(
-            "host and port must identify a local proxy".into(),
-        ));
-    }
+    let endpoint = plan::validate_and_normalize_endpoint(endpoint)?;
     let scheme = match endpoint.protocol {
         ProxyProtocol::Http | ProxyProtocol::Mixed => "http",
         ProxyProtocol::Socks5 => "socks5h",
@@ -221,7 +217,7 @@ fn proxy_url(endpoint: &ProxyEndpoint) -> Result<String> {
             ));
         }
     };
-    let host = format_host(endpoint.host.trim());
+    let host = format_host(&endpoint.host);
     Ok(format!("{scheme}://{host}:{}", endpoint.port))
 }
 
@@ -335,7 +331,8 @@ fn cache_is_valid(
     now: Instant,
 ) -> bool {
     now.saturating_duration_since(cached.stored_at) <= CACHE_TTL
-        && cached.result.endpoint == endpoint_from_candidate(candidate)
+        && plan::validate_and_normalize_endpoint(&endpoint_from_candidate(candidate))
+            .is_ok_and(|endpoint| cached.result.endpoint == endpoint)
         && cached.candidate_fingerprint == candidate_fingerprint(candidate)
         && candidate.listening
 }
@@ -424,6 +421,9 @@ mod tests {
         endpoint.protocol = ProxyProtocol::Socks5;
         endpoint.host = "::1".into();
         assert_eq!(proxy_url(&endpoint).unwrap(), "socks5h://[::1]:7897");
+        endpoint.host = "192.168.1.10".into();
+        assert!(proxy_url(&endpoint).is_err());
+        endpoint.host = "::1".into();
         endpoint.protocol = ProxyProtocol::Unknown;
         assert!(proxy_url(&endpoint).is_err());
     }

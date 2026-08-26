@@ -5,6 +5,4 @@ mod registry;
 mod snapshot;
 
 pub use manager::EnvironmentManager;
-pub use models::{
-    EnvironmentEntry, EnvironmentMutation, EnvironmentScope, EnvironmentSnapshot, SnapshotReason,
-};
+pub use models::{EnvironmentEntry, EnvironmentMutation, EnvironmentScope, SnapshotReason};

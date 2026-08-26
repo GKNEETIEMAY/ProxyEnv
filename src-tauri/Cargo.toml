@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 dirs = "6"
 futures-util = "0.3"
+getrandom = "0.3"
 hex = "0.4"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "socks"] }
 serde = { version = "1", features = ["derive"] }

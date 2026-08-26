@@ -13,12 +13,11 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "check": "pnpm build && cargo test --manifest-path src-tauri/Cargo.toml"
+    "check": "pnpm build && cargo test --manifest-path src-tauri/Cargo.toml --locked"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
-    "@tauri-apps/plugin-dialog": "^2.0.0",
     "vue": "^3.5.18"
   },
   "devDependencies": {

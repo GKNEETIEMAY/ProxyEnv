@@ -12,7 +12,6 @@
     "core:window:allow-toggle-maximize",
     "autostart:allow-enable",
     "autostart:allow-disable",
-    "autostart:allow-is-enabled",
-    "dialog:allow-open"
+    "autostart:allow-is-enabled"
   ]
 }

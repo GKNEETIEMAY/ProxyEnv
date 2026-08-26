@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use crate::error::{ProxyEnvError, Result};
 
 use super::{ProxyEndpoint, ProxyProtocol, ProxyVariable};
@@ -38,9 +40,9 @@ pub(crate) fn build_proxy_environment_plan(
     endpoint: &ProxyEndpoint,
     selected: &[ProxyVariable],
 ) -> Result<ProxyEnvironmentPlan> {
-    validate_endpoint(endpoint)?;
+    let endpoint = validate_and_normalize_endpoint(endpoint)?;
 
-    let host = format_host(endpoint.host.trim());
+    let host = format_host(&endpoint.host);
     let variables = MANAGED_VARIABLES
         .iter()
         .map(|name| {
@@ -86,8 +88,9 @@ pub(crate) fn variable_matches_name(variable: ProxyVariable, name: &str) -> bool
     }
 }
 
-fn validate_endpoint(endpoint: &ProxyEndpoint) -> Result<()> {
-    if endpoint.host.trim().is_empty() {
+pub(crate) fn validate_and_normalize_endpoint(endpoint: &ProxyEndpoint) -> Result<ProxyEndpoint> {
+    let host = endpoint.host.trim();
+    if host.is_empty() {
         return Err(ProxyEnvError::InvalidProxyEndpoint(
             "host cannot be empty".into(),
         ));
@@ -102,7 +105,30 @@ fn validate_endpoint(endpoint: &ProxyEndpoint) -> Result<()> {
             "protocol must be HTTP, SOCKS5, or Mixed".into(),
         ));
     }
-    Ok(())
+    let unwrapped = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    let normalized_host = if unwrapped.eq_ignore_ascii_case("localhost") {
+        "127.0.0.1".to_owned()
+    } else {
+        let address = unwrapped.parse::<IpAddr>().map_err(|_| {
+            ProxyEnvError::InvalidProxyEndpoint(
+                "host must be localhost or a numeric loopback address".into(),
+            )
+        })?;
+        if !address.is_loopback() {
+            return Err(ProxyEnvError::InvalidProxyEndpoint(
+                "remote proxy hosts are not supported; use a loopback address".into(),
+            ));
+        }
+        address.to_string()
+    };
+    Ok(ProxyEndpoint {
+        host: normalized_host,
+        port: endpoint.port,
+        protocol: endpoint.protocol,
+    })
 }
 
 fn format_host(host: &str) -> String {
@@ -278,6 +304,50 @@ mod tests {
             &[ProxyVariable::Http]
         )
         .is_err());
+        assert!(build_proxy_environment_plan(
+            &ProxyEndpoint {
+                host: "192.168.1.2".into(),
+                port: 7897,
+                protocol: ProxyProtocol::Http,
+            },
+            &[ProxyVariable::Http]
+        )
+        .is_err());
+        assert!(build_proxy_environment_plan(
+            &ProxyEndpoint {
+                host: "proxy.example.com".into(),
+                port: 7897,
+                protocol: ProxyProtocol::Http,
+            },
+            &[ProxyVariable::Http]
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn accepts_and_normalizes_only_loopback_hosts() {
+        for (host, expected) in [
+            ("127.0.0.1", "127.0.0.1"),
+            ("localhost", "127.0.0.1"),
+            ("::1", "::1"),
+            ("[::1]", "::1"),
+        ] {
+            let normalized = validate_and_normalize_endpoint(&ProxyEndpoint {
+                host: host.into(),
+                port: 7897,
+                protocol: ProxyProtocol::Mixed,
+            })
+            .unwrap();
+            assert_eq!(normalized.host, expected);
+        }
+        for host in ["0.0.0.0", "::", "10.0.0.1", "8.8.8.8", "example.com"] {
+            assert!(validate_and_normalize_endpoint(&ProxyEndpoint {
+                host: host.into(),
+                port: 7897,
+                protocol: ProxyProtocol::Mixed,
+            })
+            .is_err());
+        }
     }
 
     #[cfg(windows)]
