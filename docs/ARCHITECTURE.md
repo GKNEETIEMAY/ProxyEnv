@@ -31,11 +31,14 @@ ProxyEnv/
 │  │  │  ├─ observer.rs              # Read-only adapter enumeration and evidence classifier
 │  │  │  └─ models.rs                # NotDetected/Possible/Detected/Unknown contract
 │  │  ├─ features/application_assistant/
+│  │  │  ├─ authorization.rs         # Short-lived backend application IDs and file identity
 │  │  │  ├─ diagnosis.rs             # Read-only diagnosis and recommendation policy
 │  │  │  ├─ processes.rs             # Visible user-application enumeration
 │  │  │  ├─ launcher.rs              # Explicit child-process environment construction
 │  │  │  └─ rules/                   # Schema, match, preview, backup, apply, restore
-│  │  ├─ services/settings.rs        # Durable application preferences
+│  │  ├─ services/
+│  │  │  ├─ local_file.rs            # Bounded safe reads and atomic local writes
+│  │  │  └─ settings.rs              # Durable validated application preferences
 │  │  ├─ error.rs                    # Serializable error contract
 │  │  └─ lib.rs                      # Tauri composition root
 │  └─ resources/app-rules/           # Reviewed bundled JSON rules; no scripts or downloads
@@ -65,12 +68,15 @@ The dependency is one-way. `features/proxy` may depend on `environment`; the app
 `EnvironmentManager` operates on generic `EnvironmentMutation::Set/Delete`, `EnvironmentScope`, `EnvironmentEntry`, and `EnvironmentSnapshot`. Apply operations always:
 
 ```text
-validate unique names → read before → mutate → broadcast → read after → verify
+validate unique names → lock → read before → save before/applied transaction
+                      → mutate → broadcast → read after → verify
+                      ├─ success → commit
+                      └─ failure → rollback → broadcast → verify rollback
 ```
 
-Snapshots preserve both present values and missing values. Writes use an atomic temporary-file replacement. The current schema is stored at `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.json`; the legacy snapshot remains readable.
+Snapshots preserve both present values and missing values in `before` and `applied` states. Restore proceeds only while `current == applied`, so an external change is a conflict and is never overwritten. Snapshot reads are schema/allowlist/size checked and reject links or Windows reparse points; writes use create-new temporary files and atomic replacement. The current schema is stored at `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.json`; legacy v1 data is retired without being restored.
 
-`EnvironmentManager` 只处理通用的 Set/Delete、Scope、Entry 与 Snapshot。快照同时保留“存在的值”和“不存在”状态，并通过临时文件原子替换写入。
+`EnvironmentManager` 只处理通用的 Set/Delete、Scope、Entry 与 Snapshot。Apply 任一步失败都会恢复并再次验证；Restore 仅在当前值仍等于 ProxyEnv 上次应用值时执行。快照通过 Schema、变量白名单、大小、链接与 reparse point 检查，并以临时文件原子替换写入。
 
 ## Proxy Feature / 代理功能域
 
@@ -109,11 +115,17 @@ select application → diagnose read-only state → recommend one action
                    → preview/confirm protected write → verify → result/restore
 ```
 
-Running applications are limited to visible, non-system processes. Browsing uses Tauri's native dialog. The selected executable path becomes a `ManagedApplication`, but ProxyEnv never attaches to that process. Launch actions create a new child with either the active proxy values or all managed proxy variables removed.
+Running applications are limited to visible, non-system processes. Browsing uses Tauri's native Rust dialog. Both discovery paths issue a random, short-lived `application_id`; the frontend never submits an executable path to diagnosis, rule, or launch commands. The backend maps the ID to a canonical path and rechecks path, file type, extension/execute permission, and file identity before each use. ProxyEnv never attaches to that process. Launch actions create a new child with either the active proxy values or all managed proxy variables removed.
 
 The rule engine accepts only bundled, schema-versioned JSON. It rejects unknown fields, scripts, wildcard/traversal paths, unsupported formats, ambiguous matches, missing fields, stale plans, symlinks/reparse points, and changed files. A protected apply must read and preview the exact field, require confirmation, create an atomic local backup, write one existing field, read back and verify, and stop on conflict. Restore is also confirmed and only succeeds if the applied value is still current.
 
-应用助手只做编排，不做流量路由。运行中应用仅用于确定可执行文件，ProxyEnv 不附加、不注入、不结束该进程。规则引擎只接受随软件打包、带 Schema 版本的 JSON 数据；写入必须经历读取、预览、确认、备份、单字段写入、读回验证，冲突时停止且不覆盖。
+应用助手只做编排，不做流量路由。Rust 枚举与原生文件选择器会签发短期随机 `application_id`，前端调用诊断、规则或启动 IPC 时不再传入可执行路径；后端每次使用前重新验证规范路径与文件身份。ProxyEnv 不附加、不注入、不结束进程。规则引擎只接受随软件打包、带 Schema 版本的 JSON 数据；写入必须经历读取、预览、确认、备份、单字段写入、读回验证，冲突时停止且不覆盖。
+
+## Local data and WebView boundary / 本地数据与 WebView 边界
+
+Settings, environment snapshots, and application-rule backups use bounded reads, regular-file checks, symlink/reparse-point rejection, and atomic replacement where mutation is allowed. Settings reject unknown JSON fields and duplicate proxy-variable entries. Rule backups remain create-once records and are never followed through a link.
+
+生产 WebView 启用严格 CSP：脚本、字体与样式只从应用自身加载，远程连接仅允许 Tauri IPC 和用户主动触发的 GitHub Releases 检查；开发 CSP 单独允许 Vite 的本机端口与 WebSocket。Capability 不开放 shell、通用文件写入或前端文件选择路径授权。
 
 ## Command semantics / 命令语义
 
@@ -123,6 +135,7 @@ The rule engine accepts only bundled, schema-versioned JSON. It rejects unknown 
 | `detect_proxies` | Discover and score local candidates | No | No |
 | `get_tun_observation` | Classify local virtual-adapter evidence | No | No |
 | `list_running_applications` | List visible selectable applications | No | No |
+| `pick_application` | Native selection and short-lived backend authorization | No | No |
 | `diagnose_application` | Combine proxy, environment, system proxy, TUN, and rule state | No | No |
 | `launch_application_with_current_proxy` | Start a new child with explicit proxy values | No | Child environment only |
 | `launch_application_without_proxy` | Start a new child with proxy variables cleared | No | Child environment only |
@@ -142,7 +155,7 @@ Frontend dependencies flow `App.vue → app → features → shared`. `AppShell.
 
 `features/network-observation/components/NetworkObservationPanel.vue` is the shared presentation for live system-proxy and TUN virtual-adapter state. Home adds it below proxy-client discovery; the application assistant reuses it with the local-listener fact enabled. Neither feature starts another timer or duplicates state-label, help, or status-icon logic. Feature components otherwise own their local IPC orchestration and interaction.
 
-Proxy discovery keeps every endpoint candidate returned by the detector. Home selects the first listening candidate as the primary environment-variable endpoint, displays the remaining listening and stale candidates as read-only results, and labels automatic detection with an active/total count. When TUN evidence is `Possible` or `Detected` but no candidate is listening, the UI creates a presentation-only “suspected proxy client” observation. It never synthesizes a host or port, never becomes a `ProxyCandidate`, and cannot enable the automatic Apply action.
+Proxy discovery keeps every endpoint candidate returned by the detector, then groups candidates by PID or process identity for presentation. Home selects the first listening client initially, lists only the remaining client identities, and pages every client through the same primary detail view. The automatic-detection label counts listening/total client processes rather than raw endpoints. Copy, manual fast-path validation, mismatch diagnosis, and Apply all target the currently displayed client; changing pages never writes automatically. When TUN evidence is `Possible` or `Detected` but no candidate is listening, the UI creates a presentation-only “suspected proxy client” observation. It never synthesizes a host or port, never becomes a `ProxyCandidate`, and cannot enable the automatic Apply action.
 
 The home surface exposes proxy-client, Windows System Proxy, and proxy-environment layers plus one clear entry to the application assistant. The assistant keeps selection, diagnosis, protected confirmation, and result in one guided surface. Advanced evidence is collapsed by default. Errors always state what happened, whether anything changed, and what to do next.
 
@@ -165,8 +178,10 @@ The single-instance plugin establishes process ownership before tray and window 
 
 ```powershell
 pnpm build
-cargo test --manifest-path src-tauri/Cargo.toml
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-Changes to Registry, broadcast, snapshots, tray, or single-instance behavior also require Windows integration testing. At minimum verify exact deletion/restoration, `WM_SETTINGCHANGE`, new-process inheritance, unchanged running-process environments, mismatch after a client port change, and explicit Sync to the new port.
+GitHub Actions repeats frozen pnpm installation, frontend audit/build, Rust formatting, Clippy, tests, locked release compilation, and RustSec audit for PRs and protected development/release branches. Dependabot tracks npm, Cargo, and Actions updates against `develop`.
+
+Changes to Registry, broadcast, snapshots, tray, or single-instance behavior also require Windows integration testing. At minimum verify exact deletion/restoration, rollback after injected write/broadcast/verification failure, restore conflict behavior, `WM_SETTINGCHANGE`, new-process inheritance, unchanged running-process environments, mismatch after a client port change, and explicit Sync to the new port.

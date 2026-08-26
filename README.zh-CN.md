@@ -38,7 +38,7 @@ ProxyEnv 把这些状态清晰展示出来，并把手工编辑注册表变成�
 
 ## 核心能力
 
-- 识别本机代理客户端、监听 PID、真实端口及 HTTP/SOCKS5/Mixed 协议；多候选并存时显示“可用/全部”计数，并列出其余检测结果。
+- 识别本机代理客户端、监听 PID、真实端口及 HTTP/SOCKS5/Mixed 协议；多客户端并存时按主进程归并候选，显示“可用/全部”客户端计数，并在同一个主展示区分页查看。
 - 只读显示 Windows 系统代理，不修改其开关或地址。
 - 用 `Disabled`、`Partial`、`Enabled`、`Mismatch` 四种状态描述代理环境。
 - 支持应用自动检测到的代理地址，也支持手动输入主机、端口与协议。
@@ -102,11 +102,12 @@ HKEY_CURRENT_USER\Environment
 ```text
 关闭：读取 → 保存快照 → 删除 → 广播 → 读回 → 验证
 恢复：读取最近快照 → 精确恢复旧值 → 广播 → 验证
-同步：根据选中的代理地址生成计划 → 保存快照 → 写入/删除 → 广播 → 验证
+同步：验证回环代理地址 → 生成计划 → 保存快照 → 写入/删除 → 广播 → 验证
+失败：恢复本次已改动的全部值 → 广播 → 再次验证恢复结果
 刷新：只检测与比较，绝不写入
 ```
 
-快照原子保存在 `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.json`，旧版 `env-snapshot.json` 仍可读取。
+快照把修改前与已应用状态原子保存在 `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.json`。若其它程序之后改过受管变量，恢复会停止且不覆盖。快照会校验大小、Schema 与变量白名单，并拒绝符号链接或 Windows reparse point；旧版 v1 快照不会用于恢复。
 
 ## 支持的代理客户端
 
@@ -158,10 +159,12 @@ pnpm tauri dev
 
 ```powershell
 pnpm build
-cargo test --manifest-path src-tauri/Cargo.toml
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 pnpm tauri build
 ```
+
+标签 Release 由 GitHub Actions 使用冻结的 lockfile 构建，并附带 `SHA256SUMS.txt`。当前手动检查更新不会下载或执行软件；在配置官方 Tauri Updater 签名验证前，自动更新保持禁用。Windows 产物当前没有 Authenticode，可能触发“未知发布者”或 SmartScreen 提示，详见[发布安全设计](docs/release-security.md)。
 
 ## 工程结构
 

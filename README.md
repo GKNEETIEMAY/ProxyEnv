@@ -38,7 +38,7 @@ Detection and periodic refreshes never rewrite the Registry. When a client chang
 
 ## Capabilities
 
-- Detect local proxy clients, listener PIDs, actual ports, and HTTP/SOCKS5/Mixed protocols; when several candidates exist, show the active/total count and every additional result.
+- Detect local proxy clients, listener PIDs, actual ports, and HTTP/SOCKS5/Mixed protocols; when several clients exist, group endpoint candidates by process, show the active/total client count, and page each client through the same primary view.
 - Show Windows System Proxy status without modifying it.
 - Model the proxy environment as `Disabled`, `Partial`, `Enabled`, or `Mismatch`.
 - Apply an automatically detected proxy address or a manually entered host, port, and protocol.
@@ -102,11 +102,12 @@ It never writes `HKLM` and normally needs no administrator privileges.
 ```text
 Disable: read → snapshot → delete → broadcast → read back → verify
 Restore: load latest snapshot → restore exact values → broadcast → verify
-Sync:    build plan from selected proxy address → snapshot → write/delete → broadcast → verify
+Sync:    validate loopback endpoint → build plan → snapshot → write/delete → broadcast → verify
+Failure: rollback every changed value → broadcast → verify the rollback
 Refresh: detect and compare only; never write
 ```
 
-Snapshots are stored atomically under `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.json`. Legacy `env-snapshot.json` files remain readable.
+Snapshots store both the prior and applied state atomically under `%LOCALAPPDATA%\ProxyEnv\snapshots\latest.json`. Restore stops without writing if another program changed a managed value. Snapshot files are size/schema/allowlist checked and links or Windows reparse points are rejected; legacy v1 snapshots are not restored.
 
 ## Supported proxy clients
 
@@ -158,10 +159,12 @@ In VS Code, install the recommended extensions, select `ProxyEnv: Tauri Debug`, 
 
 ```powershell
 pnpm build
-cargo test --manifest-path src-tauri/Cargo.toml
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 pnpm tauri build
 ```
+
+Tag releases are built by GitHub Actions from frozen lockfiles and include `SHA256SUMS.txt`. The current manual update check does not download or execute software. Automatic updates will remain disabled until official Tauri Updater signature verification is configured. Windows artifacts are currently unsigned with Authenticode and may trigger Unknown Publisher or SmartScreen warnings; see [release security](docs/release-security.md).
 
 ## Repository structure
 
