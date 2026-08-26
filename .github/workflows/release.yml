@@ -127,7 +127,7 @@ jobs:
           subject-path: "release-artifacts/*"
 
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ProxyEnv-${{ github.ref_name }}-windows-x64
           path: release-artifacts/*
