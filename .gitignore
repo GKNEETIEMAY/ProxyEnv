@@ -21,6 +21,12 @@ src-tauri/target/
 .env
 .env.*
 !.env.example
+*.pfx
+*.p12
+*.key
+*.private.pem
+tauri-private-key*
+private-signing-key*
 
 # Local product and technical design documents
 PRD.md

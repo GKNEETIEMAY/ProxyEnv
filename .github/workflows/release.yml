@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-release:
+    name: Build Windows release
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Verify tag and package versions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $packageVersion = (Get-Content -Raw -LiteralPath 'package.json' | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw "Release tag must contain a semantic version"
+          }
+          if ($packageVersion -ne $version -or $tauriVersion -ne $version) {
+            throw "Release tag, package.json, and tauri.conf.json versions must match"
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+
+      - name: Enable pinned pnpm
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.1 --activate
+
+      - name: Install frontend dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit frontend dependencies
+        run: pnpm audit --audit-level high
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Run Rust tests with locked dependencies
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Clippy with locked dependencies
+        run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      # Authenticode and Tauri Updater signing are intentionally not configured here.
+      # When the updater is enabled, its private key must be injected only through
+      # TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets.
+      - name: Build current Tauri bundles from lockfiles
+        run: pnpm tauri build --ci --no-sign -- --locked
+
+      - name: Collect release artifacts and SHA-256 checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $output = Join-Path $PWD 'release-artifacts'
+          New-Item -ItemType Directory -Path $output | Out-Null
+
+          $portable = Resolve-Path -LiteralPath 'src-tauri/target/release/proxyenv.exe'
+          Copy-Item -LiteralPath $portable -Destination (Join-Path $output "ProxyEnv-$version-windows-x64-portable.exe")
+
+          $installers = @()
+          foreach ($directory in @(
+            'src-tauri/target/release/bundle/nsis',
+            'src-tauri/target/release/bundle/msi'
+          )) {
+            if (Test-Path -LiteralPath $directory) {
+              $installers += Get-ChildItem -LiteralPath $directory -File | Where-Object {
+                $_.Extension -in @('.exe', '.msi')
+              }
+            }
+          }
+          if ($installers.Count -eq 0) {
+            throw 'Tauri did not produce an NSIS or MSI installer'
+          }
+          foreach ($installer in $installers) {
+            Copy-Item -LiteralPath $installer.FullName -Destination $output
+          }
+
+          $checksumLines = Get-ChildItem -LiteralPath $output -File |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            }
+          $checksumLines | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Encoding utf8NoBOM
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProxyEnv-${{ github.ref_name }}-windows-x64
+          path: release-artifacts/*
+          if-no-files-found: error
+
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-artifacts/*
