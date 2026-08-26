@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -74,9 +76,8 @@ jobs:
       - name: Run Clippy with locked dependencies
         run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-      # These unsigned artifacts are draft/testing builds only. Authenticode is a
-      # P0 requirement before a stable public Windows release can be published.
-      # Tauri Updater signing is intentionally not configured here.
+      # ProxyEnv intentionally does not use Windows Authenticode. Tauri Updater
+      # signing remains disabled until automatic updates are implemented.
       # When the updater is enabled, its private key must be injected only through
       # TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets.
       - name: Build current Tauri bundles from lockfiles
@@ -118,6 +119,12 @@ jobs:
               "$hash  $($_.Name)"
             }
           $checksumLines | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Encoding utf8NoBOM
+
+      - name: Attest release artifacts
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@v4
+        with:
+          subject-path: "release-artifacts/*"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4

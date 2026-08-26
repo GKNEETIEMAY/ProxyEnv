@@ -164,7 +164,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D w
 pnpm tauri build
 ```
 
-标签 Release 由 GitHub Actions 使用冻结的 lockfile 构建，并附带 `SHA256SUMS.txt`。当前手动检查更新不会下载或执行软件；在配置官方 Tauri Updater 签名验证前，自动更新保持禁用。当前 Windows 产物属于未签名的草稿/测试构建，可能触发“未知发布者”或 SmartScreen 提示；正式公开发布 Windows 稳定版前必须完成 Authenticode 签名。详见[发布安全设计](docs/release-security.md)。
+按照项目的开源发行策略，ProxyEnv Windows 正式版本不使用 Authenticode，因此 Windows 可能显示“未知发布者”、SmartScreen 或“Windows 已保护你的电脑”。请仅从[官方 GitHub Releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases) 下载，并使用 `SHA256SUMS.txt` 和公开仓库工作流生成的 GitHub Artifact Attestation 验证发布文件。构建使用冻结的 lockfile；在配置官方 Tauri Updater 签名验证前，自动更新保持禁用。手动代理仅支持 `localhost`、`127.0.0.1` 或 `::1`。详见[发布安全设计](docs/release-security.md)。
 
 ## 工程结构
 

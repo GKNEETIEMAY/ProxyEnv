@@ -1,7 +1,7 @@
 [package]
 name = "proxyenv"
 version = "0.1.0"
-description = "A cross-platform proxy environment manager"
+description = "A Windows-first proxy environment and application networking assistant"
 authors = ["ProxyEnv contributors"]
 edition = "2021"
 license = "MIT"

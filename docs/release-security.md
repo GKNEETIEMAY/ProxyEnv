@@ -1,24 +1,24 @@
 # Release security / 发布安全
 
-This document defines the release trust model for ProxyEnv. Tauri Updater signing and Windows Authenticode are separate mechanisms and must not be presented as substitutes for one another.
+This document defines the open-source release trust model for ProxyEnv. The project intentionally does not use Windows Authenticode; future Tauri Updater signing is a separate, free mechanism that becomes mandatory only when automatic updates are enabled.
 
-本文定义 ProxyEnv 的发行信任模型。Tauri Updater 签名与 Windows Authenticode 是两套独立机制，不能互相替代或混称。
+本文定义 ProxyEnv 的开源发行信任模型。项目明确不采用 Windows Authenticode；未来的 Tauri Updater 签名是另一套免费机制，仅在启用自动更新时成为强制要求。
 
 ## Current release state / 当前状态
 
 - ProxyEnv does **not** currently include `@tauri-apps/plugin-updater` or `tauri-plugin-updater`.
 - **Check for updates** is a read-only, user-triggered request to the fixed GitHub Releases API URL. It reads `tag_name`, compares versions, and never downloads or executes an installer.
-- Tag pushes matching `v*` run `.github/workflows/release.yml`. The workflow verifies that the tag and package versions match, installs from lockfiles, audits/builds/tests, creates the current Tauri Windows bundles, generates `SHA256SUMS.txt`, and uploads everything to a draft GitHub Release.
-- Current Windows artifacts are not Authenticode-signed and may show **Unknown Publisher**, **Microsoft Defender SmartScreen**, or **Windows protected your PC**.
+- Tag pushes matching `v*` run `.github/workflows/release.yml`. The workflow verifies versions, installs from lockfiles, audits/builds/tests, creates the Windows bundles, generates `SHA256SUMS.txt`, attests public-repository artifacts, and uploads everything to a draft GitHub Release.
+- Windows artifacts are intentionally not Authenticode-signed and may show **Unknown Publisher**, **Microsoft Defender SmartScreen**, or **Windows protected your PC**. This does not prevent a stable release under the project policy.
 
 - ProxyEnv 当前没有接入 updater 插件。
 - “检查更新”只会在用户点击后访问固定的 GitHub Releases API、读取 `tag_name` 并比较版本，不下载或执行安装程序。
-- `v*` 标签会触发 Release 工作流；产物先进入草稿 Release，供维护者核对后发布。
-- 当前 Windows 产物未签 Authenticode，可能出现“未知发布者”、SmartScreen 或“Windows 已保护你的电脑”提示。
+- `v*` 标签会触发 Release 工作流；工作流使用锁文件构建、生成 `SHA256SUMS.txt`，在公开仓库中生成 Artifact Attestation，并把产物放入草稿 Release 等待人工验收。
+- Windows 产物按项目策略不签 Authenticode，可能出现“未知发布者”、SmartScreen 或“Windows 已保护你的电脑”提示，但这不阻止稳定版发布。
 
 ## Priority / 优先级
 
-### P0 — release blockers / 发布阻断项
+### Release requirements / 发行要求
 
 - environment apply transaction and verified rollback;
 - restore conflict detection;
@@ -26,21 +26,22 @@ This document defines the release trust model for ProxyEnv. Tauri Updater signin
 - backend IPC trust boundary;
 - snapshot schema, allowlist, link/reparse-point, and size validation;
 - lockfile-enforced CI and Release pipeline;
-- Windows Authenticode for the executable and every installer, including a trusted timestamp and post-build signature verification;
+- SHA-256 checksums and GitHub Artifact Attestation for public release artifacts;
 - if automatic updates are enabled: Tauri Updater signature verification, a pinned HTTPS source, default anti-downgrade behavior, and signed updater artifacts.
 
-Unsigned development builds and draft artifacts are permitted for internal testing, but they must remain clearly labeled and must not be promoted as a stable public Windows release. Authenticode may use Microsoft Artifact Signing or a trusted OV/EV code-signing certificate. It remains separate from, and does not replace, the signature verification required for future automatic updater artifacts.
+Windows Authenticode, OV/EV certificates, PFX files, signtool integration, Azure signing, and other paid code-signing services are not part of the ProxyEnv release plan. Users must download only from the official GitHub Releases page and verify the published files.
 
 ## Mechanism comparison / 机制对比
 
-| Mechanism | Purpose | Cost | Status |
-| --- | --- | --- | --- |
-| Tauri Updater signing | Update artifact authenticity and integrity before installation | No CA certificate cost | Mandatory before automatic update is enabled; not implemented yet |
-| SHA-256 | Manual artifact-integrity verification and release audit trail | Free | Generated for every tag release |
-| Windows Authenticode | Windows publisher identity, SmartScreen reputation, Unknown Publisher mitigation | May require a paid certificate or service | P0 before a stable public Windows release; not implemented |
-| GitHub Actions Release | Controlled, repeatable build/test/package/upload path | Repository CI cost only | Implemented as a tag-triggered draft release |
+| Mechanism / 机制 | Status / 状态 |
+| --- | --- |
+| GitHub Actions | Required; locked build, audit, test, package, and draft release / 必须：锁定依赖并完成审计、测试、打包与草稿发布 |
+| SHA-256 | Required; `SHA256SUMS.txt` is generated for every tag release / 必须：每次标签发布生成校验文件 |
+| GitHub Artifact Attestation | Used for formal releases after the repository is public / 仓库公开后的正式 Release 使用 |
+| Tauri Updater signing | Mandatory only when automatic updates are enabled / 仅在启用自动更新时必须 |
+| Windows Authenticode | Not adopted; does not block stable releases / 不采用，不阻止稳定版发布 |
 
-SHA-256 is not a digital signature. A checksum hosted beside a compromised artifact can also be replaced, while updater signing verifies the artifact against a public key embedded in the trusted application.
+SHA-256 detects file changes but is not a digital signature by itself. GitHub Artifact Attestation binds artifact digests to the GitHub Actions build identity using signed provenance. Users can verify an official download with `gh attestation verify <file> --repo GKNEETIEMAY/ProxyEnv`. Future updater signing will independently verify update artifacts against a public key embedded in the trusted application.
 
 ## Future Tauri Updater design / 未来自动更新设计
 
@@ -75,11 +76,20 @@ Official reference: [Tauri 2 Updater documentation](https://v2.tauri.app/plugin/
 
 ## Release workflow / 发布流程
 
-The current workflow intentionally passes `--no-sign` to avoid implying Authenticode. Its artifacts are for draft/internal testing only and must not be promoted as a stable public Windows release. It produces the portable executable plus whatever installer types the existing Tauri bundle configuration creates; it does not force an installer migration. Each release remains a draft until a maintainer checks:
+The workflow intentionally passes `--no-sign` because Authenticode is not part of the project strategy. It produces the portable executable and the installer types configured by Tauri. The release sequence is:
+
+```text
+CI Build → SHA-256 → Artifact Attestation → Draft Release → Manual QA → Publish Stable
+```
+
+Artifact Attestation runs once the repository is public; GitHub does not provide it for ordinary private repositories without GitHub Enterprise Cloud. Each release remains a draft until a maintainer checks:
 
 1. the tag, `package.json`, and `tauri.conf.json` versions match;
 2. CI and dependency audits passed;
 3. `SHA256SUMS.txt` matches every uploaded binary;
 4. the installer and portable executable launch on a clean Windows 10/11 x64 machine;
-5. the release remains a clearly labeled draft until the executable and every installer have valid timestamped Authenticode signatures;
-6. no updater claim is made until signed updater artifacts and `latest.json` are actually enabled.
+5. the public-repository workflow produced a verifiable GitHub Artifact Attestation for the release files;
+6. release notes transparently describe possible Unknown Publisher and SmartScreen warnings;
+7. no updater claim is made until signed updater artifacts and `latest.json` are actually enabled.
+
+Official references: [GitHub Artifact Attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations) and [Tauri 2 Updater](https://v2.tauri.app/plugin/updater/).
