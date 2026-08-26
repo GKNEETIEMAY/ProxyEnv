@@ -84,7 +84,9 @@ impl AuthorizationStore {
 
     fn resolve(&mut self, application_id: &str, now: Instant) -> Option<AuthorizedApplication> {
         self.purge_expired(now);
-        self.applications.get(application_id).cloned()
+        let authorization = self.applications.get_mut(application_id)?;
+        authorization.expires_at = now + AUTHORIZATION_TTL;
+        Some(authorization.clone())
     }
 
     fn remove(&mut self, application_id: &str) {
@@ -280,6 +282,29 @@ mod tests {
         );
         assert!(store.resolve(&token, now).is_none());
         assert!(store.applications.is_empty());
+    }
+
+    #[test]
+    fn resolving_an_authorization_extends_its_lifetime() {
+        let now = Instant::now();
+        let token = "b".repeat(TOKEN_BYTES * 2);
+        let original_expiry = now + Duration::from_secs(1);
+        let mut store = AuthorizationStore::default();
+        store.applications.insert(
+            token.clone(),
+            AuthorizedApplication {
+                application: application(&token),
+                identity: executable_identity(&std::env::current_exe().unwrap()).unwrap(),
+                expires_at: original_expiry,
+            },
+        );
+
+        assert!(store.resolve(&token, now).is_some());
+        assert_eq!(
+            store.applications.get(&token).unwrap().expires_at,
+            now + AUTHORIZATION_TTL
+        );
+        assert!(store.applications.get(&token).unwrap().expires_at > original_expiry);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { backend } from "../../../shared/api/backend";
 import type { Copy } from "../../../shared/i18n";
 import type { ApplicationDiagnosis, ManagedApplication, ProxyCandidate, RuleChangePreview, RunningApplication, TunObservation } from "../../../shared/types";
@@ -19,6 +19,8 @@ const loadingApps = ref(true);
 const error = ref("");
 const restorePending = ref(false);
 const showAdvanced = ref(false);
+const AUTHORIZATION_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
+let authorizationRefreshTimer: ReturnType<typeof setInterval> | undefined;
 
 const diagnosisTitle = computed(() => {
   if (!diagnosis.value) return "";
@@ -57,6 +59,83 @@ function failure(cause: unknown) {
   error.value = `${props.copy.assistantErrorWhat}: ${String(cause)} ${props.copy.assistantErrorUnchanged} ${props.copy.assistantErrorNext}`;
 }
 
+function isExpiredAuthorization(cause: unknown): boolean {
+  return String(cause).includes("application authorization is missing or expired");
+}
+
+function isRenewCommandUnavailable(cause: unknown): boolean {
+  const message = String(cause).toLocaleLowerCase("en-US");
+  return message.includes("command renew_application_authorization not found")
+    || message.includes("unknown command") && message.includes("renew_application_authorization");
+}
+
+function comparableExecutablePath(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  return /^(?:[a-z]:|\/\/)/i.test(normalized) ? normalized.toLocaleLowerCase("en-US") : normalized;
+}
+
+function updateSelectedAuthorization(application: ManagedApplication) {
+  selected.value = application;
+  if (diagnosis.value) diagnosis.value = { ...diagnosis.value, application };
+}
+
+async function recoverRunningApplicationAuthorization(application: ManagedApplication): Promise<ManagedApplication | undefined> {
+  const refreshed = await backend.runningApplications();
+  applications.value = refreshed;
+  const expectedPath = comparableExecutablePath(application.executablePath);
+  const match = refreshed.find((candidate) =>
+    candidate.executablePath
+    && comparableExecutablePath(candidate.executablePath) === expectedPath
+  );
+  return match ? managedFromRunning(match) : undefined;
+}
+
+async function ensureSelectedAuthorization(): Promise<ManagedApplication> {
+  const application = selected.value;
+  if (!application) throw props.copy.assistantAuthorizationExpired;
+  try {
+    const renewed = await backend.renewApplicationAuthorization(application.id);
+    updateSelectedAuthorization(renewed);
+    return renewed;
+  } catch (cause) {
+    if (isRenewCommandUnavailable(cause)) {
+      const recovered = await recoverRunningApplicationAuthorization(application);
+      if (recovered) {
+        updateSelectedAuthorization(recovered);
+        return recovered;
+      }
+      return application;
+    }
+    if (!isExpiredAuthorization(cause)) throw cause;
+    const recovered = await recoverRunningApplicationAuthorization(application);
+    if (!recovered) {
+      selected.value = undefined;
+      diagnosis.value = undefined;
+      rulePreview.value = undefined;
+      throw props.copy.assistantAuthorizationExpired;
+    }
+    updateSelectedAuthorization(recovered);
+    return recovered;
+  }
+}
+
+async function keepSelectedAuthorizationAlive() {
+  if (!selected.value || busy.value || props.reviewPreview) return;
+  const application = selected.value;
+  try {
+    const renewed = await backend.renewApplicationAuthorization(application.id);
+    if (selected.value?.id === application.id) updateSelectedAuthorization(renewed);
+  } catch (cause) {
+    if (!isExpiredAuthorization(cause) && !isRenewCommandUnavailable(cause)) return;
+    try {
+      const recovered = await recoverRunningApplicationAuthorization(application);
+      if (recovered && selected.value?.id === application.id) updateSelectedAuthorization(recovered);
+    } catch {
+      // Recovery is repeated when the user performs the next explicit action.
+    }
+  }
+}
+
 async function loadApplications() {
   loadingApps.value = true;
   error.value = "";
@@ -86,7 +165,8 @@ async function inspectApplication(application: ManagedApplication) {
   result.value = undefined;
   rulePreview.value = undefined;
   try {
-    diagnosis.value = await backend.diagnoseApplication(application.id);
+    const authorized = await ensureSelectedAuthorization();
+    diagnosis.value = await backend.diagnoseApplication(authorized.id);
   } catch (cause) {
     diagnosis.value = undefined;
     failure(cause);
@@ -100,7 +180,8 @@ async function prepareRuleFix() {
   busy.value = true;
   error.value = "";
   try {
-    rulePreview.value = await backend.previewApplicationRuleFix(selected.value.id);
+    const application = await ensureSelectedAuthorization();
+    rulePreview.value = await backend.previewApplicationRuleFix(application.id);
     if (rulePreview.value.state !== "ready" || !rulePreview.value.plan) {
       throw new Error(`${props.copy.assistantRuleUnavailable} (${rulePreview.value.state})`);
     }
@@ -117,7 +198,8 @@ async function applyRuleFix() {
   busy.value = true;
   error.value = "";
   try {
-    const applied = await backend.applyApplicationRuleFix(selected.value.id, rulePreview.value.plan);
+    const application = await ensureSelectedAuthorization();
+    const applied = await backend.applyApplicationRuleFix(application.id, rulePreview.value.plan);
     if (applied.state !== "applied") throw new Error(`${props.copy.assistantRuleApplyFailed} (${applied.state})`);
     result.value = {
       success: true,
@@ -137,9 +219,10 @@ async function launch(mode: "proxy" | "direct") {
   busy.value = true;
   error.value = "";
   try {
+    const application = await ensureSelectedAuthorization();
     const launched = mode === "proxy"
-      ? await backend.launchApplicationWithProxy(selected.value.id)
-      : await backend.launchApplicationWithoutProxy(selected.value.id);
+      ? await backend.launchApplicationWithProxy(application.id)
+      : await backend.launchApplicationWithoutProxy(application.id);
     result.value = {
       success: true,
       title: mode === "proxy" ? props.copy.assistantLaunchedWithProxy : props.copy.assistantLaunchedDirect,
@@ -200,6 +283,11 @@ onMounted(async () => {
     return;
   }
   await loadApplications();
+  authorizationRefreshTimer = setInterval(() => void keepSelectedAuthorizationAlive(), AUTHORIZATION_REFRESH_INTERVAL_MS);
+});
+
+onBeforeUnmount(() => {
+  if (authorizationRefreshTimer) clearInterval(authorizationRefreshTimer);
 });
 </script>
 

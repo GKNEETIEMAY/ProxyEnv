@@ -38,6 +38,11 @@ pub async fn pick_application(app: tauri::AppHandle) -> Result<Option<ManagedApp
 }
 
 #[tauri::command]
+pub async fn renew_application_authorization(application_id: String) -> Result<ManagedApplication> {
+    application_assistant::resolve_application(&application_id)
+}
+
+#[tauri::command]
 pub async fn preview_application_rule_fix(application_id: String) -> Result<RuleChangePreview> {
     let application = application_assistant::resolve_application(&application_id)?;
     tauri::async_runtime::spawn_blocking(move || {

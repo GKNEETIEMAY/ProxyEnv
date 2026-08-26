@@ -19,6 +19,7 @@ export const backend = {
   tunObservation: () => invoke<TunObservation>("get_tun_observation"),
   runningApplications: () => invoke<RunningApplication[]>("list_running_applications"),
   pickApplication: () => invoke<ManagedApplication | null>("pick_application"),
+  renewApplicationAuthorization: (applicationId: string) => invoke<ManagedApplication>("renew_application_authorization", { applicationId }),
   diagnoseApplication: (applicationId: string) => invoke<ApplicationDiagnosis>("diagnose_application", { applicationId }),
   previewApplicationRuleFix: (applicationId: string) => invoke<RuleChangePreview>("preview_application_rule_fix", { applicationId }),
   applyApplicationRuleFix: (applicationId: string, expectedPlan: RuleChangePlan) => invoke<RuleApplyResult>("apply_application_rule_fix", { applicationId, expectedPlan, confirmed: true }),
