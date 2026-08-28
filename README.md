@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/icon.svg" width="92" height="92" alt="ProxyEnv icon"></p>
 <h1 align="center">ProxyEnv</h1>
-<p align="center">A Windows-first desktop assistant for proxy environments and application connectivity.<br>Discover local proxy clients, understand which network layer an app may use, and choose an explicit, reversible action.</p>
+<p align="center">Windows Application Network Environment Diagnostic and Configuration Assistant.<br>Discover local proxy clients, understand which network layer an app may use, and choose an explicit, reversible action.</p>
 <p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 
 <p align="center">

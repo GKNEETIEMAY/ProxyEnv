@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/icon.svg" width="92" height="92" alt="ProxyEnv 图标"></p>
 <h1 align="center">境启 ProxyEnv</h1>
-<p align="center">Windows-first 的代理环境与应用联网桌面助手。<br>自动发现本机代理客户端，解释应用可能使用的网络层，并让用户选择明确、可逆的操作。</p>
+<p align="center">Windows 应用网络环境诊断与配置助手。<br>自动发现本机代理客户端，解释应用可能使用的网络层，并让用户选择明确、可逆的操作。</p>
 <p align="center"><a href="README.md">English</a> · <strong>简体中文</strong></p>
 
 <p align="center">
