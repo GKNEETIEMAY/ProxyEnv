@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { Copy } from "../../../shared/i18n";
 import type { AppSettings } from "../../../shared/types";
+import type { ReleaseNoteLine, UpdateState } from "../update";
 
 export type SettingsTab = "general" | "about";
-export type UpdateState = "idle" | "checking" | "latest" | "available" | "unpublished" | "error";
 
 defineProps<{
   copy: Copy;
@@ -12,12 +12,17 @@ defineProps<{
   appVersion: string;
   updateState: UpdateState;
   updateMessage: string;
+  releaseVersion: string;
+  releasePublishedLabel: string;
+  releaseNotes: ReleaseNoteLine[];
+  releaseUrl: string;
+  releaseActionError: string;
 }>();
 
 const settings = defineModel<AppSettings>("settings", { required: true });
 const tab = defineModel<SettingsTab>("tab", { required: true });
 
-defineEmits<{ checkForUpdates: [] }>();
+defineEmits<{ checkForUpdates: []; openRelease: [] }>();
 </script>
 
 <template>
@@ -88,17 +93,28 @@ defineEmits<{ checkForUpdates: [] }>();
         <div><dt>{{ copy.updateStatus }}</dt><dd :class="`update-${updateState}`"><span class="update-dot"></span>{{ updateMessage }}</dd></div>
         <div><dt>{{ copy.updateSource }}</dt><dd>GitHub Releases</dd></div>
       </dl>
-      <button class="check-update-button" type="button" :disabled="updateState === 'checking'" @click="$emit('checkForUpdates')">
-        <svg :class="{ spinning: updateState === 'checking' }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>
-        {{ updateState === 'checking' ? copy.checkingUpdates : copy.checkForUpdates }}
-      </button>
+      <div class="update-actions">
+        <button class="check-update-button" type="button" :disabled="updateState === 'checking'" @click="$emit('checkForUpdates')">
+          <svg :class="{ spinning: updateState === 'checking' }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>
+          {{ updateState === 'checking' ? copy.checkingUpdates : copy.checkForUpdates }}
+        </button>
+        <button v-if="releaseUrl" class="release-link-button" type="button" @click="$emit('openRelease')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5m0-5-8 8M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></svg>
+          {{ updateState === 'available' ? copy.downloadUpdate : copy.viewRelease }}
+        </button>
+      </div>
+      <p v-if="releaseActionError" class="release-action-error" role="alert">{{ releaseActionError }}</p>
       <section class="changelog-section">
-        <div class="changelog-heading"><h3>{{ copy.changelog }}</h3><span>v{{ appVersion }} · {{ copy.stableRelease }}</span></div>
-        <ul>
-          <li>{{ copy.changelogDiscovery }}</li>
-          <li>{{ copy.changelogVariables }}</li>
-          <li>{{ copy.changelogDesktop }}</li>
-        </ul>
+        <div class="changelog-heading">
+          <h3>{{ copy.changelog }}</h3>
+          <span>v{{ releaseVersion }} · {{ releasePublishedLabel || copy.stableRelease }}</span>
+        </div>
+        <div class="release-notes" aria-live="polite">
+          <template v-for="(line, index) in releaseNotes" :key="`${line.kind}-${index}-${line.text}`">
+            <h4 v-if="line.kind === 'heading'">{{ line.text }}</h4>
+            <p v-else :class="`release-note-${line.kind}`">{{ line.text }}</p>
+          </template>
+        </div>
       </section>
     </section>
   </main>

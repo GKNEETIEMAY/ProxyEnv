@@ -441,18 +441,25 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .update-latest .update-dot { background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
 .update-available .update-dot { background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
 .update-error .update-dot { background: var(--danger); box-shadow: 0 0 0 4px var(--danger-soft); }
-.check-update-button { display: inline-flex; width: fit-content; margin-top: 20px; padding: 9px 13px; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface-strong); cursor: pointer; transition: border-color .16s, background .16s; }
+.update-actions { display: flex; margin-top: 20px; align-items: center; flex-wrap: wrap; gap: 9px; }
+.check-update-button, .release-link-button { display: inline-flex; width: fit-content; padding: 9px 13px; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface-strong); cursor: pointer; transition: border-color .16s, color .16s, background .16s; }
 .check-update-button:hover { border-color: var(--accent); background: var(--accent-soft); }
 .check-update-button:disabled { cursor: wait; opacity: .62; }
-.check-update-button svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.release-link-button { border-color: var(--accent); color: #fffaf5; background: var(--accent); }
+.release-link-button:hover { border-color: var(--accent-strong); background: var(--accent-strong); }
+.check-update-button svg, .release-link-button svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .check-update-button svg.spinning { animation: spin .9s linear infinite; }
+.release-action-error { margin: 10px 0 0; color: var(--danger); font-size: 11px; line-height: 1.5; }
 .changelog-section { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line-strong); }
 .changelog-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
 .changelog-heading h3 { margin: 0; font-size: 16px; font-weight: 660; letter-spacing: -.02em; }
 .changelog-heading span { color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
-.changelog-section ul { display: grid; margin: 16px 0 0; padding: 0; gap: 11px; list-style: none; }
-.changelog-section li { position: relative; padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.55; }
-.changelog-section li::before { position: absolute; top: .58em; left: 2px; width: 6px; height: 6px; border-radius: 50%; content: ""; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.release-notes { display: grid; min-width: 0; margin-top: 16px; gap: 9px; overflow-wrap: anywhere; }
+.release-notes h4 { margin: 10px 0 1px; color: var(--ink); font-size: 12px; font-weight: 660; line-height: 1.5; }
+.release-notes h4:first-child { margin-top: 0; }
+.release-notes p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.release-note-item { position: relative; padding-inline-start: 18px; }
+.release-note-item::before { position: absolute; top: .58em; inset-inline-start: 2px; width: 6px; height: 6px; border-radius: 50%; content: ""; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes breathe { to { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) {

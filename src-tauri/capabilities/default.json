@@ -12,6 +12,14 @@
     "core:window:allow-toggle-maximize",
     "autostart:allow-enable",
     "autostart:allow-disable",
-    "autostart:allow-is-enabled"
+    "autostart:allow-is-enabled",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://github.com/GKNEETIEMAY/ProxyEnv/releases/**"
+        }
+      ]
+    }
   ]
 }

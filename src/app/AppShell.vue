@@ -2,13 +2,19 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import ProxyPage from "../features/proxy/components/ProxyPage.vue";
 import ApplicationAssistantPage from "../features/application-assistant/components/ApplicationAssistantPage.vue";
-import SettingsPage, {
-  type SettingsTab,
+import SettingsPage, { type SettingsTab } from "../features/settings/components/SettingsPage.vue";
+import {
+  compareVersions,
+  isOfficialReleaseUrl,
+  parseReleaseNotes,
+  type GitHubRelease,
+  type ReleaseNoteLine,
   type UpdateState
-} from "../features/settings/components/SettingsPage.vue";
+} from "../features/settings/update";
 import { backend } from "../shared/api/backend";
 import { messages, resolveLocale } from "../shared/i18n";
 import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, TunObservation } from "../shared/types";
@@ -33,9 +39,13 @@ const settingsError = ref("");
 const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
 const instanceNoticeVisible = ref(false);
-const appVersion = ref("0.1.0");
+const appVersion = ref("0.1.1");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
+const releaseUrl = ref("");
+const releasePublishedAt = ref("");
+const releaseNotes = ref<ReleaseNoteLine[]>([]);
+const releaseActionError = ref("");
 const environment = ref<EnvironmentStatus>({
   state: "disabled",
   entries: [],
@@ -75,6 +85,24 @@ const updateMessage = computed(() => {
   if (updateState.value === "error") return copy.value.updateCheckFailed;
   return copy.value.notChecked;
 });
+const releaseVersion = computed(() => latestVersion.value || appVersion.value);
+const releasePublishedLabel = computed(() => {
+  if (!releasePublishedAt.value) return "";
+  const date = new Date(releasePublishedAt.value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(locale.value, {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  }).format(date);
+});
+const displayReleaseNotes = computed<ReleaseNoteLine[]>(() => releaseNotes.value.length > 0
+  ? releaseNotes.value
+  : [
+      { kind: "item", text: copy.value.changelogUpdateCheck },
+      { kind: "item", text: copy.value.changelogReleaseNotes },
+      { kind: "item", text: copy.value.changelogReleaseLink }
+    ]);
 
 function applyPresentation() {
   const theme = draftSettings.value.theme === "system"
@@ -225,36 +253,52 @@ async function copyEndpoint(candidate?: ProxyCandidate) {
   }
 }
 
-function compareVersions(left: string, right: string): number {
-  const normalize = (value: string) => value.replace(/^v/i, "").split(".").map((part) => Number.parseInt(part, 10) || 0);
-  const leftParts = normalize(left);
-  const rightParts = normalize(right);
-  const length = Math.max(leftParts.length, rightParts.length);
-  for (let index = 0; index < length; index += 1) {
-    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
-}
-
 async function checkForUpdates() {
   if (updateState.value === "checking") return;
   updateState.value = "checking";
+  releaseActionError.value = "";
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 10_000);
   try {
     const response = await fetch("https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/latest", {
-      headers: { Accept: "application/vnd.github+json" }
+      cache: "no-store",
+      headers: { Accept: "application/vnd.github+json" },
+      signal: controller.signal
     });
     if (response.status === 404) {
       updateState.value = "unpublished";
+      latestVersion.value = "";
+      releaseUrl.value = "";
+      releasePublishedAt.value = "";
+      releaseNotes.value = [];
       return;
     }
     if (!response.ok) throw new Error(`GitHub ${response.status}`);
-    const release = await response.json() as { tag_name?: string };
+    const release = await response.json() as GitHubRelease;
     if (!release.tag_name) throw new Error("missing release tag");
+    if (!release.html_url || !isOfficialReleaseUrl(release.html_url)) throw new Error("invalid release URL");
     latestVersion.value = release.tag_name.replace(/^v/i, "");
+    releaseUrl.value = release.html_url;
+    releasePublishedAt.value = release.published_at ?? "";
+    releaseNotes.value = parseReleaseNotes(release.body);
     updateState.value = compareVersions(latestVersion.value, appVersion.value) > 0 ? "available" : "latest";
   } catch {
     updateState.value = "error";
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function openLatestRelease() {
+  releaseActionError.value = "";
+  if (!isOfficialReleaseUrl(releaseUrl.value)) {
+    releaseActionError.value = copy.value.releaseOpenFailed;
+    return;
+  }
+  try {
+    await openUrl(releaseUrl.value);
+  } catch {
+    releaseActionError.value = copy.value.releaseOpenFailed;
   }
 }
 
@@ -324,13 +368,17 @@ watch(draftSettings, () => {
     void flushSettings();
   }, 180);
 }, { deep: true, flush: "sync" });
+watch([view, settingsTab], ([nextView, nextTab]) => {
+  if (reviewPreview || updateState.value !== "idle") return;
+  if (nextView === "settings" && nextTab === "about") void checkForUpdates();
+});
 
 onMounted(async () => {
   window.addEventListener("keydown", onViewShortcut);
   try {
     appVersion.value = await getVersion();
   } catch {
-    appVersion.value = "0.1.0";
+    appVersion.value = "0.1.1";
   }
   if (reviewPreview) {
     const preview = new URLSearchParams(window.location.search).get("impeccable-review");
@@ -511,7 +559,13 @@ onBeforeUnmount(() => {
       :app-version="appVersion"
       :update-state="updateState"
       :update-message="updateMessage"
+      :release-version="releaseVersion"
+      :release-published-label="releasePublishedLabel"
+      :release-notes="displayReleaseNotes"
+      :release-url="releaseUrl"
+      :release-action-error="releaseActionError"
       @check-for-updates="checkForUpdates"
+      @open-release="openLatestRelease"
     />
     </Transition>
   </div>

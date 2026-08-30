@@ -22,6 +22,7 @@ pub fn run() {
             Some(vec!["--autostart"]),
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let settings = settings::load().unwrap_or_default();
             tray::setup(app.handle(), &settings)?;

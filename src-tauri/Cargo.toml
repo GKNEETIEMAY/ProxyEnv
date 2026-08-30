@@ -1,6 +1,6 @@
 [package]
 name = "proxyenv"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Windows-first proxy environment and application networking assistant"
 authors = ["ProxyEnv contributors"]
 edition = "2021"
@@ -27,6 +27,7 @@ serde_yaml = "0.9"
 sha2 = "0.10"
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 thiserror = "2"
 toml = "0.8"
