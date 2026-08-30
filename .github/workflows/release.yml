@@ -48,6 +48,9 @@ jobs:
         with:
           node-version: 20.19.0
 
+      - name: Validate localized release notes
+        run: node scripts/validate-release-notes.mjs .github/release-notes/${{ github.ref_name }}.md
+
       - name: Enable pinned pnpm
         shell: pwsh
         run: |
@@ -82,12 +85,18 @@ jobs:
       - name: Run Clippy with locked dependencies
         run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-      # ProxyEnv intentionally does not use Windows Authenticode. Tauri Updater
-      # signing remains disabled until automatic updates are implemented.
-      # When the updater is enabled, its private key must be injected only through
-      # TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets.
-      - name: Build current Tauri bundles from lockfiles
-        run: pnpm run release:build
+      # No Authenticode certificate, thumbprint, PFX, or sign command is configured.
+      # Tauri Updater signatures remain mandatory and use the dedicated secret below.
+      - name: Build Tauri bundles and signed updater artifacts
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: pwsh
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw 'TAURI_SIGNING_PRIVATE_KEY is required for every automatic-update release'
+          }
+          pnpm run release:build
 
       - name: Collect release artifacts and SHA-256 checksums
         shell: pwsh
@@ -116,7 +125,36 @@ jobs:
           }
           foreach ($installer in $installers) {
             Copy-Item -LiteralPath $installer.FullName -Destination $output
+            $signaturePath = "$($installer.FullName).sig"
+            if (-not (Test-Path -LiteralPath $signaturePath -PathType Leaf)) {
+              throw "Missing Tauri Updater signature for $($installer.Name)"
+            }
+            Copy-Item -LiteralPath $signaturePath -Destination $output
           }
+
+          $nsisInstaller = $installers | Where-Object {
+            $_.Extension -eq '.exe' -and $_.DirectoryName -like '*\bundle\nsis'
+          } | Select-Object -First 1
+          if (-not $nsisInstaller) {
+            throw 'The signed NSIS installer required by the Windows updater is missing'
+          }
+          $nsisSignature = (Get-Content -Raw -LiteralPath "$($nsisInstaller.FullName).sig").Trim()
+          if (-not $nsisSignature) {
+            throw 'The NSIS updater signature is empty'
+          }
+          $releaseNotesPath = ".github/release-notes/$env:GITHUB_REF_NAME.md"
+          $latest = [ordered]@{
+            version = $version
+            notes = Get-Content -Raw -LiteralPath $releaseNotesPath
+            pub_date = (Get-Date).ToUniversalTime().ToString('o')
+            platforms = [ordered]@{
+              'windows-x86_64' = [ordered]@{
+                signature = $nsisSignature
+                url = "https://github.com/GKNEETIEMAY/ProxyEnv/releases/download/$env:GITHUB_REF_NAME/$($nsisInstaller.Name)"
+              }
+            }
+          }
+          $latest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $output 'latest.json') -Encoding utf8NoBOM
 
           $checksumLines = Get-ChildItem -LiteralPath $output -File |
             Sort-Object Name |
