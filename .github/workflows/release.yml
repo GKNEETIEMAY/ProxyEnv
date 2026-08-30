@@ -30,11 +30,17 @@ jobs:
           $version = $env:GITHUB_REF_NAME -replace '^v', ''
           $packageVersion = (Get-Content -Raw -LiteralPath 'package.json' | ConvertFrom-Json).version
           $tauriVersion = (Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json).version
+          $cargoVersionMatch = [regex]::Match((Get-Content -Raw -LiteralPath 'src-tauri/Cargo.toml'), '(?m)^version\s*=\s*"([^"]+)"')
+          $cargoVersion = $cargoVersionMatch.Groups[1].Value
           if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
             throw "Release tag must contain a semantic version"
           }
-          if ($packageVersion -ne $version -or $tauriVersion -ne $version) {
-            throw "Release tag, package.json, and tauri.conf.json versions must match"
+          if ($packageVersion -ne $version -or $tauriVersion -ne $version -or $cargoVersion -ne $version) {
+            throw "Release tag, package.json, Cargo.toml, and tauri.conf.json versions must match"
+          }
+          $releaseNotesPath = ".github/release-notes/$env:GITHUB_REF_NAME.md"
+          if (-not (Test-Path -LiteralPath $releaseNotesPath -PathType Leaf)) {
+            throw "A reviewed release-notes file is required at $releaseNotesPath"
           }
 
       - name: Set up Node.js
@@ -137,6 +143,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          generate_release_notes: true
+          body_path: .github/release-notes/${{ github.ref_name }}.md
           fail_on_unmatched_files: true
           files: release-artifacts/*
