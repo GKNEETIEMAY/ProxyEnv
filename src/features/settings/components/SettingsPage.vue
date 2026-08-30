@@ -93,7 +93,7 @@ defineEmits<{ checkForUpdates: [] }>();
         {{ updateState === 'checking' ? copy.checkingUpdates : copy.checkForUpdates }}
       </button>
       <section class="changelog-section">
-        <div class="changelog-heading"><h3>{{ copy.changelog }}</h3><span>v{{ appVersion }} · {{ copy.developmentPreview }}</span></div>
+        <div class="changelog-heading"><h3>{{ copy.changelog }}</h3><span>v{{ appVersion }} · {{ copy.stableRelease }}</span></div>
         <ul>
           <li>{{ copy.changelogDiscovery }}</li>
           <li>{{ copy.changelogVariables }}</li>
