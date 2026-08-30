@@ -1,4 +1,15 @@
-export type UpdateState = "idle" | "checking" | "latest" | "available" | "unpublished" | "error";
+import type { Locale } from "../../shared/i18n";
+
+export type UpdateState =
+  | "idle"
+  | "checking"
+  | "latest"
+  | "available"
+  | "manual"
+  | "downloading"
+  | "installing"
+  | "unpublished"
+  | "error";
 
 export type ReleaseNoteLine = {
   kind: "heading" | "item" | "paragraph";
@@ -27,9 +38,41 @@ export function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-export function parseReleaseNotes(body: string | null | undefined): ReleaseNoteLine[] {
+const RELEASE_LOCALE_START = "proxyenv-release:";
+const RELEASE_LOCALE_END = "proxyenv-release:end";
+
+function localizedReleaseBody(body: string, locale: Locale): string {
+  const blocks = new Map<string, string>();
+  let activeLocale = "";
+  let activeLines: string[] = [];
+
+  for (const line of body.slice(0, 80_000).split(/\r?\n/)) {
+    const marker = line.trim().match(/^<!--\s*proxyenv-release:([^\s]+)\s*-->$/i);
+    if (!marker) {
+      if (activeLocale) activeLines.push(line);
+      continue;
+    }
+    const markerValue = marker[1];
+    if (markerValue.toLowerCase() === "end") {
+      if (activeLocale) blocks.set(activeLocale, activeLines.join("\n"));
+      activeLocale = "";
+      activeLines = [];
+      continue;
+    }
+    if (activeLocale) blocks.set(activeLocale, activeLines.join("\n"));
+    activeLocale = markerValue;
+    activeLines = [];
+  }
+  if (activeLocale) blocks.set(activeLocale, activeLines.join("\n"));
+  if (blocks.size === 0) return "";
+  return blocks.get(locale) ?? blocks.get("en") ?? "";
+}
+
+export function parseReleaseNotes(body: string | null | undefined, locale: Locale): ReleaseNoteLine[] {
   if (!body) return [];
-  return body
+  const localizedBody = localizedReleaseBody(body, locale);
+  if (!localizedBody) return [];
+  return localizedBody
     .slice(0, 20_000)
     .split(/\r?\n/)
     .map((rawLine) => rawLine.trim().slice(0, 600))
@@ -48,6 +91,10 @@ export function parseReleaseNotes(body: string | null | undefined): ReleaseNoteL
     })
     .filter((line) => line.text.length > 0)
     .slice(0, 32);
+}
+
+export function hasLocalizedReleaseNotes(body: string | null | undefined): boolean {
+  return Boolean(body?.includes(`<!-- ${RELEASE_LOCALE_START}`) && body.includes(`<!-- ${RELEASE_LOCALE_END} -->`));
 }
 
 export function isOfficialReleaseUrl(value: string): boolean {

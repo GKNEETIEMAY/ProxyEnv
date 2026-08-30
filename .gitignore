@@ -18,6 +18,7 @@ src-tauri/target/
 *.pdb
 
 # Local environment and secrets
+.release-secrets/
 .env
 .env.*
 !.env.example

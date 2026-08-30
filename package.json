@@ -1,7 +1,7 @@
 {
   "name": "proxyenv",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "packageManager": "pnpm@10.15.1",
   "engines": {
@@ -13,13 +13,15 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "release:build": "tauri build --ci --no-sign -- --locked",
+    "release:build": "tauri build --ci -- --locked",
     "check": "pnpm build && cargo test --manifest-path src-tauri/Cargo.toml --locked"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
-    "@tauri-apps/plugin-opener": "^2.5.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-opener": "^2.5.0",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "vue": "^3.5.18"
   },
   "devDependencies": {

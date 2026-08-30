@@ -439,16 +439,20 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .about-details dd:first-of-type { font-variant-numeric: tabular-nums; }
 .update-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--line-strong); }
 .update-latest .update-dot { background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
-.update-available .update-dot { background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
+.update-available .update-dot, .update-manual .update-dot, .update-downloading .update-dot, .update-installing .update-dot { background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
 .update-error .update-dot { background: var(--danger); box-shadow: 0 0 0 4px var(--danger-soft); }
 .update-actions { display: flex; margin-top: 20px; align-items: center; flex-wrap: wrap; gap: 9px; }
-.check-update-button, .release-link-button { display: inline-flex; width: fit-content; padding: 9px 13px; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface-strong); cursor: pointer; transition: border-color .16s, color .16s, background .16s; }
-.check-update-button:hover { border-color: var(--accent); background: var(--accent-soft); }
-.check-update-button:disabled { cursor: wait; opacity: .62; }
-.release-link-button { border-color: var(--accent); color: #fffaf5; background: var(--accent); }
-.release-link-button:hover { border-color: var(--accent-strong); background: var(--accent-strong); }
-.check-update-button svg, .release-link-button svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.check-update-button svg.spinning { animation: spin .9s linear infinite; }
+.check-update-button, .install-update-button, .release-link-button { display: inline-flex; width: fit-content; padding: 9px 13px; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface-strong); cursor: pointer; transition: border-color .16s, color .16s, background .16s, opacity .16s; }
+.check-update-button:hover, .release-link-button:hover { border-color: var(--accent); background: var(--accent-soft); }
+.install-update-button { border-color: var(--accent); color: #fffaf5; background: var(--accent); }
+.install-update-button:hover { border-color: var(--accent-strong); background: var(--accent-strong); }
+.check-update-button:disabled, .install-update-button:disabled { cursor: wait; opacity: .62; }
+.check-update-button svg, .install-update-button svg, .release-link-button svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.release-link-button svg.github-mark { fill: currentColor; stroke: none; }
+.check-update-button svg.spinning, .install-update-button svg.spinning { animation: spin .9s linear infinite; }
+.update-progress { width: min(360px, 100%); height: 4px; margin-top: 12px; overflow: hidden; border-radius: 999px; background: var(--line); }
+.update-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width .18s ease; }
+.update-progress span.indeterminate { width: 34%; animation: update-indeterminate 1.2s ease-in-out infinite; }
 .release-action-error { margin: 10px 0 0; color: var(--danger); font-size: 11px; line-height: 1.5; }
 .changelog-section { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line-strong); }
 .changelog-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
@@ -461,6 +465,7 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .release-note-item { position: relative; padding-inline-start: 18px; }
 .release-note-item::before { position: absolute; top: .58em; inset-inline-start: 2px; width: 6px; height: 6px; border-radius: 50%; content: ""; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes update-indeterminate { from { transform: translateX(-120%); } to { transform: translateX(310%); } }
 @keyframes breathe { to { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

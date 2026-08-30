@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { getVersion } from "@tauri-apps/api/app";
+import { BundleType, getBundleType, getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import ProxyPage from "../features/proxy/components/ProxyPage.vue";
 import ApplicationAssistantPage from "../features/application-assistant/components/ApplicationAssistantPage.vue";
@@ -39,13 +41,16 @@ const settingsError = ref("");
 const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
 const instanceNoticeVisible = ref(false);
-const appVersion = ref("0.1.1");
+const appVersion = ref("0.1.2");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
 const releaseUrl = ref("");
 const releasePublishedAt = ref("");
-const releaseNotes = ref<ReleaseNoteLine[]>([]);
+const releaseNotesBody = ref("");
 const releaseActionError = ref("");
+const updateProgress = ref<number | null>(null);
+const automaticUpdateSupported = ref(false);
+const manualUpdateReason = ref<"bundle" | "missing">("missing");
 const environment = ref<EnvironmentStatus>({
   state: "disabled",
   entries: [],
@@ -69,6 +74,7 @@ let settingsSaveTimer: number | undefined;
 let settingsReady = false;
 let saveInFlight = false;
 let pendingSettings: AppSettings | undefined;
+let pendingUpdate: Awaited<ReturnType<typeof check>> = null;
 let unlistenResize: UnlistenFn | undefined;
 let unlisten: UnlistenFn[] = [];
 
@@ -81,6 +87,13 @@ const updateMessage = computed(() => {
   if (updateState.value === "checking") return copy.value.checkingUpdates;
   if (updateState.value === "latest") return copy.value.latestVersion;
   if (updateState.value === "available") return copy.value.updateAvailable.replace("{version}", latestVersion.value);
+  if (updateState.value === "manual") return (manualUpdateReason.value === "bundle"
+    ? copy.value.automaticUpdateUnsupported
+    : copy.value.signedUpdateUnavailable).replace("{version}", latestVersion.value);
+  if (updateState.value === "downloading") return updateProgress.value === null
+    ? copy.value.downloadingUpdate
+    : copy.value.downloadingUpdateProgress.replace("{progress}", String(updateProgress.value));
+  if (updateState.value === "installing") return copy.value.installingUpdate;
   if (updateState.value === "unpublished") return copy.value.noPublishedRelease;
   if (updateState.value === "error") return copy.value.updateCheckFailed;
   return copy.value.notChecked;
@@ -96,13 +109,12 @@ const releasePublishedLabel = computed(() => {
     day: "numeric"
   }).format(date);
 });
-const displayReleaseNotes = computed<ReleaseNoteLine[]>(() => releaseNotes.value.length > 0
-  ? releaseNotes.value
-  : [
-      { kind: "item", text: copy.value.changelogUpdateCheck },
-      { kind: "item", text: copy.value.changelogReleaseNotes },
-      { kind: "item", text: copy.value.changelogReleaseLink }
-    ]);
+const displayReleaseNotes = computed<ReleaseNoteLine[]>(() => {
+  const localizedNotes = parseReleaseNotes(releaseNotesBody.value, locale.value);
+  return localizedNotes.length > 0
+    ? localizedNotes
+    : [{ kind: "paragraph", text: copy.value.noReleaseNotes }];
+});
 
 function applyPresentation() {
   const theme = draftSettings.value.theme === "system"
@@ -254,38 +266,102 @@ async function copyEndpoint(candidate?: ProxyCandidate) {
 }
 
 async function checkForUpdates() {
-  if (updateState.value === "checking") return;
+  if (["checking", "downloading", "installing"].includes(updateState.value)) return;
   updateState.value = "checking";
   releaseActionError.value = "";
+  updateProgress.value = null;
+  pendingUpdate = null;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 10_000);
   try {
-    const response = await fetch("https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/latest", {
-      cache: "no-store",
-      headers: { Accept: "application/vnd.github+json" },
-      signal: controller.signal
-    });
-    if (response.status === 404) {
+    const releaseRequest = fetch("https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/latest", {
+        cache: "no-store",
+        headers: { Accept: "application/vnd.github+json" },
+        signal: controller.signal
+      })
+      .then(async (response): Promise<GitHubRelease | null> => {
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error(`GitHub ${response.status}`);
+        return await response.json() as GitHubRelease;
+      });
+    const [releaseResult, updaterResult] = await Promise.allSettled([
+      releaseRequest,
+      check({ timeout: 10_000 })
+    ]);
+
+    const release = releaseResult.status === "fulfilled" ? releaseResult.value : null;
+    const signedUpdate = updaterResult.status === "fulfilled" ? updaterResult.value : null;
+    if (release) {
+      if (!release.tag_name) throw new Error("missing release tag");
+      if (!release.html_url || !isOfficialReleaseUrl(release.html_url)) throw new Error("invalid release URL");
+      latestVersion.value = release.tag_name.replace(/^v/i, "");
+      releaseUrl.value = release.html_url;
+      releasePublishedAt.value = release.published_at ?? "";
+      releaseNotesBody.value = release.body ?? "";
+    } else if (signedUpdate) {
+      latestVersion.value = signedUpdate.version;
+      releaseUrl.value = `https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v${signedUpdate.version}`;
+      releasePublishedAt.value = signedUpdate.date ?? "";
+      releaseNotesBody.value = signedUpdate.body ?? "";
+    } else if (releaseResult.status === "fulfilled") {
       updateState.value = "unpublished";
       latestVersion.value = "";
       releaseUrl.value = "";
       releasePublishedAt.value = "";
-      releaseNotes.value = [];
+      releaseNotesBody.value = "";
+      return;
+    } else {
+      throw new Error("release metadata is unavailable");
+    }
+
+    if (signedUpdate && automaticUpdateSupported.value) {
+      pendingUpdate = signedUpdate;
+      latestVersion.value = signedUpdate.version;
+      updateState.value = "available";
       return;
     }
-    if (!response.ok) throw new Error(`GitHub ${response.status}`);
-    const release = await response.json() as GitHubRelease;
-    if (!release.tag_name) throw new Error("missing release tag");
-    if (!release.html_url || !isOfficialReleaseUrl(release.html_url)) throw new Error("invalid release URL");
-    latestVersion.value = release.tag_name.replace(/^v/i, "");
-    releaseUrl.value = release.html_url;
-    releasePublishedAt.value = release.published_at ?? "";
-    releaseNotes.value = parseReleaseNotes(release.body);
-    updateState.value = compareVersions(latestVersion.value, appVersion.value) > 0 ? "available" : "latest";
+    manualUpdateReason.value = signedUpdate ? "bundle" : "missing";
+    updateState.value = compareVersions(latestVersion.value, appVersion.value) > 0
+      ? "manual"
+      : "latest";
   } catch {
     updateState.value = "error";
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+async function installPendingUpdate() {
+  if (!pendingUpdate || updateState.value !== "available") {
+    releaseActionError.value = copy.value.updateInstallUnavailable;
+    return;
+  }
+  releaseActionError.value = "";
+  updateProgress.value = null;
+  updateState.value = "downloading";
+  let downloaded = 0;
+  let contentLength = 0;
+  try {
+    await pendingUpdate.downloadAndInstall((event) => {
+      if (event.event === "Started") {
+        contentLength = event.data.contentLength ?? 0;
+        updateProgress.value = contentLength > 0 ? 0 : null;
+      } else if (event.event === "Progress") {
+        downloaded += event.data.chunkLength;
+        updateProgress.value = contentLength > 0
+          ? Math.min(100, Math.round((downloaded / contentLength) * 100))
+          : null;
+      } else if (event.event === "Finished") {
+        updateProgress.value = 100;
+        updateState.value = "installing";
+      }
+    });
+    updateState.value = "installing";
+    await relaunch();
+  } catch {
+    updateState.value = "available";
+    updateProgress.value = null;
+    releaseActionError.value = copy.value.updateInstallFailed;
   }
 }
 
@@ -376,9 +452,14 @@ watch([view, settingsTab], ([nextView, nextTab]) => {
 onMounted(async () => {
   window.addEventListener("keydown", onViewShortcut);
   try {
+    automaticUpdateSupported.value = await getBundleType() === BundleType.Nsis;
+  } catch {
+    automaticUpdateSupported.value = false;
+  }
+  try {
     appVersion.value = await getVersion();
   } catch {
-    appVersion.value = "0.1.1";
+    appVersion.value = "0.1.2";
   }
   if (reviewPreview) {
     const preview = new URLSearchParams(window.location.search).get("impeccable-review");
@@ -564,7 +645,9 @@ onBeforeUnmount(() => {
       :release-notes="displayReleaseNotes"
       :release-url="releaseUrl"
       :release-action-error="releaseActionError"
+      :update-progress="updateProgress"
       @check-for-updates="checkForUpdates"
+      @install-update="installPendingUpdate"
       @open-release="openLatestRelease"
     />
     </Transition>
