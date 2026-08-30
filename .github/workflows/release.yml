@@ -81,7 +81,7 @@ jobs:
       # When the updater is enabled, its private key must be injected only through
       # TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets.
       - name: Build current Tauri bundles from lockfiles
-        run: pnpm tauri build --ci --no-sign -- --locked
+        run: pnpm run release:build
 
       - name: Collect release artifacts and SHA-256 checksums
         shell: pwsh

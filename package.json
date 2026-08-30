@@ -13,6 +13,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "release:build": "tauri build --ci --no-sign -- --locked",
     "check": "pnpm build && cargo test --manifest-path src-tauri/Cargo.toml --locked"
   },
   "dependencies": {
