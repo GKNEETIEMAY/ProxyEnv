@@ -8,11 +8,11 @@
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="许可证" src="https://img.shields.io/badge/许可证-MIT-22c55e?style=flat-square">
-  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="正式版本" src="https://img.shields.io/badge/正式版本-v0.1.1-22c55e?style=flat-square"></a>
+  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="正式版本" src="https://img.shields.io/badge/正式版本-v0.1.2-22c55e?style=flat-square"></a>
 </p>
 
 > [!IMPORTANT]
-> **ProxyEnv v0.1.1 是当前正式稳定版本。** 当前已经实现并实机验证的目标平台是 Windows 10/11 x64。Linux 与 macOS 仍是后续架构方向，不属于当前支持平台；其他 Unix 变体不在计划内。
+> **ProxyEnv v0.1.2 是当前正式稳定版本。** 当前已经实现并实机验证的目标平台是 Windows 10/11 x64。Linux 与 macOS 仍是后续架构方向，不属于当前支持平台；其他 Unix 变体不在计划内。
 
 ## 下载
 
@@ -24,7 +24,7 @@
 
 上述文件名中的 `x.x.x` 代表实际发布版本号，例如 `1.2.3`。
 
-ProxyEnv 按项目策略不使用 Windows Authenticode，因此 Windows 可能显示“未知发布者”、Microsoft Defender SmartScreen 或“Windows 已保护你的电脑”。请仅从本仓库下载，并使用随 Release 提供的 `SHA256SUMS.txt` 与 GitHub Artifact Attestation 验证文件。“关于”页面会检查 GitHub Releases、显示已发布的更新说明，并在用户操作后打开经过校验的官方下载页面；ProxyEnv 不会自动下载或执行更新程序。
+ProxyEnv 按项目策略不使用 Windows Authenticode，因此 Windows 可能显示“未知发布者”、Microsoft Defender SmartScreen 或“Windows 已保护你的电脑”。请仅从本仓库下载，并使用 `SHA256SUMS.txt` 与 GitHub Artifact Attestation 验证文件。从 v0.1.2 开始，NSIS 安装版可以从固定的官方 Release 地址检查、下载并验证 Tauri 签名更新，以被动安装方式替换已登记的旧版本文件，完成后重新启动应用。MSI 与 Portable 包仍从官方 Release 手动更新，避免留下无法自动移除的旧 Portable 文件。
 
 ## 要解决的问题
 
@@ -176,7 +176,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D w
 pnpm tauri build
 ```
 
-按照项目的开源发行策略，ProxyEnv Windows 正式版本不使用 Authenticode，因此 Windows 可能显示“未知发布者”、SmartScreen 或“Windows 已保护你的电脑”。请仅从[官方 GitHub Releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases) 下载，并使用 `SHA256SUMS.txt` 和公开仓库工作流生成的 GitHub Artifact Attestation 验证发布文件。构建使用冻结的 lockfile；在配置官方 Tauri Updater 签名验证前，自动更新保持禁用。手动代理仅支持 `localhost`、`127.0.0.1` 或 `::1`。详见[发布安全设计](docs/release-security.md)。
+按照项目的开源发行策略，ProxyEnv Windows 正式版本不使用 Authenticode，因此 Windows 可能显示“未知发布者”、SmartScreen 或“Windows 已保护你的电脑”。请仅从[官方 GitHub Releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases) 下载，并使用 `SHA256SUMS.txt` 和公开工作流生成的 GitHub Artifact Attestation 验证发布文件。正式构建使用冻结的 lockfile 并强制生成 Tauri Updater 签名；NSIS 安装版只接受固定 HTTPS `latest.json`，使用内置公钥验证安装包，沿用 Tauri 默认版本比较拒绝降级，以被动模式覆盖安装并在成功后重启。Updater 私钥只存在于授权的 Actions Secret 中。手动代理仅支持 `localhost`、`127.0.0.1` 或 `::1`。详见[发布安全设计](docs/release-security.md)。
 
 ## 工程结构
 
@@ -204,7 +204,7 @@ ProxyEnv/
 
 ProxyEnv 不是代理客户端、VPN、订阅管理器、流量转发器或 TUN 控制器。它不控制 Clash/v2rayN API、节点、订阅、代理客户端规则、Windows 系统代理、路由、驱动或系统级环境变量，也不会向运行中进程注入、结束进程或改写其环境。
 
-代理检测、协议探测、TUN 观测、应用枚举、规则预览和环境变量管理均在本机完成。ProxyEnv 不读取、不保存、不管理代理账号密码、订阅 Token、节点凭据、其它代理认证信息或流量。运行时诊断统一经过脱敏边界，移除本机路径、代理地址和进程信息；配置字段原始值按完整敏感数据处理。除非用户明确触发现有代理测试，否则不会进行外部联网测试，只有用户主动检查更新时才访问 GitHub Releases。详见 [`SECURITY.md`](SECURITY.md)。
+代理检测、协议探测、TUN 观测、应用枚举、规则预览和环境变量管理均在本机完成。ProxyEnv 不读取、不保存、不管理代理账号密码、订阅 Token、节点凭据、其它代理认证信息或流量。运行时诊断统一经过脱敏边界，移除本机路径、代理地址和进程信息；配置字段原始值按完整敏感数据处理。除非用户明确触发现有代理测试，否则不会进行外部联网测试。用户主动检查更新时会访问固定的官方 GitHub 地址；再次点击“下载并安装更新”后，才会下载清单指定且通过签名验证的安装包。详见 [`SECURITY.md`](SECURITY.md)。
 
 ## 贡献
 

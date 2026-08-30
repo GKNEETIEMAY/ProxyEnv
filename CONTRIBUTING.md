@@ -21,6 +21,6 @@ Keep the Environment Core independent from proxy detection. Do not add system-pr
 
 ## Release secrets
 
-Never commit a signing private key, certificate private key, `.pfx`, `.p12`, or `.key` file. Future Tauri Updater private material belongs only in GitHub Actions secrets named `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; workflows must never print the secret, its prefix, length, decoded form, or file contents. A Tauri updater public verification key is not secret and may be reviewed and committed when the official updater is enabled.
+Never commit a signing private key, certificate private key, `.pfx`, `.p12`, or `.key` file. Tauri Updater private material used by CI belongs only in GitHub Actions secrets named `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; any maintainer recovery copy must stay outside tracked source in protected offline storage. Workflows must never print the secret, its prefix, length, decoded form, or file contents. The updater public verification key is not secret and is reviewed and committed in `tauri.conf.json`.
 
 ProxyEnv currently performs only a manual GitHub Releases version check. Do not add direct installer downloads or execute downloaded files. Future automatic updates must use the official Tauri Updater with signed artifacts, a pinned HTTPS endpoint, and its default anti-downgrade comparison. See [`docs/release-security.md`](docs/release-security.md).

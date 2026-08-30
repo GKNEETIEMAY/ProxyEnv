@@ -1,19 +1,21 @@
 # Release security / 发布安全
 
-This document defines the open-source release trust model for ProxyEnv. The project intentionally does not use Windows Authenticode; future Tauri Updater signing is a separate, free mechanism that becomes mandatory only when automatic updates are enabled.
+This document defines the open-source release trust model for ProxyEnv. The project intentionally does not use Windows Authenticode. Starting with v0.1.2, automatic updates use Tauri Updater's separate, free signature mechanism and every updater-enabled release must be signed.
 
-本文定义 ProxyEnv 的开源发行信任模型。项目明确不采用 Windows Authenticode；未来的 Tauri Updater 签名是另一套免费机制，仅在启用自动更新时成为强制要求。
+本文定义 ProxyEnv 的开源发行信任模型。项目明确不采用 Windows Authenticode。从 v0.1.2 开始，自动更新使用独立且免费的 Tauri Updater 签名机制；所有启用 Updater 的版本都必须签名。
 
 ## Current release state / 当前状态
 
-- ProxyEnv does **not** currently include `@tauri-apps/plugin-updater` or `tauri-plugin-updater`.
-- **Check for updates** is a read-only, user-triggered request to the fixed GitHub Releases API URL. It reads `tag_name`, compares versions, and never downloads or executes an installer.
-- Tag pushes matching `v*` run `.github/workflows/release.yml`. The workflow verifies versions, installs from lockfiles, audits/builds/tests, creates the Windows bundles, generates `SHA256SUMS.txt`, attests public-repository artifacts, and uploads everything to a draft GitHub Release.
+- ProxyEnv includes the official Tauri Updater and Process plugins with only check, download-and-install, and restart permissions.
+- **Check for updates** reads the fixed GitHub Releases API for localized notes and checks the pinned HTTPS `latest.json`. Download and installation begin only after the user selects **Download and install**.
+- The NSIS setup edition verifies every update against the public key embedded in `tauri.conf.json`, uses Tauri's default upgrade-only comparison, installs in passive mode, replaces the registered installation, and restarts after success. MSI and portable packages remain manual-update variants.
+- Tag pushes matching `v*` run `.github/workflows/release.yml`. The workflow verifies versions and localized notes, installs from lockfiles, audits/builds/tests, requires the updater private-key secret, creates signed Windows bundles and `latest.json`, generates `SHA256SUMS.txt`, attests public-repository artifacts, and uploads everything to a draft GitHub Release.
 - Windows artifacts are intentionally not Authenticode-signed and may show **Unknown Publisher**, **Microsoft Defender SmartScreen**, or **Windows protected your PC**. This does not prevent a stable release under the project policy.
 
-- ProxyEnv 当前没有接入 updater 插件。
-- “检查更新”只会在用户点击后访问固定的 GitHub Releases API、读取 `tag_name` 并比较版本，不下载或执行安装程序。
-- `v*` 标签会触发 Release 工作流；工作流使用锁文件构建、生成 `SHA256SUMS.txt`，在公开仓库中生成 Artifact Attestation，并把产物放入草稿 Release 等待人工验收。
+- ProxyEnv 已接入官方 Tauri Updater 与 Process 插件，只开放检查、下载并安装、重启所需的最小权限。
+- “检查更新”读取固定 GitHub Releases API 中的本地化日志，并检查固定 HTTPS `latest.json`；只有用户点击“下载并安装更新”后才开始下载与安装。
+- NSIS 安装版使用 `tauri.conf.json` 内置公钥验证每个更新，沿用 Tauri 默认的仅升级版本比较，以被动模式替换已登记安装并在成功后重启。MSI 与 Portable 仍采用手动更新。
+- `v*` 标签会触发 Release 工作流；工作流验证版本与多语言日志，使用锁文件完成审计、测试和构建，强制读取 Updater 私钥 Secret，生成签名 Windows 安装包、`latest.json`、`SHA256SUMS.txt` 与 Artifact Attestation，再放入草稿 Release 等待人工验收。
 - Windows 产物按项目策略不签 Authenticode，可能出现“未知发布者”、SmartScreen 或“Windows 已保护你的电脑”提示，但这不阻止稳定版发布。
 
 ## Priority / 优先级
@@ -27,7 +29,7 @@ This document defines the open-source release trust model for ProxyEnv. The proj
 - snapshot schema, allowlist, link/reparse-point, and size validation;
 - lockfile-enforced CI and Release pipeline;
 - SHA-256 checksums and GitHub Artifact Attestation for public release artifacts;
-- if automatic updates are enabled: Tauri Updater signature verification, a pinned HTTPS source, default anti-downgrade behavior, and signed updater artifacts.
+- Tauri Updater signature verification, a pinned HTTPS source, default anti-downgrade behavior, signed updater artifacts, and a valid `latest.json`.
 
 Windows Authenticode, OV/EV certificates, PFX files, signtool integration, Azure signing, and other paid code-signing services are not part of the ProxyEnv release plan. Users must download only from the official GitHub Releases page and verify the published files.
 
@@ -38,10 +40,10 @@ Windows Authenticode, OV/EV certificates, PFX files, signtool integration, Azure
 | GitHub Actions | Required; locked build, audit, test, package, and draft release / 必须：锁定依赖并完成审计、测试、打包与草稿发布 |
 | SHA-256 | Required; `SHA256SUMS.txt` is generated for every tag release / 必须：每次标签发布生成校验文件 |
 | GitHub Artifact Attestation | Configured; empirical verification is required for the first formal tag / 已配置，首次正式标签必须完成实际验证 |
-| Tauri Updater signing | Mandatory only when automatic updates are enabled / 仅在启用自动更新时必须 |
+| Tauri Updater signing | Required for every updater-enabled release beginning with v0.1.2 / 从 v0.1.2 起，每个启用 Updater 的版本都必须使用 |
 | Windows Authenticode | Not adopted; does not block stable releases / 不采用，不阻止稳定版发布 |
 
-SHA-256 detects file changes but is not a digital signature by itself. GitHub Artifact Attestation binds artifact digests to the GitHub Actions build identity using signed provenance. Users can verify an official download with `gh attestation verify <file> -R GKNEETIEMAY/ProxyEnv`. Future updater signing will independently verify update artifacts against a public key embedded in the trusted application.
+SHA-256 detects file changes but is not a digital signature by itself. GitHub Artifact Attestation binds artifact digests to the GitHub Actions build identity using signed provenance. Users can verify an official download with `gh attestation verify <file> -R GKNEETIEMAY/ProxyEnv`. Tauri Updater independently verifies update artifacts against the public key embedded in the trusted application.
 
 ## First-tag attestation verification / 首次标签 Attestation 验证
 
@@ -67,7 +69,7 @@ This empirical verification is pending until the first formal tag exists. A succ
 
 该项在首次正式标签产生前保持“待验证”。仅看到 Workflow 成功，不代表这项验收已经完成。
 
-## Future Tauri Updater design / 未来自动更新设计
+## Tauri Updater design / 自动更新设计
 
 ```text
 GitHub Actions
@@ -81,37 +83,37 @@ ProxyEnv updater
 valid and remote_version > current_version ? install : reject
 ```
 
-When automatic updates are implemented, use the official Tauri 2 updater and its signature format. Do not build a custom downloader, signature algorithm, minisign parser, or `Command::new(downloaded_exe)` flow.
+ProxyEnv uses the official Tauri 2 updater and its signature format. It does not use a custom downloader, signature algorithm, minisign parser, or `Command::new(downloaded_exe)` flow.
 
-Required enablement steps:
+Implemented controls:
 
-1. Add the official Rust and frontend updater plugins and only the minimum capabilities.
-2. Generate the Tauri key pair outside the repository.
-3. Commit only the public key in `tauri.conf.json` and pin an HTTPS endpoint such as `https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest/download/latest.json`.
-4. Set `bundle.createUpdaterArtifacts` to `true`.
-5. Store the private key and optional password only as GitHub Actions secrets named `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-6. Let Tauri create and verify `.sig` data. Never print, decode, transform, or package the private key.
-7. Keep Tauri's default version comparison (`remote_version > current_version`). Do not install older or equal versions; a future manual rollback must be a separate, explicit design.
-8. Keep update endpoints in trusted Tauri/Rust configuration. Frontend IPC must never accept `update_url`, `download_url`, or `signature_url`.
-9. Define the complete download, verification, installation, restart, failure-reporting, and recovery flow before enabling automatic installation.
+1. Official Rust and frontend updater plugins expose only the minimum capabilities.
+2. The Tauri key pair is generated outside tracked source; only its public key is committed.
+3. `tauri.conf.json` pins `https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest/download/latest.json` and enables updater artifacts.
+4. The private key and optional password exist only as GitHub Actions secrets named `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+5. Tauri creates and verifies `.sig` data; CI never prints, decodes, transforms, or packages the private key.
+6. Tauri's default version comparison (`remote_version > current_version`) remains unchanged. Older or equal versions are not installed.
+7. Update endpoints stay in trusted Tauri configuration. Frontend IPC never accepts `update_url`, `download_url`, or `signature_url`.
+8. The About page exposes check, download progress, signature/manifest failure, passive installation, and restart states. A failed update leaves the current installation in place.
+9. Automatic replacement is limited to the NSIS setup edition. Other bundle types are directed to the official Release instead of leaving an unmanaged old file behind.
 
-The private signing key must never appear in Git, `.env.example`, `src-tauri`, `public`, documentation examples as real content, build artifacts, or CI output. The public verification key is intentionally distributable and may be committed.
+The private signing key must never appear in Git, `.env.example`, `src-tauri`, `public`, documentation examples as real content, build artifacts, or CI output. CI reads it only from the authorized Actions secret; a maintainer recovery copy may exist only outside tracked source in protected offline storage. The public verification key is intentionally distributable and may be committed.
 
 Official reference: [Tauri 2 Updater documentation](https://v2.tauri.app/plugin/updater/). CC Switch is an architectural reference only; ProxyEnv does not copy its private-key compatibility scripts.
 
-Automatic updating is currently deferred and is not a release blocker. Until the work above is complete, the product behavior remains:
+The updater-enabled release flow is:
 
 ```text
-Check for updates → GitHub Releases → compare versions → notify the user
+Check → fixed latest.json → verify version and signature → download → passive install → restart
 ```
 
-ProxyEnv does not automatically download or execute an installer. Once automatic updates are enabled, the updater plugin, embedded public key, Tauri-signed artifacts, fixed HTTPS source, downgrade prevention, installation flow, and failure verification all become P0 requirements.
+The updater plugin, embedded public key, Tauri-signed artifacts, fixed HTTPS source, downgrade prevention, installation flow, and failure handling are P0 requirements. A tag build fails when its signing secret, installer signature, or localized release-note structure is missing.
 
-自动更新当前未启用，也不是本阶段发布阻断项。现阶段只允许“检查更新 → GitHub Releases → 比较版本 → 提示用户”，不会自动下载或执行安装程序。未来真正启用时，Updater 插件、公钥、Tauri 签名产物、固定 HTTPS 更新源、防降级、安装流程以及失败处理与验证将同时升级为 P0。
+Updater 插件、内置公钥、Tauri 签名产物、固定 HTTPS 更新源、防降级、安装流程与失败处理现均为 P0。缺少私钥 Secret、安装包签名或规范化多语言更新日志时，标签构建必须失败。
 
 ## Release workflow / 发布流程
 
-The workflow intentionally passes `--no-sign` because Authenticode is not part of the project strategy. It produces the portable executable and the installer types configured by Tauri. The release sequence is:
+The workflow does not configure an Authenticode certificate, thumbprint, PFX, or sign command because Authenticode is not part of the project strategy. It intentionally does not pass `--no-sign`, because that flag would also suppress required Tauri Updater signatures. The release sequence is:
 
 ```text
 CI Build → SHA-256 → Artifact Attestation → Draft Release → Manual QA → Publish Stable
@@ -131,7 +133,7 @@ Artifact Attestation runs once the repository is public; GitHub does not provide
 10. `gh attestation verify <artifact> -R GKNEETIEMAY/ProxyEnv` succeeds and reports the expected repository, workflow, and commit;
 11. each GitHub Release download is byte-identical to the corresponding CI workflow artifact, as proven by SHA-256;
 12. installers, portable archives, and uploaded artifacts contain no private keys, debug symbols, development-only files, logs, or local sensitive data;
-13. no updater claim is made until signed updater artifacts and `latest.json` are actually enabled.
+13. `latest.json` references the same signed NSIS asset uploaded to the Release, and the embedded public key verifies its `.sig` content.
 
 首次正式 Windows Release 必须在干净的 Windows 10/11 x64 环境完成安装、启动、卸载、Portable、环境变量应用/恢复、冲突保护和应用助手验收；同时核验 SmartScreen/未知发布者提示、SHA-256、Artifact Attestation、Release 与 CI 产物一致性，以及发布包中不存在私钥、调试文件或本机敏感数据。
 

@@ -24,7 +24,8 @@ ProxyEnv may:
 - launch a new child process with an explicit proxy environment or with managed proxy variables removed;
 - update one existing application configuration field only when a reviewed bundled rule identifies an exact process name, fixed user-profile-relative path, supported format, and typed value;
 - create a local rule backup and restore it only when the current field still equals the value ProxyEnv applied;
-- contact GitHub Releases only when the user explicitly selects **Check for updates**.
+- contact the fixed official GitHub Releases API and pinned HTTPS updater manifest only when the user explicitly selects **Check for updates**;
+- after an explicit **Download and install** action, download only the manifest-selected installer, require Tauri signature verification, replace only the registered NSIS installation, and restart after successful installation.
 
 ## Prohibited capabilities
 
@@ -58,8 +59,8 @@ ProxyEnv does not read, save, or manage proxy user names or passwords, subscript
 
 ## Release security priorities
 
-Release CI, locked dependencies, SHA-256 checksums, GitHub Artifact Attestation, the environment transaction, restore conflict detection, CSP, backend IPC authorization, and snapshot validation are the trust requirements for a formal public Windows release. If automatic updates are enabled later, signed Tauri Updater artifacts, an embedded public verification key, a fixed HTTPS source, and default anti-downgrade behavior become P0 requirements.
+Release CI, locked dependencies, SHA-256 checksums, GitHub Artifact Attestation, the environment transaction, restore conflict detection, CSP, backend IPC authorization, snapshot validation, signed Tauri Updater artifacts, an embedded public verification key, a fixed HTTPS source, and default anti-downgrade behavior are the trust requirements for a formal public Windows release.
 
 Windows Authenticode is not a ProxyEnv release dependency. The project does not plan to purchase or use paid Windows code-signing certificates or services, and an unsigned Windows build may be published as stable. Release notes and documentation must state the resulting Unknown Publisher and SmartScreen warnings transparently and direct users to the official GitHub Releases source, checksums, and artifact attestation.
 
-Future Tauri Updater signing private keys must exist only in the authorized release secret store. They must never be committed, packaged, decoded, or printed by CI. Future Tauri Updater builds will use only Tauri's official `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` environment-variable mechanism. See [`docs/release-security.md`](docs/release-security.md) for the complete release trust model.
+Tauri Updater signing private keys used by CI must exist only in the authorized release secret store; a maintainer recovery copy may exist only outside tracked source in protected offline storage. Private material must never be committed, packaged, decoded, or printed by CI. Updater builds use only Tauri's official `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` environment-variable mechanism. See [`docs/release-security.md`](docs/release-security.md) for the complete release trust model.
