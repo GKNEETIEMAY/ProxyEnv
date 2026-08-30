@@ -8,11 +8,21 @@
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="许可证" src="https://img.shields.io/badge/许可证-MIT-22c55e?style=flat-square">
-  <img alt="状态" src="https://img.shields.io/badge/状态-v0.2%20开发中-f59e0b?style=flat-square">
+  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="正式版本" src="https://img.shields.io/badge/正式版本-v0.1.0-22c55e?style=flat-square"></a>
 </p>
 
 > [!IMPORTANT]
-> ProxyEnv 仍处于 v0.2 开发阶段，尚无正式 Release。当前已经实现并实机验证的目标平台是 Windows 10/11。Linux 与 macOS 是后续架构方向，不属于当前支持平台；其他 Unix 变体不在计划内。在本开发线完成兼容性测试前，安装包元数据仍保持 `0.1.0`。
+> **ProxyEnv v0.1.0 是首个正式稳定版本。** 当前已经实现并实机验证的目标平台是 Windows 10/11 x64。Linux 与 macOS 仍是后续架构方向，不属于当前支持平台；其他 Unix 变体不在计划内。
+
+## 下载
+
+请从 [GitHub Releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest) 下载最新正式版：
+
+- `ProxyEnv_0.1.0_x64-setup.exe` — 推荐大多数用户使用的安装程序
+- `ProxyEnv_0.1.0_x64_en-US.msi` — 适合受管理 Windows 环境的 MSI 安装包
+- `ProxyEnv-0.1.0-windows-x64-portable.exe` — 免安装便携版
+
+ProxyEnv 按项目策略不使用 Windows Authenticode，因此 Windows 可能显示“未知发布者”、Microsoft Defender SmartScreen 或“Windows 已保护你的电脑”。请仅从本仓库下载，并使用随 Release 提供的 `SHA256SUMS.txt` 与 GitHub Artifact Attestation 验证文件。“关于”页面可以手动检查 GitHub Releases 中的新版本；ProxyEnv 不会自动下载或执行更新程序。
 
 ## 要解决的问题
 
