@@ -8,11 +8,11 @@
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square">
-  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0%20stable-22c55e?style=flat-square"></a>
+  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.1%20stable-22c55e?style=flat-square"></a>
 </p>
 
 > [!IMPORTANT]
-> **ProxyEnv v0.1.0 is the first stable release.** Windows 10/11 x64 is the implemented and tested target. Linux and macOS remain architectural directions rather than supported platforms; other Unix variants are out of scope.
+> **ProxyEnv v0.1.1 is the current stable release.** Windows 10/11 x64 is the implemented and tested target. Linux and macOS remain architectural directions rather than supported platforms; other Unix variants are out of scope.
 
 ## Download
 
@@ -22,9 +22,9 @@ Download the latest stable version from [GitHub Releases](https://github.com/GKN
 - `ProxyEnv_x.x.x_x64_en-US.msi` — MSI installer for managed Windows environments
 - `ProxyEnv-x.x.x-windows-x64-portable.exe` — portable executable
 
-In these file-name templates, `x.x.x` represents the release version, such as `0.1.0`.
+In these file-name templates, `x.x.x` represents the release version, such as `1.2.3`.
 
-ProxyEnv intentionally ships without Windows Authenticode. Windows may therefore show **Unknown Publisher**, **Microsoft Defender SmartScreen**, or **Windows protected your PC**. Download only from this repository and verify the files using the accompanying `SHA256SUMS.txt` and GitHub Artifact Attestation. The **About** page can check GitHub Releases for a newer version; ProxyEnv does not automatically download or execute updates.
+ProxyEnv intentionally ships without Windows Authenticode. Windows may therefore show **Unknown Publisher**, **Microsoft Defender SmartScreen**, or **Windows protected your PC**. Download only from this repository and verify the files using the accompanying `SHA256SUMS.txt` and GitHub Artifact Attestation. The **About** page checks GitHub Releases, displays the published release notes, and opens the verified official download page when requested; ProxyEnv does not automatically download or execute updates.
 
 ## The problem
 
