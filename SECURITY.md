@@ -46,7 +46,15 @@ Environment snapshots, settings, and application-rule backups are stored locally
 
 The production WebView uses a restrictive Content Security Policy. Remote scripts are not permitted, and outbound frontend connections are limited to Tauri IPC plus the user-triggered GitHub Releases check. Application discovery and the native file picker return short-lived random IDs; backend commands resolve and revalidate those IDs instead of accepting executable paths from the frontend.
 
-The application assistant displays executable paths and configuration targets locally. These values are not transmitted. Logs and screenshots shared in vulnerability reports should be reviewed for user names, directory names, proxy addresses, tokens, and other sensitive data.
+The application assistant displays executable paths and configuration targets locally. These values are not transmitted.
+
+## Diagnostic data and redaction
+
+ProxyEnv does not persist an application log by default. Text that crosses a runtime log, diagnostic, serialized-error, or error-report boundary must pass through the shared Rust redaction component. It removes or replaces user names and user-directory paths, full application and configuration paths, local proxy addresses and ports, executable/process names, and process identifiers. Configuration field contents and other values whose format cannot be identified reliably must be treated as fully sensitive and replaced as a whole rather than passed through heuristic text redaction.
+
+The redaction layer is defense in depth, not permission to log local state. New diagnostics should prefer fixed error categories, counts, and booleans over paths, endpoints, process details, configuration values, or raw debug representations. Logs and screenshots shared in vulnerability reports should still be reviewed before submission.
+
+ProxyEnv does not read, save, or manage proxy user names or passwords, subscription tokens, node credentials, or any other proxy authentication material. Such values must never be added to logs, reports, snapshots, backups, settings, or application rules.
 
 ## Release security priorities
 

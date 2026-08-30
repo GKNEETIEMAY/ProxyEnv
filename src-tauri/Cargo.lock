@@ -3007,6 +3007,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "netstat2",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

@@ -266,7 +266,14 @@ mod integration_tests {
     #[ignore = "requires a running local proxy client"]
     fn detects_running_local_proxy() {
         let candidates = detect().expect("proxy detection should complete");
-        eprintln!("{candidates:#?}");
+        eprintln!(
+            "detected {} proxy candidate(s), {} listening",
+            candidates.len(),
+            candidates
+                .iter()
+                .filter(|candidate| candidate.listening)
+                .count()
+        );
         assert!(
             candidates.iter().any(|candidate| candidate.listening),
             "expected at least one listening local proxy candidate"

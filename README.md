@@ -192,7 +192,7 @@ The generic Environment Core has no proxy-client or proxy-variable knowledge. De
 
 ProxyEnv is not a proxy client, VPN, subscription manager, traffic forwarder, or TUN controller. It does not control Clash/v2rayN APIs, nodes, subscriptions, proxy-client rules, Windows System Proxy, routes, drivers, or system-level environment variables. It does not inject into, terminate, or rewrite the environment of running processes.
 
-Detection, protocol probing, TUN observation, application enumeration, rule preview, and environment management stay on the local machine. ProxyEnv never reads subscriptions, nodes, tokens, passwords, or traffic. It performs no external connectivity test unless the user explicitly requests the existing proxy test, and only a user-triggered update check contacts GitHub Releases. See [`SECURITY.md`](SECURITY.md).
+Detection, protocol probing, TUN observation, application enumeration, rule preview, and environment management stay on the local machine. ProxyEnv never reads, saves, or manages proxy user names or passwords, subscription tokens, node credentials, other proxy authentication material, or traffic. Runtime diagnostics pass through a shared redaction boundary that removes local paths, proxy endpoints, and process details; configuration values are treated as fully sensitive. It performs no external connectivity test unless the user explicitly requests the existing proxy test, and only a user-triggered update check contacts GitHub Releases. See [`SECURITY.md`](SECURITY.md).
 
 ## Contributing
 

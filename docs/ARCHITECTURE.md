@@ -38,6 +38,7 @@ ProxyEnv/
 │  │  │  └─ rules/                   # Schema, match, preview, backup, apply, restore
 │  │  ├─ services/
 │  │  │  ├─ local_file.rs            # Bounded safe reads and atomic local writes
+│  │  │  ├─ redaction.rs             # Shared diagnostic redaction boundary
 │  │  │  └─ settings.rs              # Durable validated application preferences
 │  │  ├─ error.rs                    # Serializable error contract
 │  │  └─ lib.rs                      # Tauri composition root
@@ -126,6 +127,14 @@ The rule engine accepts only bundled, schema-versioned JSON. It rejects unknown 
 Settings, environment snapshots, and application-rule backups use bounded reads, regular-file checks, symlink/reparse-point rejection, and atomic replacement where mutation is allowed. Settings reject unknown JSON fields and duplicate proxy-variable entries. Rule backups remain create-once records and are never followed through a link.
 
 生产 WebView 启用严格 CSP：脚本、字体与样式只从应用自身加载，远程连接仅允许 Tauri IPC 和用户主动触发的 GitHub Releases 检查；开发 CSP 单独允许 Vite 的本机端口与 WebSocket。Capability 不开放 shell、通用文件写入或前端文件选择路径授权。
+
+## Diagnostic boundary / 诊断信息边界
+
+`services/redaction.rs` is the single boundary for text entering logs, debug output, serialized errors, or error reports. It replaces user/profile paths, full application and configuration paths, local proxy endpoints, executable/process names, and process identifiers. `ProxyEnvError` applies this sanitizer for `Display`, `Debug`, and serialization, so backend errors exposed through IPC use the same policy. Values with no dependable textual signature—especially raw configuration fields—must use the format-agnostic `sensitive` wrapper and are replaced in full. New diagnostics should emit stable categories, counts, and booleans wherever possible.
+
+`services/redaction.rs` 是日志、调试输出、序列化错误与错误报告的统一文本边界，会替换用户名与用户目录、应用和配置完整路径、本机代理地址与端口、可执行文件/进程名和进程标识。`ProxyEnvError` 的 `Display`、`Debug` 与序列化共用该策略。无法可靠识别格式的数据（尤其配置字段原始值）必须通过 `sensitive` 包装器整体隐藏；新增诊断优先只输出稳定错误类别、数量与布尔状态。
+
+ProxyEnv does not read, persist, or manage proxy credentials, subscription tokens, node credentials, or other proxy authentication material. These values are outside the application-assistant rule and backup model.
 
 ## Command semantics / 命令语义
 

@@ -1,5 +1,7 @@
 use tracing::warn;
 
+use crate::services::redaction;
+
 use super::schema::ApplicationRule;
 
 include!(concat!(env!("OUT_DIR"), "/bundled_application_rules.rs"));
@@ -20,8 +22,8 @@ pub fn load_bundled() -> RuleCatalog {
     let catalog = load_sources(BUNDLED_RULE_SOURCES.iter().copied());
     for issue in &catalog.issues {
         warn!(
-            source = issue.source,
-            error = issue.message,
+            source = %redaction::safe_text(&issue.source),
+            detail = %redaction::sensitive(&issue.message),
             "disabled invalid bundled application rule"
         );
     }

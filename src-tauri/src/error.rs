@@ -1,50 +1,97 @@
-use serde::Serialize;
-use thiserror::Error;
+use std::{error::Error, fmt};
 
-#[derive(Debug, Error)]
+use serde::Serialize;
+
+use crate::services::redaction;
+
 pub enum ProxyEnvError {
-    #[error("failed to read the user environment: {0}")]
     RegistryRead(String),
-    #[error("failed to update the user environment: {0}")]
     RegistryWrite(String),
-    #[error("failed to save the environment snapshot: {0}")]
     SnapshotWrite(String),
-    #[error("failed to load the environment snapshot: {0}")]
     SnapshotRead(String),
-    #[error("no saved proxy environment snapshot is available")]
     SnapshotMissing,
-    #[error("environment change broadcast failed: {0}")]
     BroadcastFailed(String),
-    #[error("environment update could not be verified: {0}")]
     VerificationFailed(String),
-    #[error("environment update failed but the previous values were restored: {0}")]
     EnvironmentApplyRolledBack(String),
-    #[error("environment update failed and rollback was incomplete: {0}")]
     EnvironmentRollbackIncomplete(String),
-    #[error("environment restore stopped because the variables were modified externally: {0}")]
     EnvironmentRestoreConflict(String),
-    #[error("proxy detection failed: {0}")]
     Detection(String),
-    #[error("no active proxy endpoint is available")]
     ActiveProxyMissing,
-    #[error("invalid proxy endpoint: {0}")]
     InvalidProxyEndpoint(String),
-    #[error("invalid application: {0}")]
     InvalidApplication(String),
-    #[error("application authorization failed: {0}")]
     ApplicationAuthorization(String),
-    #[error("failed to launch application: {0}")]
     ApplicationLaunch(String),
-    #[error("failed to read application settings: {0}")]
     SettingsRead(String),
-    #[error("failed to save application settings: {0}")]
     SettingsWrite(String),
-    #[error("failed to update launch-at-startup: {0}")]
     Autostart(String),
     #[cfg(not(windows))]
-    #[error("this operation is only available on Windows")]
     UnsupportedPlatform,
 }
+
+impl ProxyEnvError {
+    fn public_parts(&self) -> (&'static str, Option<&str>) {
+        match self {
+            Self::RegistryRead(detail) => ("failed to read the user environment", Some(detail)),
+            Self::RegistryWrite(detail) => ("failed to update the user environment", Some(detail)),
+            Self::SnapshotWrite(detail) => {
+                ("failed to save the environment snapshot", Some(detail))
+            }
+            Self::SnapshotRead(detail) => ("failed to load the environment snapshot", Some(detail)),
+            Self::SnapshotMissing => ("no saved proxy environment snapshot is available", None),
+            Self::BroadcastFailed(detail) => ("environment change broadcast failed", Some(detail)),
+            Self::VerificationFailed(detail) => {
+                ("environment update could not be verified", Some(detail))
+            }
+            Self::EnvironmentApplyRolledBack(detail) => (
+                "environment update failed but the previous values were restored",
+                Some(detail),
+            ),
+            Self::EnvironmentRollbackIncomplete(detail) => (
+                "environment update failed and rollback was incomplete",
+                Some(detail),
+            ),
+            Self::EnvironmentRestoreConflict(detail) => (
+                "environment restore stopped because the variables were modified externally",
+                Some(detail),
+            ),
+            Self::Detection(detail) => ("proxy detection failed", Some(detail)),
+            Self::ActiveProxyMissing => ("no active proxy endpoint is available", None),
+            Self::InvalidProxyEndpoint(detail) => ("invalid proxy endpoint", Some(detail)),
+            Self::InvalidApplication(detail) => ("invalid application", Some(detail)),
+            Self::ApplicationAuthorization(detail) => {
+                ("application authorization failed", Some(detail))
+            }
+            Self::ApplicationLaunch(detail) => ("failed to launch application", Some(detail)),
+            Self::SettingsRead(detail) => ("failed to read application settings", Some(detail)),
+            Self::SettingsWrite(detail) => ("failed to save application settings", Some(detail)),
+            Self::Autostart(detail) => ("failed to update launch-at-startup", Some(detail)),
+            #[cfg(not(windows))]
+            Self::UnsupportedPlatform => ("this operation is only available on Windows", None),
+        }
+    }
+}
+
+impl fmt::Display for ProxyEnvError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (message, detail) = self.public_parts();
+        formatter.write_str(message)?;
+        if let Some(detail) = detail {
+            write!(formatter, ": {}", redaction::safe_text(detail))?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for ProxyEnvError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("ProxyEnvError")
+            .field(&self.to_string())
+            .finish()
+    }
+}
+
+impl Error for ProxyEnvError {}
 
 impl Serialize for ProxyEnvError {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -56,3 +103,36 @@ impl Serialize for ProxyEnvError {
 }
 
 pub type Result<T> = std::result::Result<T, ProxyEnvError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_debug_and_serialization_redact_local_details() {
+        let error = ProxyEnvError::ApplicationLaunch(
+            r#"could not start "C:\Users\Alice\Apps\Code.exe" through http://name:secret@127.0.0.1:7897 (PID 4420)"#.into(),
+        );
+
+        let outputs = [
+            error.to_string(),
+            format!("{error:?}"),
+            serde_json::to_string(&error).unwrap(),
+        ];
+        for output in outputs {
+            for sensitive in [
+                "Alice",
+                "Code.exe",
+                "name",
+                "secret",
+                "127.0.0.1",
+                "7897",
+                "4420",
+            ] {
+                assert!(!output.contains(sensitive), "leaked {sensitive}: {output}");
+            }
+            assert!(output.contains(redaction::REDACTED_PATH));
+            assert!(output.contains(redaction::REDACTED_PROXY));
+        }
+    }
+}
