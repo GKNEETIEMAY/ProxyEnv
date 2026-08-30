@@ -18,9 +18,11 @@
 
 请从 [GitHub Releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest) 下载最新正式版：
 
-- `ProxyEnv_0.1.0_x64-setup.exe` — 推荐大多数用户使用的安装程序
-- `ProxyEnv_0.1.0_x64_en-US.msi` — 适合受管理 Windows 环境的 MSI 安装包
-- `ProxyEnv-0.1.0-windows-x64-portable.exe` — 免安装便携版
+- `ProxyEnv_x.x.x_x64-setup.exe` — 推荐大多数用户使用的安装程序
+- `ProxyEnv_x.x.x_x64_en-US.msi` — 适合受管理 Windows 环境的 MSI 安装包
+- `ProxyEnv-x.x.x-windows-x64-portable.exe` — 免安装便携版
+
+上述文件名中的 `x.x.x` 代表实际发布版本号，例如 `0.1.0`。
 
 ProxyEnv 按项目策略不使用 Windows Authenticode，因此 Windows 可能显示“未知发布者”、Microsoft Defender SmartScreen 或“Windows 已保护你的电脑”。请仅从本仓库下载，并使用随 Release 提供的 `SHA256SUMS.txt` 与 GitHub Artifact Attestation 验证文件。“关于”页面可以手动检查 GitHub Releases 中的新版本；ProxyEnv 不会自动下载或执行更新程序。
 

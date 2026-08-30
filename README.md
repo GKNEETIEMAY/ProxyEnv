@@ -18,9 +18,11 @@
 
 Download the latest stable version from [GitHub Releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest):
 
-- `ProxyEnv_0.1.0_x64-setup.exe` — recommended installer for most users
-- `ProxyEnv_0.1.0_x64_en-US.msi` — MSI installer for managed Windows environments
-- `ProxyEnv-0.1.0-windows-x64-portable.exe` — portable executable
+- `ProxyEnv_x.x.x_x64-setup.exe` — recommended installer for most users
+- `ProxyEnv_x.x.x_x64_en-US.msi` — MSI installer for managed Windows environments
+- `ProxyEnv-x.x.x-windows-x64-portable.exe` — portable executable
+
+In these file-name templates, `x.x.x` represents the release version, such as `0.1.0`.
 
 ProxyEnv intentionally ships without Windows Authenticode. Windows may therefore show **Unknown Publisher**, **Microsoft Defender SmartScreen**, or **Windows protected your PC**. Download only from this repository and verify the files using the accompanying `SHA256SUMS.txt` and GitHub Artifact Attestation. The **About** page can check GitHub Releases for a newer version; ProxyEnv does not automatically download or execute updates.
 
