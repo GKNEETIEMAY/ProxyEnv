@@ -446,6 +446,15 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .about-details dt { color: var(--muted); font-size: 12px; }
 .about-details dd { display: flex; margin: 0; align-items: center; gap: 8px; color: var(--ink); font-size: 12px; }
 .about-details dd:first-of-type { font-variant-numeric: tabular-nums; }
+.about-details .about-update-detail { align-items: start; }
+.about-update-detail dd { display: grid; justify-items: start; gap: 12px; }
+.update-status-line { display: inline-flex; min-height: 25px; padding: 4px 9px; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-strong); }
+.update-version-route { display: grid; width: min(360px, 100%); padding: 12px 14px; align-items: center; grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr); gap: 12px; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line)); border-radius: 13px; background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-strong)); }
+.update-version-route > span { display: grid; min-width: 0; gap: 2px; }
+.update-version-route small { color: var(--muted); font-size: 10px; }
+.update-version-route strong { overflow: hidden; color: var(--ink); font-size: 14px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.update-version-route > svg { width: 18px; fill: none; stroke: var(--accent); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.update-version-route .update-version-target strong { color: var(--accent-strong); }
 .update-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--line-strong); }
 .update-latest .update-dot { background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
 .update-available .update-dot, .update-manual .update-dot, .update-downloading .update-dot, .update-installing .update-dot { background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
@@ -462,6 +471,7 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .update-progress { width: min(360px, 100%); height: 4px; margin-top: 12px; overflow: hidden; border-radius: 999px; background: var(--line); }
 .update-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width .18s ease; }
 .update-progress span.indeterminate { width: 34%; animation: update-indeterminate 1.2s ease-in-out infinite; }
+.automatic-update-hint { width: min(520px, 100%); margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .release-action-error { margin: 10px 0 0; color: var(--danger); font-size: 11px; line-height: 1.5; }
 .changelog-section { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line-strong); }
 .changelog-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }

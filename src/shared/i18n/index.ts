@@ -133,6 +133,8 @@ const en = {
   version: "Version",
   updateStatus: "Update status",
   updateSource: "Update source",
+  installedVersion: "Installed version",
+  availableVersion: "Available version",
   notChecked: "Not checked yet",
   checkForUpdates: "Check for updates",
   checkingUpdates: "Checking for updates…",
@@ -143,7 +145,8 @@ const en = {
   noPublishedRelease: "No public release is available yet.",
   updateCheckFailed: "Could not check GitHub Releases.",
   downloadUpdate: "View and download update",
-  installUpdate: "Download and install",
+  installUpdate: "Download and replace installation",
+  automaticInstallHint: "ProxyEnv verifies the signed update, replaces the current installation, and restarts. Your saved settings are preserved.",
   downloadingUpdate: "Downloading update…",
   downloadingUpdateProgress: "Downloading update… {progress}%",
   installingUpdate: "Verifying and installing update…",
@@ -296,7 +299,7 @@ const zh: Copy = {
   appearance: "语言与外观", appearanceHint: "修改后立即生效并自动保存。", interfaceLanguage: "界面语言", languageHint: "系统语言无法匹配时使用英文。", system: "跟随系统", chinese: "简体中文", english: "English", japanese: "日本語", korean: "한국어",
   theme: "外观主题", themeSystem: "跟随系统", themeLight: "浅色", themeDark: "深色", windowBehavior: "窗口行为", windowBehaviorHint: "设置 ProxyEnv 启动与离开桌面时的方式。",
   launchAtStartup: "开机自启", launchAtStartupHint: "登录系统后自动运行 ProxyEnv。", silentStart: "静默启动", silentStartHint: "开机自启时不显示主窗口，仅在系统托盘运行。", closeToTray: "关闭时最小化到托盘", closeToTrayHint: "点击关闭按钮时隐藏窗口，而不是退出应用。",
-  saveFailed: "设置保存失败", settingsLoadFailed: "无法读取已保存的设置", copyEndpoint: "复制代理地址", endpointCopied: "代理地址已复制", copyFailed: "无法复制代理地址", secondInstanceOpened: "ProxyEnv 已在运行，已为您打开现有窗口。", general: "通用", about: "关于", aboutIntro: "查看版本信息与当前更新状态。", version: "版本", updateStatus: "更新状态", updateSource: "更新来源", notChecked: "尚未检查", checkForUpdates: "检查更新", checkingUpdates: "正在检查更新…", latestVersion: "当前已是最新发布版本。", updateAvailable: "发现新版本 {version}。", signedUpdateUnavailable: "发现新版本 {version}，但签名自动更新暂不可用。", automaticUpdateUnsupported: "发现新版本 {version}。自动覆盖更新仅支持 NSIS 安装版；当前包类型请前往官方 Release 更新。", noPublishedRelease: "目前还没有公开发布版本。", updateCheckFailed: "无法检查 GitHub Releases。", downloadUpdate: "查看并下载更新", installUpdate: "下载并安装更新", downloadingUpdate: "正在下载更新…", downloadingUpdateProgress: "正在下载更新… {progress}%", installingUpdate: "正在验证并安装更新…", updateInstallUnavailable: "当前没有可安装的签名更新，请重新检查。", updateInstallFailed: "更新未能完成，当前版本没有被替换；请稍后重试或查看正式版本。", viewRelease: "查看正式版本", releaseOpenFailed: "无法打开官方 Release 页面，请检查默认浏览器后重试。", changelog: "更新日志", stableRelease: "正式版本", changelogUpdateCheck: "比较当前安装版本与 GitHub 上最新公开的正式版本。", changelogReleaseNotes: "直接读取已发布的 Release 说明，不再显示写死的更新日志。", changelogReleaseLink: "发现新版本后，可打开经过校验的官方 Release 页面下载。", noReleaseNotes: "此版本没有可显示的当前界面语言更新说明。",
+  saveFailed: "设置保存失败", settingsLoadFailed: "无法读取已保存的设置", copyEndpoint: "复制代理地址", endpointCopied: "代理地址已复制", copyFailed: "无法复制代理地址", secondInstanceOpened: "ProxyEnv 已在运行，已为您打开现有窗口。", general: "通用", about: "关于", aboutIntro: "查看版本信息与当前更新状态。", version: "版本", updateStatus: "更新状态", updateSource: "更新来源", installedVersion: "当前版本", availableVersion: "可用版本", notChecked: "尚未检查", checkForUpdates: "检查更新", checkingUpdates: "正在检查更新…", latestVersion: "当前已是最新发布版本。", updateAvailable: "发现新版本 {version}。", signedUpdateUnavailable: "发现新版本 {version}，但签名自动更新暂不可用。", automaticUpdateUnsupported: "发现新版本 {version}。自动覆盖更新仅支持 NSIS 安装版；当前包类型请前往官方 Release 更新。", noPublishedRelease: "目前还没有公开发布版本。", updateCheckFailed: "无法检查 GitHub Releases。", downloadUpdate: "查看并下载更新", installUpdate: "下载并覆盖安装", automaticInstallHint: "ProxyEnv 会先验证更新签名，再覆盖当前安装并重新启动；已保存的设置会继续保留。", downloadingUpdate: "正在下载更新…", downloadingUpdateProgress: "正在下载更新… {progress}%", installingUpdate: "正在验证并安装更新…", updateInstallUnavailable: "当前没有可安装的签名更新，请重新检查。", updateInstallFailed: "更新未能完成，当前版本没有被替换；请稍后重试或查看正式版本。", viewRelease: "查看正式版本", releaseOpenFailed: "无法打开官方 Release 页面，请检查默认浏览器后重试。", changelog: "更新日志", stableRelease: "正式版本", changelogUpdateCheck: "比较当前安装版本与 GitHub 上最新公开的正式版本。", changelogReleaseNotes: "直接读取已发布的 Release 说明，不再显示写死的更新日志。", changelogReleaseLink: "发现新版本后，可打开经过校验的官方 Release 页面下载。", noReleaseNotes: "此版本没有可显示的当前界面语言更新说明。",
   assistantEntryTitle: "检查一个应用的网络", assistantEntryHint: "先查看它现在会使用什么，再选择安全的下一步；ProxyEnv 不会修改运行中的进程。", assistantEntryAction: "检查应用", assistantTitle: "应用网络助手", assistantEyebrow: "引导式检查", assistantIntro: "选择一个应用，ProxyEnv 会观察当前网络并只推荐一个明确操作。", assistantProgress: "检查进度", assistantChooseApp: "选择应用", assistantChooseHint: "选择可见的运行中应用，或浏览选择可以正常启动的 Windows .exe 文件。", assistantBrowse: "浏览选择…", assistantRefreshApps: "刷新", assistantFoundApps: "检测到 {count} 个应用", assistantListNoticeTitle: "为什么有些应用没有显示", assistantListHint: "仅显示可见的非系统窗口；同一可执行文件的多个窗口会合并。如果缺少应用，请使用“浏览选择”。", assistantLoadingApps: "正在查找可见应用…", assistantPathUnavailable: "无法读取可执行文件路径", assistantNoApps: "未发现可选择的运行中应用。", assistantReadOnlyNote: "此步骤只读取进程与网络状态，不测试外部网站，也不修改设置。", assistantChecking: "正在检查此应用", assistantCheckingHint: "正在读取本机代理、系统代理、环境变量、TUN 证据与受支持的应用规则。", assistantApplication: "应用", assistantRecommendation: "建议", assistantReadyTitle: "当前配置看起来可用", assistantReadyBody: "当前不建议修改应用独立设置，仍可选择如何启动新实例。", assistantProxyLaunchTitle: "使用代理启动一个新实例", assistantProxyLaunchBody: "此应用没有受支持的独立规则，ProxyEnv 只能把活动代理传给新启动的实例。", assistantRuleTitle: "发现受支持的应用规则", assistantRuleBody: "确认后，ProxyEnv 可以预览一个已知配置字段、创建备份并更新它。", assistantUnsupportedTitle: "使用安全的启动回退方案", assistantUnsupportedBody: "没有匹配到经过验证的应用规则，ProxyEnv 不会猜测或扫描未知设置。", assistantCurrentNetwork: "当前网络观测", assistantObservationHint: "Windows 系统代理与 TUN 相互独立，可以同时开启；TUN 由本机只读证据综合判断。", assistantLocalProxy: "本机监听代理", assistantAvailable: "可用", assistantUnavailable: "不可用", assistantTun: "虚拟网卡", aboutTun: "了解 TUN 虚拟网卡", tunDescription: "TUN（虚拟网卡）模式可以接管全部系统流量，因此通常无需开启 Windows 系统代理；ProxyEnv 仍会独立检测并同时展示两种状态。", tunNotDetected: "未检测到 TUN 虚拟网卡证据", tunPossible: "疑似存在活动 TUN 虚拟网卡", tunDetected: "多项信号表明 TUN 虚拟网卡存在", tunUnknown: "无法确定 TUN 状态", assistantNextStep: "下一步", assistantOneClickFix: "预览受支持的设置", assistantOneClickFixHint: "查看确切文件、字段、旧值与新值之前不会写入任何内容。", assistantSafeLaunch: "选择新实例的启动方式", assistantSafeLaunchHint: "运行中的应用无法继承新的环境变量；ProxyEnv 不会注入或修改它们。", assistantPreviewFix: "预览一键修复", assistantLaunchWithProxy: "使用代理启动", assistantLaunchDirect: "直连启动", assistantChooseAgain: "重新选择应用", assistantAdvanced: "高级详情", assistantDiagnosisState: "诊断状态", assistantEnvironmentState: "环境状态", assistantTunInterface: "TUN 接口", assistantTunEvidence: "TUN 证据数量", assistantErrorWhat: "发生的问题", assistantErrorUnchanged: "没有任何设置被修改。", assistantErrorNext: "请检查应用与活动代理后重试。", assistantAuthorizationExpired: "应用授权已过期。应用列表已刷新，请重新选择应用。", assistantRuleUnavailable: "无法生成安全的规则预览", assistantRuleApplyFailed: "未应用规则修改", assistantRuleApplied: "应用设置已更新", assistantRestartRequired: "写入已验证并备份，请重启应用后生效。", assistantChangeVerified: "修改已成功验证。", assistantLaunchedWithProxy: "已使用代理启动应用", assistantLaunchedDirect: "已直连启动应用", assistantLaunchResult: "已启动新进程（PID {pid}），原有进程未被修改。", assistantRestoreFailed: "无法安全恢复之前的值", assistantRestored: "已恢复之前的应用设置", assistantRestore: "恢复之前的值", assistantRestoreConfirm: "恢复备份值？如果文件在应用后发生变化，ProxyEnv 会停止而不覆盖。", assistantConfirmRestore: "确认恢复", assistantCheckAnother: "检查其他应用", assistantConfirmChange: "需要确认", assistantRulePreview: "检查确切的配置修改", assistantRulePreviewHint: "ProxyEnv 只更新这个已有的已知字段，并会创建本地备份和验证结果。", assistantConfigFile: "配置文件", assistantConfigField: "字段", assistantBefore: "修改前", assistantAfter: "修改后", assistantBackupHint: "如果文件在写入前发生变化，ProxyEnv 会停止且不会覆盖。", assistantConfirmFix: "备份并应用", autoConfidence: "置信度"
 };
 
@@ -360,6 +363,10 @@ const ko: Copy = {
 
 const jaMessages: Copy = {
   ...ja,
+  installedVersion: "現在のバージョン",
+  availableVersion: "利用可能なバージョン",
+  installUpdate: "ダウンロードして上書きインストール",
+  automaticInstallHint: "署名済み更新を検証して現在のインストールを置き換え、ProxyEnv を再起動します。保存済みの設定は保持されます。",
   assistantChooseHint: "表示中の実行アプリ、または正常に起動できる Windows の .exe ファイルを選択します。",
   assistantInvalidExecutable: "読み取りおよび起動が可能な Windows の .exe アプリを選択してください。未対応、破損、またはアクセスできないファイルの可能性があります。",
   assistantConfigureProxy: "プロキシを手動設定",
@@ -389,6 +396,10 @@ const jaMessages: Copy = {
 
 const koMessages: Copy = {
   ...ko,
+  installedVersion: "현재 버전",
+  availableVersion: "사용 가능한 버전",
+  installUpdate: "다운로드 후 덮어쓰기 설치",
+  automaticInstallHint: "서명된 업데이트를 확인한 뒤 현재 설치를 교체하고 ProxyEnv를 다시 시작합니다. 저장된 설정은 유지됩니다.",
   assistantChooseHint: "화면에 보이는 실행 중 앱을 선택하거나 정상적으로 실행할 수 있는 Windows .exe 파일을 찾으세요.",
   assistantInvalidExecutable: "읽고 실행할 수 있는 Windows .exe 앱을 선택하세요. 지원되지 않거나 손상되었거나 접근할 수 없는 파일일 수 있습니다.",
   assistantConfigureProxy: "프록시 수동 설정",

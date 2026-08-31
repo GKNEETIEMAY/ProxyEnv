@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { Copy } from "../../../shared/i18n";
 import type { AppSettings } from "../../../shared/types";
 import type { ReleaseNoteLine, UpdateState } from "../update";
 
 export type SettingsTab = "general" | "about";
 
-defineProps<{
+const props = defineProps<{
   copy: Copy;
   settingsError: string;
   settingsLoadError: string;
@@ -19,6 +20,11 @@ defineProps<{
   releaseActionError: string;
   updateProgress: number | null;
 }>();
+
+const hasNewerRelease = computed(() =>
+  ["available", "manual", "downloading", "installing"].includes(props.updateState)
+  && Boolean(props.releaseVersion)
+);
 
 const settings = defineModel<AppSettings>("settings", { required: true });
 const tab = defineModel<SettingsTab>("tab", { required: true });
@@ -91,14 +97,20 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
       </div>
       <dl class="about-details">
         <div><dt>{{ copy.version }}</dt><dd>v{{ appVersion }}</dd></div>
-        <div><dt>{{ copy.updateStatus }}</dt><dd :class="`update-${updateState}`"><span class="update-dot"></span>{{ updateMessage }}</dd></div>
+        <div class="about-update-detail">
+          <dt>{{ copy.updateStatus }}</dt>
+          <dd>
+            <span class="update-status-line" :class="`update-${updateState}`" role="status" aria-live="polite"><span class="update-dot"></span>{{ updateMessage }}</span>
+            <span v-if="hasNewerRelease" class="update-version-route">
+              <span><small>{{ copy.installedVersion }}</small><strong>v{{ appVersion }}</strong></span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>
+              <span class="update-version-target"><small>{{ copy.availableVersion }}</small><strong>v{{ releaseVersion }}</strong></span>
+            </span>
+          </dd>
+        </div>
         <div><dt>{{ copy.updateSource }}</dt><dd>GitHub Releases</dd></div>
       </dl>
       <div class="update-actions">
-        <button class="check-update-button" type="button" :disabled="['checking', 'downloading', 'installing'].includes(updateState)" @click="$emit('checkForUpdates')">
-          <svg :class="{ spinning: updateState === 'checking' }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>
-          {{ updateState === 'checking' ? copy.checkingUpdates : copy.checkForUpdates }}
-        </button>
         <button v-if="['available', 'downloading', 'installing'].includes(updateState)" class="install-update-button" type="button" :disabled="updateState !== 'available'" @click="$emit('installUpdate')">
           <svg :class="{ spinning: updateState === 'installing' }" viewBox="0 0 24 24" aria-hidden="true">
             <path v-if="updateState === 'installing'" d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" />
@@ -108,11 +120,16 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
           <template v-else-if="updateState === 'installing'">{{ copy.installingUpdate }}</template>
           <template v-else>{{ copy.installUpdate }}</template>
         </button>
+        <button class="check-update-button" type="button" :disabled="['checking', 'downloading', 'installing'].includes(updateState)" @click="$emit('checkForUpdates')">
+          <svg :class="{ spinning: updateState === 'checking' }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>
+          {{ updateState === 'checking' ? copy.checkingUpdates : copy.checkForUpdates }}
+        </button>
         <button v-if="releaseUrl" class="release-link-button" type="button" @click="$emit('openRelease')">
           <svg class="github-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.4a9.8 9.8 0 0 0-3.1 19.1c.5.1.7-.2.7-.5v-1.9c-2.8.6-3.4-1.2-3.4-1.2-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 0 1.6 1 1.6 1 .9 1.6 2.4 1.1 3 .8.1-.7.4-1.1.7-1.4-2.3-.3-4.6-1.1-4.6-4.9 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 4.9 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.8-2.3 4.6-4.6 4.9.4.3.7 1 .7 1.9V21c0 .3.2.6.7.5A9.8 9.8 0 0 0 12 2.4Z" /></svg>
           {{ copy.viewRelease }}
         </button>
       </div>
+      <p v-if="['available', 'downloading', 'installing'].includes(updateState)" class="automatic-update-hint">{{ copy.automaticInstallHint }}</p>
       <div v-if="updateState === 'downloading'" class="update-progress" role="progressbar" :aria-label="copy.downloadingUpdate" :aria-valuenow="updateProgress ?? undefined" aria-valuemin="0" aria-valuemax="100">
         <span :class="{ indeterminate: updateProgress === null }" :style="updateProgress === null ? undefined : { width: `${updateProgress}%` }"></span>
       </div>
