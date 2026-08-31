@@ -374,7 +374,7 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .confirmation-endpoint code { font: 11px/1.45 "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
 .confirmation-dialog .confirmation-consequence { margin-top: 15px; color: var(--muted); }
 .confirmation-dialog .confirmation-consequence.warning { color: var(--warning); }
-.confirmation-actions { display: flex; margin-top: 22px; justify-content: flex-end; gap: 9px; }
+.confirmation-actions { display: flex; margin-top: 22px; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
 .proxy-guide-dialog { width: min(470px, calc(100vw - 40px)); height: min(510px, calc(100vh - 40px)); overflow: auto; }
 .proxy-guide-dialog > form { display: flex; min-height: 100%; flex-direction: column; }
 .proxy-guide-dialog .confirmation-actions { margin-top: auto; padding-top: 22px; }
@@ -393,6 +393,10 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .proxy-guide-launch-result { padding: 12px 14px; border-radius: 13px; color: var(--success); background: var(--success-soft); text-align: start; }
 .proxy-guide-launch-result strong { display: block; font-size: 12px; font-weight: 680; }
 .proxy-guide-launch-result p { margin: 3px 0 0; color: color-mix(in srgb, var(--success) 76%, var(--ink)); font-size: 11px; line-height: 1.5; }
+.proxy-guide-restart-confirm { min-height: 68px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--danger) 24%, var(--line)); border-radius: 13px; color: var(--ink); background: color-mix(in srgb, var(--danger) 8%, var(--surface-strong)); }
+.proxy-guide-restart-confirm strong { display: block; color: var(--danger); font-size: 12px; font-weight: 680; }
+.proxy-guide-restart-confirm p { margin: 3px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.danger-confirm-action { background: var(--danger); }
 .warning-action { background: var(--warning); }
 .instance-toast { position: fixed; z-index: 40; top: 82px; right: 22px; display: flex; width: min(390px, calc(100vw - 44px)); padding: 12px 14px; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 13px; color: var(--ink); background: var(--surface-strong); box-shadow: 0 14px 34px rgba(62, 48, 34, .14); font-size: 12px; line-height: 1.5; }
 .instance-toast svg { width: 18px; flex: none; fill: none; stroke: var(--success); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

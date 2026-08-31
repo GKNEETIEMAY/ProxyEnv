@@ -2,9 +2,9 @@ use crate::{
     error::{ProxyEnvError, Result},
     features::{
         application_assistant::{
-            self, launcher, ApplicationDiagnosis, LaunchApplicationResult, LaunchEnvironmentMode,
-            ManagedApplication, RuleApplyResult, RuleChangePlan, RuleChangePreview,
-            RuleRestoreResult, RunningApplication,
+            self, launcher, relauncher, ApplicationDiagnosis, LaunchApplicationResult,
+            LaunchEnvironmentMode, ManagedApplication, RuleApplyResult, RuleChangePlan,
+            RuleChangePreview, RuleRestoreResult, RunningApplication,
         },
         proxy::{self, ProxyEndpoint},
     },
@@ -133,4 +133,17 @@ pub async fn launch_application_without_proxy(
     .await
     .map_err(|error| ProxyEnvError::ApplicationLaunch(error.to_string()))??;
     Ok(launched)
+}
+
+#[tauri::command]
+pub async fn restart_application_without_proxy(
+    application_id: String,
+    pid: u32,
+) -> Result<LaunchApplicationResult> {
+    let application = application_assistant::resolve_application(&application_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        relauncher::restart_without_proxy(&application, pid)
+    })
+    .await
+    .map_err(|error| ProxyEnvError::ApplicationRestart(error.to_string()))?
 }

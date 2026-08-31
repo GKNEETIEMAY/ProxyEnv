@@ -13,6 +13,7 @@ type ResultState = { success: boolean; title: string; detail: string; backupId?:
 
 const applications = ref<RunningApplication[]>([]);
 const selected = ref<ManagedApplication>();
+const selectedPid = ref<number>();
 const diagnosis = ref<ApplicationDiagnosis>();
 const rulePreview = ref<RuleChangePreview>();
 const result = ref<ResultState>();
@@ -101,7 +102,9 @@ async function recoverRunningApplicationAuthorization(application: ManagedApplic
     candidate.executablePath
     && comparableExecutablePath(candidate.executablePath) === expectedPath
   );
-  return match ? managedFromRunning(match) : undefined;
+  if (!match) return undefined;
+  selectedPid.value = match.pid;
+  return managedFromRunning(match);
 }
 
 async function ensureSelectedAuthorization(): Promise<ManagedApplication> {
@@ -124,6 +127,7 @@ async function ensureSelectedAuthorization(): Promise<ManagedApplication> {
     const recovered = await recoverRunningApplicationAuthorization(application);
     if (!recovered) {
       selected.value = undefined;
+      selectedPid.value = undefined;
       diagnosis.value = undefined;
       rulePreview.value = undefined;
       throw props.copy.assistantAuthorizationExpired;
@@ -172,8 +176,9 @@ async function browseApplication() {
   }
 }
 
-async function inspectApplication(application: ManagedApplication) {
+async function inspectApplication(application: ManagedApplication, pid?: number) {
   selected.value = application;
+  selectedPid.value = pid;
   busy.value = true;
   error.value = "";
   result.value = undefined;
@@ -238,9 +243,11 @@ async function launchSelectedApplication(mode: "proxy" | "direct", trackGlobalBu
   error.value = "";
   try {
     const application = await ensureSelectedAuthorization();
-    return mode === "proxy"
+    const launched = mode === "proxy"
       ? await backend.launchApplicationWithProxy(application.id)
       : await backend.launchApplicationWithoutProxy(application.id);
+    selectedPid.value = launched.pid;
+    return launched;
   } finally {
     if (trackGlobalBusy) busy.value = false;
   }
@@ -274,6 +281,23 @@ async function launchManualProxyProcess(): Promise<string> {
   }
 }
 
+async function restartManualProxyProcess(): Promise<string> {
+  if (props.reviewPreview) {
+    selectedPid.value = 12480;
+    return props.copy.assistantRestartResult.replace("{pid}", "12480");
+  }
+  const pid = selectedPid.value;
+  if (!pid) throw props.copy.assistantRestartProcessUnavailable;
+  try {
+    const application = await ensureSelectedAuthorization();
+    const launched = await backend.restartApplicationWithoutProxy(application.id, pid);
+    selectedPid.value = launched.pid;
+    return props.copy.assistantRestartResult.replace("{pid}", String(launched.pid));
+  } catch (cause) {
+    throw `${props.copy.assistantRestartProcessFailed} ${failureDetail(cause)}`;
+  }
+}
+
 function openProxyGuide() {
   proxyGuide.value?.open();
 }
@@ -299,6 +323,7 @@ async function restoreRule() {
 
 function startOver() {
   selected.value = undefined;
+  selectedPid.value = undefined;
   diagnosis.value = undefined;
   rulePreview.value = undefined;
   result.value = undefined;
@@ -348,6 +373,7 @@ onMounted(async () => {
     ];
     loadingApps.value = false;
     selected.value = managedFromRunning(applications.value[0]);
+    selectedPid.value = applications.value[0].pid;
     diagnosis.value = {
       application: selected.value!, proxyAvailable: true, systemProxyEnabled: false,
       proxyEnvironmentState: "enabled", tunObservation: "possible", knownRule: undefined,
@@ -389,7 +415,7 @@ onBeforeUnmount(() => {
       <div class="assistant-section-heading"><div><h2>{{ copy.assistantChooseApp }}</h2><p>{{ copy.assistantChooseHint }}</p></div><div class="application-picker-actions"><span role="status" aria-live="polite">{{ applicationCount }}</span><button class="secondary-action browse-action" type="button" :disabled="loadingApps" @click="loadApplications"><svg :class="{ spinning: loadingApps }" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 9.5a6.5 6.5 0 1 0-1.9 4.6M16.5 5v4.5H12" /></svg>{{ copy.assistantRefreshApps }}</button><button class="secondary-action browse-action" type="button" @click="browseApplication"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.5h5l1.4 1.7h6.6v7.3h-13zM3.5 6.5V4.7h4.2l1.2 1.8" /></svg>{{ copy.assistantBrowse }}</button></div></div>
       <div v-if="loadingApps" class="assistant-loading" role="status">{{ copy.assistantLoadingApps }}</div>
       <div v-else-if="applications.length" class="application-list">
-        <button v-for="application in applications" :key="application.pid" type="button" :disabled="!application.applicationId || !application.executablePath" @click="managedFromRunning(application) && inspectApplication(managedFromRunning(application)!)">
+        <button v-for="application in applications" :key="application.pid" type="button" :disabled="!application.applicationId || !application.executablePath" @click="managedFromRunning(application) && inspectApplication(managedFromRunning(application)!, application.pid)">
           <span class="application-glyph" aria-hidden="true">{{ application.displayName.slice(0, 1).toUpperCase() }}</span>
           <span><strong>{{ application.displayName }}</strong><small>{{ application.executablePath ? withoutWindowsExtendedPathPrefix(application.executablePath) : copy.assistantPathUnavailable }}</small></span>
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 5 5 5-5 5" /></svg>
@@ -446,6 +472,6 @@ onBeforeUnmount(() => {
       <details class="assistant-advanced" :open="showAdvanced" @toggle="showAdvanced = ($event.currentTarget as HTMLDetailsElement).open"><summary>{{ copy.assistantAdvanced }}</summary><dl><div><dt>{{ copy.assistantDiagnosisState }}</dt><dd><code>{{ diagnosis.applicationNetworkState }}</code></dd></div><div><dt>{{ copy.assistantEnvironmentState }}</dt><dd><code>{{ diagnosis.proxyEnvironmentState }}</code></dd></div><div v-if="tun.interfaceName"><dt>{{ copy.assistantTunInterface }}</dt><dd><code>{{ tun.interfaceName }}</code></dd></div><div><dt>{{ copy.assistantTunEvidence }}</dt><dd>{{ tun.evidence.length }}</dd></div></dl></details>
     </template>
 
-    <ApplicationProxyGuideDialog ref="proxyGuide" :copy="copy" :candidate="activeProxy" :busy="busy" :launch-process="launchManualProxyProcess" />
+    <ApplicationProxyGuideDialog ref="proxyGuide" :copy="copy" :candidate="activeProxy" :busy="busy" :launch-process="launchManualProxyProcess" :restart-process="selectedPid ? restartManualProxyProcess : undefined" />
   </main>
 </template>

@@ -53,6 +53,7 @@ pub fn run() {
             commands::application_assistant::restore_application_rule_change,
             commands::application_assistant::launch_application_with_current_proxy,
             commands::application_assistant::launch_application_without_proxy,
+            commands::application_assistant::restart_application_without_proxy,
             commands::environment::get_environment_status,
             commands::environment::enable_proxy_environment,
             commands::environment::sync_proxy_environment,

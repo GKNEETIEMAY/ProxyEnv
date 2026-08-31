@@ -4,7 +4,13 @@ import type { Copy } from "../../../shared/i18n";
 import type { ProxyCandidate } from "../../../shared/types";
 import { copyText } from "../../../shared/utils/clipboard";
 
-const props = defineProps<{ copy: Copy; candidate?: ProxyCandidate; busy: boolean; launchProcess: () => Promise<string> }>();
+const props = defineProps<{
+  copy: Copy;
+  candidate?: ProxyCandidate;
+  busy: boolean;
+  launchProcess: () => Promise<string>;
+  restartProcess?: () => Promise<string>;
+}>();
 
 const dialog = ref<HTMLDialogElement>();
 const copiedField = ref<"host" | "port" | "endpoint">();
@@ -12,6 +18,7 @@ const copyError = ref("");
 const launchError = ref("");
 const launchResult = ref("");
 const launching = ref(false);
+const confirmingRestart = ref(false);
 let copyTimer: number | undefined;
 
 const fullAddress = computed(() => {
@@ -28,11 +35,19 @@ function open() {
   launchError.value = "";
   launchResult.value = "";
   launching.value = false;
+  confirmingRestart.value = false;
   if (!dialog.value?.open) dialog.value?.showModal();
 }
 
 function close() {
+  if (launching.value) return;
+  confirmingRestart.value = false;
   dialog.value?.close();
+}
+
+function handleCancel(event: Event) {
+  event.preventDefault();
+  close();
 }
 
 async function copyField(field: "host" | "port" | "endpoint", value: string) {
@@ -60,6 +75,25 @@ async function launchNewProcess() {
   }
 }
 
+function requestRestart() {
+  launchError.value = "";
+  confirmingRestart.value = true;
+}
+
+async function restartCurrentProcess() {
+  if (props.busy || launching.value || !props.candidate || !props.restartProcess) return;
+  launchError.value = "";
+  launching.value = true;
+  try {
+    launchResult.value = await props.restartProcess();
+    confirmingRestart.value = false;
+  } catch (cause) {
+    launchError.value = String(cause);
+  } finally {
+    launching.value = false;
+  }
+}
+
 onBeforeUnmount(() => {
   if (copyTimer !== undefined) window.clearTimeout(copyTimer);
 });
@@ -68,7 +102,7 @@ defineExpose({ open });
 </script>
 
 <template>
-  <dialog ref="dialog" class="confirmation-dialog proxy-guide-dialog" @cancel="close">
+  <dialog ref="dialog" class="confirmation-dialog proxy-guide-dialog" @cancel="handleCancel">
     <form method="dialog" @submit.prevent>
       <span class="confirmation-icon verified" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M8.5 8.5 6.8 6.8a3 3 0 0 0-4.2 4.2l2.8 2.8a3 3 0 0 0 4.2 0l1.2-1.2m4.7 2.9 1.7 1.7a3 3 0 0 0 4.2-4.2l-2.8-2.8a3 3 0 0 0-4.2 0l-1.2 1.2M8.5 15.5l7-7" /></svg>
@@ -96,12 +130,18 @@ defineExpose({ open });
       <div class="proxy-guide-feedback" aria-live="polite">
         <div v-if="launchResult" class="proxy-guide-launch-result" role="status"><strong>{{ copy.assistantManualProxyProcessStarted }}</strong><p>{{ launchResult }}</p></div>
         <p v-else-if="launchError" class="proxy-guide-copy-error" role="alert">{{ launchError }}</p>
+        <div v-else-if="confirmingRestart" class="proxy-guide-restart-confirm" role="alert"><strong>{{ copy.assistantRestartProcessConfirmTitle }}</strong><p>{{ copy.assistantRestartProcessConfirmBody }}</p></div>
         <p v-else class="proxy-guide-credentials">{{ copy.assistantProxyCredentials }}</p>
       </div>
       <div class="confirmation-actions">
         <button v-if="launchResult" class="primary-action" type="button" @click="close">{{ copy.assistantClose }}</button>
+        <template v-else-if="confirmingRestart">
+          <button class="secondary-action" type="button" :disabled="busy || launching" @click="confirmingRestart = false">{{ copy.backToEdit }}</button>
+          <button class="primary-action danger-confirm-action" type="button" :disabled="busy || launching || !candidate" :aria-busy="launching" @click="restartCurrentProcess">{{ copy.assistantConfirmRestartProcess }}</button>
+        </template>
         <template v-else>
           <button class="secondary-action" type="button" :disabled="busy || launching" @click="close">{{ copy.cancel }}</button>
+          <button v-if="restartProcess" class="secondary-action danger-action" type="button" :disabled="busy || launching || !candidate" @click="requestRestart">{{ copy.assistantRestartProcess }}</button>
           <button class="primary-action" type="button" :disabled="busy || launching || !candidate" :aria-busy="launching" @click="launchNewProcess">{{ copy.assistantLaunchNewProcess }}</button>
         </template>
       </div>

@@ -3,6 +3,7 @@ mod diagnosis;
 pub(crate) mod launcher;
 pub(crate) mod models;
 mod processes;
+pub(crate) mod relauncher;
 mod rules;
 
 pub use models::{

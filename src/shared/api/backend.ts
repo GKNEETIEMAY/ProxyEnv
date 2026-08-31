@@ -26,6 +26,7 @@ export const backend = {
   restoreApplicationRuleChange: (backupId: string) => invoke<RuleRestoreResult>("restore_application_rule_change", { backupId, confirmed: true }),
   launchApplicationWithProxy: (applicationId: string) => invoke<LaunchApplicationResult>("launch_application_with_current_proxy", { applicationId }),
   launchApplicationWithoutProxy: (applicationId: string) => invoke<LaunchApplicationResult>("launch_application_without_proxy", { applicationId }),
+  restartApplicationWithoutProxy: (applicationId: string, pid: number) => invoke<LaunchApplicationResult>("restart_application_without_proxy", { applicationId, pid }),
   appSettings: () => invoke<AppSettings>("get_app_settings"),
   saveAppSettings: (settings: AppSettings) => invoke<AppSettings>("save_app_settings", { settings })
 };
