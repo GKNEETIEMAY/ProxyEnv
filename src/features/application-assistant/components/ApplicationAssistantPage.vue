@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { backend } from "../../../shared/api/backend";
 import type { Copy } from "../../../shared/i18n";
 import type { ApplicationDiagnosis, ManagedApplication, ProxyCandidate, RuleChangePreview, RunningApplication, TunObservation } from "../../../shared/types";
+import { withoutWindowsExtendedPathPrefix } from "../../../shared/utils/path";
 import NetworkObservationPanel from "../../network-observation/components/NetworkObservationPanel.vue";
 import ApplicationProxyGuideDialog from "./ApplicationProxyGuideDialog.vue";
 
@@ -20,6 +21,8 @@ const loadingApps = ref(true);
 const error = ref("");
 const restorePending = ref(false);
 const showAdvanced = ref(false);
+const retainedBackupId = ref<string>();
+const assistantPage = ref<HTMLElement>();
 const proxyGuide = ref<InstanceType<typeof ApplicationProxyGuideDialog>>();
 const AUTHORIZATION_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
 let authorizationRefreshTimer: ReturnType<typeof setInterval> | undefined;
@@ -34,6 +37,7 @@ const diagnosisTitle = computed(() => {
   })[diagnosis.value.summary];
 });
 const applicationCount = computed(() => props.copy.assistantFoundApps.replace("{count}", String(applications.value.length)));
+const currentStep = computed<1 | 2 | 3>(() => result.value ? 3 : diagnosis.value ? 2 : 1);
 
 const diagnosisBody = computed(() => {
   if (!diagnosis.value) return "";
@@ -80,7 +84,7 @@ function isRenewCommandUnavailable(cause: unknown): boolean {
 }
 
 function comparableExecutablePath(path: string): string {
-  const normalized = path.replace(/\\/g, "/");
+  const normalized = withoutWindowsExtendedPathPrefix(path).replace(/\\/g, "/");
   return /^(?:[a-z]:|\/\/)/i.test(normalized) ? normalized.toLocaleLowerCase("en-US") : normalized;
 }
 
@@ -177,6 +181,7 @@ async function inspectApplication(application: ManagedApplication) {
   try {
     const authorized = await ensureSelectedAuthorization();
     diagnosis.value = await backend.diagnoseApplication(authorized.id);
+    void focusCurrentStep();
   } catch (cause) {
     diagnosis.value = undefined;
     failure(cause);
@@ -217,6 +222,9 @@ async function applyRuleFix() {
       detail: applied.restartRequired ? props.copy.assistantRestartRequired : props.copy.assistantChangeVerified,
       backupId: applied.backup?.id
     };
+    retainedBackupId.value = applied.backup?.id;
+    rulePreview.value = undefined;
+    void focusCurrentStep();
   } catch (cause) {
     failure(cause);
   } finally {
@@ -240,7 +248,7 @@ async function launchSelectedApplication(mode: "proxy" | "direct", trackGlobalBu
 
 async function launch(mode: "proxy" | "direct") {
   try {
-    const backupId = result.value?.backupId;
+    const backupId = result.value?.backupId ?? retainedBackupId.value;
     const launched = await launchSelectedApplication(mode);
     result.value = {
       success: true,
@@ -248,6 +256,7 @@ async function launch(mode: "proxy" | "direct") {
       detail: props.copy.assistantLaunchResult.replace("{pid}", String(launched.pid)),
       backupId
     };
+    void focusCurrentStep();
   } catch (cause) {
     failure(cause);
   }
@@ -270,14 +279,17 @@ function openProxyGuide() {
 }
 
 async function restoreRule() {
-  if (!result.value?.backupId) return;
+  const backupId = result.value?.backupId ?? retainedBackupId.value;
+  if (!backupId) return;
   busy.value = true;
   error.value = "";
   try {
-    const restored = await backend.restoreApplicationRuleChange(result.value.backupId);
+    const restored = await backend.restoreApplicationRuleChange(backupId);
     if (restored.state !== "restored") throw new Error(`${props.copy.assistantRestoreFailed} (${restored.state})`);
     result.value = { success: true, title: props.copy.assistantRestored, detail: props.copy.assistantChangeVerified };
+    retainedBackupId.value = undefined;
     restorePending.value = false;
+    void focusCurrentStep();
   } catch (cause) {
     failure(cause);
   } finally {
@@ -293,7 +305,35 @@ function startOver() {
   error.value = "";
   restorePending.value = false;
   showAdvanced.value = false;
-  void loadApplications();
+  retainedBackupId.value = undefined;
+  if (applications.value.length === 0) void loadApplications();
+  void focusCurrentStep();
+}
+
+function returnToStep(step: 1 | 2) {
+  if (busy.value || step >= currentStep.value) return;
+  if (step === 1) {
+    startOver();
+    return;
+  }
+  retainedBackupId.value = result.value?.backupId ?? retainedBackupId.value;
+  result.value = undefined;
+  rulePreview.value = undefined;
+  error.value = "";
+  restorePending.value = false;
+  void focusCurrentStep();
+}
+
+function returnToStepLabel(step: 1 | 2): string {
+  return `${props.copy.back} · ${step}`;
+}
+
+async function focusCurrentStep() {
+  await nextTick();
+  const heading = assistantPage.value?.querySelector<HTMLElement>(".assistant-section h2");
+  if (!heading) return;
+  heading.tabIndex = -1;
+  heading.focus({ preventScroll: true });
 }
 
 function configValue(value: unknown): string {
@@ -333,11 +373,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="page assistant-page">
+  <main ref="assistantPage" class="page assistant-page">
     <div class="assistant-intro">
       <div><span class="eyebrow">{{ copy.assistantEyebrow }}</span><h1>{{ copy.assistantTitle }}</h1><p>{{ copy.assistantIntro }}</p></div>
       <ol class="assistant-steps" :aria-label="copy.assistantProgress">
-        <li :class="{ active: !diagnosis }">1</li><li :class="{ active: diagnosis && !result }">2</li><li :class="{ active: result }">3</li>
+        <li :class="{ active: currentStep === 1, completed: currentStep > 1 }"><button type="button" :tabindex="currentStep > 1 && !busy ? 0 : -1" :aria-disabled="currentStep <= 1 || busy" :aria-current="currentStep === 1 ? 'step' : undefined" :aria-label="returnToStepLabel(1)" :title="currentStep > 1 ? returnToStepLabel(1) : undefined" @click="returnToStep(1)">1</button></li>
+        <li :class="{ active: currentStep === 2, completed: currentStep > 2 }"><button type="button" :tabindex="currentStep > 2 && !busy ? 0 : -1" :aria-disabled="currentStep <= 2 || busy" :aria-current="currentStep === 2 ? 'step' : undefined" :aria-label="returnToStepLabel(2)" :title="currentStep > 2 ? returnToStepLabel(2) : undefined" @click="returnToStep(2)">2</button></li>
+        <li :class="{ active: currentStep === 3 }"><span :aria-current="currentStep === 3 ? 'step' : undefined">3</span></li>
       </ol>
     </div>
 
@@ -349,7 +391,7 @@ onBeforeUnmount(() => {
       <div v-else-if="applications.length" class="application-list">
         <button v-for="application in applications" :key="application.pid" type="button" :disabled="!application.applicationId || !application.executablePath" @click="managedFromRunning(application) && inspectApplication(managedFromRunning(application)!)">
           <span class="application-glyph" aria-hidden="true">{{ application.displayName.slice(0, 1).toUpperCase() }}</span>
-          <span><strong>{{ application.displayName }}</strong><small>{{ application.executablePath || copy.assistantPathUnavailable }}</small></span>
+          <span><strong>{{ application.displayName }}</strong><small>{{ application.executablePath ? withoutWindowsExtendedPathPrefix(application.executablePath) : copy.assistantPathUnavailable }}</small></span>
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 5 5 5-5 5" /></svg>
         </button>
       </div>
@@ -377,7 +419,7 @@ onBeforeUnmount(() => {
 
     <template v-else-if="diagnosis && selected">
       <section class="assistant-section diagnosis-hero">
-        <div class="selected-application"><span class="application-glyph" aria-hidden="true">{{ selected.displayName.slice(0, 1).toUpperCase() }}</span><div><span>{{ copy.assistantApplication }}</span><h2>{{ selected.displayName }}</h2><code>{{ selected.executablePath }}</code></div></div>
+        <div class="selected-application"><span class="application-glyph" aria-hidden="true">{{ selected.displayName.slice(0, 1).toUpperCase() }}</span><div><span>{{ copy.assistantApplication }}</span><h2>{{ selected.displayName }}</h2><code>{{ withoutWindowsExtendedPathPrefix(selected.executablePath) }}</code></div></div>
         <div class="recommendation"><span>{{ copy.assistantRecommendation }}</span><h2>{{ diagnosisTitle }}</h2><p>{{ diagnosisBody }}</p></div>
       </section>
 
@@ -385,7 +427,7 @@ onBeforeUnmount(() => {
 
       <section v-if="rulePreview?.plan" class="assistant-section rule-confirmation">
         <span class="eyebrow">{{ copy.assistantConfirmChange }}</span><h2>{{ copy.assistantRulePreview }}</h2><p>{{ copy.assistantRulePreviewHint }}</p>
-        <dl><div><dt>{{ copy.assistantConfigFile }}</dt><dd><code>{{ rulePreview.plan.targetFile }}</code></dd></div><div><dt>{{ copy.assistantConfigField }}</dt><dd><code>{{ rulePreview.plan.fieldPath.join('.') }}</code></dd></div><div><dt>{{ copy.assistantBefore }}</dt><dd><code>{{ configValue(rulePreview.plan.oldValue) }}</code></dd></div><div><dt>{{ copy.assistantAfter }}</dt><dd><code>{{ configValue(rulePreview.plan.newValue) }}</code></dd></div></dl>
+        <dl><div><dt>{{ copy.assistantConfigFile }}</dt><dd><code>{{ withoutWindowsExtendedPathPrefix(rulePreview.plan.targetFile) }}</code></dd></div><div><dt>{{ copy.assistantConfigField }}</dt><dd><code>{{ rulePreview.plan.fieldPath.join('.') }}</code></dd></div><div><dt>{{ copy.assistantBefore }}</dt><dd><code>{{ configValue(rulePreview.plan.oldValue) }}</code></dd></div><div><dt>{{ copy.assistantAfter }}</dt><dd><code>{{ configValue(rulePreview.plan.newValue) }}</code></dd></div></dl>
         <p class="confirmation-consequence">{{ copy.assistantBackupHint }}</p>
         <div class="assistant-actions"><button class="secondary-action" type="button" @click="rulePreview = undefined">{{ copy.backToEdit }}</button><button class="primary-action" type="button" @click="applyRuleFix">{{ copy.assistantConfirmFix }}</button></div>
       </section>
