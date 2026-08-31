@@ -8,7 +8,18 @@ import NetworkObservationPanel from "../../network-observation/components/Networ
 const props = defineProps<{ copy: Copy; environment: EnvironmentStatus; candidates: ProxyCandidate[]; detected?: ProxyCandidate; systemProxy?: ProxyCandidate; tun: TunObservation; error: string; loading: boolean; toggling: boolean; copiedEndpoint: boolean; selectedVariables: ManagedProxyVariable[]; inspectManualEndpoint: (endpoint: ProxyEndpoint) => Promise<ProxyEndpointInspection> }>();
 const emit = defineEmits<{ refresh: []; applyDetected: [candidate: ProxyCandidate]; applyManual: [endpoint: ProxyEndpoint]; disable: []; restore: []; copyEndpoint: [candidate: ProxyCandidate]; toggleVariable: [name: string]; openAssistant: [] }>();
 
-const clientIcons: Record<string, string> = { "clash-verge-rev": "/proxy-clients/clash-verge-rev.png", v2rayn: "/proxy-clients/v2rayn.png", flclash: "/proxy-clients/flclash.ico", hiddify: "/proxy-clients/hiddify.ico", "clash-nyanpasu": "/proxy-clients/clash-nyanpasu.png", "generic-proxy": "/proxy-clients/generic-proxy.svg" };
+const clientIcons: Record<string, string> = {
+  "clash-verge-rev": "/proxy-clients/clash-verge-rev.png",
+  v2rayn: "/proxy-clients/v2rayn.png",
+  flclash: "/proxy-clients/flclash.ico",
+  hiddify: "/proxy-clients/hiddify.ico",
+  "clash-nyanpasu": "/proxy-clients/clash-nyanpasu.png",
+  "mihomo-party": "/proxy-clients/mihomo-party.png",
+  nekobox: "/proxy-clients/nekobox.png",
+  "clash-for-windows": "/proxy-clients/clash-for-windows.png",
+  "gui-for-clash": "/proxy-clients/gui-for-clash.png",
+  "generic-proxy": "/proxy-clients/generic-proxy.svg"
+};
 const sourceMode = ref<"automatic" | "manual">("automatic");
 const manualHost = ref("127.0.0.1");
 const manualPort = ref("7897");
@@ -83,6 +94,11 @@ const inspectionWarningText = computed(() => inspectionWarning.value ? ({
 
 function candidateIcon(candidate?: ProxyCandidate): string {
   return candidate ? clientIcons[candidate.iconKey ?? ""] ?? genericProxyIcon : genericProxyIcon;
+}
+
+function useGenericIcon(event: Event) {
+  const image = event.currentTarget as HTMLImageElement;
+  if (!image.src.endsWith(genericProxyIcon)) image.src = genericProxyIcon;
 }
 
 function candidateClientKey(candidate: ProxyCandidate): string {
@@ -178,22 +194,22 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
       <div class="layer-row client-layer">
         <div class="layer-heading"><h2>{{ copy.proxyClient }}</h2><span>{{ automaticDetectionLabel }}</span></div>
         <div v-if="displayedCandidate && !tunSuspected" class="client-heading">
-          <span class="client-art"><img :src="detectedIcon" alt="" /></span>
+          <span class="client-art"><img :src="detectedIcon" alt="" @error="useGenericIcon" /></span>
           <div><h1>{{ displayedCandidate.clientName || copy.localProxy }}</h1><p><span class="status-dot" :class="{ quiet: !displayedCandidate.listening }"></span>{{ displayedCandidate.listening ? copy.listening : copy.notListening }}</p></div>
           <div class="endpoint-line"><div class="endpoint-address"><code>{{ displayedEndpoint }}</code><button type="button" :aria-label="copiedEndpoint ? copy.endpointCopied : copy.copyEndpoint" :title="copiedEndpoint ? copy.endpointCopied : copy.copyEndpoint" @click="emit('copyEndpoint', displayedCandidate)"><svg v-if="!copiedEndpoint" viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg><svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8"/></svg></button></div><span>{{ displayedCandidate.protocol }} · {{ displayedCandidate.confidence }} {{ copy.autoConfidence }}</span></div>
         </div>
         <div v-else-if="tunSuspected" class="client-heading suspected-client">
-          <span class="client-art generic"><img :src="genericProxyIcon" alt="" /></span>
+          <span class="client-art generic"><img :src="genericProxyIcon" alt="" @error="useGenericIcon" /></span>
           <div><h1>{{ copy.suspectedTunProxy }}</h1><p><span class="status-dot warning"></span>{{ copy.suspectedTunProxyState }}</p></div>
           <div class="endpoint-line suspected-endpoint"><code>{{ tun.interfaceName || copy.assistantTun }}</code><span>{{ copy.suspectedTunProxyHint }}</span></div>
         </div>
-        <div v-else class="empty-state"><span class="client-art generic"><img :src="detectedIcon" alt="" /></span><div><h1>{{ loading ? copy.detecting : copy.noProxy }}</h1><p>{{ copy.noProxyHint }}</p></div></div>
+        <div v-else class="empty-state"><span class="client-art generic"><img :src="detectedIcon" alt="" @error="useGenericIcon" /></span><div><h1>{{ loading ? copy.detecting : copy.noProxy }}</h1><p>{{ copy.noProxyHint }}</p></div></div>
 
         <div v-if="clientCandidates.length > 1 && !tunSuspected" class="proxy-client-pager">
           <div class="candidate-results-heading"><strong>{{ copy.otherProxyClients }}</strong><span>{{ otherClients.length }}</span></div>
           <div class="other-client-list">
             <button v-for="candidate in otherClients" :key="candidateClientKey(candidate)" type="button" @click="selectClient(candidate)">
-              <span class="candidate-icon"><img :src="candidateIcon(candidate)" alt="" /></span>
+              <span class="candidate-icon"><img :src="candidateIcon(candidate)" alt="" @error="useGenericIcon" /></span>
               <span>{{ candidate.clientName || candidate.processName || copy.localProxy }}</span>
             </button>
           </div>

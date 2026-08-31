@@ -58,35 +58,35 @@ const CLIENTS: &[ClientRule] = &[
     },
     ClientRule {
         name: "Clash Party",
-        icon: "generic-proxy",
+        icon: "mihomo-party",
         frontends: &["clash party.exe", "clash-party.exe"],
         exclusive: &[],
         cores: &["mihomo.exe", "mihomo-alpha.exe", "mihomo-smart.exe"],
     },
     ClientRule {
         name: "Mihomo Party",
-        icon: "generic-proxy",
+        icon: "mihomo-party",
         frontends: &["mihomo party.exe", "mihomo-party.exe"],
         exclusive: &[],
         cores: &["mihomo.exe", "mihomo-alpha.exe"],
     },
     ClientRule {
         name: "NekoBox",
-        icon: "generic-proxy",
+        icon: "nekobox",
         frontends: &["nekobox.exe", "nekoray.exe"],
         exclusive: &[],
         cores: &["sing-box.exe", "nekoray_core.exe", "xray.exe"],
     },
     ClientRule {
         name: "Clash for Windows",
-        icon: "generic-proxy",
+        icon: "clash-for-windows",
         frontends: &["clash for windows.exe"],
         exclusive: &[],
         cores: &["clash-win64.exe", "clash-win32.exe", "clash.exe"],
     },
     ClientRule {
         name: "GUI.for.Clash",
-        icon: "generic-proxy",
+        icon: "gui-for-clash",
         frontends: &["gui.for.clash.exe"],
         exclusive: &[],
         cores: &["mihomo.exe", "mihomo-alpha.exe"],
@@ -331,17 +331,41 @@ mod tests {
             identify(Some("mihomo.exe"), &clash_party).map(|client| client.name),
             Some("Clash Party")
         );
+        assert_eq!(
+            identify(Some("mihomo.exe"), &clash_party).map(|client| client.icon),
+            Some("mihomo-party")
+        );
+
+        let mihomo_party = HashSet::from(["mihomo party.exe", "mihomo.exe"]);
+        assert_eq!(
+            identify(Some("mihomo.exe"), &mihomo_party).map(|client| (client.name, client.icon)),
+            Some(("Mihomo Party", "mihomo-party"))
+        );
 
         let nekobox = HashSet::from(["nekobox.exe", "sing-box.exe"]);
         assert_eq!(
             identify(Some("sing-box.exe"), &nekobox).map(|client| client.name),
             Some("NekoBox")
         );
+        assert_eq!(
+            identify(Some("sing-box.exe"), &nekobox).map(|client| client.icon),
+            Some("nekobox")
+        );
 
         let clash_for_windows = HashSet::from(["clash for windows.exe", "clash-win64.exe"]);
         assert_eq!(
             identify(Some("clash-win64.exe"), &clash_for_windows).map(|client| client.name),
             Some("Clash for Windows")
+        );
+        assert_eq!(
+            identify(Some("clash-win64.exe"), &clash_for_windows).map(|client| client.icon),
+            Some("clash-for-windows")
+        );
+
+        let gui_for_clash = HashSet::from(["gui.for.clash.exe"]);
+        assert_eq!(
+            identify(Some("gui.for.clash.exe"), &gui_for_clash).map(|client| client.icon),
+            Some("gui-for-clash")
         );
     }
 }

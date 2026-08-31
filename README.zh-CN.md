@@ -123,7 +123,7 @@ HKEY_CURRENT_USER\Environment
 
 ## 支持的代理客户端
 
-当前可识别 Clash Verge Rev、v2rayN、FlClash、Hiddify、Clash Nyanpasu、Clash Party、Mihomo Party、NekoBox/NekoRay、Clash for Windows 与 GUI.for.Clash。前五项使用已注明来源的上游图标，新增客户端与未知客户端使用通用代理图标；自动识别失败时可手动填写主机、端口与协议。
+当前可识别 Clash Verge Rev、v2rayN、FlClash、Hiddify、Clash Nyanpasu、Clash Party、Mihomo Party、NekoBox/NekoRay、Clash for Windows 与 GUI.for.Clash。所有已识别客户端均使用已注明来源的上游图标，未知客户端会回退到通用代理图标；自动识别失败时可手动填写主机、端口与协议。
 
 图标来自官方上游仓库，来源与许可见 [`public/proxy-clients/ATTRIBUTION.md`](public/proxy-clients/ATTRIBUTION.md)。
 

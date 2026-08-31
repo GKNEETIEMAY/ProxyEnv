@@ -123,7 +123,7 @@ Snapshots store both the prior and applied state atomically under `%LOCALAPPDATA
 
 ## Supported proxy clients
 
-ProxyEnv identifies Clash Verge Rev, v2rayN, FlClash, Hiddify, Clash Nyanpasu, Clash Party, Mihomo Party, NekoBox/NekoRay, Clash for Windows, and GUI.for.Clash. The first five use attributed upstream icons; the additional and unknown clients use the shared proxy icon. Detection failure can be bypassed with a manual host, port, and protocol.
+ProxyEnv identifies Clash Verge Rev, v2rayN, FlClash, Hiddify, Clash Nyanpasu, Clash Party, Mihomo Party, NekoBox/NekoRay, Clash for Windows, and GUI.for.Clash. Every recognized client uses an attributed upstream icon; unknown clients fall back to the shared proxy icon. Detection failure can be bypassed with a manual host, port, and protocol.
 
 Icons come from official upstream repositories; see [`public/proxy-clients/ATTRIBUTION.md`](public/proxy-clients/ATTRIBUTION.md).
 
