@@ -8,11 +8,11 @@
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="许可证" src="https://img.shields.io/badge/许可证-MIT-22c55e?style=flat-square">
-  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="正式版本" src="https://img.shields.io/badge/正式版本-v0.1.2-22c55e?style=flat-square"></a>
+  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="正式版本" src="https://img.shields.io/badge/正式版本-v0.1.3-22c55e?style=flat-square"></a>
 </p>
 
 > [!IMPORTANT]
-> **ProxyEnv v0.1.2 是当前正式稳定版本。** 当前已经实现并实机验证的目标平台是 Windows 10/11 x64。Linux 与 macOS 仍是后续架构方向，不属于当前支持平台；其他 Unix 变体不在计划内。
+> **ProxyEnv v0.1.3 是当前正式稳定版本。** 当前已经实现并实机验证的目标平台是 Windows 10/11 x64。Linux 与 macOS 仍是后续架构方向，不属于当前支持平台；其他 Unix 变体不在计划内。
 
 ## 下载
 
@@ -62,7 +62,7 @@ ProxyEnv 把这些状态清晰展示出来，并把手工编辑注册表变成�
 - 提供简体中文、英文、日语与韩语，以及浅色、深色、跟随系统主题。
 - 可从可见的运行中应用选择或浏览可执行文件，并给出面向新手的网络诊断。
 - 将 TUN 虚拟网卡证据表示为“未检测到 / 可能存在 / 已检测到 / 未知”，但不控制 TUN。仅发现 TUN 而没有本机代理监听端口时会标记“疑似代理客户端”，且不会把它当成可写入环境变量的代理端点。
-- 用活动代理或清除代理变量的环境启动新进程，绝不向运行中进程注入或修改环境。
+- 用活动代理或清除代理变量的环境启动新进程，绝不向运行中进程注入或修改环境；在手动代理引导中，只有经过第二次明确确认，才会关闭重新校验过 PID 的所选进程并启动替代进程。
 - 当存在经过评审的内置应用规则时，先预览并确认，再备份、写入、验证，并支持冲突保护恢复。
 
 ## 应用网络助手
@@ -74,7 +74,7 @@ ProxyEnv 把这些状态清晰展示出来，并把手工编辑注册表变成�
          → 如需写文件则预览并确认 → 验证结果
 ```
 
-它会读取活动本机代理、Windows 系统代理、代理环境变量、虚拟网卡证据与内置应用规则目录。选择运行中应用只用于确定其可执行文件，不会修改该进程；“使用代理启动”和“直连启动”都会创建带有明确子进程环境的新进程。
+它会读取活动本机代理、Windows 系统代理、代理环境变量、虚拟网卡证据与内置应用规则目录。选择运行中应用本身只用于确定其可执行文件，不会修改该进程；“使用代理启动”和“直连启动”都会创建带有明确子进程环境的新进程。手动代理引导另有一个明确标记为破坏性操作的重启入口：提示未保存内容风险并获得第二次确认后，后端会重新校验所选 PID 与已授权可执行文件，只关闭该进程，再启动一个不继承代理环境变量的替代进程。
 
 应用规则是声明式数据，不是可执行 Adapter。规则只能声明精确进程名、固定的用户目录配置路径、一个已有字段、受支持的格式（`JSON`、`YAML`、`TOML` 或 `INI`）以及有类型的代理值。没有经过评审的规则时，ProxyEnv 只提供启动回退方案，不扫描未知配置文件。
 

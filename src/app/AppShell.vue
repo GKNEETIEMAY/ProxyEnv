@@ -41,7 +41,7 @@ const settingsError = ref("");
 const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
 const instanceNoticeVisible = ref(false);
-const appVersion = ref("0.1.2");
+const appVersion = ref("0.1.3");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
 const releaseUrl = ref("");
@@ -459,7 +459,7 @@ onMounted(async () => {
   try {
     appVersion.value = await getVersion();
   } catch {
-    appVersion.value = "0.1.2";
+    appVersion.value = "0.1.3";
   }
   if (reviewPreview) {
     const preview = new URLSearchParams(window.location.search).get("impeccable-review");

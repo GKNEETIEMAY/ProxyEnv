@@ -116,11 +116,11 @@ select application → diagnose read-only state → recommend one action
                    → preview/confirm protected write → verify → result/restore
 ```
 
-Running applications are limited to visible, non-system processes. Browsing uses Tauri's native Rust dialog. Both discovery paths issue a random, short-lived `application_id`; the frontend never submits an executable path to diagnosis, rule, or launch commands. The backend maps the ID to a canonical path and rechecks path, file type, extension/execute permission, and file identity before each use. ProxyEnv never attaches to that process. Launch actions create a new child with either the active proxy values or all managed proxy variables removed.
+Running applications are limited to visible, non-system processes. Browsing uses Tauri's native Rust dialog. Both discovery paths issue a random, short-lived `application_id`; the frontend never submits an executable path to diagnosis, rule, or launch commands. The backend maps the ID to a canonical path and rechecks path, file type, extension/execute permission, and file identity before each use. Normal launch actions never attach to or alter the selected process; they create a new child with either the active proxy values or all managed proxy variables removed. The manual-proxy guide has one explicit restart exception: after a destructive-action warning and second confirmation, Rust verifies that the live PID still resolves to the authorized executable, attempts a normal window close, revalidates identity before any forced termination fallback, and starts one replacement process with proxy variables cleared.
 
 The rule engine accepts only bundled, schema-versioned JSON. It rejects unknown fields, scripts, wildcard/traversal paths, unsupported formats, ambiguous matches, missing fields, stale plans, symlinks/reparse points, and changed files. A protected apply must read and preview the exact field, require confirmation, create an atomic local backup, write one existing field, read back and verify, and stop on conflict. Restore is also confirmed and only succeeds if the applied value is still current.
 
-应用助手只做编排，不做流量路由。Rust 枚举与原生文件选择器会签发短期随机 `application_id`，前端调用诊断、规则或启动 IPC 时不再传入可执行路径；后端每次使用前重新验证规范路径与文件身份。ProxyEnv 不附加、不注入、不结束进程。规则引擎只接受随软件打包、带 Schema 版本的 JSON 数据；写入必须经历读取、预览、确认、备份、单字段写入、读回验证，冲突时停止且不覆盖。
+应用助手只做编排，不做流量路由。Rust 枚举与原生文件选择器会签发短期随机 `application_id`，前端调用诊断、规则或启动 IPC 时不再传入可执行路径；后端每次使用前重新验证规范路径与文件身份。普通启动操作不附加、不注入、不结束已选择进程。手动代理引导只有一个明确的重启例外：先提示破坏性风险并进行第二次确认，Rust 再校验实时 PID 仍对应已授权可执行文件，优先请求正常关闭，在强制终止回退前再次校验身份，最后启动一个已清除代理变量的替代进程。规则引擎只接受随软件打包、带 Schema 版本的 JSON 数据；写入必须经历读取、预览、确认、备份、单字段写入、读回验证，冲突时停止且不覆盖。
 
 ## Local data and WebView boundary / 本地数据与 WebView 边界
 
@@ -148,6 +148,7 @@ ProxyEnv does not read, persist, or manage proxy credentials, subscription token
 | `diagnose_application` | Combine proxy, environment, system proxy, TUN, and rule state | No | No |
 | `launch_application_with_current_proxy` | Start a new child with explicit proxy values | No | Child environment only |
 | `launch_application_without_proxy` | Start a new child with proxy variables cleared | No | Child environment only |
+| `restart_application_without_proxy` | Reverify and close one confirmed PID, then start a replacement with proxy variables cleared | No | Selected process lifecycle and child environment |
 | `preview_application_rule_fix` | Read and plan one known configuration-field change | No | No |
 | `apply_application_rule_fix` | Confirm, back up, write, and verify a known field | Rule backup | Application config only |
 | `restore_application_rule_change` | Conflict-check and restore the backed-up field | Uses existing | Application config only |

@@ -3091,7 +3091,7 @@ dependencies = [
 
 [[package]]
 name = "proxyenv"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "chrono",
  "dirs 6.0.0",

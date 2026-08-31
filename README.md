@@ -8,11 +8,11 @@
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&logo=rust">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square">
-  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.2%20stable-22c55e?style=flat-square"></a>
+  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.3%20stable-22c55e?style=flat-square"></a>
 </p>
 
 > [!IMPORTANT]
-> **ProxyEnv v0.1.2 is the current stable release.** Windows 10/11 x64 is the implemented and tested target. Linux and macOS remain architectural directions rather than supported platforms; other Unix variants are out of scope.
+> **ProxyEnv v0.1.3 is the current stable release.** Windows 10/11 x64 is the implemented and tested target. Linux and macOS remain architectural directions rather than supported platforms; other Unix variants are out of scope.
 
 ## Download
 
@@ -62,7 +62,7 @@ Detection and periodic refreshes never rewrite the Registry. When a client chang
 - Provide Simplified Chinese, English, Japanese, and Korean interfaces with light, dark, and system themes.
 - Choose a visible running application or browse to an executable, then receive a beginner-oriented network diagnosis.
 - Observe TUN virtual-adapter evidence as `Not detected`, `Possible`, `Detected`, or `Unknown` without controlling TUN. A TUN-only setup with no local proxy listener is shown as a suspected proxy client and is never treated as an environment-variable endpoint.
-- Launch a new application process with the active proxy or with proxy variables cleared; never inject into a running process.
+- Launch a new application process with the active proxy or with proxy variables cleared; never inject into a running process. In the manual-proxy guide, an explicit second confirmation can close only the selected, reverified PID before starting its replacement.
 - Preview, confirm, back up, verify, and conflict-safely restore a known application setting when a reviewed bundled rule exists.
 
 ## Application network assistant
@@ -74,7 +74,7 @@ Choose an app → read local state → explain the likely path → recommend one
               → preview and confirm if a file write is needed → verify the result
 ```
 
-It reads the active local proxy, Windows System Proxy, proxy environment, virtual-adapter evidence, and the bundled application-rule catalog. Selecting an already-running app identifies its executable; it does **not** change that process. “Launch with proxy” and “Launch directly” always start a new process with an explicit child environment.
+It reads the active local proxy, Windows System Proxy, proxy environment, virtual-adapter evidence, and the bundled application-rule catalog. Selecting an already-running app only identifies its executable and does **not** change that process by itself. “Launch with proxy” and “Launch directly” always start a new process with an explicit child environment. The manual-proxy guide additionally offers a clearly destructive restart action: after warning about unsaved work and receiving a second confirmation, the backend revalidates the selected PID against the authorized executable, closes that one process, and starts its replacement without inherited proxy variables.
 
 Application rules are declarative data, not executable adapters. A rule may name exact process names, fixed user-profile-relative configuration paths, one existing field, a supported format (`JSON`, `YAML`, `TOML`, or `INI`), and a typed proxy value. If no reviewed rule exists, ProxyEnv uses the launch fallback and does not scan for unknown configuration files.
 
