@@ -80,6 +80,8 @@ Application rules are declarative data, not executable adapters. A rule may name
 
 ## Four observable network layers
 
+When multiple clients coexist, Current active proxy initially recommends one usable client and lets you explicitly switch. Environment sync, mismatch checks, connectivity tests, the assistant, proxy launches, and rule preview/apply all share that selection. Refresh never switches it: a missing proxy keeps its last-known details, becomes unavailable, and prompts reselection. Selecting a client does not write environment variables; applying a manual endpoint also makes it the global target. Selection lasts for this session; restarting ProxyEnv starts a fresh recommendation.
+
 ProxyEnv deliberately keeps these concepts separate:
 
 | Layer | Meaning | ProxyEnv behavior |

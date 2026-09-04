@@ -109,6 +109,16 @@ A single adapter name never produces `Detected`, and an ordinary physical adapte
 
 ## Application Assistant / 应用网络助手
 
+### Active proxy context / 当前活动代理
+
+`features/proxy/active.rs` owns a session-wide `ActiveProxyContext`: selected candidate ID, candidate data (host/port/protocol/client/PID), selection source (`auto`, `user`, `systemProxy`, `manual`), availability, and a monotonic selection revision. Startup selects the first usable detector-ranked recommendation. Later refreshes update observations only; even a missing automatically recommended candidate is retained as unavailable, never replaced by the next listener. Manual endpoint application also updates this context. Restarting ProxyEnv starts a new recommendation session.
+
+Environment sync, mismatch classification, connectivity tests, assistant diagnosis, proxy launches, application-rule preview/apply, and tray actions all resolve this context. Detected IDs include the listener owner and protocol; reuse of a port by a different process or a protocol change requires explicit reselection. Proxy writes and launches hold the selection lock, while asynchronous connectivity tests capture a target and reject completion if its revision changed. Frontend actions carry the diagnosis/selection revision, so an old preview cannot be applied to a newly selected proxy. Selection alone never writes environment variables; unavailable selections disable proxy actions and show a global reselect notice.
+
+后端统一维护会话级活动代理，不再由各模块调用检测后取第一个监听结果。启动时推荐一次；用户选择、手动代理应用才会主动改变目标。刷新发现原代理消失时保留原地址并标记不可用，不转向其它客户端。所有环境同步、Mismatch、测试、诊断、启动、规则预览/应用与托盘共用同一上下文；操作携带选择版本，切换后旧预览与旧测试结果会被拒绝。选择本身不写环境变量，重启 ProxyEnv 后重新进行初始推荐。
+
+### Diagnosis and protected actions / 诊断与受保护操作
+
 The assistant is an orchestration feature, not a packet router. Its state machine is:
 
 ```text
@@ -145,6 +155,8 @@ ProxyEnv does not read, persist, or manage proxy credentials, subscription token
 | Command | Purpose | Snapshot / backup | Write target |
 | --- | --- | --- | --- |
 | `get_environment_status` | Read entries, detect active candidate, diagnose state | No | No |
+| `get_active_proxy_context` | Read the shared selection and refresh its availability | No | No |
+| `select_active_proxy` | Explicitly select one currently usable discovered candidate | No | Session selection only |
 | `detect_proxies` | Discover and score local candidates | No | No |
 | `get_tun_observation` | Classify local virtual-adapter evidence | No | No |
 | `list_running_applications` | List visible selectable applications | No | No |
@@ -169,7 +181,7 @@ Frontend dependencies flow `App.vue → app → features → shared`. `AppShell.
 
 `features/network-observation/components/NetworkObservationPanel.vue` is the shared presentation for live system-proxy and TUN virtual-adapter state. Home adds it below proxy-client discovery; the application assistant reuses it with the local-listener fact enabled. Neither feature starts another timer or duplicates state-label, help, or status-icon logic. Feature components otherwise own their local IPC orchestration and interaction.
 
-Proxy discovery keeps every endpoint candidate returned by the detector, then groups candidates by PID or process identity for presentation. Home selects the first listening client initially, lists only the remaining client identities, and pages every client through the same primary detail view. The automatic-detection label counts listening/total client processes rather than raw endpoints. Copy, manual fast-path validation, mismatch diagnosis, and Apply all target the currently displayed client; changing pages never writes automatically. When TUN evidence is `Possible` or `Detected` but no candidate is listening, the UI creates a presentation-only “suspected proxy client” observation. It never synthesizes a host or port, never becomes a `ProxyCandidate`, and cannot enable the automatic Apply action.
+Proxy discovery keeps every endpoint candidate returned by the detector and groups candidates by PID or process identity for compact client navigation. Home renders the backend's active selection, including its unavailable last-known details, and exposes an explicit selector for all usable addresses. Client navigation also selects globally rather than maintaining a private viewed candidate. The automatic-detection label counts listening/total client processes rather than raw endpoints. Copy and manual fast-path validation use the active candidate; mismatch state comes from Rust. When no selection exists and TUN evidence is `Possible` or `Detected`, the UI can show a presentation-only suspected client. It never synthesizes an endpoint or replaces an unavailable selection.
 
 The home surface exposes proxy-client, Windows System Proxy, and proxy-environment layers plus one clear entry to the application assistant. The assistant keeps selection, diagnosis, protected confirmation, and result in one guided surface. Advanced evidence is collapsed by default. Errors always state what happened, whether anything changed, and what to do next.
 
