@@ -10,9 +10,12 @@ import ApplicationProxyGuideDialog from "./ApplicationProxyGuideDialog.vue";
 const props = defineProps<{ copy: Copy; reviewPreview?: boolean; activeProxyContext: ActiveProxyContext; systemProxy?: ProxyCandidate; activeProxy?: ProxyCandidate; tun: TunObservation; proxyAvailable: boolean; networkLoading: boolean }>();
 
 type ResultState = { success: boolean; title: string; detail: string; backupId?: string };
+const emit = defineEmits<{ selectionChange: [applicationId: string | undefined] }>();
 
 const applications = ref<RunningApplication[]>([]);
 const selected = ref<ManagedApplication>();
+watch(() => selected.value?.id, id => emit("selectionChange", id));
+onBeforeUnmount(() => emit("selectionChange", undefined));
 const selectedPid = ref<number>();
 const diagnosis = ref<ApplicationDiagnosis>();
 const rulePreview = ref<RuleChangePreview>();

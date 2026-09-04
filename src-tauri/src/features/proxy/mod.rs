@@ -9,6 +9,8 @@ mod processes;
 mod service;
 mod system_proxy;
 
+pub(crate) use detector::report_client_name;
+pub(crate) use models::Confidence;
 pub use models::{
     ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, ProxyEnvironmentState,
     ProxyEnvironmentStatus, ProxyProtocol, ProxyVariable,

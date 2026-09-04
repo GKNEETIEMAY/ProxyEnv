@@ -22,6 +22,10 @@ import { messages, resolveLocale } from "../shared/i18n";
 import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, TunObservation } from "../shared/types";
 import { copyText } from "../shared/utils/clipboard";
 import AppHeader from "./components/AppHeader.vue";
+import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
+
+const reportDialog = ref<InstanceType<typeof DiagnosticReportDialog>>();
+const reportApplicationId = ref<string>();
 
 const defaultSettings: AppSettings = {
   language: "system",
@@ -410,6 +414,8 @@ async function openLatestRelease() {
 }
 
 function onViewShortcut(event: KeyboardEvent) {
+  // Let the modal own Escape and focus; never navigate the underlying view.
+  if (document.querySelector("dialog[open]")) return;
   if (event.key === "," && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
     openSettings();
@@ -628,6 +634,7 @@ onBeforeUnmount(() => {
       :view="view"
       @close-settings="closeSettings"
       @open-settings="openSettings"
+      @open-report="reportDialog?.open()"
       @minimize="minimizeWindow"
       @toggle-maximize="toggleMaximizeWindow"
       @close="closeWindow"
@@ -676,6 +683,7 @@ onBeforeUnmount(() => {
       :tun="tun"
       :proxy-available="activeProxyContext.available"
       :network-loading="loading"
+      @selection-change="reportApplicationId = $event"
     />
 
     <SettingsPage
@@ -700,5 +708,6 @@ onBeforeUnmount(() => {
       @open-release="openLatestRelease"
     />
     </Transition>
+    <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
   </div>
 </template>

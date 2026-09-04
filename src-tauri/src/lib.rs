@@ -44,6 +44,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::diagnostic_report::generate_diagnostic_report,
             commands::application_assistant::list_running_applications,
             commands::application_assistant::pick_application,
             commands::application_assistant::renew_application_authorization,

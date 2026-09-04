@@ -1,8 +1,10 @@
 import type { AppLanguage } from "../types";
+import { diagnosticReportMessages } from "./diagnostic-report";
 
 export type Locale = Exclude<AppLanguage, "system">;
 
 const en = {
+  ...diagnosticReportMessages.en,
   currentActiveProxy: "Current active proxy",
   selectActiveProxy: "Select an active proxy",
   activeProxyAuto: "Recommended",
@@ -295,6 +297,7 @@ const en = {
 export type Copy = { [K in keyof typeof en]: string };
 
 const zh: Copy = {
+  ...diagnosticReportMessages["zh-CN"],
   currentActiveProxy: "当前活动代理",
   selectActiveProxy: "重新选择活动代理",
   activeProxyAuto: "自动推荐",
@@ -471,6 +474,7 @@ const ko: Copy = {
 
 const jaMessages: Copy = {
   ...ja,
+  ...diagnosticReportMessages.ja,
   installedVersion: "現在のバージョン",
   availableVersion: "利用可能なバージョン",
   installUpdate: "ダウンロードして上書きインストール",
@@ -504,6 +508,7 @@ const jaMessages: Copy = {
 
 const koMessages: Copy = {
   ...ko,
+  ...diagnosticReportMessages.ko,
   installedVersion: "현재 버전",
   availableVersion: "사용 가능한 버전",
   installUpdate: "다운로드 후 덮어쓰기 설치",

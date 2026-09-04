@@ -9,12 +9,15 @@ export async function copyText(value: string): Promise<void> {
     fallback.style.position = "fixed";
     fallback.style.opacity = "0";
     fallback.style.pointerEvents = "none";
-    document.body.appendChild(fallback);
+    const previousFocus = document.activeElement;
+    // Nodes outside a modal dialog are inert and cannot be selected for fallback copying.
+    (document.querySelector("dialog[open]") ?? document.body).appendChild(fallback);
     try {
       fallback.select();
       if (!document.execCommand("copy")) throw new Error("clipboard permission denied");
     } finally {
       fallback.remove();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus({ preventScroll: true });
     }
   }
 }

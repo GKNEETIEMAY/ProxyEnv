@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { DiagnosticReportData } from "../types";
 import type { ActiveProxyContext, AppSettings, ApplicationDiagnosis, EnvironmentStatus, LaunchApplicationResult, ManagedApplication, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, RuleApplyResult, RuleChangePlan, RuleChangePreview, RuleRestoreResult, RunningApplication, TunObservation } from "../types";
 
 export const backend = {
+  diagnosticReport: (applicationId?: string) => invoke<DiagnosticReportData>("generate_diagnostic_report", { applicationId: applicationId ?? null }),
   environmentStatus: () => invoke<EnvironmentStatus>("get_environment_status"),
   enableProxyEnvironment: (expectedRevision: number) => invoke<EnvironmentStatus>("enable_proxy_environment", { expectedRevision }),
   syncProxyEnvironment: (expectedRevision: number) => invoke<EnvironmentStatus>("sync_proxy_environment", { expectedRevision }),

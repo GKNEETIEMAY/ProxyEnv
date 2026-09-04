@@ -10,6 +10,7 @@ defineProps<{
 defineEmits<{
   closeSettings: [];
   openSettings: [];
+  openReport: [];
   minimize: [];
   toggleMaximize: [];
   close: [];
@@ -35,6 +36,7 @@ defineEmits<{
     </button>
     <div class="titlebar-drag-zone" data-tauri-drag-region @dblclick="$emit('toggleMaximize')"></div>
     <div class="header-actions">
+      <button class="secondary-action report-entry" type="button" @click="$emit('openReport')">{{ copy.reportOpen }}</button>
       <div v-if="view === 'home'" class="primary-nav">
         <button class="settings-nav-button" type="button" :aria-label="copy.settings" :title="copy.settings" @click="$emit('openSettings')">
           <svg viewBox="0 0 24 24" aria-hidden="true">

@@ -26,6 +26,14 @@ pub fn diagnose_application(
     diagnosis::diagnose(application)
 }
 
+pub(crate) fn diagnose_report_snapshot(
+    application: ManagedApplication,
+    context: crate::features::proxy::active::ActiveProxyContext,
+    environment: crate::features::proxy::ProxyEnvironmentState,
+) -> ApplicationDiagnosis {
+    diagnosis::diagnose_snapshot(application, context, environment)
+}
+
 pub fn preview_application_rule_fix(
     application: &ManagedApplication,
     expected_revision: u64,

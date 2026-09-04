@@ -1,4 +1,31 @@
 export type ProxyProtocol = "http" | "socks5" | "mixed" | "unknown";
+
+/** Backend-issued, allowlisted report DTO; never contains raw diagnostic objects. */
+export interface DiagnosticReportData {
+  appVersion: string;
+  os: string;
+  osVersion: string | null;
+  detectedCount: number;
+  listeningCount: number;
+  selectedClient: string | null;
+  hasSelection: boolean;
+  available: boolean;
+  protocol: ProxyProtocol | null;
+  confidence: Confidence | null;
+  systemProxyEnabled: boolean | null;
+  environment: EnvironmentStatus["state"];
+  managedVariables: ManagedProxyVariable[];
+  tun: TunObservationState;
+  connectivity: NonNullable<ApplicationDiagnosis["proxyConnectivityState"]>;
+  successfulTargets: number;
+  totalTargets: number;
+  errorCategories: Array<"proxyUnavailable" | "proxyHandshakeFailed" | "connectTimeout" | "tlsFailed" | "remoteRejected" | "httpStatus" | "networkError" | "unknown">;
+  assistant: {
+    category: "notSelected" | "knownRule" | "unrecognized" | "unavailable";
+    state: ApplicationNetworkState;
+    action: "none" | "launchWithProxy" | "launchWithoutProxy" | "applyKnownRule";
+  };
+}
 export type DetectionSource =
   | "windowsSystemProxy"
   | "processListener"

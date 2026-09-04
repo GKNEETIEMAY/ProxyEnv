@@ -387,6 +387,15 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .confirmation-dialog .confirmation-consequence { margin-top: 15px; color: var(--muted); }
 .confirmation-dialog .confirmation-consequence.warning { color: var(--warning); }
 .confirmation-actions { display: flex; margin-top: 22px; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
+.report-entry { white-space: nowrap; font-size: 12px; }
+.diagnostic-report-dialog { width: min(680px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); }
+.diagnostic-report-dialog form { display: flex; flex-direction: column; max-height: calc(100dvh - 40px); }
+.report-language-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 12px; font-size: 12px; }
+.report-language-row select { max-width: 70%; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface); font: inherit; }
+.report-preview { flex: 1 1 auto; min-height: 120px; height: 320px; width: 100%; resize: none; padding: 15px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--canvas); font: 12px/1.65 "Cascadia Mono", "SFMono-Regular", Consolas, "Microsoft YaHei UI", monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; scrollbar-width: thin; scrollbar-color: var(--line-strong) var(--canvas); }
+.report-feedback { flex-shrink: 0; min-height: 54px; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.report-error { color: var(--danger); }
+.diagnostic-report-dialog .confirmation-actions { flex-shrink: 0; margin-top: 12px; }
 .proxy-guide-dialog { width: min(470px, calc(100vw - 40px)); height: min(510px, calc(100vh - 40px)); overflow: auto; }
 .proxy-guide-dialog > form { display: flex; min-height: 100%; flex-direction: column; }
 .proxy-guide-dialog .confirmation-actions { margin-top: auto; padding-top: 22px; }

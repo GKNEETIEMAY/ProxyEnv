@@ -136,6 +136,13 @@ fn is_frontend_only(process_name: &str) -> bool {
         })
 }
 
+pub(crate) fn report_client_name(name: Option<&str>) -> Option<String> {
+    crate::services::redaction::report_label(
+        name,
+        &CLIENTS.iter().map(|client| client.name).collect::<Vec<_>>(),
+    )
+}
+
 pub fn detect() -> Result<Vec<ProxyCandidate>> {
     let processes = processes::enumerate();
     let running_names = processes

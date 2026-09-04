@@ -149,13 +149,28 @@ pub fn endpoint(candidate: &ProxyCandidate) -> ProxyEndpoint {
 
 static STORE: OnceLock<Mutex<ActiveProxyStore>> = OnceLock::new();
 
-fn with_store<T>(operation: impl FnOnce(&mut ActiveProxyStore) -> Result<T>) -> Result<T> {
+fn with_snapshot<T>(operation: impl FnOnce(&mut ActiveProxyStore) -> Result<T>) -> Result<T> {
     let mut store = STORE
         .get_or_init(|| Mutex::new(ActiveProxyStore::default()))
         .lock()
         .map_err(|_| ProxyEnvError::Detection("active proxy state is unavailable".into()))?;
-    store.refresh();
     operation(&mut store)
+}
+
+fn with_store<T>(operation: impl FnOnce(&mut ActiveProxyStore) -> Result<T>) -> Result<T> {
+    with_snapshot(|store| {
+        store.refresh();
+        operation(store)
+    })
+}
+
+/// A report may read the latest observation, but must never trigger discovery or probes.
+pub fn snapshot() -> Result<ActiveProxyContext> {
+    with_snapshot(|store| Ok(store.context.clone()))
+}
+
+pub fn snapshot_status(selected: &[ProxyVariable]) -> Result<ProxyEnvironmentStatus> {
+    with_snapshot(|store| store.status(selected))
 }
 
 pub fn context() -> Result<ActiveProxyContext> {

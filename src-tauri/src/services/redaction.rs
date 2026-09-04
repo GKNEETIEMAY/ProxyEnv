@@ -7,6 +7,27 @@ pub const REDACTED_PROXY: &str = "<proxy-endpoint>";
 pub const REDACTED_PROCESS: &str = "<process>";
 pub const REDACTED_SECRET: &str = "<redacted>";
 
+/// Reports accept canonical labels only, never arbitrary process/configuration text.
+pub fn report_label(value: Option<&str>, allowed: &[&str]) -> Option<String> {
+    value
+        .and_then(|value| allowed.iter().find(|label| **label == value))
+        .map(|label| sanitize(label))
+}
+
+/// OS version metadata is limited to numeric version/build notation.
+pub fn report_version(value: Option<&str>) -> Option<String> {
+    value
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 64
+                && value.chars().any(|c| c.is_ascii_digit())
+                && value
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || ". ()-".contains(c))
+        })
+        .map(sanitize)
+}
+
 /// Sanitizes untrusted text before it crosses a logging, diagnostic, or error-report boundary.
 ///
 /// Prefer structured summaries over free-form text. Values such as configuration contents,
@@ -180,6 +201,29 @@ fn replace_case_insensitive(text: &str, needle: &str, replacement: &str) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_fields_fail_closed_for_untrusted_metadata() {
+        assert_eq!(
+            report_version(Some("11 (26100)")),
+            Some("11 (26100)".into())
+        );
+        for text in [
+            "Alice",
+            "1 token=secret",
+            "https://sub.example/token",
+            r"C:\Users\Alice",
+            "11\npassword",
+            "",
+        ] {
+            assert!(report_version(Some(text)).is_none());
+            assert!(report_label(Some(text), &["Clash Verge Rev", "v2rayN"]).is_none());
+        }
+        assert_eq!(
+            report_label(Some("v2rayN"), &["v2rayN"]),
+            Some("v2rayN".into())
+        );
+    }
 
     #[test]
     fn removes_paths_proxy_endpoints_processes_and_ids() {

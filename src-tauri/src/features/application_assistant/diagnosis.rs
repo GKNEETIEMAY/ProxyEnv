@@ -18,9 +18,18 @@ use super::{
 pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis> {
     let settings = settings::load()?;
     let context = proxy::active::context()?;
-    let active_candidate = context.available_candidate().cloned();
     let environment =
         ProxyEnvironmentService::status(&settings.proxy_variables, context.candidate.clone())?;
+    Ok(diagnose_snapshot(application, context, environment.state))
+}
+
+/// Reuse the same decision engine without refreshing/probing a proxy for report collection.
+pub(super) fn diagnose_snapshot(
+    application: ManagedApplication,
+    context: proxy::active::ActiveProxyContext,
+    environment_state: ProxyEnvironmentState,
+) -> ApplicationDiagnosis {
+    let active_candidate = context.available_candidate().cloned();
     let proxy_available = active_candidate.as_ref().is_some_and(|candidate| {
         candidate.listening && !matches!(candidate.protocol, ProxyProtocol::Unknown)
     });
@@ -45,7 +54,7 @@ pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis>
     let input = DiagnosisInput {
         proxy_available,
         system_proxy_enabled: proxy::system_proxy_enabled(),
-        proxy_environment_state: environment.state,
+        proxy_environment_state: environment_state,
         tun_observation: network_observation::observe().state,
         known_rule: rule_preview.rule_id,
         rule_inspection,
@@ -53,7 +62,7 @@ pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis>
     };
     let mut diagnosis = build_diagnosis(application, input);
     diagnosis.active_proxy_revision = context.revision;
-    Ok(diagnosis)
+    diagnosis
 }
 
 #[derive(Debug, Clone)]
