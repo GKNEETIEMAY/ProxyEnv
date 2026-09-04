@@ -5,6 +5,7 @@ import { messages, type Copy, type Locale } from "../../../shared/i18n";
 import type { DiagnosticReportData } from "../../../shared/types";
 import { copyText } from "../../../shared/utils/clipboard";
 import { formatDiagnosticReport } from "../format";
+import CompactSelect from "../../../shared/components/CompactSelect.vue";
 
 // Operate: extend the warm native-dialog vocabulary. Language, readable snapshot, then Copy.
 // Keep a stable preview height; read-only collection never writes files or starts network tests.
@@ -19,6 +20,13 @@ const copied = ref(false);
 let requestId = 0;
 const reportLocale = computed(() => language.value === "interface" ? props.locale : language.value);
 const report = computed(() => data.value ? formatDiagnosticReport(data.value, messages[reportLocale.value]) : "");
+const languageOptions = computed<{ value: Locale | "interface"; label: string }[]>(() => [
+  { value: "interface", label: props.copy.reportFollowInterface },
+  { value: "zh-CN", label: "简体中文" },
+  { value: "en", label: "English" },
+  { value: "ja", label: "日本語" },
+  { value: "ko", label: "한국어" }
+]);
 
 async function refresh() {
   const request = ++requestId;
@@ -82,14 +90,8 @@ defineExpose({ open });
       <h2 id="diagnostic-report-title">{{ copy.reportOpen }}</h2>
       <p id="diagnostic-report-privacy">{{ copy.reportPrivacy }}</p>
       <div class="report-language-row">
-        <label for="report-language">{{ copy.reportLanguage }}</label>
-        <select id="report-language" v-model="language" autofocus>
-          <option value="interface">{{ copy.reportFollowInterface }}</option>
-          <option value="zh-CN">简体中文</option>
-          <option value="en">English</option>
-          <option value="ja">日本語</option>
-          <option value="ko">한국어</option>
-        </select>
+        <span>{{ copy.reportLanguage }}</span>
+        <CompactSelect v-model="language" :label="copy.reportLanguage" :options="languageOptions" autofocus />
       </div>
       <textarea class="report-preview" :value="report" :lang="reportLocale" :aria-label="copy.reportPreview" :aria-busy="loading" readonly spellcheck="false"></textarea>
       <div class="report-feedback" aria-live="polite">

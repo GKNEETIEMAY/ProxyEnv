@@ -89,9 +89,9 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .titlebar-drag-zone { min-width: 18px; align-self: stretch; flex: 1; }
 .header-actions { display: flex; height: 70px; align-items: center; }
 .primary-nav { display: flex; align-items: center; gap: 5px; }
-.primary-nav .settings-nav-button { display: grid; width: 36px; height: 36px; padding: 0; place-items: center; border-radius: 10px; color: var(--muted); background: none; cursor: pointer; }
-.primary-nav .settings-nav-button:hover { color: var(--ink); background: color-mix(in srgb, var(--line) 52%, transparent); }
-.settings-nav-button svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
+.header-icon-button { display: grid; width: 36px; height: 36px; flex: none; padding: 0; place-items: center; border-radius: 10px; color: var(--muted); background: none; cursor: pointer; }
+.header-icon-button:hover { color: var(--ink); background: color-mix(in srgb, var(--line) 52%, transparent); }
+.header-icon-button svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
 .window-controls { display: flex; height: 100%; margin-left: 8px; align-self: stretch; }
 .window-controls button { display: grid; width: 46px; height: 100%; padding: 0; place-items: center; color: var(--muted); background: transparent; cursor: default; transition: color .14s, background .14s; }
 .window-controls button:hover { color: var(--ink); background: color-mix(in srgb, var(--line) 56%, transparent); }
@@ -386,11 +386,10 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .confirmation-dialog .confirmation-consequence { margin-top: 15px; color: var(--muted); }
 .confirmation-dialog .confirmation-consequence.warning { color: var(--warning); }
 .confirmation-actions { display: flex; margin-top: 22px; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
-.report-entry { white-space: nowrap; font-size: 12px; }
 .diagnostic-report-dialog { width: min(680px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); }
 .diagnostic-report-dialog form { display: flex; flex-direction: column; max-height: calc(100dvh - 40px); }
 .report-language-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 12px; font-size: 12px; }
-.report-language-row select { max-width: 70%; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface); font: inherit; }
+.report-language-row .compact-select { width: 168px; max-width: 70%; }
 .report-preview { flex: 1 1 auto; min-height: 120px; height: 320px; width: 100%; resize: none; padding: 15px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--canvas); font: 12px/1.65 "Cascadia Mono", "SFMono-Regular", Consolas, "Microsoft YaHei UI", monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; scrollbar-width: thin; scrollbar-color: var(--line-strong) var(--canvas); }
 .report-feedback { flex-shrink: 0; min-height: 54px; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .report-error { color: var(--danger); }

@@ -36,9 +36,13 @@ defineEmits<{
     </button>
     <div class="titlebar-drag-zone" data-tauri-drag-region @dblclick="$emit('toggleMaximize')"></div>
     <div class="header-actions">
-      <button class="secondary-action report-entry" type="button" @click="$emit('openReport')">{{ copy.reportOpen }}</button>
+      <button class="header-icon-button" type="button" :aria-label="copy.reportOpen" :title="copy.reportOpen" aria-haspopup="dialog" @click="$emit('openReport')">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 4v16h16M8 15v-4m4 4V7m4 8v-6" />
+        </svg>
+      </button>
       <div v-if="view === 'home'" class="primary-nav">
-        <button class="settings-nav-button" type="button" :aria-label="copy.settings" :title="copy.settings" @click="$emit('openSettings')">
+        <button class="header-icon-button" type="button" :aria-label="copy.settings" :title="copy.settings" @click="$emit('openSettings')">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12.2 3h-.4a1.8 1.8 0 0 0-1.8 1.8v.3a1.8 1.8 0 0 1-.9 1.56l-.6.34a1.8 1.8 0 0 1-1.8 0l-.25-.14a1.8 1.8 0 0 0-2.46.66l-.2.35a1.8 1.8 0 0 0 .66 2.46l.25.15a1.8 1.8 0 0 1 .9 1.56v.68a1.8 1.8 0 0 1-.9 1.56l-.25.15a1.8 1.8 0 0 0-.66 2.46l.2.35a1.8 1.8 0 0 0 2.46.66l.25-.14a1.8 1.8 0 0 1 1.8 0l.6.34a1.8 1.8 0 0 1 .9 1.56v.3a1.8 1.8 0 0 0 1.8 1.8h.4a1.8 1.8 0 0 0 1.8-1.8v-.3a1.8 1.8 0 0 1 .9-1.56l.6-.34a1.8 1.8 0 0 1 1.8 0l.25.14a1.8 1.8 0 0 0 2.46-.66l.2-.35a1.8 1.8 0 0 0-.66-2.46l-.25-.15a1.8 1.8 0 0 1-.9-1.56v-.68a1.8 1.8 0 0 1 .9-1.56l.25-.15a1.8 1.8 0 0 0 .66-2.46l-.2-.35a1.8 1.8 0 0 0-2.46-.66l-.25.14a1.8 1.8 0 0 1-1.8 0l-.6-.34a1.8 1.8 0 0 1-.9-1.56v-.3A1.8 1.8 0 0 0 12.2 3Z" />
             <circle cx="12" cy="12.4" r="2.7" />
