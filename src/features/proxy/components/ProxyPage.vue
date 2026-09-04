@@ -31,7 +31,6 @@ const inspectingManual = ref(false);
 const inspectionWarning = ref<"notListening" | "unknownProtocol" | "protocolMismatch" | "inspectionFailed">();
 const selectedClientKey = computed(() => props.detected ? candidateClientKey(props.detected) : "");
 const activeContext = computed(() => props.environment.activeProxy);
-const selectableCandidates = computed(() => props.candidates.filter((candidate) => candidate.listening && candidate.protocol !== "unknown"));
 const selectionSourceLabel = computed(() => ({
   auto: props.copy.activeProxyAuto,
   user: props.copy.activeProxyUser,
@@ -45,7 +44,8 @@ const clientCandidates = computed(() => {
   for (const candidate of props.candidates) {
     const key = candidateClientKey(candidate);
     const current = clients.get(key);
-    if (!current || candidate.id === props.detected?.id || candidate.listening && !current.listening) {
+    if (current && current.id === props.detected?.id) continue;
+    if (!current || candidate.id === props.detected?.id || candidate.listening && (!current.listening || current.protocol === "unknown" && candidate.protocol !== "unknown")) {
       clients.set(key, candidate);
     }
   }
@@ -55,7 +55,7 @@ const displayedCandidate = computed(() => props.detected);
 const displayedEndpoint = computed(() => displayedCandidate.value ? candidateEndpoint(displayedCandidate.value) : "");
 const detectedIcon = computed(() => candidateIcon(displayedCandidate.value));
 const tunSuspected = computed(() => !props.detected && (props.tun.state === "possible" || props.tun.state === "detected"));
-const otherClients = computed(() => clientCandidates.value.filter((candidate) => candidateClientKey(candidate) !== selectedClientKey.value));
+const otherClients = computed(() => clientCandidates.value.filter(candidate => candidateClientKey(candidate) !== selectedClientKey.value));
 const currentClientIndex = computed(() => clientCandidates.value.findIndex((candidate) => candidateClientKey(candidate) === selectedClientKey.value));
 const activeCandidateCount = computed(() => clientCandidates.value.filter((candidate) => candidate.listening).length);
 const observedCandidateCount = computed(() => clientCandidates.value.length + (tunSuspected.value ? 1 : 0));
@@ -102,7 +102,8 @@ function candidateClientKey(candidate: ProxyCandidate): string {
 }
 
 function candidateEndpoint(candidate: ProxyCandidate): string {
-  return `${candidate.host}:${candidate.port}`;
+  const host = candidate.host.includes(":") && !candidate.host.startsWith("[") ? `[${candidate.host}]` : candidate.host;
+  return `${host}:${candidate.port}`;
 }
 
 function selectClient(candidate: ProxyCandidate) {
@@ -169,18 +170,9 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
     <section class="proxy-console">
       <div class="layer-row client-layer">
         <div class="layer-heading"><h2>{{ copy.proxyClient }}</h2><span>{{ automaticDetectionLabel }}</span></div>
-        <div class="active-proxy-selector">
-          <label for="active-proxy-select">{{ copy.currentActiveProxy }}<span>{{ selectionSourceLabel }}</span></label>
-          <select id="active-proxy-select" :value="activeContext.available ? activeContext.selectedCandidateId : ''" :disabled="toggling || selectableCandidates.length === 0" @change="emit('selectActive', ($event.target as HTMLSelectElement).value)">
-            <option v-if="!activeContext.available" value="" disabled>{{ copy.selectActiveProxy }}</option>
-            <option v-if="activeContext.selectionSource === 'manual' && activeContext.available && displayedCandidate" :value="displayedCandidate.id">{{ copy.manualProxy }} · {{ displayedEndpoint }}</option>
-            <option v-for="candidate in selectableCandidates" :key="candidate.id" :value="candidate.id">{{ candidate.clientName || candidate.processName || copy.localProxy }} · {{ candidateEndpoint(candidate) }} · {{ candidate.protocol }}</option>
-          </select>
-          <p>{{ copy.activeProxySharedHint }}</p>
-        </div>
         <div v-if="displayedCandidate && !tunSuspected" class="client-heading">
           <span class="client-art"><img :src="detectedIcon" alt="" @error="useGenericIcon" /></span>
-          <div><h1>{{ displayedCandidate.clientName || copy.localProxy }}</h1><p><span class="status-dot" :class="{ quiet: !displayedCandidate.listening }"></span>{{ displayedCandidate.listening ? copy.listening : copy.notListening }}</p></div>
+          <div><h1>{{ activeContext.selectionSource === 'manual' ? copy.manualProxy : displayedCandidate.clientName || copy.localProxy }}</h1><p class="client-status"><span><span class="status-dot" :class="{ quiet: !displayedCandidate.listening }"></span>{{ displayedCandidate.listening ? copy.listening : copy.notListening }}</span><span class="client-selection-source">{{ selectionSourceLabel }}</span><HelpTooltip :label="copy.currentActiveProxy" :text="copy.activeProxySharedHint" /></p></div>
           <div class="endpoint-line"><div class="endpoint-address"><code>{{ displayedEndpoint }}</code><button type="button" :aria-label="copiedEndpoint ? copy.endpointCopied : copy.copyEndpoint" :title="copiedEndpoint ? copy.endpointCopied : copy.copyEndpoint" @click="emit('copyEndpoint', displayedCandidate)"><svg v-if="!copiedEndpoint" viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg><svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8"/></svg></button></div><span>{{ displayedCandidate.protocol }} · {{ displayedCandidate.confidence }} {{ copy.autoConfidence }}</span></div>
         </div>
         <div v-else-if="tunSuspected" class="client-heading suspected-client">
@@ -190,12 +182,12 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
         </div>
         <div v-else class="empty-state"><span class="client-art generic"><img :src="detectedIcon" alt="" @error="useGenericIcon" /></span><div><h1>{{ loading ? copy.detecting : copy.noProxy }}</h1><p>{{ copy.noProxyHint }}</p></div></div>
 
-        <div v-if="otherClients.length > 0 && !tunSuspected" class="proxy-client-pager">
+        <div v-if="otherClients.length > 0" class="proxy-client-pager">
           <div class="candidate-results-heading"><strong>{{ copy.otherProxyClients }}</strong><span>{{ otherClients.length }}</span></div>
           <div class="other-client-list">
-            <button v-for="candidate in otherClients" :key="candidateClientKey(candidate)" type="button" :disabled="toggling || !candidate.listening || candidate.protocol === 'unknown'" @click="selectClient(candidate)">
+            <button v-for="candidate in otherClients" :key="candidate.id" type="button" :disabled="toggling || !candidate.listening || candidate.protocol === 'unknown'" @click="selectClient(candidate)">
               <span class="candidate-icon"><img :src="candidateIcon(candidate)" alt="" @error="useGenericIcon" /></span>
-              <span>{{ candidate.clientName || candidate.processName || copy.localProxy }}</span>
+              <span class="other-client-copy"><span>{{ candidate.clientName || candidate.processName || copy.localProxy }}</span><code>{{ candidateEndpoint(candidate) }} · {{ candidate.protocol }}</code></span>
             </button>
           </div>
           <div v-if="currentClientIndex >= 0" class="client-page-controls">

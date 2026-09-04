@@ -141,16 +141,12 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .layer-heading { display: flex; margin-bottom: 20px; align-items: baseline; justify-content: space-between; gap: 16px; }
 .layer-heading h2, .environment-summary h2 { margin: 0; font-size: 13px; font-weight: 680; letter-spacing: -.015em; }
 .layer-heading > span, .environment-summary > div:first-child p { margin: 4px 0 0; color: var(--faint); font-size: 10px; }
-.active-proxy-selector { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); align-items: center; gap: 8px 16px; margin-bottom: 22px; }
-.active-proxy-selector label { color: var(--ink); font-size: 12px; font-weight: 650; }
-.active-proxy-selector label span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 400; }
-.active-proxy-selector select { min-width: 0; width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface-strong); color: var(--ink); font: inherit; }
-.active-proxy-selector p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.client-status { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; }
+.client-selection-source { color: var(--muted); font-size: 10px; }
 .active-proxy-alert { margin: 18px 34px 0; flex-wrap: wrap; }
 .assistant-active-proxy { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .assistant-active-proxy code { color: var(--ink); margin-inline-start: 8px; }
 @media (max-width: 680px) {
-  .active-proxy-selector { grid-template-columns: minmax(0, 1fr); }
   .active-proxy-alert { margin-inline: 20px; }
 }
 .client-layer .client-heading { display: grid; grid-template-columns: 56px minmax(145px, 1fr) 270px; }
@@ -164,8 +160,11 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .candidate-results-heading > span { min-width: 20px; padding: 2px 6px; border-radius: 999px; background: var(--surface-strong); text-align: center; }
 .other-client-list { display: flex; max-height: 76px; overflow: auto; align-items: center; gap: 7px; flex-wrap: wrap; scrollbar-width: thin; }
 .other-client-list > button { display: inline-flex; min-width: 0; min-height: 34px; padding: 3px 10px 3px 4px; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: var(--surface); cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
-.other-client-list > button:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface-strong); }
-.other-client-list > button > span:last-child { max-width: 155px; overflow: hidden; font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.other-client-list > button:hover:not(:disabled) { border-color: var(--line-strong); color: var(--ink); background: var(--surface-strong); }
+.other-client-list > button:disabled { cursor: default; opacity: .5; }
+.other-client-copy { display: grid; min-width: 0; gap: 3px; text-align: start; }
+.other-client-copy > span { max-width: 180px; overflow: hidden; font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.other-client-copy code { color: var(--muted); font: 10px/1.4 "Cascadia Mono", "SFMono-Regular", Consolas, monospace; overflow-wrap: anywhere; }
 .candidate-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--surface-strong); box-shadow: inset 0 0 0 1px var(--line); }
 .candidate-icon img { width: 19px; height: 19px; object-fit: contain; }
 .client-page-controls { display: flex; align-items: center; gap: 7px; }
