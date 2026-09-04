@@ -1,5 +1,12 @@
 # Security Policy
 
+```yaml
+Current Stable: v0.1.3
+Next: v0.1.4
+```
+
+This policy covers the current release and development changes. The safe Diagnostic Report and unified ActiveProxyContext are implemented for Next v0.1.4 but are not shipped in v0.1.3. See the [Roadmap](docs/ROADMAP.md).
+
 Please report suspected vulnerabilities privately to the repository maintainers rather than opening a public issue. Include the affected version, operating system, reproduction steps, observed impact, and any relevant local logs with secrets removed.
 
 ## Trust model
@@ -22,6 +29,7 @@ ProxyEnv may:
 - probe only an explicitly selected or locally discovered proxy endpoint;
 - modify only selected current-user proxy values under `HKCU\\Environment`, with snapshot, broadcast, and verification;
 - launch a new child process with an explicit proxy environment or with managed proxy variables removed;
+- only in the manual-proxy guide, after a warning and a second explicit confirmation, revalidate the selected PID and executable, request a normal close, use the guarded termination fallback if needed, and launch one replacement with proxy variables cleared;
 - update one existing application configuration field only when a reviewed bundled rule identifies an exact process name, fixed user-profile-relative path, supported format, and typed value;
 - create a local rule backup and restore it only when the current field still equals the value ProxyEnv applied;
 - contact the fixed official GitHub Releases API and pinned HTTPS updater manifest only when the user explicitly selects **Check for updates**;
@@ -35,7 +43,7 @@ ProxyEnv must not:
 - enable or disable TUN, adapters, routes, services, proxy clients, Windows System Proxy, proxy-client global settings, nodes, subscriptions, or client rules;
 - call Clash, v2rayN, or other proxy-client control APIs;
 - auto-download rules, run a rule marketplace, execute rule-provided code, shell commands, scripts, adapters, templates, or regular expressions;
-- inject into, hook, debug, suspend, terminate, or call `WriteProcessMemory` on a running process;
+- inject into, hook, debug, suspend, or call `WriteProcessMemory` on a running process; termination is prohibited except for the explicitly confirmed, identity-checked manual-guide restart described above;
 - modify the environment of a running process or claim that registry broadcasts retroactively change it;
 - scan the full disk, search arbitrary configuration directories, accept user-defined rule paths/fields, or follow symlinks/reparse points;
 - modify settings, repair applications, follow changing ports, or run external connectivity tests in the background;
@@ -54,6 +62,8 @@ The application assistant displays executable paths and configuration targets lo
 ProxyEnv does not persist an application log by default. Text that crosses a runtime log, diagnostic, serialized-error, or error-report boundary must pass through the shared Rust redaction component. It removes or replaces user names and user-directory paths, full application and configuration paths, local proxy addresses and ports, executable/process names, and process identifiers. Configuration field contents and other values whose format cannot be identified reliably must be treated as fully sensitive and replaced as a whole rather than passed through heuristic text redaction.
 
 The redaction layer is defense in depth, not permission to log local state. New diagnostics should prefer fixed error categories, counts, and booleans over paths, endpoints, process details, configuration values, or raw debug representations. Logs and screenshots shared in vulnerability reports should still be reviewed before submission.
+
+The Diagnostic Report preview uses a backend-issued allowlisted DTO, not serialized raw diagnostics. Client names must match the bundled detector catalog; unknown names are generalized. OS-version metadata is restricted to numeric version/build notation. Reports omit all proxy addresses, application/interface names, paths, process IDs, raw errors, rule identifiers and configuration values. They include only status summaries, counts, variable names and safe version/client metadata. Changing output language reformats the same snapshot; generation does not trigger external connectivity tests. Copying is explicit, and reports are never saved or uploaded automatically. Review the preview before sharing it in an Issue.
 
 ProxyEnv does not read, save, or manage proxy user names or passwords, subscription tokens, node credentials, or any other proxy authentication material. Such values must never be added to logs, reports, snapshots, backups, settings, or application rules.
 

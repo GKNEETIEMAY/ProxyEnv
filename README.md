@@ -14,6 +14,13 @@
 > [!IMPORTANT]
 > **ProxyEnv v0.1.3 is the current stable release.** Windows 10/11 x64 is the implemented and tested target. Linux and macOS remain architectural directions rather than supported platforms; other Unix variants are out of scope.
 
+```yaml
+Current Stable: v0.1.3
+Next: v0.1.4
+```
+
+Development status and release scope are tracked in the [Roadmap](docs/ROADMAP.md). Features labeled **Next — v0.1.4** are not part of the v0.1.3 download.
+
 ## Download
 
 Download the latest stable version from [GitHub Releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest):
@@ -22,9 +29,9 @@ Download the latest stable version from [GitHub Releases](https://github.com/GKN
 - `ProxyEnv_x.x.x_x64_en-US.msi` — MSI installer for managed Windows environments
 - `ProxyEnv-x.x.x-windows-x64-portable.exe` — portable executable
 
-In these file-name templates, `x.x.x` represents the release version, such as `1.2.3`.
+In these file-name templates, `x.x.x` represents the release version, such as `0.1.3`.
 
-ProxyEnv intentionally ships without Windows Authenticode. Windows may therefore show **Unknown Publisher**, **Microsoft Defender SmartScreen**, or **Windows protected your PC**. Download only from this repository and verify files with `SHA256SUMS.txt` and GitHub Artifact Attestation. Starting with v0.1.2, the installed NSIS setup edition can check, download, verify, and passively install Tauri-signed updates from the pinned official Release endpoint, replacing the registered installation before restarting the app. MSI and portable packages continue to use the official Release page for manual updates so a standalone portable file is never silently left behind.
+ProxyEnv intentionally ships without Windows Authenticode. Windows may therefore show **Unknown Publisher**, **Microsoft Defender SmartScreen**, or **Windows protected your PC**. Download only from this repository and verify files with `SHA256SUMS.txt` and GitHub Artifact Attestation. In Current Stable v0.1.3, the installed NSIS setup edition can check, download, verify, and passively install Tauri-signed updates from the pinned official Release endpoint, replacing the registered installation before restarting the app. MSI and portable packages continue to use the official Release page for manual updates so a standalone portable file is never silently left behind.
 
 ## The problem
 
@@ -46,7 +53,7 @@ ProxyEnv makes that state visible and turns registry editing into explicit, reco
 
 > Automatic discovery, manual changes.
 
-Detection and periodic refreshes never rewrite the Registry. When a client changes from port `7890` to `7897`, ProxyEnv reports a mismatch and waits for the user to choose **Sync to active proxy**.
+Detection and periodic refreshes never rewrite the Registry. In Current v0.1.3, a changed detected address can produce a mismatch requiring explicit Sync. Next v0.1.4 retains an unavailable selection when its port/process disappears; the user first reselects a usable candidate, then explicitly applies any environment change.
 
 ## Capabilities
 
@@ -67,6 +74,8 @@ Detection and periodic refreshes never rewrite the Registry. When a client chang
 
 ## Application network assistant
 
+The assistant and rule engine are available in Current v0.1.3. The conservative diagnosis states described below are implemented for Next v0.1.4. The bundled rule directory currently contains only its schema: the initial reviewed production rules remain pending.
+
 The assistant follows one short path:
 
 ```text
@@ -79,6 +88,8 @@ It reads the active local proxy, Windows System Proxy, proxy environment, virtua
 Application rules are declarative data, not executable adapters. A rule may name exact process names, fixed user-profile-relative configuration paths, one existing field, a supported format (`JSON`, `YAML`, `TOML`, or `INI`), and a typed proxy value. Only a reviewed rule whose current value is correct can confirm that an application is ready; enabled proxy environment variables mean only “environment configured, application behavior unknown.” Without a reviewed rule, ProxyEnv does not scan unknown configuration files and recommends a proxy-environment launch only when a usable local proxy exists and the environment is disabled.
 
 ## Four observable network layers
+
+**Next — v0.1.4 (implemented, unreleased): unified active proxy selection.**
 
 When multiple clients coexist, Current active proxy initially recommends one usable client and lets you explicitly switch. Environment sync, mismatch checks, connectivity tests, the assistant, proxy launches, and rule preview/apply all share that selection. Refresh never switches it: a missing proxy keeps its last-known details, becomes unavailable, and prompts reselection. Selecting a client does not write environment variables; applying a manual endpoint also makes it the global target. Selection lasts for this session; restarting ProxyEnv starts a fresh recommendation.
 
@@ -204,7 +215,17 @@ The generic Environment Core has no proxy-client or proxy-variable knowledge. De
 
 ## Scope and privacy
 
-ProxyEnv is not a proxy client, VPN, subscription manager, traffic forwarder, or TUN controller. It does not control Clash/v2rayN APIs, nodes, subscriptions, proxy-client rules, Windows System Proxy, routes, drivers, or system-level environment variables. It does not inject into, terminate, or rewrite the environment of running processes.
+### Diagnostic reports
+
+**Next — v0.1.4:** implemented and locally tested, not included in the v0.1.3 download; packaged Windows acceptance remains pending.
+
+Open **Diagnostic report** in the title bar to preview a safe, read-only snapshot and copy it into a GitHub Issue or feedback message. The report defaults to the interface language; Simplified Chinese, English, Japanese, and Korean can be selected independently. Changing language does not rerun diagnostics. **Refresh report** collects a new snapshot.
+
+Reports include version metadata, client counts and the current selection, independent system-proxy/environment/TUN states, cached connectivity results, and a summary for the application currently selected in the assistant. Untested connectivity remains **Not tested**. No usernames, application/configuration paths, proxy addresses, credentials, node/subscription information, raw configuration values or PIDs are included. Generation does not start an external connectivity test, save a file, or upload anything; review the preview before sharing.
+
+### Privacy boundaries
+
+ProxyEnv is not a proxy client, VPN, subscription manager, traffic forwarder, or TUN controller. It does not control Clash/v2rayN APIs, nodes, subscriptions, proxy-client rules, Windows System Proxy, routes, drivers, or system-level environment variables. It never injects into or rewrites a running process's environment. The only process-closing exception is the manual guide's explicitly confirmed, identity-checked restart described above.
 
 Detection, protocol probing, TUN observation, application enumeration, rule preview, and environment management stay on the local machine. ProxyEnv never reads, saves, or manages proxy user names or passwords, subscription tokens, node credentials, other proxy authentication material, or traffic. Runtime diagnostics pass through a shared redaction boundary that removes local paths, proxy endpoints, and process details; configuration values are treated as fully sensitive. It performs no external connectivity test unless the user explicitly requests the existing proxy test. A user-triggered update check contacts the fixed official GitHub endpoints; a separate Download and install action may then fetch the manifest-selected, signature-verified installer. See [`SECURITY.md`](SECURITY.md).
 
