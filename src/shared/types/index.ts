@@ -99,8 +99,8 @@ export interface ManagedApplication {
   lastAction: ApplicationActionKind | null;
 }
 
-export type ApplicationNetworkState = "unknown" | "ready" | "proxyLaunchRecommended" | "ruleSyncRecommended" | "ruleMismatch" | "unsupported" | "conflict";
-export type DiagnosisSummary = "normal" | "canLaunchWithProxy" | "knownApplicationRule" | "unsupported";
+export type ApplicationNetworkState = "confirmedReady" | "environmentConfigured" | "proxyLaunchRecommended" | "ruleSyncRecommended" | "conflict" | "unsupported" | "unknown";
+export type RecommendedAction = "none" | "launchWithProxy" | "launchWithoutProxy" | { applyKnownRule: { ruleId: string } };
 
 export interface ApplicationDiagnosis {
   application: ManagedApplication;
@@ -109,10 +109,9 @@ export interface ApplicationDiagnosis {
   proxyEnvironmentState: EnvironmentStatus["state"];
   tunObservation: TunObservationState;
   knownRule?: string;
-  proxyConnectivityState?: "reachable" | "unreachable" | "unknown";
+  proxyConnectivityState?: "notTested" | "testing" | "reachable" | "partial" | "unreachable" | "localProxyUnavailable" | "unknown";
   applicationNetworkState: ApplicationNetworkState;
-  recommendedAction: unknown;
-  summary: DiagnosisSummary;
+  recommendedAction: RecommendedAction;
 }
 
 export type ConfigValue = string | number | boolean | null;

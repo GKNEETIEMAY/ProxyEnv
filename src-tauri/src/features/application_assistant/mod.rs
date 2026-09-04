@@ -7,8 +7,8 @@ pub(crate) mod relauncher;
 mod rules;
 
 pub use models::{
-    ApplicationDiagnosis, ApplicationNetworkState, DiagnosisSummary, LaunchApplicationResult,
-    LaunchEnvironmentMode, ManagedApplication, RecommendedAction, RunningApplication,
+    ApplicationDiagnosis, ApplicationNetworkState, LaunchApplicationResult, LaunchEnvironmentMode,
+    ManagedApplication, RecommendedAction, RunningApplication,
 };
 pub use rules::{RuleApplyResult, RuleChangePlan, RuleChangePreview, RuleRestoreResult};
 

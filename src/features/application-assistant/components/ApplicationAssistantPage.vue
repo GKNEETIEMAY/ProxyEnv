@@ -31,11 +31,14 @@ let authorizationRefreshTimer: ReturnType<typeof setInterval> | undefined;
 const diagnosisTitle = computed(() => {
   if (!diagnosis.value) return "";
   return ({
-    normal: props.copy.assistantReadyTitle,
-    canLaunchWithProxy: props.copy.assistantProxyLaunchTitle,
-    knownApplicationRule: props.copy.assistantRuleTitle,
-    unsupported: props.copy.assistantUnsupportedTitle
-  })[diagnosis.value.summary];
+    confirmedReady: props.copy.assistantConfirmedReadyTitle,
+    environmentConfigured: props.copy.assistantEnvironmentConfiguredTitle,
+    proxyLaunchRecommended: props.copy.assistantProxyLaunchRecommendedTitle,
+    ruleSyncRecommended: props.copy.assistantRuleSyncRecommendedTitle,
+    conflict: props.copy.assistantConflictTitle,
+    unsupported: props.copy.assistantUnsupportedStateTitle,
+    unknown: props.copy.assistantUnknownTitle
+  })[diagnosis.value.applicationNetworkState];
 });
 const applicationCount = computed(() => props.copy.assistantFoundApps.replace("{count}", String(applications.value.length)));
 const currentStep = computed<1 | 2 | 3>(() => result.value ? 3 : diagnosis.value ? 2 : 1);
@@ -43,12 +46,34 @@ const currentStep = computed<1 | 2 | 3>(() => result.value ? 3 : diagnosis.value
 const diagnosisBody = computed(() => {
   if (!diagnosis.value) return "";
   return ({
-    normal: props.copy.assistantReadyBody,
-    canLaunchWithProxy: props.copy.assistantProxyLaunchBody,
-    knownApplicationRule: props.copy.assistantRuleBody,
-    unsupported: props.copy.assistantUnsupportedBody
-  })[diagnosis.value.summary];
+    confirmedReady: props.copy.assistantConfirmedReadyBody,
+    environmentConfigured: props.copy.assistantEnvironmentConfiguredBody,
+    proxyLaunchRecommended: props.copy.assistantProxyLaunchRecommendedBody,
+    ruleSyncRecommended: props.copy.assistantRuleSyncRecommendedBody,
+    conflict: props.copy.assistantConflictBody,
+    unsupported: props.copy.assistantUnsupportedStateBody,
+    unknown: props.copy.assistantUnknownBody
+  })[diagnosis.value.applicationNetworkState];
 });
+
+const recommendedActionKind = computed<"rule" | "proxy" | "none">(() => {
+  const action = diagnosis.value?.recommendedAction;
+  if (action === "launchWithProxy") return "proxy";
+  if (typeof action === "object" && action !== null && "applyKnownRule" in action) return "rule";
+  return "none";
+});
+
+const actionTitle = computed(() => ({
+  rule: props.copy.assistantOneClickFix,
+  proxy: props.copy.assistantSafeLaunch,
+  none: props.copy.assistantNoAutomaticAction
+})[recommendedActionKind.value]);
+
+const actionHint = computed(() => ({
+  rule: props.copy.assistantOneClickFixHint,
+  proxy: props.copy.assistantSafeLaunchHint,
+  none: props.copy.assistantNoAutomaticActionHint
+})[recommendedActionKind.value]);
 
 function managedFromRunning(application: RunningApplication): ManagedApplication | undefined {
   if (!application.applicationId || !application.executablePath) return undefined;
@@ -377,8 +402,8 @@ onMounted(async () => {
     diagnosis.value = {
       application: selected.value!, proxyAvailable: true, systemProxyEnabled: false,
       proxyEnvironmentState: "enabled", tunObservation: "possible", knownRule: undefined,
-      proxyConnectivityState: "reachable", applicationNetworkState: "proxyLaunchRecommended",
-      recommendedAction: "launchWithProxy", summary: "canLaunchWithProxy"
+      proxyConnectivityState: "reachable", applicationNetworkState: "environmentConfigured",
+      recommendedAction: "none"
     };
     if (new URLSearchParams(window.location.search).get("impeccable-review") === "assistant-result") {
       result.value = {
@@ -459,10 +484,10 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else class="assistant-section assistant-action-panel">
-        <div><span class="eyebrow">{{ copy.assistantNextStep }}</span><h2>{{ diagnosis.summary === 'knownApplicationRule' ? copy.assistantOneClickFix : copy.assistantSafeLaunch }}</h2><p>{{ diagnosis.summary === 'knownApplicationRule' ? copy.assistantOneClickFixHint : copy.assistantSafeLaunchHint }}</p></div>
+        <div><span class="eyebrow">{{ copy.assistantNextStep }}</span><h2>{{ actionTitle }}</h2><p>{{ actionHint }}</p></div>
         <div class="assistant-actions">
-          <button v-if="diagnosis.summary === 'knownApplicationRule'" class="primary-action" type="button" @click="prepareRuleFix">{{ copy.assistantPreviewFix }}</button>
-          <button v-else class="primary-action" type="button" :disabled="!diagnosis.proxyAvailable" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
+          <button v-if="recommendedActionKind === 'rule'" class="primary-action" type="button" @click="prepareRuleFix">{{ copy.assistantPreviewFix }}</button>
+          <button v-else-if="recommendedActionKind === 'proxy'" class="primary-action" type="button" :disabled="!diagnosis.proxyAvailable" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
           <button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button>
           <button class="secondary-action" type="button" @click="launch('direct')">{{ copy.assistantLaunchDirect }}</button>
           <button class="secondary-action" type="button" @click="startOver">{{ copy.assistantChooseAgain }}</button>

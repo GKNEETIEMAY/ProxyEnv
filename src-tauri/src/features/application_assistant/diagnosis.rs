@@ -12,8 +12,7 @@ use crate::{
 };
 
 use super::{
-    rules, ApplicationDiagnosis, ApplicationNetworkState, DiagnosisSummary, ManagedApplication,
-    RecommendedAction,
+    rules, ApplicationDiagnosis, ApplicationNetworkState, ManagedApplication, RecommendedAction,
 };
 
 pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis> {
@@ -79,7 +78,7 @@ enum RuleInspectionState {
 }
 
 fn build_diagnosis(application: ManagedApplication, input: DiagnosisInput) -> ApplicationDiagnosis {
-    let (application_network_state, recommended_action, summary) = decide(&input);
+    let (application_network_state, recommended_action) = decide(&input);
     ApplicationDiagnosis {
         application,
         proxy_available: input.proxy_available,
@@ -90,13 +89,10 @@ fn build_diagnosis(application: ManagedApplication, input: DiagnosisInput) -> Ap
         proxy_connectivity_state: input.proxy_connectivity_state,
         application_network_state,
         recommended_action,
-        summary,
     }
 }
 
-fn decide(
-    input: &DiagnosisInput,
-) -> (ApplicationNetworkState, RecommendedAction, DiagnosisSummary) {
+fn decide(input: &DiagnosisInput) -> (ApplicationNetworkState, RecommendedAction) {
     let proxy_failed = matches!(
         input.proxy_connectivity_state,
         Some(ProxyConnectivityState::Unreachable | ProxyConnectivityState::LocalProxyUnavailable)
@@ -105,29 +101,21 @@ fn decide(
         return (
             ApplicationNetworkState::Unsupported,
             RecommendedAction::None,
-            DiagnosisSummary::Unsupported,
         );
     }
     if matches!(input.rule_inspection, RuleInspectionState::Ambiguous) {
-        return (
-            ApplicationNetworkState::Conflict,
-            RecommendedAction::None,
-            DiagnosisSummary::Unsupported,
-        );
+        return (ApplicationNetworkState::Conflict, RecommendedAction::None);
     }
-    if matches!(input.rule_inspection, RuleInspectionState::AlreadyCurrent) {
+    if matches!(input.rule_inspection, RuleInspectionState::AlreadyCurrent)
+        && input.known_rule.is_some()
+    {
         return (
-            ApplicationNetworkState::Ready,
+            ApplicationNetworkState::ConfirmedReady,
             RecommendedAction::None,
-            DiagnosisSummary::Normal,
         );
     }
     if matches!(input.rule_inspection, RuleInspectionState::Unavailable) {
-        return (
-            ApplicationNetworkState::Unsupported,
-            RecommendedAction::None,
-            DiagnosisSummary::Unsupported,
-        );
+        return (ApplicationNetworkState::Unknown, RecommendedAction::None);
     }
     if let (RuleInspectionState::Ready, Some(rule_id)) = (input.rule_inspection, &input.known_rule)
     {
@@ -136,24 +124,24 @@ fn decide(
             RecommendedAction::ApplyKnownRule {
                 rule_id: rule_id.clone(),
             },
-            DiagnosisSummary::KnownApplicationRule,
         );
     }
-    if matches!(
-        input.proxy_environment_state,
-        ProxyEnvironmentState::Enabled
-    ) {
-        return (
-            ApplicationNetworkState::Ready,
+    if matches!(input.rule_inspection, RuleInspectionState::Ready) {
+        return (ApplicationNetworkState::Unknown, RecommendedAction::None);
+    }
+    match input.proxy_environment_state {
+        ProxyEnvironmentState::Enabled => (
+            ApplicationNetworkState::EnvironmentConfigured,
             RecommendedAction::None,
-            DiagnosisSummary::Normal,
-        );
+        ),
+        ProxyEnvironmentState::Partial | ProxyEnvironmentState::Mismatch => {
+            (ApplicationNetworkState::Conflict, RecommendedAction::None)
+        }
+        ProxyEnvironmentState::Disabled => (
+            ApplicationNetworkState::ProxyLaunchRecommended,
+            RecommendedAction::LaunchWithProxy,
+        ),
     }
-    (
-        ApplicationNetworkState::ProxyLaunchRecommended,
-        RecommendedAction::LaunchWithProxy,
-        DiagnosisSummary::CanLaunchWithProxy,
-    )
 }
 
 #[cfg(test)]
@@ -196,20 +184,18 @@ mod tests {
             diagnosis.recommended_action,
             RecommendedAction::LaunchWithProxy
         );
-        assert_eq!(diagnosis.summary, DiagnosisSummary::CanLaunchWithProxy);
     }
 
     #[test]
-    fn reports_ready_when_environment_already_matches_the_active_proxy() {
+    fn enabled_environment_for_an_unknown_application_is_not_confirmed_ready() {
         let mut input = input();
         input.proxy_environment_state = ProxyEnvironmentState::Enabled;
         let diagnosis = build_diagnosis(application(), input);
         assert_eq!(
             diagnosis.application_network_state,
-            ApplicationNetworkState::Ready
+            ApplicationNetworkState::EnvironmentConfigured
         );
         assert_eq!(diagnosis.recommended_action, RecommendedAction::None);
-        assert_eq!(diagnosis.summary, DiagnosisSummary::Normal);
     }
 
     #[test]
@@ -228,7 +214,6 @@ mod tests {
                 rule_id: "example-rule".into()
             }
         );
-        assert_eq!(diagnosis.summary, DiagnosisSummary::KnownApplicationRule);
     }
 
     #[test]
@@ -241,7 +226,6 @@ mod tests {
             ApplicationNetworkState::Conflict
         );
         assert_eq!(diagnosis.recommended_action, RecommendedAction::None);
-        assert_eq!(diagnosis.summary, DiagnosisSummary::Unsupported);
     }
 
     #[test]
@@ -252,7 +236,7 @@ mod tests {
         let diagnosis = build_diagnosis(application(), input);
         assert_eq!(
             diagnosis.application_network_state,
-            ApplicationNetworkState::Ready
+            ApplicationNetworkState::ConfirmedReady
         );
         assert_eq!(diagnosis.recommended_action, RecommendedAction::None);
     }
@@ -265,7 +249,7 @@ mod tests {
         let diagnosis = build_diagnosis(application(), input);
         assert_eq!(
             diagnosis.application_network_state,
-            ApplicationNetworkState::Unsupported
+            ApplicationNetworkState::Unknown
         );
         assert_eq!(diagnosis.recommended_action, RecommendedAction::None);
     }
@@ -312,5 +296,52 @@ mod tests {
 
         assert!(diagnosis.system_proxy_enabled);
         assert_eq!(diagnosis.tun_observation, TunObservationState::Detected);
+        assert_eq!(
+            diagnosis.application_network_state,
+            ApplicationNetworkState::ProxyLaunchRecommended
+        );
+        assert_eq!(
+            diagnosis.recommended_action,
+            RecommendedAction::LaunchWithProxy
+        );
+    }
+
+    #[test]
+    fn tun_detection_never_confirms_application_connectivity() {
+        let mut with_tun = input();
+        with_tun.proxy_environment_state = ProxyEnvironmentState::Enabled;
+        with_tun.tun_observation = TunObservationState::Detected;
+
+        let mut without_tun = with_tun.clone();
+        without_tun.tun_observation = TunObservationState::NotDetected;
+
+        let detected = build_diagnosis(application(), with_tun);
+        let not_detected = build_diagnosis(application(), without_tun);
+        assert_eq!(
+            detected.application_network_state,
+            ApplicationNetworkState::EnvironmentConfigured
+        );
+        assert_eq!(
+            detected.application_network_state,
+            not_detected.application_network_state
+        );
+        assert_eq!(detected.recommended_action, not_detected.recommended_action);
+    }
+
+    #[test]
+    fn mismatched_or_partial_environment_is_a_conflict() {
+        for state in [
+            ProxyEnvironmentState::Mismatch,
+            ProxyEnvironmentState::Partial,
+        ] {
+            let mut input = input();
+            input.proxy_environment_state = state;
+            let diagnosis = build_diagnosis(application(), input);
+            assert_eq!(
+                diagnosis.application_network_state,
+                ApplicationNetworkState::Conflict
+            );
+            assert_eq!(diagnosis.recommended_action, RecommendedAction::None);
+        }
     }
 }

@@ -67,22 +67,13 @@ pub enum RecommendedAction {
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub enum ApplicationNetworkState {
-    Unknown,
-    Ready,
+    ConfirmedReady,
+    EnvironmentConfigured,
     ProxyLaunchRecommended,
     RuleSyncRecommended,
-    RuleMismatch,
-    Unsupported,
     Conflict,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum DiagnosisSummary {
-    Normal,
-    CanLaunchWithProxy,
-    KnownApplicationRule,
     Unsupported,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
@@ -97,5 +88,4 @@ pub struct ApplicationDiagnosis {
     pub proxy_connectivity_state: Option<ProxyConnectivityState>,
     pub application_network_state: ApplicationNetworkState,
     pub recommended_action: RecommendedAction,
-    pub summary: DiagnosisSummary,
 }
