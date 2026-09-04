@@ -48,6 +48,9 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
+      - name: Test diagnostic report localization
+        run: pnpm test:report
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:

@@ -12,9 +12,10 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test:report": "node --test scripts/test-diagnostic-report.mjs",
     "tauri": "tauri",
     "release:build": "tauri build --ci -- --locked",
-    "check": "pnpm build && cargo test --manifest-path src-tauri/Cargo.toml --locked"
+    "check": "pnpm build && pnpm test:report && cargo test --manifest-path src-tauri/Cargo.toml --locked"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
