@@ -46,6 +46,15 @@ test("unknown observations do not become successful results", () => {
   }
 });
 
+test("copied reports omit dialog-only snapshot and privacy notices in every locale", () => {
+  for (const copy of Object.values(messages)) {
+    const report = formatDiagnosticReport(data, copy);
+    assert.ok(!report.includes(copy.reportSnapshot));
+    assert.ok(!report.includes(copy.reportPrivacy));
+    assert.ok(report.includes(copy.assistantRecommendation));
+  }
+});
+
 test("OS-specific variable casing is independent of output locale", () => {
   for (const copy of Object.values(messages)) {
     const report = formatDiagnosticReport({ ...data, os: "linux" }, copy);

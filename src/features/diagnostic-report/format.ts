@@ -40,8 +40,6 @@ export function formatDiagnosticReport(data: DiagnosticReportData, copy: Copy): 
     section(copy.proxyEnvironment, [field(copy.reportStatus, environment[data.environment]), field(copy.reportManagedVariables, variables.join(", ") || copy.reportNone)]),
     section(copy.assistantTun, [field(copy.reportStatus, tun[data.tun])]),
     section(copy.reportConnectivity, [field(copy.reportStatus, connection[data.connectivity]), field(copy.reportSuccessfulTargets, `${data.successfulTargets} / ${data.totalTargets}`), field(copy.reportErrors, data.errorCategories.map(kind => errors[kind]).join("; ") || copy.reportNone)]),
-    section(copy.assistantTitle, [field(copy.reportCategory, category[data.assistant.category]), field(copy.assistantDiagnosisState, diagnosis[data.assistant.state]), field(copy.assistantRecommendation, action[data.assistant.action])]),
-    copy.reportSnapshot,
-    copy.reportPrivacy
+    section(copy.assistantTitle, [field(copy.reportCategory, category[data.assistant.category]), field(copy.assistantDiagnosisState, diagnosis[data.assistant.state]), field(copy.assistantRecommendation, action[data.assistant.action])])
   ].join("\n\n");
 }
