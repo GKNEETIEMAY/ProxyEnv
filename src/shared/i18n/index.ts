@@ -3,6 +3,17 @@ import type { AppLanguage } from "../types";
 export type Locale = Exclude<AppLanguage, "system">;
 
 const en = {
+  currentActiveProxy: "Current active proxy",
+  selectActiveProxy: "Select an active proxy",
+  activeProxyAuto: "Recommended",
+  activeProxyUser: "Selected by you",
+  activeProxySystem: "Recommended from System Proxy",
+  activeProxySharedHint: "Sync, connectivity checks and the application assistant all use this proxy. Switching selects it only; environment changes still require Apply.",
+  activeProxyUnavailableTitle: "The selected proxy is unavailable",
+  activeProxyUnavailable: "Your selection has been kept. Select an available proxy on the home page; ProxyEnv will not switch to another client automatically.",
+  syncActiveProxy: "Apply current active proxy",
+  activeProxyChanged: "The active proxy changed. Check the application again before continuing; previous previews are no longer valid.",
+  recheckApplication: "Check application again",
   appName: "ProxyEnv",
   appTagline: "Proxy environment, without the friction.",
   home: "Proxy",
@@ -284,6 +295,17 @@ const en = {
 export type Copy = { [K in keyof typeof en]: string };
 
 const zh: Copy = {
+  currentActiveProxy: "当前活动代理",
+  selectActiveProxy: "重新选择活动代理",
+  activeProxyAuto: "自动推荐",
+  activeProxyUser: "用户已选择",
+  activeProxySystem: "根据系统代理推荐",
+  activeProxySharedHint: "环境同步、连通性测试和应用助手统一使用此代理。切换只改变选择，环境变量仍需点击应用。",
+  activeProxyUnavailableTitle: "当前活动代理已不可用",
+  activeProxyUnavailable: "已保留原选择，请在主页重新选择可用代理；ProxyEnv 不会自动切换到其它客户端。",
+  syncActiveProxy: "应用当前活动代理",
+  activeProxyChanged: "活动代理已变化，请重新检查应用后继续；之前的配置预览已失效。",
+  recheckApplication: "重新检查应用",
   assistantConfirmedReadyTitle: "已确认可用",
   assistantConfirmedReadyBody: "经过验证的应用规则已与活动代理一致；这是应用级证据，不代表其它网络层已经启用。",
   assistantEnvironmentConfiguredTitle: "环境已配置，应用行为未知",
@@ -337,6 +359,17 @@ const zh: Copy = {
 
 const ja: Copy = {
   ...en,
+  currentActiveProxy: "現在のアクティブプロキシ",
+  selectActiveProxy: "アクティブプロキシを選択",
+  activeProxyAuto: "自動推奨",
+  activeProxyUser: "手動選択済み",
+  activeProxySystem: "システムプロキシから推奨",
+  activeProxySharedHint: "環境の同期、接続テスト、アプリ確認はこのプロキシを共用します。切り替えでは環境変数を変更せず、適用操作が必要です。",
+  activeProxyUnavailableTitle: "選択したプロキシは利用できません",
+  activeProxyUnavailable: "選択は保持されています。ホームで利用可能なプロキシを選び直してください。他のクライアントへ自動で切り替えません。",
+  syncActiveProxy: "現在のアクティブプロキシを適用",
+  activeProxyChanged: "アクティブプロキシが変わりました。再確認してから続けてください。以前の設定プレビューは無効です。",
+  recheckApplication: "アプリを再確認",
   assistantConfirmedReadyTitle: "利用可能を確認済み",
   assistantConfirmedReadyBody: "検証済みのアプリルールがアクティブなプロキシと一致しています。このアプリ単位の根拠は、他のネットワーク層の有効性を意味しません。",
   assistantEnvironmentConfiguredTitle: "環境設定済み、アプリの動作は不明",
@@ -382,6 +415,17 @@ const ja: Copy = {
 
 const ko: Copy = {
   ...en,
+  currentActiveProxy: "현재 활성 프록시",
+  selectActiveProxy: "활성 프록시 선택",
+  activeProxyAuto: "자동 권장",
+  activeProxyUser: "사용자가 선택함",
+  activeProxySystem: "시스템 프록시 기반 권장",
+  activeProxySharedHint: "환경 동기화, 연결 테스트, 앱 도우미는 이 프록시를 함께 사용합니다. 선택만 바꾸며 환경 변수 변경에는 적용이 필요합니다.",
+  activeProxyUnavailableTitle: "선택한 프록시를 사용할 수 없음",
+  activeProxyUnavailable: "기존 선택을 유지했습니다. 홈에서 사용 가능한 프록시를 다시 선택하세요. 다른 클라이언트로 자동 전환하지 않습니다.",
+  syncActiveProxy: "현재 활성 프록시 적용",
+  activeProxyChanged: "활성 프록시가 변경되었습니다. 앱을 다시 확인한 후 계속하세요. 이전 설정 미리보기는 무효입니다.",
+  recheckApplication: "앱 다시 확인",
   assistantConfirmedReadyTitle: "사용 가능 확인됨",
   assistantConfirmedReadyBody: "검증된 앱 규칙이 활성 프록시와 일치합니다. 이 앱 수준의 근거가 다른 네트워크 계층의 활성화를 의미하지는 않습니다.",
   assistantEnvironmentConfiguredTitle: "환경 설정됨, 앱 동작은 알 수 없음",

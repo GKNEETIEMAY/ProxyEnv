@@ -79,7 +79,7 @@ pub struct ProxyEnvironmentStatus {
     pub state: ProxyEnvironmentState,
     pub entries: Vec<EnvironmentEntry>,
     pub selected_variables: Vec<ProxyVariable>,
-    pub active_candidate: Option<ProxyCandidate>,
+    pub active_proxy: super::active::ActiveProxyContext,
     pub candidates: Vec<ProxyCandidate>,
     pub matches_active_proxy: bool,
     pub snapshot_available: bool,

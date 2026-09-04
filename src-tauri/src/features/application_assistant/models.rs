@@ -79,6 +79,7 @@ pub enum ApplicationNetworkState {
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplicationDiagnosis {
+    pub active_proxy_revision: u64,
     pub application: ManagedApplication,
     pub proxy_available: bool,
     pub system_proxy_enabled: bool,

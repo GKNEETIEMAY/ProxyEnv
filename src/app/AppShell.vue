@@ -55,6 +55,7 @@ const environment = ref<EnvironmentStatus>({
   state: "disabled",
   entries: [],
   selectedVariables: [...defaultSettings.proxyVariables],
+  activeProxy: { selectedCandidateId: null, candidate: null, selectionSource: "auto", available: false, revision: 0 },
   candidates: [],
   matchesActiveProxy: false,
   snapshotAvailable: false
@@ -80,7 +81,8 @@ let unlisten: UnlistenFn[] = [];
 
 const locale = computed(() => resolveLocale(draftSettings.value.language));
 const copy = computed(() => messages[locale.value]);
-const detected = computed(() => candidates.value.find((candidate) => candidate.listening) ?? candidates.value[0]);
+const activeProxyContext = computed(() => environment.value.activeProxy);
+const detected = computed(() => activeProxyContext.value.candidate ?? undefined);
 const systemProxy = computed(() => candidates.value.find((candidate) => candidate.source.includes("windowsSystemProxy")));
 const endpoint = computed(() => detected.value ? `${detected.value.host}:${detected.value.port}` : "");
 const updateMessage = computed(() => {
@@ -170,8 +172,7 @@ async function refresh(silent = false) {
         evidence: [{ kind: "enumerationUnavailable", detail: String(cause) }]
       }))
     ]);
-    candidates.value = status.candidates;
-    environment.value = status;
+    acceptEnvironmentStatus(status);
     tun.value = tunObservation;
   } catch (cause) {
     if (!silent) error.value = String(cause);
@@ -181,13 +182,43 @@ async function refresh(silent = false) {
   }
 }
 
-async function applyDetectedProxy(candidate?: ProxyCandidate) {
+function acceptEnvironmentStatus(status: EnvironmentStatus) {
+  if (status.activeProxy.revision < activeProxyContext.value.revision) return;
+  candidates.value = status.candidates;
+  environment.value = status;
+}
+
+async function selectActiveProxy(candidateId: string) {
+  if (toggling.value) return;
   toggling.value = true;
   error.value = "";
   try {
-    const target = candidate ?? detected.value;
-    if (!target?.listening) throw new Error(copy.value.noProxyHint);
-    await backend.syncProxyEnvironment(target);
+    if (reviewPreview) {
+      const candidate = candidates.value.find((candidate) => candidate.id === candidateId);
+      if (candidate?.listening) environment.value.activeProxy = {
+        candidate, selectedCandidateId: candidate.id, selectionSource: "user", available: true,
+        revision: activeProxyContext.value.revision + 1
+      };
+      // The preview's fixed environment points to v2rayN; production status always comes from Rust.
+      environment.value.matchesActiveProxy = candidate?.id === "review-v2rayn";
+      environment.value.state = environment.value.matchesActiveProxy ? "enabled" : "mismatch";
+    } else {
+      acceptEnvironmentStatus(await backend.selectActiveProxy(candidateId));
+    }
+  } catch (cause) {
+    error.value = String(cause);
+    await refresh(true);
+  } finally {
+    toggling.value = false;
+  }
+}
+
+async function applyDetectedProxy() {
+  toggling.value = true;
+  error.value = "";
+  try {
+    if (!activeProxyContext.value.available) throw new Error(copy.value.activeProxyUnavailable);
+    acceptEnvironmentStatus(await backend.syncProxyEnvironment(activeProxyContext.value.revision));
     await refresh(true);
   } catch (cause) {
     error.value = String(cause);
@@ -201,7 +232,7 @@ async function applyManualProxy(endpoint: ProxyEndpoint) {
   toggling.value = true;
   error.value = "";
   try {
-    await backend.syncManualProxyEnvironment(endpoint);
+    acceptEnvironmentStatus(await backend.syncManualProxyEnvironment(endpoint));
     await refresh(true);
   } catch (cause) {
     error.value = String(cause);
@@ -467,6 +498,7 @@ onMounted(async () => {
     environment.value = {
       state: "enabled",
       selectedVariables: ["http", "https"],
+      activeProxy: { selectedCandidateId: null, candidate: null, selectionSource: "auto", available: false, revision: 0 },
       candidates: [],
       matchesActiveProxy: true,
       snapshotAvailable: true,
@@ -491,7 +523,7 @@ onMounted(async () => {
     };
     if (preview === "tun-only") {
       candidates.value = [];
-    } else if (preview === "multi-client") {
+    } else if (preview === "multi-client" || preview === "active-unavailable") {
       candidates.value = [primaryPreviewCandidate, {
         id: "review-clash-verge",
         clientName: "Clash Verge Rev",
@@ -518,7 +550,17 @@ onMounted(async () => {
     } else {
       candidates.value = [primaryPreviewCandidate];
     }
-    environment.value.activeCandidate = candidates.value.find((candidate) => candidate.listening);
+    if (preview !== "tun-only") environment.value.activeProxy = {
+      candidate: primaryPreviewCandidate, selectedCandidateId: primaryPreviewCandidate.id,
+      selectionSource: "systemProxy", available: true, revision: 1
+    };
+    if (preview === "active-unavailable") {
+      candidates.value = candidates.value.filter((candidate) => candidate.id !== primaryPreviewCandidate.id);
+      environment.value.activeProxy = {
+        candidate: { ...primaryPreviewCandidate, listening: false }, selectedCandidateId: primaryPreviewCandidate.id,
+        selectionSource: "user", available: false, revision: 2
+      };
+    }
     tun.value = {
       state: "detected",
       interfaceName: preview === "tun-only" ? "bby104_2" : "singbox_tun",
@@ -552,7 +594,7 @@ onMounted(async () => {
   });
   systemDark.addEventListener("change", onSystemThemeChange);
   unlisten = await Promise.all([
-    listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { environment.value = payload; }),
+    listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { acceptEnvironmentStatus(payload); }),
     listen<string>("operation-error", ({ payload }) => { error.value = payload; }),
     listen("second-instance-opened", showSecondInstanceNotice)
   ]);
@@ -591,6 +633,11 @@ onBeforeUnmount(() => {
       @close="closeWindow"
     />
 
+    <div v-if="activeProxyContext.candidate && !activeProxyContext.available" class="notice notice-warning active-proxy-alert" role="status">
+      <p><strong>{{ copy.activeProxyUnavailableTitle }}</strong><span>{{ copy.activeProxyUnavailable }}</span></p>
+      <button v-if="view !== 'home'" class="secondary-action" type="button" @click="view = 'home'">{{ copy.selectActiveProxy }}</button>
+    </div>
+
     <Transition name="view-fade" mode="out-in">
     <ProxyPage
       v-if="view === 'home'"
@@ -609,6 +656,7 @@ onBeforeUnmount(() => {
       :inspect-manual-endpoint="inspectManualEndpoint"
       @refresh="refresh(false)"
       @apply-detected="applyDetectedProxy"
+      @select-active="selectActiveProxy"
       @apply-manual="applyManualProxy"
       @disable="disableEnvironment"
       @restore="restoreEnvironment"
@@ -622,10 +670,11 @@ onBeforeUnmount(() => {
       key="assistant"
       :copy="copy"
       :review-preview="reviewPreview"
+      :active-proxy-context="activeProxyContext"
       :system-proxy="systemProxy"
-      :active-proxy="detected?.listening ? detected : undefined"
+      :active-proxy="activeProxyContext.available ? detected : undefined"
       :tun="tun"
-      :proxy-available="Boolean(detected?.listening)"
+      :proxy-available="activeProxyContext.available"
       :network-loading="loading"
     />
 

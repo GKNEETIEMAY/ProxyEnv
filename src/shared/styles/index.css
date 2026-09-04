@@ -141,6 +141,18 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .layer-heading { display: flex; margin-bottom: 20px; align-items: baseline; justify-content: space-between; gap: 16px; }
 .layer-heading h2, .environment-summary h2 { margin: 0; font-size: 13px; font-weight: 680; letter-spacing: -.015em; }
 .layer-heading > span, .environment-summary > div:first-child p { margin: 4px 0 0; color: var(--faint); font-size: 10px; }
+.active-proxy-selector { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); align-items: center; gap: 8px 16px; margin-bottom: 22px; }
+.active-proxy-selector label { color: var(--ink); font-size: 12px; font-weight: 650; }
+.active-proxy-selector label span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.active-proxy-selector select { min-width: 0; width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface-strong); color: var(--ink); font: inherit; }
+.active-proxy-selector p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.active-proxy-alert { margin: 18px 34px 0; flex-wrap: wrap; }
+.assistant-active-proxy { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.assistant-active-proxy code { color: var(--ink); margin-inline-start: 8px; }
+@media (max-width: 680px) {
+  .active-proxy-selector { grid-template-columns: minmax(0, 1fr); }
+  .active-proxy-alert { margin-inline: 20px; }
+}
 .client-layer .client-heading { display: grid; grid-template-columns: 56px minmax(145px, 1fr) 270px; }
 .client-layer .endpoint-line { width: 270px; margin: 0; align-items: flex-end; }
 .suspected-endpoint code { color: var(--warning); font: 600 14px/1.4 "Cascadia Mono", "SFMono-Regular", Consolas, monospace; }

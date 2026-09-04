@@ -52,7 +52,7 @@ impl ProxyEnvironmentService {
             state,
             entries,
             selected_variables: selected.to_vec(),
-            active_candidate,
+            active_proxy: super::active::ActiveProxyContext::default(),
             candidates: Vec::new(),
             matches_active_proxy,
             snapshot_available,

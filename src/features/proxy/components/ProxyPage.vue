@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref } from "vue";
 import type { Copy } from "../../../shared/i18n";
 import type { EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, ProxyProtocol, TunObservation } from "../../../shared/types";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 import NetworkObservationPanel from "../../network-observation/components/NetworkObservationPanel.vue";
 
 const props = defineProps<{ copy: Copy; environment: EnvironmentStatus; candidates: ProxyCandidate[]; detected?: ProxyCandidate; systemProxy?: ProxyCandidate; tun: TunObservation; error: string; loading: boolean; toggling: boolean; copiedEndpoint: boolean; selectedVariables: ManagedProxyVariable[]; inspectManualEndpoint: (endpoint: ProxyEndpoint) => Promise<ProxyEndpointInspection> }>();
-const emit = defineEmits<{ refresh: []; applyDetected: [candidate: ProxyCandidate]; applyManual: [endpoint: ProxyEndpoint]; disable: []; restore: []; copyEndpoint: [candidate: ProxyCandidate]; toggleVariable: [name: string]; openAssistant: [] }>();
+const emit = defineEmits<{ refresh: []; applyDetected: []; selectActive: [candidateId: string]; applyManual: [endpoint: ProxyEndpoint]; disable: []; restore: []; copyEndpoint: [candidate: ProxyCandidate]; toggleVariable: [name: string]; openAssistant: [] }>();
 
 const clientIcons: Record<string, string> = {
   "clash-verge-rev": "/proxy-clients/clash-verge-rev.png",
@@ -29,7 +29,15 @@ const confirmationDialog = ref<HTMLDialogElement>();
 const manualAttempted = ref(false);
 const inspectingManual = ref(false);
 const inspectionWarning = ref<"notListening" | "unknownProtocol" | "protocolMismatch" | "inspectionFailed">();
-const selectedClientKey = ref("");
+const selectedClientKey = computed(() => props.detected ? candidateClientKey(props.detected) : "");
+const activeContext = computed(() => props.environment.activeProxy);
+const selectableCandidates = computed(() => props.candidates.filter((candidate) => candidate.listening && candidate.protocol !== "unknown"));
+const selectionSourceLabel = computed(() => ({
+  auto: props.copy.activeProxyAuto,
+  user: props.copy.activeProxyUser,
+  systemProxy: props.copy.activeProxySystem,
+  manual: props.copy.manualProxy
+})[activeContext.value.selectionSource]);
 const activeCount = computed(() => props.environment.entries.filter((entry) => entry.exists).length);
 const genericProxyIcon = clientIcons["generic-proxy"];
 const clientCandidates = computed(() => {
@@ -43,12 +51,12 @@ const clientCandidates = computed(() => {
   }
   return [...clients.values()];
 });
-const displayedCandidate = computed(() => clientCandidates.value.find((candidate) => candidateClientKey(candidate) === selectedClientKey.value) ?? props.detected ?? clientCandidates.value[0]);
+const displayedCandidate = computed(() => props.detected);
 const displayedEndpoint = computed(() => displayedCandidate.value ? candidateEndpoint(displayedCandidate.value) : "");
 const detectedIcon = computed(() => candidateIcon(displayedCandidate.value));
-const tunSuspected = computed(() => !props.detected?.listening && (props.tun.state === "possible" || props.tun.state === "detected"));
+const tunSuspected = computed(() => !props.detected && (props.tun.state === "possible" || props.tun.state === "detected"));
 const otherClients = computed(() => clientCandidates.value.filter((candidate) => candidateClientKey(candidate) !== selectedClientKey.value));
-const currentClientIndex = computed(() => Math.max(0, clientCandidates.value.findIndex((candidate) => candidateClientKey(candidate) === selectedClientKey.value)));
+const currentClientIndex = computed(() => clientCandidates.value.findIndex((candidate) => candidateClientKey(candidate) === selectedClientKey.value));
 const activeCandidateCount = computed(() => clientCandidates.value.filter((candidate) => candidate.listening).length);
 const observedCandidateCount = computed(() => clientCandidates.value.length + (tunSuspected.value ? 1 : 0));
 const automaticDetectionLabel = computed(() => {
@@ -57,24 +65,11 @@ const automaticDetectionLabel = computed(() => {
     .replace("{active}", String(activeCandidateCount.value))
     .replace("{total}", String(observedCandidateCount.value));
 });
-const environmentMatchesDisplayedCandidate = computed(() => {
-  const candidate = displayedCandidate.value;
-  if (!candidate) return props.environment.matchesActiveProxy;
-  const selectedEntries = props.environment.entries.filter((entry) => {
-    const key = managedVariableKey(entry.name);
-    return key !== undefined && props.selectedVariables.includes(key);
-  });
-  return selectedEntries.length === props.selectedVariables.length
-    && selectedEntries.every((entry) => entry.exists && entry.value && environmentValueMatchesCandidate(entry.value, candidate));
-});
-const effectiveEnvironmentState = computed(() => displayedCandidate.value
-  && props.environment.state !== "disabled"
-  && !environmentMatchesDisplayedCandidate.value
-  ? "mismatch"
-  : props.environment.state);
+const environmentMatchesDisplayedCandidate = computed(() => props.environment.matchesActiveProxy);
+const effectiveEnvironmentState = computed(() => props.environment.state);
 const stateLabel = computed(() => ({ disabled: props.copy.environmentDisabled, partial: props.copy.environmentPartial, enabled: props.copy.environmentEnabled, mismatch: props.copy.environmentMismatch })[effectiveEnvironmentState.value]);
 const stateHint = computed(() => ({ disabled: props.copy.environmentOffHint, partial: props.copy.partialHint, enabled: props.copy.environmentOnHint, mismatch: props.copy.mismatchHint })[effectiveEnvironmentState.value]);
-const canApplyAutomatic = computed(() => Boolean(displayedCandidate.value?.listening));
+const canApplyAutomatic = computed(() => activeContext.value.available);
 const manualHostValid = computed(() => {
   const host = manualHost.value.trim().toLowerCase();
   if (host === "localhost" || host === "::1" || host === "[::1]") return true;
@@ -110,21 +105,8 @@ function candidateEndpoint(candidate: ProxyCandidate): string {
   return `${candidate.host}:${candidate.port}`;
 }
 
-function environmentValueMatchesCandidate(value: string, candidate: ProxyCandidate): boolean {
-  try {
-    const parsed = new URL(value);
-    const host = parsed.hostname.replace(/^\[|\]$/g, "").toLocaleLowerCase();
-    const candidateHost = candidate.host.replace(/^\[|\]$/g, "").toLocaleLowerCase();
-    const sameHost = host === candidateHost
-      || [host, candidateHost].every((item) => item === "localhost" || item === "127.0.0.1" || item === "::1");
-    return sameHost && Number(parsed.port) === candidate.port;
-  } catch {
-    return false;
-  }
-}
-
 function selectClient(candidate: ProxyCandidate) {
-  selectedClientKey.value = candidateClientKey(candidate);
+  if (!props.toggling && candidate.listening && candidate.protocol !== "unknown") emit("selectActive", candidate.id);
 }
 
 function showAdjacentClient(direction: -1 | 1) {
@@ -132,12 +114,6 @@ function showAdjacentClient(direction: -1 | 1) {
   const candidate = clientCandidates.value[nextIndex];
   if (candidate) selectClient(candidate);
 }
-
-watch([clientCandidates, () => props.detected?.id], ([clients]) => {
-  if (clients.some((candidate) => candidateClientKey(candidate) === selectedClientKey.value)) return;
-  const initial = clients.find((candidate) => candidate.id === props.detected?.id) ?? clients[0];
-  selectedClientKey.value = initial ? candidateClientKey(initial) : "";
-}, { immediate: true });
 
 function protocolsCompatible(selected: ProxyProtocol, detected: ProxyProtocol): boolean {
   return selected === detected
@@ -193,6 +169,15 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
     <section class="proxy-console">
       <div class="layer-row client-layer">
         <div class="layer-heading"><h2>{{ copy.proxyClient }}</h2><span>{{ automaticDetectionLabel }}</span></div>
+        <div class="active-proxy-selector">
+          <label for="active-proxy-select">{{ copy.currentActiveProxy }}<span>{{ selectionSourceLabel }}</span></label>
+          <select id="active-proxy-select" :value="activeContext.available ? activeContext.selectedCandidateId : ''" :disabled="toggling || selectableCandidates.length === 0" @change="emit('selectActive', ($event.target as HTMLSelectElement).value)">
+            <option v-if="!activeContext.available" value="" disabled>{{ copy.selectActiveProxy }}</option>
+            <option v-if="activeContext.selectionSource === 'manual' && activeContext.available && displayedCandidate" :value="displayedCandidate.id">{{ copy.manualProxy }} · {{ displayedEndpoint }}</option>
+            <option v-for="candidate in selectableCandidates" :key="candidate.id" :value="candidate.id">{{ candidate.clientName || candidate.processName || copy.localProxy }} · {{ candidateEndpoint(candidate) }} · {{ candidate.protocol }}</option>
+          </select>
+          <p>{{ copy.activeProxySharedHint }}</p>
+        </div>
         <div v-if="displayedCandidate && !tunSuspected" class="client-heading">
           <span class="client-art"><img :src="detectedIcon" alt="" @error="useGenericIcon" /></span>
           <div><h1>{{ displayedCandidate.clientName || copy.localProxy }}</h1><p><span class="status-dot" :class="{ quiet: !displayedCandidate.listening }"></span>{{ displayedCandidate.listening ? copy.listening : copy.notListening }}</p></div>
@@ -205,18 +190,18 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
         </div>
         <div v-else class="empty-state"><span class="client-art generic"><img :src="detectedIcon" alt="" @error="useGenericIcon" /></span><div><h1>{{ loading ? copy.detecting : copy.noProxy }}</h1><p>{{ copy.noProxyHint }}</p></div></div>
 
-        <div v-if="clientCandidates.length > 1 && !tunSuspected" class="proxy-client-pager">
+        <div v-if="otherClients.length > 0 && !tunSuspected" class="proxy-client-pager">
           <div class="candidate-results-heading"><strong>{{ copy.otherProxyClients }}</strong><span>{{ otherClients.length }}</span></div>
           <div class="other-client-list">
-            <button v-for="candidate in otherClients" :key="candidateClientKey(candidate)" type="button" @click="selectClient(candidate)">
+            <button v-for="candidate in otherClients" :key="candidateClientKey(candidate)" type="button" :disabled="toggling || !candidate.listening || candidate.protocol === 'unknown'" @click="selectClient(candidate)">
               <span class="candidate-icon"><img :src="candidateIcon(candidate)" alt="" @error="useGenericIcon" /></span>
               <span>{{ candidate.clientName || candidate.processName || copy.localProxy }}</span>
             </button>
           </div>
-          <div class="client-page-controls">
-            <button type="button" :disabled="currentClientIndex === 0" :aria-label="copy.previousProxyClient" :title="copy.previousProxyClient" @click="showAdjacentClient(-1)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 5-5 5 5 5" /></svg></button>
+          <div v-if="currentClientIndex >= 0" class="client-page-controls">
+            <button type="button" :disabled="toggling || currentClientIndex <= 0" :aria-label="copy.previousProxyClient" :title="copy.previousProxyClient" @click="showAdjacentClient(-1)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 5-5 5 5 5" /></svg></button>
             <span>{{ currentClientIndex + 1 }} / {{ clientCandidates.length }}</span>
-            <button type="button" :disabled="currentClientIndex === clientCandidates.length - 1" :aria-label="copy.nextProxyClient" :title="copy.nextProxyClient" @click="showAdjacentClient(1)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 5 5 5-5 5" /></svg></button>
+            <button type="button" :disabled="toggling || currentClientIndex === clientCandidates.length - 1" :aria-label="copy.nextProxyClient" :title="copy.nextProxyClient" @click="showAdjacentClient(1)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 5 5 5-5 5" /></svg></button>
           </div>
         </div>
       </div>
@@ -226,7 +211,7 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
       <div class="environment-layer" :class="`state-${effectiveEnvironmentState}`">
         <div class="environment-summary"><div><h2>{{ copy.proxyEnvironment }}</h2><p>{{ copy.environmentLayerHint }}</p></div><div class="environment-state"><span>{{ stateLabel }}</span><p>{{ stateHint }}</p></div></div>
         <div class="source-selector" role="group" :aria-label="copy.proxySource">
-          <button type="button" :class="{ active: sourceMode === 'automatic' }" @click="sourceMode = 'automatic'"><span></span><strong>{{ copy.autoDetect }}</strong><small>{{ displayedCandidate ? displayedEndpoint : copy.noProxy }}</small></button>
+          <button type="button" :class="{ active: sourceMode === 'automatic' }" @click="sourceMode = 'automatic'"><span></span><strong>{{ copy.currentActiveProxy }}</strong><small>{{ displayedCandidate ? displayedEndpoint : copy.noProxy }}</small></button>
           <button type="button" :class="{ active: sourceMode === 'manual' }" @click="sourceMode = 'manual'"><span></span><strong>{{ copy.manualProxy }}</strong><small>{{ copy.manualProxyHint }}</small></button>
         </div>
         <form v-if="sourceMode === 'manual'" class="manual-endpoint" @submit.prevent="requestManualApply">
@@ -236,7 +221,7 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
           <button class="primary-action" type="submit" :disabled="toggling || inspectingManual">{{ inspectingManual ? copy.checkingEndpoint : toggling ? copy.enabling : copy.applyManualProxy }}</button>
         </form>
         <div v-else class="environment-actions">
-          <button v-if="effectiveEnvironmentState === 'disabled' || effectiveEnvironmentState === 'mismatch' || !environmentMatchesDisplayedCandidate" class="primary-action" type="button" :disabled="!canApplyAutomatic || toggling" @click="displayedCandidate && emit('applyDetected', displayedCandidate)">{{ toggling ? copy.enabling : effectiveEnvironmentState === 'mismatch' ? copy.syncToSelectedProxy : copy.applyDetectedProxy }}</button>
+          <button v-if="effectiveEnvironmentState === 'disabled' || effectiveEnvironmentState === 'mismatch' || !environmentMatchesDisplayedCandidate" class="primary-action" type="button" :disabled="!canApplyAutomatic || toggling" @click="emit('applyDetected')">{{ toggling ? copy.enabling : copy.syncActiveProxy }}</button>
           <button v-if="environment.state !== 'disabled'" class="secondary-action danger-action" type="button" :disabled="toggling" @click="emit('disable')">{{ copy.disableProxyEnvironment }}</button>
           <button v-if="environment.snapshotAvailable" class="secondary-action" type="button" :disabled="toggling" @click="emit('restore')">{{ copy.restorePrevious }}</button>
         </div>

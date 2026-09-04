@@ -178,7 +178,13 @@ pub fn detect() -> Result<Vec<ProxyCandidate>> {
             _ => Confidence::Medium,
         };
         candidates.push(ProxyCandidate {
-            id: format!("{}:{}", listener.host, listener.port),
+            id: format!(
+                "{}:{}:{}:{:?}",
+                listener.host,
+                listener.port,
+                process.map_or(0, |process| process.pid),
+                protocol
+            ),
             client_name: Some(client.map_or("其他代理", |client| client.name).into()),
             icon_key: Some(client.map_or("generic-proxy", |client| client.icon).into()),
             process_name: process.map(|process| process.name.clone()),

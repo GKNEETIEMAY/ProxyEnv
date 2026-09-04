@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { backend } from "../../../shared/api/backend";
 import type { Copy } from "../../../shared/i18n";
-import type { ApplicationDiagnosis, ManagedApplication, ProxyCandidate, RuleChangePreview, RunningApplication, TunObservation } from "../../../shared/types";
+import type { ActiveProxyContext, ApplicationDiagnosis, ManagedApplication, ProxyCandidate, RuleChangePreview, RunningApplication, TunObservation } from "../../../shared/types";
 import { withoutWindowsExtendedPathPrefix } from "../../../shared/utils/path";
 import NetworkObservationPanel from "../../network-observation/components/NetworkObservationPanel.vue";
 import ApplicationProxyGuideDialog from "./ApplicationProxyGuideDialog.vue";
 
-const props = defineProps<{ copy: Copy; reviewPreview?: boolean; systemProxy?: ProxyCandidate; activeProxy?: ProxyCandidate; tun: TunObservation; proxyAvailable: boolean; networkLoading: boolean }>();
+const props = defineProps<{ copy: Copy; reviewPreview?: boolean; activeProxyContext: ActiveProxyContext; systemProxy?: ProxyCandidate; activeProxy?: ProxyCandidate; tun: TunObservation; proxyAvailable: boolean; networkLoading: boolean }>();
 
 type ResultState = { success: boolean; title: string; detail: string; backupId?: string };
 
@@ -56,7 +56,9 @@ const diagnosisBody = computed(() => {
   })[diagnosis.value.applicationNetworkState];
 });
 
+const diagnosisIsCurrent = computed(() => diagnosis.value?.activeProxyRevision === props.activeProxyContext.revision);
 const recommendedActionKind = computed<"rule" | "proxy" | "none">(() => {
+  if (!diagnosisIsCurrent.value || !props.activeProxyContext.available) return "none";
   const action = diagnosis.value?.recommendedAction;
   if (action === "launchWithProxy") return "proxy";
   if (typeof action === "object" && action !== null && "applyKnownRule" in action) return "rule";
@@ -89,6 +91,8 @@ function managedFromRunning(application: RunningApplication): ManagedApplication
 
 function failureDetail(cause: unknown): string {
   const message = String(cause);
+  if (message.includes("the active proxy changed")) return props.copy.activeProxyChanged;
+  if (message.includes("the current active proxy is unavailable")) return props.copy.activeProxyUnavailable;
   return message.toLocaleLowerCase("en-US").includes("invalid application:")
     ? props.copy.assistantInvalidExecutable
     : message;
@@ -221,12 +225,13 @@ async function inspectApplication(application: ManagedApplication, pid?: number)
 }
 
 async function prepareRuleFix() {
-  if (!selected.value) return;
+  if (!selected.value || !diagnosisIsCurrent.value || !diagnosis.value) return;
+  const revision = diagnosis.value.activeProxyRevision;
   busy.value = true;
   error.value = "";
   try {
     const application = await ensureSelectedAuthorization();
-    rulePreview.value = await backend.previewApplicationRuleFix(application.id);
+    rulePreview.value = await backend.previewApplicationRuleFix(application.id, revision);
     if (rulePreview.value.state !== "ready" || !rulePreview.value.plan) {
       throw new Error(`${props.copy.assistantRuleUnavailable} (${rulePreview.value.state})`);
     }
@@ -239,12 +244,13 @@ async function prepareRuleFix() {
 }
 
 async function applyRuleFix() {
-  if (!selected.value || !rulePreview.value?.plan) return;
+  if (!selected.value || !rulePreview.value?.plan || !diagnosisIsCurrent.value || !diagnosis.value) return;
+  const revision = diagnosis.value.activeProxyRevision;
   busy.value = true;
   error.value = "";
   try {
     const application = await ensureSelectedAuthorization();
-    const applied = await backend.applyApplicationRuleFix(application.id, rulePreview.value.plan);
+    const applied = await backend.applyApplicationRuleFix(application.id, rulePreview.value.plan, revision);
     if (applied.state !== "applied") throw new Error(`${props.copy.assistantRuleApplyFailed} (${applied.state})`);
     result.value = {
       success: true,
@@ -264,12 +270,14 @@ async function applyRuleFix() {
 
 async function launchSelectedApplication(mode: "proxy" | "direct", trackGlobalBusy = true) {
   if (!selected.value) throw props.copy.assistantAuthorizationExpired;
+  const revision = diagnosis.value?.activeProxyRevision;
+  if (mode === "proxy" && (!diagnosisIsCurrent.value || revision === undefined)) throw props.copy.activeProxyChanged;
   if (trackGlobalBusy) busy.value = true;
   error.value = "";
   try {
     const application = await ensureSelectedAuthorization();
     const launched = mode === "proxy"
-      ? await backend.launchApplicationWithProxy(application.id)
+      ? await backend.launchApplicationWithProxy(application.id, revision!)
       : await backend.launchApplicationWithoutProxy(application.id);
     selectedPid.value = launched.pid;
     return launched;
@@ -400,6 +408,7 @@ onMounted(async () => {
     selected.value = managedFromRunning(applications.value[0]);
     selectedPid.value = applications.value[0].pid;
     diagnosis.value = {
+      activeProxyRevision: props.activeProxyContext.revision,
       application: selected.value!, proxyAvailable: true, systemProxyEnabled: false,
       proxyEnvironmentState: "enabled", tunObservation: "possible", knownRule: undefined,
       proxyConnectivityState: "reachable", applicationNetworkState: "environmentConfigured",
@@ -420,6 +429,13 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (authorizationRefreshTimer) clearInterval(authorizationRefreshTimer);
+});
+
+watch(() => props.activeProxyContext.revision, () => {
+  rulePreview.value = undefined;
+  if (selected.value && diagnosis.value && !busy.value && !result.value && !props.reviewPreview) {
+    void inspectApplication(selected.value, selectedPid.value);
+  }
 });
 </script>
 
@@ -469,6 +485,11 @@ onBeforeUnmount(() => {
     </section>
 
     <template v-else-if="diagnosis && selected">
+      <div v-if="!diagnosisIsCurrent" class="notice notice-warning" role="status">
+        <p>{{ copy.activeProxyChanged }}</p>
+        <button class="secondary-action" type="button" @click="inspectApplication(selected, selectedPid)">{{ copy.recheckApplication }}</button>
+      </div>
+      <p v-if="activeProxy" class="assistant-active-proxy">{{ copy.currentActiveProxy }} · {{ activeProxy.clientName || copy.localProxy }} <code>{{ activeProxy.host }}:{{ activeProxy.port }}</code></p>
       <section class="assistant-section diagnosis-hero">
         <div class="selected-application"><span class="application-glyph" aria-hidden="true">{{ selected.displayName.slice(0, 1).toUpperCase() }}</span><div><span>{{ copy.assistantApplication }}</span><h2>{{ selected.displayName }}</h2><code>{{ withoutWindowsExtendedPathPrefix(selected.executablePath) }}</code></div></div>
         <div class="recommendation"><span>{{ copy.assistantRecommendation }}</span><h2>{{ diagnosisTitle }}</h2><p>{{ diagnosisBody }}</p></div>
@@ -480,7 +501,7 @@ onBeforeUnmount(() => {
         <span class="eyebrow">{{ copy.assistantConfirmChange }}</span><h2>{{ copy.assistantRulePreview }}</h2><p>{{ copy.assistantRulePreviewHint }}</p>
         <dl><div><dt>{{ copy.assistantConfigFile }}</dt><dd><code>{{ withoutWindowsExtendedPathPrefix(rulePreview.plan.targetFile) }}</code></dd></div><div><dt>{{ copy.assistantConfigField }}</dt><dd><code>{{ rulePreview.plan.fieldPath.join('.') }}</code></dd></div><div><dt>{{ copy.assistantBefore }}</dt><dd><code>{{ configValue(rulePreview.plan.oldValue) }}</code></dd></div><div><dt>{{ copy.assistantAfter }}</dt><dd><code>{{ configValue(rulePreview.plan.newValue) }}</code></dd></div></dl>
         <p class="confirmation-consequence">{{ copy.assistantBackupHint }}</p>
-        <div class="assistant-actions"><button class="secondary-action" type="button" @click="rulePreview = undefined">{{ copy.backToEdit }}</button><button class="primary-action" type="button" @click="applyRuleFix">{{ copy.assistantConfirmFix }}</button></div>
+        <div class="assistant-actions"><button class="secondary-action" type="button" @click="rulePreview = undefined">{{ copy.backToEdit }}</button><button class="primary-action" type="button" :disabled="!diagnosisIsCurrent || !activeProxyContext.available" @click="applyRuleFix">{{ copy.assistantConfirmFix }}</button></div>
       </section>
 
       <section v-else class="assistant-section assistant-action-panel">

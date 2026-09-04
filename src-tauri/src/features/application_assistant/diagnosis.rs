@@ -17,13 +17,10 @@ use super::{
 
 pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis> {
     let settings = settings::load()?;
-    let candidates = proxy::detect()?;
-    let active_candidate = candidates
-        .iter()
-        .find(|candidate| candidate.listening)
-        .cloned();
+    let context = proxy::active::context()?;
+    let active_candidate = context.available_candidate().cloned();
     let environment =
-        ProxyEnvironmentService::status(&settings.proxy_variables, active_candidate.clone())?;
+        ProxyEnvironmentService::status(&settings.proxy_variables, context.candidate.clone())?;
     let proxy_available = active_candidate.as_ref().is_some_and(|candidate| {
         candidate.listening && !matches!(candidate.protocol, ProxyProtocol::Unknown)
     });
@@ -54,7 +51,9 @@ pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis>
         rule_inspection,
         proxy_connectivity_state,
     };
-    Ok(build_diagnosis(application, input))
+    let mut diagnosis = build_diagnosis(application, input);
+    diagnosis.active_proxy_revision = context.revision;
+    Ok(diagnosis)
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +79,7 @@ enum RuleInspectionState {
 fn build_diagnosis(application: ManagedApplication, input: DiagnosisInput) -> ApplicationDiagnosis {
     let (application_network_state, recommended_action) = decide(&input);
     ApplicationDiagnosis {
+        active_proxy_revision: 0,
         application,
         proxy_available: input.proxy_available,
         system_proxy_enabled: input.system_proxy_enabled,

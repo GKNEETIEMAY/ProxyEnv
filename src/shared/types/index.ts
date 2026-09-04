@@ -17,7 +17,7 @@ export interface EnvironmentStatus {
   state: "disabled" | "partial" | "enabled" | "mismatch";
   entries: EnvironmentEntry[];
   selectedVariables: ManagedProxyVariable[];
-  activeCandidate?: ProxyCandidate;
+  activeProxy: ActiveProxyContext;
   candidates: ProxyCandidate[];
   matchesActiveProxy: boolean;
   snapshotAvailable: boolean;
@@ -28,6 +28,14 @@ export interface ProxyEndpoint {
   host: string;
   port: number;
   protocol: ProxyProtocol;
+}
+
+export interface ActiveProxyContext {
+  selectedCandidateId: string | null;
+  candidate: ProxyCandidate | null;
+  selectionSource: "auto" | "user" | "systemProxy" | "manual";
+  available: boolean;
+  revision: number;
 }
 
 export interface ProxyEndpointInspection {
@@ -103,6 +111,7 @@ export type ApplicationNetworkState = "confirmedReady" | "environmentConfigured"
 export type RecommendedAction = "none" | "launchWithProxy" | "launchWithoutProxy" | { applyKnownRule: { ruleId: string } };
 
 export interface ApplicationDiagnosis {
+  activeProxyRevision: number;
   application: ManagedApplication;
   proxyAvailable: boolean;
   systemProxyEnabled: boolean;

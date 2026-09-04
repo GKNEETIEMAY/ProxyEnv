@@ -28,42 +28,32 @@ pub fn diagnose_application(
 
 pub fn preview_application_rule_fix(
     application: &ManagedApplication,
+    expected_revision: u64,
 ) -> crate::error::Result<RuleChangePreview> {
-    let candidates = crate::features::proxy::detect()?;
-    let endpoint = candidates
-        .iter()
-        .find(|candidate| candidate.listening)
-        .map(|candidate| crate::features::proxy::ProxyEndpoint {
-            host: candidate.host.clone(),
-            port: candidate.port,
-            protocol: candidate.protocol,
-        });
-    Ok(rules::preview_application(
-        &application.executable_path,
-        endpoint.as_ref(),
-    ))
+    crate::features::proxy::active::with_current(Some(expected_revision), |candidate| {
+        let endpoint = crate::features::proxy::active::endpoint(candidate);
+        Ok(rules::preview_application(
+            &application.executable_path,
+            Some(&endpoint),
+        ))
+    })
 }
 
 pub fn apply_application_rule_fix(
     application: &ManagedApplication,
     expected_plan: &RuleChangePlan,
     confirmed: bool,
+    expected_revision: u64,
 ) -> crate::error::Result<RuleApplyResult> {
-    let candidates = crate::features::proxy::detect()?;
-    let endpoint = candidates
-        .iter()
-        .find(|candidate| candidate.listening)
-        .map(|candidate| crate::features::proxy::ProxyEndpoint {
-            host: candidate.host.clone(),
-            port: candidate.port,
-            protocol: candidate.protocol,
-        });
-    Ok(rules::apply_application(
-        &application.executable_path,
-        endpoint.as_ref(),
-        expected_plan,
-        confirmed,
-    ))
+    crate::features::proxy::active::with_current(Some(expected_revision), |candidate| {
+        let endpoint = crate::features::proxy::active::endpoint(candidate);
+        Ok(rules::apply_application(
+            &application.executable_path,
+            Some(&endpoint),
+            expected_plan,
+            confirmed,
+        ))
+    })
 }
 
 pub fn restore_application_rule_change(backup_id: &str, confirmed: bool) -> RuleRestoreResult {

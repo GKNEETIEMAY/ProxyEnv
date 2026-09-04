@@ -1,16 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, ApplicationDiagnosis, EnvironmentStatus, LaunchApplicationResult, ManagedApplication, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, RuleApplyResult, RuleChangePlan, RuleChangePreview, RuleRestoreResult, RunningApplication, TunObservation } from "../types";
+import type { ActiveProxyContext, AppSettings, ApplicationDiagnosis, EnvironmentStatus, LaunchApplicationResult, ManagedApplication, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, RuleApplyResult, RuleChangePlan, RuleChangePreview, RuleRestoreResult, RunningApplication, TunObservation } from "../types";
 
 export const backend = {
   environmentStatus: () => invoke<EnvironmentStatus>("get_environment_status"),
-  enableProxyEnvironment: (proxy?: ProxyCandidate) => invoke<EnvironmentStatus>("enable_proxy_environment", proxy
-    ? { host: proxy.host, port: proxy.port, protocol: proxy.protocol }
-    : {}),
-  syncProxyEnvironment: (proxy: ProxyCandidate) => invoke<EnvironmentStatus>("sync_proxy_environment", {
-    host: proxy.host,
-    port: proxy.port,
-    protocol: proxy.protocol
-  }),
+  enableProxyEnvironment: (expectedRevision: number) => invoke<EnvironmentStatus>("enable_proxy_environment", { expectedRevision }),
+  syncProxyEnvironment: (expectedRevision: number) => invoke<EnvironmentStatus>("sync_proxy_environment", { expectedRevision }),
+  selectActiveProxy: (candidateId: string) => invoke<EnvironmentStatus>("select_active_proxy", { candidateId }),
+  activeProxyContext: () => invoke<ActiveProxyContext>("get_active_proxy_context"),
   syncManualProxyEnvironment: (endpoint: ProxyEndpoint) => invoke<EnvironmentStatus>("sync_manual_proxy_environment", { endpoint }),
   inspectProxyEndpoint: (endpoint: ProxyEndpoint) => invoke<ProxyEndpointInspection>("inspect_proxy_endpoint", { endpoint }),
   disableProxyEnvironment: () => invoke<EnvironmentStatus>("disable_proxy_environment"),
@@ -21,10 +17,10 @@ export const backend = {
   pickApplication: () => invoke<ManagedApplication | null>("pick_application"),
   renewApplicationAuthorization: (applicationId: string) => invoke<ManagedApplication>("renew_application_authorization", { applicationId }),
   diagnoseApplication: (applicationId: string) => invoke<ApplicationDiagnosis>("diagnose_application", { applicationId }),
-  previewApplicationRuleFix: (applicationId: string) => invoke<RuleChangePreview>("preview_application_rule_fix", { applicationId }),
-  applyApplicationRuleFix: (applicationId: string, expectedPlan: RuleChangePlan) => invoke<RuleApplyResult>("apply_application_rule_fix", { applicationId, expectedPlan, confirmed: true }),
+  previewApplicationRuleFix: (applicationId: string, expectedRevision: number) => invoke<RuleChangePreview>("preview_application_rule_fix", { applicationId, expectedRevision }),
+  applyApplicationRuleFix: (applicationId: string, expectedPlan: RuleChangePlan, expectedRevision: number) => invoke<RuleApplyResult>("apply_application_rule_fix", { applicationId, expectedPlan, expectedRevision, confirmed: true }),
   restoreApplicationRuleChange: (backupId: string) => invoke<RuleRestoreResult>("restore_application_rule_change", { backupId, confirmed: true }),
-  launchApplicationWithProxy: (applicationId: string) => invoke<LaunchApplicationResult>("launch_application_with_current_proxy", { applicationId }),
+  launchApplicationWithProxy: (applicationId: string, expectedRevision: number) => invoke<LaunchApplicationResult>("launch_application_with_current_proxy", { applicationId, expectedRevision }),
   launchApplicationWithoutProxy: (applicationId: string) => invoke<LaunchApplicationResult>("launch_application_without_proxy", { applicationId }),
   restartApplicationWithoutProxy: (applicationId: string, pid: number) => invoke<LaunchApplicationResult>("restart_application_without_proxy", { applicationId, pid }),
   appSettings: () => invoke<AppSettings>("get_app_settings"),

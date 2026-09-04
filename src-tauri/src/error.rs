@@ -17,6 +17,7 @@ pub enum ProxyEnvError {
     EnvironmentRestoreConflict(String),
     Detection(String),
     ActiveProxyMissing,
+    ActiveProxyChanged,
     InvalidProxyEndpoint(String),
     InvalidApplication(String),
     ApplicationAuthorization(String),
@@ -56,7 +57,14 @@ impl ProxyEnvError {
                 Some(detail),
             ),
             Self::Detection(detail) => ("proxy detection failed", Some(detail)),
-            Self::ActiveProxyMissing => ("no active proxy endpoint is available", None),
+            Self::ActiveProxyMissing => (
+                "the current active proxy is unavailable; select a proxy again on the home page",
+                None,
+            ),
+            Self::ActiveProxyChanged => (
+                "the active proxy changed; refresh and review the operation again",
+                None,
+            ),
             Self::InvalidProxyEndpoint(detail) => ("invalid proxy endpoint", Some(detail)),
             Self::InvalidApplication(detail) => ("invalid application", Some(detail)),
             Self::ApplicationAuthorization(detail) => {
