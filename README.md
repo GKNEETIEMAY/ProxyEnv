@@ -7,7 +7,7 @@
 <p align="center">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?style=flat-square">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square">
-  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.3%20stable-22c55e?style=flat-square"></a>
+  <a href="https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.4%20stable-22c55e?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 </p>
 
 > [!IMPORTANT]
-> **v0.1.3** is the current stable release for Windows 10/11 x64. Features under development for **v0.1.4** are not included in the current download; see the [Roadmap](docs/ROADMAP.md) for exact scope.
+> **v0.1.4** is the current stable release for Windows 10/11 x64. See the [Roadmap](docs/ROADMAP.md) for current and upcoming scope.
 
 ## What is ProxyEnv?
 
@@ -54,6 +54,7 @@ Windows applications may independently use System Proxy, proxy environment varia
 - Test current proxy connectivity and inspect the network environment an application may receive.
 - Start a new application instance with the active proxy environment or a direct environment.
 - Safely sync, clear, and restore current-user proxy environment variables.
+- Generate a redacted diagnostic report in Simplified Chinese, English, Japanese, or Korean.
 
 Every modifying operation follows the same model:
 
@@ -74,26 +75,29 @@ ProxyEnv does **not**:
 - Inject or rewrite the environment of a running process.
 - Change the system environment without an explicit user action.
 
+> ProxyEnv makes the Windows proxy environment visible, consistent, and controllable, and helps users safely launch applications with either a proxy or direct environment. It does not aim to maintain or modify third-party applications' internal proxy configuration.
+
 ## Application network assistant
 
-The assistant and rule engine are available in Current v0.1.3. The conservative diagnosis states described below are implemented for Next v0.1.4. The bundled rule directory currently contains only its schema: the initial reviewed production rules remain pending.
+The assistant lets users select a running application or an executable file, then explains the network environment that application may encounter using the current active proxy, Windows System Proxy, proxy environment variables, and TUN / virtual-adapter evidence.
 
-The assistant follows one short path:
+It never claims that an application can connect based on a single network state. Instead, it follows a conservative, verifiable path:
 
 ```text
-Choose an app → read local state → explain the likely path → recommend one action
-              → preview and confirm if a file write is needed → verify the result
+Choose an app → read the current network environment → explain the current state
+              → recommend a safe action → launch with proxy or direct environment
+              → check the result again
 ```
 
-It reads the active local proxy, Windows System Proxy, proxy environment, virtual-adapter evidence, and the bundled application-rule catalog. Selecting an already-running app only identifies its executable and does **not** change that process by itself. “Launch with proxy” and “Launch directly” always start a new process with an explicit child environment. The manual-proxy guide additionally offers a clearly destructive restart action: after warning about unsaved work and receiving a second confirmation, the backend revalidates the selected PID against the authorized executable, closes that one process, and starts its replacement without inherited proxy variables.
+When a usable active proxy exists, users can launch a new application instance with the active proxy environment, launch it with a direct environment, or recheck the application's network environment. Selecting an already-running application only identifies its executable and does **not** change that process.
 
-Application rules are declarative data, not executable adapters. A rule may name exact process names, fixed user-profile-relative configuration paths, one existing field, a supported format (`JSON`, `YAML`, `TOML`, or `INI`), and a typed proxy value. Only a reviewed rule whose current value is correct can confirm that an application is ready; enabled proxy environment variables mean only “environment configured, application behavior unknown.” Without a reviewed rule, ProxyEnv does not scan unknown configuration files and recommends a proxy-environment launch only when a usable local proxy exists and the environment is disabled.
+ProxyEnv does not modify unknown third-party application configuration or inject environment variables into an already-running process. The manual guide's **Close current process and launch a new process** action must be explicitly requested; before acting, it reconfirms the risk of unsaved work and revalidates the selected process identity.
 
 ## Multiple proxy clients and network observation
 
-**Next — v0.1.4 (implemented, unreleased): unified active proxy selection.**
+**Current — v0.1.4: unified active proxy selection.**
 
-When multiple clients coexist, Current active proxy initially recommends one usable client and lets you explicitly switch. Environment sync, mismatch checks, connectivity tests, the assistant, proxy launches, and rule preview/apply all share that selection. Refresh never switches it: a missing proxy keeps its last-known details, becomes unavailable, and prompts reselection. Selecting a client does not write environment variables; applying a manual endpoint also makes it the global target. Selection lasts for this session; restarting ProxyEnv starts a fresh recommendation.
+When multiple clients coexist, Current active proxy initially recommends one usable client and lets you explicitly switch. Environment sync, mismatch checks, connectivity tests, the assistant, and proxy launches all share that selection. Refresh never switches it: a missing proxy keeps its last-known details, becomes unavailable, and prompts reselection. Selecting a client does not write environment variables; applying a manual endpoint also makes it the global target. Selection lasts for this session; restarting ProxyEnv starts a fresh recommendation.
 
 ProxyEnv deliberately keeps these concepts separate:
 
@@ -146,7 +150,7 @@ Snapshots store both the prior and applied state atomically under `%LOCALAPPDATA
 
 ### Diagnostic reports
 
-**Next — v0.1.4:** implemented and locally tested, not included in the v0.1.3 download; packaged Windows acceptance remains pending.
+**Current — v0.1.4:** available in this release.
 
 Open **Diagnostic report** in the title bar to preview a safe, read-only snapshot and copy it into a GitHub Issue or feedback message. The report defaults to the interface language; Simplified Chinese, English, Japanese, and Korean can be selected independently. Changing language does not rerun diagnostics. **Refresh report** collects a new snapshot.
 
@@ -156,15 +160,15 @@ Reports include version metadata, client counts and the current selection, indep
 
 ProxyEnv is not a proxy client, VPN, subscription manager, traffic forwarder, or TUN controller. It does not control Clash/v2rayN APIs, nodes, subscriptions, proxy-client rules, Windows System Proxy, routes, drivers, or system-level environment variables. It never injects into or rewrites a running process's environment. The only process-closing exception is the manual guide's explicitly confirmed, identity-checked restart described above.
 
-Detection, protocol probing, TUN observation, application enumeration, rule preview, and environment management stay on the local machine. ProxyEnv never reads, saves, or manages proxy user names or passwords, subscription tokens, node credentials, other proxy authentication material, or traffic. Runtime diagnostics pass through a shared redaction boundary that removes local paths, proxy endpoints, and process details; configuration values are treated as fully sensitive. It performs no external connectivity test unless the user explicitly requests the existing proxy test. A user-triggered update check contacts the fixed official GitHub endpoints; a separate Download and install action may then fetch the manifest-selected, signature-verified installer. See [`SECURITY.md`](SECURITY.md).
+Detection, protocol probing, TUN observation, application enumeration, and environment management stay on the local machine. ProxyEnv never reads, saves, or manages proxy user names or passwords, subscription tokens, node credentials, other proxy authentication material, or traffic. Runtime diagnostics pass through a shared redaction boundary that removes local paths, proxy endpoints, and process details; configuration values are treated as fully sensitive. It performs no external connectivity test unless the user explicitly requests the existing proxy test. A user-triggered update check contacts the fixed official GitHub endpoints; a separate Download and install action may then fetch the manifest-selected, signature-verified installer. See [`SECURITY.md`](SECURITY.md).
 
 ## Compared with environment-variable tools
 
-These tools solve adjacent problems. ProxyEnv is deliberately narrower: it focuses on proxy discovery, network-layer explanation, and safe per-launch or reviewed-rule actions.
+These tools solve adjacent problems. ProxyEnv is deliberately narrower: it focuses on proxy discovery, network-environment explanation, proxy-environment management, and safe new-process launches.
 
 | Tool | Recommendation | Best for | Main characteristics |
 | --- | --- | --- | --- |
-| **ProxyEnv** | ⭐⭐⭐⭐⭐ | Proxy conflicts and app connectivity | Detects active proxy endpoints, explains proxy/system-proxy/TUN layers, supports per-launch environments and reversible reviewed rules |
+| **ProxyEnv** | ⭐⭐⭐⭐⭐ | Proxy conflicts and app connectivity | Observes proxy/System Proxy/TUN/environment layers together, with active-proxy selection, safe environment sync, and isolated launch environments |
 | Microsoft PowerToys – Environment Variables | ⭐⭐⭐⭐⭐ | Most Windows developers | Microsoft-maintained, modern UI, profiles, User/System variables |
 | EnvStudio | ⭐⭐⭐⭐⭐ | Complex PATH and multiple dev environments | PATH drag-and-drop, deduplication, invalid-path and conflict checks, snapshot rollback |
 | Envarly | ⭐⭐⭐⭐½ | Open-source and safer general edits | Diff before changes, snapshots/rollback, PATH ordering, PowerShell/Ansible export |
@@ -204,7 +208,7 @@ ProxyEnv/
 │  ├─ environment/               # Generic mutation, snapshot, broadcast, verification
 │  ├─ features/proxy/            # Proxy detection, plans, state, sync/restore/disable
 │  ├─ features/network_observation/ # Read-only virtual-adapter evidence
-│  ├─ features/application_assistant/ # Process selection, diagnosis, launch, declarative rules
+│  ├─ features/application_assistant/ # Process selection, diagnosis, and isolated launch environments
 │  └─ services/                  # Persistent application settings
 ├─ public/proxy-clients/         # Runtime icons and attribution
 └─ docs/                         # Architecture and README artwork
@@ -244,8 +248,8 @@ Official Windows releases intentionally do not use Authenticode under the projec
 ## Roadmap
 
 ```yaml
-Current Stable: v0.1.3
-Next: v0.1.4
+Current Stable: v0.1.4
+Next: v0.2.0
 ```
 
 Development status, release scope, and future direction are tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). Linux and macOS remain architectural directions with no committed delivery date; other Unix variants are out of scope.
