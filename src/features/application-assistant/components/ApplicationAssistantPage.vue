@@ -517,7 +517,7 @@ watch(() => props.activeProxyContext.revision, () => {
         <div class="assistant-actions">
           <button v-if="recommendedActionKind === 'rule'" class="primary-action" type="button" @click="prepareRuleFix">{{ copy.assistantPreviewFix }}</button>
           <button v-else-if="recommendedActionKind === 'proxy'" class="primary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
-          <button v-else-if="canExplicitProxyLaunch" class="secondary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
+          <button v-else-if="canExplicitProxyLaunch" class="primary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
           <button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button>
           <button class="secondary-action" type="button" @click="launch('direct')">{{ copy.assistantLaunchDirect }}</button>
           <button class="secondary-action" type="button" @click="startOver">{{ copy.assistantChooseAgain }}</button>
