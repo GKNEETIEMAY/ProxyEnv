@@ -60,6 +60,11 @@ const diagnosisBody = computed(() => {
 });
 
 const diagnosisIsCurrent = computed(() => diagnosis.value?.activeProxyRevision === props.activeProxyContext.revision);
+const canExplicitProxyLaunch = computed(() => Boolean(
+  diagnosisIsCurrent.value
+  && props.activeProxyContext.available
+  && diagnosis.value?.proxyAvailable === true
+));
 const recommendedActionKind = computed<"rule" | "proxy" | "none">(() => {
   if (!diagnosisIsCurrent.value || !props.activeProxyContext.available) return "none";
   const action = diagnosis.value?.recommendedAction;
@@ -511,7 +516,8 @@ watch(() => props.activeProxyContext.revision, () => {
         <div><span class="eyebrow">{{ copy.assistantNextStep }}</span><h2>{{ actionTitle }}</h2><p>{{ actionHint }}</p></div>
         <div class="assistant-actions">
           <button v-if="recommendedActionKind === 'rule'" class="primary-action" type="button" @click="prepareRuleFix">{{ copy.assistantPreviewFix }}</button>
-          <button v-else-if="recommendedActionKind === 'proxy'" class="primary-action" type="button" :disabled="!diagnosis.proxyAvailable" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
+          <button v-else-if="recommendedActionKind === 'proxy'" class="primary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
+          <button v-else-if="canExplicitProxyLaunch" class="secondary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
           <button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button>
           <button class="secondary-action" type="button" @click="launch('direct')">{{ copy.assistantLaunchDirect }}</button>
           <button class="secondary-action" type="button" @click="startOver">{{ copy.assistantChooseAgain }}</button>
