@@ -1,6 +1,6 @@
 [package]
 name = "proxyenv"
-version = "0.1.3"
+version = "0.1.4"
 description = "A Windows-first proxy environment and application networking assistant"
 authors = ["ProxyEnv contributors"]
 edition = "2021"
