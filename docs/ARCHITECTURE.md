@@ -1,13 +1,13 @@
 # ProxyEnv architecture / 工程架构
 
 ```yaml
-Current Stable: v0.1.3
-Next: v0.1.4
+Current Stable: v0.1.4
+Next: v0.2.0
 ```
 
-ProxyEnv uses a feature-oriented Vue frontend and a layered Rust/Tauri backend. Current Stable v0.1.3 is Windows-first and includes read-only network observation, the application assistant, and signed NSIS updates. This document also describes unreleased v0.1.4 implementation: conservative application diagnosis, unified active proxy selection, and safe diagnostic reports. See [ROADMAP.md](ROADMAP.md) for implementation versus release status. Platform effects are implemented for Windows; Linux/macOS adapters have no committed delivery date.
+ProxyEnv uses a feature-oriented Vue frontend and a layered Rust/Tauri backend. Current Stable v0.1.4 is Windows-first and includes read-only network observation, conservative application diagnosis, unified active proxy selection, safe diagnostic reports, and signed NSIS updates. See [ROADMAP.md](ROADMAP.md) for current and upcoming scope. Platform effects are implemented for Windows; Linux/macOS adapters have no committed delivery date.
 
-ProxyEnv 前端按功能域组织，Rust/Tauri 后端按职责分层。当前稳定版 v0.1.3 已包含只读网络观测、应用助手和 NSIS 签名更新。本文也记录下一版 v0.1.4 尚未发布的实现：保守诊断状态、全局活动代理和安全诊断报告；以路线图区分代码完成与正式发布。Linux/macOS 没有承诺实现时间。
+ProxyEnv 前端按功能域组织，Rust/Tauri 后端按职责分层。当前稳定版 v0.1.4 已包含只读网络观测、保守诊断状态、全局活动代理、安全诊断报告和 NSIS 签名更新；当前与后续范围以路线图为准。Linux/macOS 没有承诺实现时间。
 
 ## Directory map / 目录地图
 
@@ -17,7 +17,7 @@ ProxyEnv/
 │  ├─ app/                           # Shell, lifecycle, cross-feature orchestration
 │  ├─ features/
 │  │  ├─ application-assistant/      # Guided app selection, diagnosis, actions, results
-│  │  ├─ diagnostic-report/          # Next: safe snapshot preview and locale formatter
+│  │  ├─ diagnostic-report/          # Safe snapshot preview and locale formatter
 │  │  ├─ network-observation/         # Shared live system-proxy and TUN presentation
 │  │  ├─ proxy/components/           # Proxy discovery, environment status, and actions
 │  │  └─ settings/components/        # General and About surfaces
@@ -33,7 +33,7 @@ ProxyEnv/
 │  │  │  ├─ broadcast.rs             # WM_SETTINGCHANGE
 │  │  │  └─ snapshot.rs              # Atomic persistence and legacy migration
 │  │  ├─ features/proxy/             # Discovery, probes, state, sync/restore/disable
-│  │  ├─ features/diagnostic_report/ # Next: allowlisted report DTO, no network probes
+│  │  ├─ features/diagnostic_report/ # Allowlisted report DTO, no network probes
 │  │  ├─ features/network_observation/
 │  │  │  ├─ observer.rs              # Read-only adapter enumeration and evidence classifier
 │  │  │  └─ models.rs                # NotDetected/Possible/Detected/Unknown contract
@@ -97,9 +97,9 @@ Snapshots preserve both present values and missing values in `before` and `appli
 - manual endpoint validation;
 - Disable, Restore, and Sync semantics.
 
-Refresh and discovery are read-only. In Next v0.1.4, a missing selected candidate remains unavailable and requires reselection; a newly selected address differing from saved variables produces `Mismatch`. Only an explicit Apply/Sync/Disable/Restore action can mutate the Registry.
+Refresh and discovery are read-only. In Current v0.1.4, a missing selected candidate remains unavailable and requires reselection; a newly selected address differing from saved variables produces `Mismatch`. Only an explicit Apply/Sync/Disable/Restore action can mutate the Registry.
 
-刷新与自动识别保持只读。下一版 v0.1.4 中，原候选消失后保留选择并标记不可用；用户重新选择的地址与环境变量不一致时显示 `Mismatch`。只有明确触发 Apply/Sync/Disable/Restore 才能修改注册表。
+刷新与自动识别保持只读。当前 v0.1.4 中，原候选消失后保留选择并标记不可用；用户重新选择的地址与环境变量不一致时显示 `Mismatch`。只有明确触发 Apply/Sync/Disable/Restore 才能修改注册表。
 
 ## Network Observation / 网络观测
 
@@ -118,7 +118,7 @@ A single adapter name never produces `Detected`, and an ordinary physical adapte
 
 ### Active proxy context / 当前活动代理
 
-Next — v0.1.4: implemented in development, not shipped in v0.1.3 / 开发实现已完成，尚未发布。
+Current — v0.1.4: shipped / 已发布。
 
 `features/proxy/active.rs` owns a session-wide `ActiveProxyContext`: selected candidate ID, candidate data (host/port/protocol/client/PID), selection source (`auto`, `user`, `systemProxy`, `manual`), availability, and a monotonic selection revision. Startup selects the first usable detector-ranked recommendation. Later refreshes update observations only; even a missing automatically recommended candidate is retained as unavailable, never replaced by the next listener. Manual endpoint application also updates this context. Restarting ProxyEnv starts a new recommendation session.
 
@@ -128,9 +128,9 @@ Environment sync, mismatch classification, connectivity tests, assistant diagnos
 
 ### Diagnosis and protected actions / 诊断与受保护操作
 
-The assistant and protected rule engine exist in Current v0.1.3; the `ApplicationNetworkState` model below is Next v0.1.4 work. The catalog currently contains only `schema.json`, not production application rules. Engine support must not be presented as verified coverage for real applications.
+The assistant, protected internal rule engine, and `ApplicationNetworkState` model exist in Current v0.1.4. The catalog currently contains only `schema.json`, not production application rules. Engine support must not be presented as verified coverage for real applications or promoted as a current product direction.
 
-应用助手与受保护规则引擎已在 v0.1.3 提供；下述 `ApplicationNetworkState` 模型属于 v0.1.4 开发进度。当前目录只有 `schema.json`，没有生产应用规则，不能把引擎支持表述为具体应用已适配。
+应用助手、内部受保护规则引擎与 `ApplicationNetworkState` 模型已在 v0.1.4 提供。当前目录只有 `schema.json`，没有生产应用规则，不能把引擎支持表述为具体应用已适配或当前产品方向。
 
 The assistant is an orchestration feature, not a packet router. Its state machine is:
 
@@ -153,7 +153,7 @@ The rule engine accepts only bundled, schema-versioned JSON. It rejects unknown 
 
 ### Safe diagnostic reports / 安全诊断报告
 
-Next — v0.1.4: implemented and locally tested; packaged Windows acceptance is still pending / 已实现并完成本地测试，安装版 Windows 验收待完成。
+Current — v0.1.4: shipped / 已发布。
 
 `generate_diagnostic_report` collects a read-only snapshot using non-refreshing `active::snapshot_status`/`snapshot` APIs, current environment status, independent system-proxy/TUN observations, and only a valid cached connectivity result. It never invokes discovery, port/protocol probes or external connectivity tests. An optional backend-issued application ID enables a fresh local rule diagnosis through the existing authorization boundary and the shared `diagnose_snapshot` decision path, using the same captured proxy context; absent, expired, or uninspectable applications remain explicitly unselected/unavailable, without guessed recommendations. A changed active-proxy revision rejects collection rather than combining different proxy selections.
 
@@ -224,7 +224,7 @@ All user-facing changes are explicit. Variable checkboxes save preference immedi
 
 ## Signed updates / 签名更新
 
-Current Stable v0.1.3 includes the official Tauri Updater. About → Check for updates reads localized GitHub Release notes and the pinned HTTPS manifest; only an explicit Download and install action fetches and verifies the signed NSIS installer, performs passive replacement of the registered installation, then restarts. Default version comparison rejects older/equal versions. MSI and portable builds link to the official Release for manual updates. This is not silent/background auto-installation. See [release-security.md](release-security.md).
+Current Stable v0.1.4 includes the official Tauri Updater. About → Check for updates reads localized GitHub Release notes and the pinned HTTPS manifest; only an explicit Download and install action fetches and verifies the signed NSIS installer, performs passive replacement of the registered installation, then restarts. Default version comparison rejects older/equal versions. MSI and portable builds link to the official Release for manual updates. This is not silent/background auto-installation. See [release-security.md](release-security.md).
 
 当前稳定版已支持签名更新，而非“只能手动检查”。NSIS 安装版由用户主动检查并确认下载安装，验证签名后覆盖已登记安装并重启；MSI 与 Portable 仍手动更新，不在后台静默安装。
 
@@ -243,6 +243,6 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-GitHub Actions repeats frozen pnpm installation, frontend audit/build, Rust formatting, Clippy, tests, locked release compilation, and RustSec audit for PRs and protected development/release branches. Next v0.1.4 adds `pnpm test:report` for focused locale/formatter and non-probing-boundary checks; broader frontend interaction tests remain pending. Dependabot tracks npm, Cargo, and Actions updates against `develop`.
+GitHub Actions repeats frozen pnpm installation, frontend audit/build, Rust formatting, Clippy, tests, locked release compilation, and RustSec audit for PRs and protected development/release branches. Current v0.1.4 includes `pnpm test:report` for focused locale/formatter and non-probing-boundary checks; broader frontend interaction tests remain planned. Dependabot tracks npm, Cargo, and Actions updates against `develop`.
 
 Changes to Registry, broadcast, snapshots, tray, or single-instance behavior also require Windows integration testing. At minimum verify exact deletion/restoration, rollback after injected write/broadcast/verification failure, restore conflict behavior, `WM_SETTINGCHANGE`, new-process inheritance, unchanged running-process environments, mismatch after a client port change, and explicit Sync to the new port.

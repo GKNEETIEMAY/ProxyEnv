@@ -1,13 +1,13 @@
 # Contributing to ProxyEnv
 
 ```yaml
-Current Stable: v0.1.3
-Next: v0.1.4
+Current Stable: v0.1.4
+Next: v0.2.0
 ```
 
 See the [Roadmap](docs/ROADMAP.md) for released capabilities and unreleased development progress. Implementation completion does not imply release or clean-machine acceptance. Update these version markers together when publishing; this documentation cleanup does not bump package versions or create a tag.
 
-For a release, review `README.md`, `README.zh-CN.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/release-security.md`, and `docs/ROADMAP.md` together. Move only actually released features from Next to Current; distinguish a working engine from a populated reviewed rule catalog, and automated tests from recorded packaged-Windows acceptance. Linux/macOS have no committed implementation date.
+For a release, review `README.md`, `README.zh-CN.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/release-security.md`, and `docs/ROADMAP.md` together. Move only actually released features from Next to Current, and distinguish automated tests from recorded packaged-Windows acceptance. Linux/macOS have no committed implementation date.
 
 ProxyEnv targets Windows 10/11 x64 and uses Tauri 2, Vue 3, TypeScript, and Rust stable MSVC.
 
@@ -33,6 +33,6 @@ Keep the Environment Core independent from proxy detection. Do not add system-pr
 
 Never commit a signing private key, certificate private key, `.pfx`, `.p12`, or `.key` file. Tauri Updater private material used by CI belongs only in GitHub Actions secrets named `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; any maintainer recovery copy must stay outside tracked source in protected offline storage. Workflows must never print the secret, its prefix, length, decoded form, or file contents. The updater public verification key is not secret and is reviewed and committed in `tauri.conf.json`.
 
-Current Stable v0.1.3 already supports signed updates for the NSIS setup edition. The user first selects **Check for updates**, then explicitly selects **Download and install**; the official Tauri Updater verifies the signed installer from the pinned HTTPS source, retains its default upgrade-only version comparison, replaces the registered installation, and restarts after success. MSI and portable packages remain manual-update variants. Do not introduce a custom downloader, arbitrary update URLs, direct execution of an unverified installer, or silent background installation. See [`docs/release-security.md`](docs/release-security.md).
+Current Stable v0.1.4 supports signed updates for the NSIS setup edition. The user first selects **Check for updates**, then explicitly selects **Download and install**; the official Tauri Updater verifies the signed installer from the pinned HTTPS source, retains its default upgrade-only version comparison, replaces the registered installation, and restarts after success. MSI and portable packages remain manual-update variants. Do not introduce a custom downloader, arbitrary update URLs, direct execution of an unverified installer, or silent background installation. See [`docs/release-security.md`](docs/release-security.md).
 
-The application-rule engine is implemented, but the bundled catalog currently contains only its schema and no reviewed production rules. Application Network Profile and initial reviewed rules remain Next work, not existing integrations. New rules require explicit review and validation before bundling.
+Keep the public product boundary narrow: ProxyEnv observes and explains the current Windows proxy environment, manages selected user environment variables, and launches new processes with an explicit proxy or direct environment. Do not present third-party application configuration maintenance as a shipped integration or roadmap commitment.

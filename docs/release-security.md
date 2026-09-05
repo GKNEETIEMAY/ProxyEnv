@@ -1,17 +1,17 @@
 # Release security / 发布安全
 
 ```yaml
-Current Stable: v0.1.3
-Next: v0.1.4
+Current Stable: v0.1.4
+Next: v0.2.0
 ```
 
 Release scope and unreleased implementation progress are maintained in [ROADMAP.md](ROADMAP.md). Publishing a stable version does not, by itself, prove completion of every external verification below.
 
 发布范围和未发布开发进度见路线图。已有稳定版本不等于下列每项外部验收都有可追溯记录。
 
-This document defines the open-source release trust model for ProxyEnv. The project intentionally does not use Windows Authenticode. Current Stable v0.1.3 supports user-initiated signed updates through Tauri Updater's separate, free signature mechanism; every updater-enabled release must be signed.
+This document defines the open-source release trust model for ProxyEnv. The project intentionally does not use Windows Authenticode. Current Stable v0.1.4 supports user-initiated signed updates through Tauri Updater's separate, free signature mechanism; every updater-enabled release must be signed.
 
-本文定义 ProxyEnv 的开源发行信任模型。项目明确不采用 Windows Authenticode。当前稳定版 v0.1.3 已支持用户主动触发的 Tauri 签名更新；签名机制独立且免费，所有启用 Updater 的版本都必须签名。
+本文定义 ProxyEnv 的开源发行信任模型。项目明确不采用 Windows Authenticode。当前稳定版 v0.1.4 已支持用户主动触发的 Tauri 签名更新；签名机制独立且免费，所有启用 Updater 的版本都必须签名。
 
 ## Current release state / 当前状态
 
@@ -49,16 +49,16 @@ Windows Authenticode, OV/EV certificates, PFX files, signtool integration, Azure
 | GitHub Actions | Required; locked build, audit, test, package, and draft release / 必须：锁定依赖并完成审计、测试、打包与草稿发布 |
 | SHA-256 | Required; `SHA256SUMS.txt` is generated for every tag release / 必须：每次标签发布生成校验文件 |
 | GitHub Artifact Attestation | Configured; retain verification evidence for the released tag / 已配置，须保留对应发布标签的实际验证证据 |
-| Tauri Updater signing | Implemented in Current v0.1.3; required for every updater-enabled release / 当前 v0.1.3 已实现，每个启用 Updater 的版本都必须使用 |
+| Tauri Updater signing | Implemented in Current v0.1.4; required for every updater-enabled release / 当前 v0.1.4 已实现，每个启用 Updater 的版本都必须使用 |
 | Windows Authenticode | Not adopted; does not block stable releases / 不采用，不阻止稳定版发布 |
 
 SHA-256 detects file changes but is not a digital signature by itself. GitHub Artifact Attestation binds artifact digests to the GitHub Actions build identity using signed provenance. Users can verify an official download with `gh attestation verify <file> -R GKNEETIEMAY/ProxyEnv`. Tauri Updater independently verifies update artifacts against the public key embedded in the trusted application.
 
 ## Release attestation verification / 发行 Attestation 验证
 
-The workflow configuration is complete and release tags through v0.1.3 exist, but configuration and tag existence alone are not verification evidence. For a released tag, a maintainer must download an actual release artifact and verify it outside the build job:
+The workflow configuration is complete, but configuration and tag existence alone are not verification evidence. For every released tag, a maintainer must download an actual release artifact and verify it outside the build job:
 
-工作流已配置，且已有截至 v0.1.3 的发布标签，但“已配置、已有标签”不等于“已保留实际验证证据”。维护者应在构建任务之外下载对应标签的真实 Release 产物，并使用 `gh` CLI 执行：
+工作流已配置，但“已配置、已有标签”不等于“已保留实际验证证据”。维护者应为每个发布标签在构建任务之外下载真实 Release 产物，并使用 `gh` CLI 执行：
 
 ```powershell
 gh attestation verify <artifact> -R GKNEETIEMAY/ProxyEnv
@@ -74,9 +74,9 @@ Record the command output or link it from the release QA record, then confirm al
 
 需要保存命令输出或在发行验收记录中附上链接，并确认：安装包与 Portable 均可验证；Attestation 指向正确仓库；Workflow、标签与 Commit SHA 正确；Release 下载文件与 `SHA256SUMS.txt` 一致；同名 Release 文件和 CI Workflow Artifact 的 SHA-256 完全一致。
 
-This document does not contain an external verification record for v0.1.3; evidence must be linked before this checklist item is marked complete. Do not wait for a nonexistent “first tag,” and do not infer success solely from a green workflow.
+Release-specific verification evidence must be linked from the release QA record before this checklist item is marked complete. Do not infer success solely from a green workflow.
 
-本文未附 v0.1.3 的外部验证记录，补齐证据链接后才能将该项标为完成。无需再等待“首个标签”；仅看到 Workflow 成功也不能替代实际验证。
+每个版本都必须在发行验收记录中附上外部验证证据后，才能将该项标为完成；仅看到 Workflow 成功不能替代实际验证。
 
 ## Tauri Updater design / 自动更新设计
 
@@ -128,7 +128,7 @@ The workflow does not configure an Authenticode certificate, thumbprint, PFX, or
 CI Build → SHA-256 → Artifact Attestation → Draft Release → Manual QA → Publish Stable
 ```
 
-Artifact Attestation is configured for public-repository release runs. For Next v0.1.4 and later releases, retain a draft until a maintainer completes and records this clean-machine checklist; keep any missing Current v0.1.3 evidence explicitly unverified:
+Artifact Attestation is configured for public-repository release runs. For v0.1.4 and later releases, retain a draft until a maintainer completes and records this clean-machine checklist:
 
 1. the tag, `package.json`, and `tauri.conf.json` versions match;
 2. CI, dependency audits, tests, and release packaging passed;
@@ -144,13 +144,13 @@ Artifact Attestation is configured for public-repository release runs. For Next 
 12. installers, portable archives, and uploaded artifacts contain no private keys, debug symbols, development-only files, logs, or local sensitive data;
 13. `latest.json` references the same signed NSIS asset uploaded to the Release, and the embedded public key verifies its `.sig` content.
 
-下一版 v0.1.4 及后续 Windows Release 应在干净的 Windows 10/11 x64 环境完成并记录上述验收后再发布；当前 v0.1.3 缺少的验收证据应明确标记，不通过本次文档清理补记为已通过。
+v0.1.4 及后续 Windows Release 应在干净的 Windows 10/11 x64 环境完成并记录上述验收后再发布；缺少的验收证据必须明确标记，不能通过文档修改补记为已通过。
 
 ## Current conclusion / 当前结论
 
-There is no release blocker that requires a paid certificate or paid signing service. Current Stable is v0.1.3; Next is v0.1.4. Stable Windows releases remain intentionally unsigned by Authenticode, while signed updater artifacts and per-release verification remain required.
+There is no release blocker that requires a paid certificate or paid signing service. Current Stable is v0.1.4; Next is v0.2.0. Stable Windows releases remain intentionally unsigned by Authenticode, while signed updater artifacts and per-release verification remain required.
 
-目前不存在必须依赖付费证书或付费签名服务才能解决的发布阻断项。当前稳定版为 v0.1.3，下一版为 v0.1.4；正式版不签 Authenticode，但仍要求 Updater 签名和逐版验收。
+目前不存在必须依赖付费证书或付费签名服务才能解决的发布阻断项。当前稳定版为 v0.1.4，下一版为 v0.2.0；正式版不签 Authenticode，但仍要求 Updater 签名和逐版验收。
 
 ```text
 Windows Authenticode

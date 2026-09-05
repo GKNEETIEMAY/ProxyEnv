@@ -1,11 +1,11 @@
 # Security Policy
 
 ```yaml
-Current Stable: v0.1.3
-Next: v0.1.4
+Current Stable: v0.1.4
+Next: v0.2.0
 ```
 
-This policy covers the current release and development changes. The safe Diagnostic Report and unified ActiveProxyContext are implemented for Next v0.1.4 but are not shipped in v0.1.3. See the [Roadmap](docs/ROADMAP.md).
+This policy covers Current Stable v0.1.4 and development changes planned for v0.2.0. The safe Diagnostic Report and unified ActiveProxyContext are shipped in v0.1.4. See the [Roadmap](docs/ROADMAP.md).
 
 Please report suspected vulnerabilities privately to the repository maintainers rather than opening a public issue. Include the affected version, operating system, reproduction steps, observed impact, and any relevant local logs with secrets removed.
 
