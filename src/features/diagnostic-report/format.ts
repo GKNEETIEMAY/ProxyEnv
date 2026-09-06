@@ -31,6 +31,16 @@ export function formatDiagnosticReport(data: DiagnosticReportData, copy: Copy): 
   const os = ({ windows: "Windows", macos: "macOS", linux: "Linux" } as Record<string, string>)[data.os] ?? unknown;
   return [
     copy.reportTitle,
+    ...(data.remoteBridge ? [section(copy.rbTitle, [
+      field(copy.rbAlias, data.remoteBridge.configured ? copy.reportDetected : copy.reportNotSelected),
+      field(copy.rbCheck, data.remoteBridge.reachable ? copy.reportReachable : copy.reportUnknown),
+      field(copy.reportStatus, copy.rbStates[data.remoteBridge.status]),
+      field(copy.protocol, data.remoteBridge.protocol ? protocol[data.remoteBridge.protocol] : unknown),
+      field(copy.rbProxy, `${data.remoteBridge.proxyStatus ? copy.rbStates[data.remoteBridge.proxyStatus] : unknown} / ${data.remoteBridge.proxyPort ?? copy.reportNone}`),
+      field(copy.rbCc, `${data.remoteBridge.ccDetected ? copy.reportListening : unknown} / ${data.remoteBridge.ccStatus ? copy.rbStates[data.remoteBridge.ccStatus] : unknown} / ${data.remoteBridge.ccPort ?? copy.reportNone}`),
+      field("Codex", data.remoteBridge.codexConfigured ? copy.rbApplied : copy.reportUnknown),
+      field("Claude Code", data.remoteBridge.claudeConfigured ? copy.rbApplied : copy.reportUnknown)
+    ])] : []),
     `${copy.reportVersion}: ${data.appVersion}\n${copy.reportOs}: ${os} ${data.osVersion ?? unknown}`,
     section(copy.proxyClient, [field(copy.reportDetected, data.detectedCount), field(copy.reportListening, data.listeningCount),
       field(copy.reportSelected, data.hasSelection ? data.selectedClient ?? copy.reportOtherClient : copy.reportNotSelected),

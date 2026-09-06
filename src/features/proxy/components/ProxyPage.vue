@@ -3,10 +3,12 @@ import { computed, nextTick, ref } from "vue";
 import type { Copy } from "../../../shared/i18n";
 import type { EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, ProxyProtocol, TunObservation } from "../../../shared/types";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
+import RemoteBridgeEntry from "../../remote-bridge/components/RemoteBridgeEntry.vue";
+import type { BridgeSummary } from "../../remote-bridge/state";
 import NetworkObservationPanel from "../../network-observation/components/NetworkObservationPanel.vue";
 
-const props = defineProps<{ copy: Copy; environment: EnvironmentStatus; candidates: ProxyCandidate[]; detected?: ProxyCandidate; systemProxy?: ProxyCandidate; tun: TunObservation; error: string; loading: boolean; toggling: boolean; copiedEndpoint: boolean; selectedVariables: ManagedProxyVariable[]; inspectManualEndpoint: (endpoint: ProxyEndpoint) => Promise<ProxyEndpointInspection> }>();
-const emit = defineEmits<{ refresh: []; applyDetected: []; selectActive: [candidateId: string]; applyManual: [endpoint: ProxyEndpoint]; disable: []; restore: []; copyEndpoint: [candidate: ProxyCandidate]; toggleVariable: [name: string]; openAssistant: [] }>();
+const props = defineProps<{ copy: Copy; remoteBridgeSummary: BridgeSummary; environment: EnvironmentStatus; candidates: ProxyCandidate[]; detected?: ProxyCandidate; systemProxy?: ProxyCandidate; tun: TunObservation; error: string; loading: boolean; toggling: boolean; copiedEndpoint: boolean; selectedVariables: ManagedProxyVariable[]; inspectManualEndpoint: (endpoint: ProxyEndpoint) => Promise<ProxyEndpointInspection> }>();
+const emit = defineEmits<{ refresh: []; applyDetected: []; selectActive: [candidateId: string]; applyManual: [endpoint: ProxyEndpoint]; disable: []; restore: []; copyEndpoint: [candidate: ProxyCandidate]; toggleVariable: [name: string]; openRemoteBridge: []; openAssistant: [] }>();
 
 const clientIcons: Record<string, string> = {
   "clash-verge-rev": "/proxy-clients/clash-verge-rev.png",
@@ -225,6 +227,8 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
       <div><h2>{{ copy.assistantEntryTitle }}</h2><p>{{ copy.assistantEntryHint }}</p></div>
       <button class="primary-action" type="button" @click="emit('openAssistant')">{{ copy.assistantEntryAction }}</button>
     </section>
+
+    <RemoteBridgeEntry :copy="copy" :summary="remoteBridgeSummary" @open="emit('openRemoteBridge')" />
 
     <section class="variables-section">
       <div class="section-header"><div><h2>{{ copy.variables }}</h2><p>{{ copy.variablesHint }}</p></div><button class="refresh-button" type="button" :disabled="loading" @click="emit('refresh')"><svg :class="{ spinning: loading }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>{{ copy.refresh }}</button></div>

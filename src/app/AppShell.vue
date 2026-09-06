@@ -24,6 +24,11 @@ import { copyText } from "../shared/utils/clipboard";
 import AppHeader from "./components/AppHeader.vue";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 
+import RemoteBridgeDialog from "../features/remote-bridge/components/RemoteBridgeDialog.vue";
+import { useRemoteBridge } from "../features/remote-bridge/state";
+const remoteBridgeDialog = ref<InstanceType<typeof RemoteBridgeDialog>>();
+const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge } = useRemoteBridge();
+
 const reportDialog = ref<InstanceType<typeof DiagnosticReportDialog>>();
 const reportApplicationId = ref<string>();
 
@@ -45,7 +50,7 @@ const settingsError = ref("");
 const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
 const instanceNoticeVisible = ref(false);
-const appVersion = ref("0.1.3");
+const appVersion = ref("0.2.0");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
 const releaseUrl = ref("");
@@ -496,7 +501,7 @@ onMounted(async () => {
   try {
     appVersion.value = await getVersion();
   } catch {
-    appVersion.value = "0.1.3";
+    appVersion.value = "0.2.0";
   }
   if (reviewPreview) {
     const preview = new URLSearchParams(window.location.search).get("impeccable-review");
@@ -669,6 +674,8 @@ onBeforeUnmount(() => {
       @restore="restoreEnvironment"
       @copy-endpoint="copyEndpoint"
       @toggle-variable="toggleManagedVariable"
+      :remote-bridge-summary="remoteBridgeSummary"
+      @open-remote-bridge="remoteBridgeDialog?.open()"
       @open-assistant="openAssistant"
     />
 
@@ -708,6 +715,7 @@ onBeforeUnmount(() => {
       @open-release="openLatestRelease"
     />
     </Transition>
+    <RemoteBridgeDialog ref="remoteBridgeDialog" :copy="copy" :active-proxy="activeProxyContext" :summary="remoteBridgeSummary" @refresh="refreshRemoteBridge" />
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
   </div>
 </template>

@@ -2,6 +2,7 @@ export type ProxyProtocol = "http" | "socks5" | "mixed" | "unknown";
 
 /** Backend-issued, allowlisted report DTO; never contains raw diagnostic objects. */
 export interface DiagnosticReportData {
+  remoteBridge?: { configured: boolean; reachable: boolean; status: import("../../features/remote-bridge/state").BridgeStatus; protocol: ProxyProtocol | null; proxyPort: number | null; proxyStatus?: import("../../features/remote-bridge/state").BridgeStatus | null; ccStatus?: import("../../features/remote-bridge/state").BridgeStatus | null; ccDetected: boolean; ccPort: number | null; codexConfigured: boolean; claudeConfigured: boolean };
   appVersion: string;
   os: string;
   osVersion: string | null;
