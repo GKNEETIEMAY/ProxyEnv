@@ -98,6 +98,7 @@ pub struct DiagnosticReportData {
     total_targets: usize,
     error_categories: Vec<ConnectivityErrorKind>,
     assistant: AssistantSummary,
+    remote_bridge: super::remote_bridge::Report,
 }
 
 fn project_report(
@@ -156,6 +157,7 @@ fn project_report(
         total_targets: connection.map_or(0, |c| c.targets.len()),
         error_categories: errors,
         assistant,
+        remote_bridge: super::remote_bridge::report(),
     }
 }
 

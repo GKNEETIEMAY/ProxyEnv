@@ -26,6 +26,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            features::remote_bridge::start_monitor();
             let settings = settings::load().unwrap_or_default();
             tray::setup(app.handle(), &settings)?;
             if tray::should_start_silent() {
@@ -44,6 +45,19 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::remote_bridge::remote_bridge_targets,
+            commands::remote_bridge::remote_bridge_summary,
+            commands::remote_bridge::remote_bridge_check,
+            commands::remote_bridge::remote_bridge_detect_cc,
+            commands::remote_bridge::remote_bridge_preview,
+            commands::remote_bridge::remote_bridge_connect,
+            commands::remote_bridge::remote_bridge_disconnect,
+            commands::remote_bridge::remote_bridge_test,
+            commands::remote_bridge::remote_bridge_config_preview,
+            commands::remote_bridge::remote_bridge_config_apply,
+            commands::remote_bridge::remote_bridge_config_restore,
+            commands::remote_bridge::remote_bridge_config_restore_preview,
+            commands::remote_bridge::remote_bridge_open_vscode,
             commands::diagnostic_report::generate_diagnostic_report,
             commands::application_assistant::list_running_applications,
             commands::application_assistant::pick_application,
@@ -71,6 +85,11 @@ pub fn run() {
             commands::settings::get_app_settings,
             commands::settings::save_app_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run ProxyEnv");
+        .build(tauri::generate_context!())
+        .expect("failed to run ProxyEnv")
+        .run(|_, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                features::remote_bridge::shutdown();
+            }
+        });
 }
