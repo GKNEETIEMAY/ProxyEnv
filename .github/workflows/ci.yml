@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches:
+      - v0.2.0dev
       - develop
       - main
       - "release/**"
@@ -50,6 +51,9 @@ jobs:
 
       - name: Test diagnostic report localization
         run: pnpm test:report
+
+      - name: Test remote bridge safety and localization
+        run: pnpm test:remote
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

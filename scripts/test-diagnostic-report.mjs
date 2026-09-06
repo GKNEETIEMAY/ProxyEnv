@@ -10,8 +10,9 @@ async function moduleUrl(path, replacements = {}) {
   const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } });
   return `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`;
 }
+const remoteLabels = await moduleUrl("../src/shared/i18n/remote-bridge.ts");
 const labels = await moduleUrl("../src/shared/i18n/diagnostic-report.ts");
-const { messages } = await import(await moduleUrl("../src/shared/i18n/index.ts", { '"./diagnostic-report"': JSON.stringify(labels) }));
+const { messages } = await import(await moduleUrl("../src/shared/i18n/index.ts", { '"./diagnostic-report"': JSON.stringify(labels), '"./remote-bridge"': JSON.stringify(remoteLabels) }));
 const { formatDiagnosticReport } = await import(await moduleUrl("../src/features/diagnostic-report/format.ts"));
 const data = {
   appVersion: "0.1.3", os: "windows", osVersion: "11 (26100)", detectedCount: 2, listeningCount: 1,
@@ -83,4 +84,16 @@ test("report collection depends on non-probing active-state APIs", async () => {
   const diagnosis = await readFile(new URL("../src-tauri/src/features/application_assistant/diagnosis.rs", import.meta.url), "utf8");
   const snapshotPath = diagnosis.split("fn diagnose_snapshot(")[1].split("#[derive")[0];
   assert.ok(!/active::(?:status|context)|inspect_endpoint|test_current_proxy|::detect\(/.test(snapshotPath));
+});
+
+
+test("remote bridge report contains only localized allowlisted summaries", () => {
+  const remoteBridge = {configured:true,reachable:true,status:"stale",protocol:"mixed",proxyPort:17897,ccDetected:true,ccPort:25721,codexConfigured:true,claudeConfigured:false,
+    alias:"private-server",username:"private-user",apiKey:"secret-fixture",path:"/home/private",environment:"secret-env"};
+  for (const copy of Object.values(messages)) {
+    const report=formatDiagnosticReport({...data,remoteBridge},copy);
+    for(const value of [copy.rbTitle,copy.rbStates.stale,"17897","25721"]) assert.ok(report.includes(value));
+    for(const secret of ["private-server","private-user","secret-fixture","/home/private","secret-env"]) assert.ok(!report.includes(secret));
+    assert.ok(!report.includes("undefined"));
+  }
 });
