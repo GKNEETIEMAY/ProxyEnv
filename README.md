@@ -19,6 +19,8 @@
 > [!IMPORTANT]
 > **v0.1.4** is the current stable release for Windows 10/11 x64. See the [Roadmap](docs/ROADMAP.md) for current and upcoming scope.
 
+> Development branch `v0.2.0dev` adds Remote Environment Bridge. See [setup, safety boundaries and validation](docs/REMOTE_BRIDGE.md). v0.2.0 has not been published as a stable release.
+
 ## What is ProxyEnv?
 
 ProxyEnv is not another proxy client. It is a Windows application network diagnostic and configuration assistant that brings scattered system and process-launch state into one view:

@@ -21,9 +21,17 @@ This is the release-scope reference for project documentation. Checked items und
 - [x] Focused diagnostic-report tests and CI integration / 诊断报告格式、多语言及无网络探测边界测试已接入 CI。
 - [x] Signed updater — user-triggered check and download/install for NSIS; MSI/Portable update manually / NSIS 签名更新，MSI/Portable 手动更新。
 
-## Next — v0.2.0
+## Next — v0.2.0 Remote Environment Bridge
 
-- [ ] A new feature cycle is planned. Its concrete scope will be documented after product review rather than inferred from v0.1.x maintenance work / 下一阶段将进入新功能周期；具体范围经产品评审后单独记录，不从 v0.1.x 维护工作中推断。
+Implementation is on `v0.2.0dev`; the stable release remains v0.1.4 pending live Windows/SSH acceptance. See [implementation and compatibility notes](REMOTE_BRIDGE.md).
+
+- SSH host alias selection and explicit connection checks.
+- Current ActiveProxyContext reverse forwarding, revision protection and session lifecycle.
+- CC Switch loopback routing bridge and dedicated Codex/Claude overlays.
+- Reviewed writes and restore, remote backups and conflict protection.
+- Matching Home entry, four-step dialog, four languages and redacted diagnostics.
+
+实现已进入 `v0.2.0dev`，仍需真实 Windows/SSH 环境验收；尚未作为稳定版发布。
 
 ## Future
 
