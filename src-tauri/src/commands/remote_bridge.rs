@@ -63,3 +63,20 @@ pub async fn remote_bridge_config_restore_preview(
 pub async fn remote_bridge_open_vscode(alias: String) -> BridgeResult<()> {
     run(move || bridge::vscode::open(alias)).await
 }
+
+#[tauri::command]
+pub async fn remote_bridge_extension_inspect(
+    alias: String,
+) -> BridgeResult<bridge::extension::Inspection> {
+    run(move || bridge::extension::inspect(alias)).await
+}
+#[tauri::command]
+pub async fn remote_bridge_extension_preview(
+    selection: bridge::extension::Selection,
+) -> BridgeResult<bridge::extension::Preview> {
+    run(move || bridge::extension::preview(selection)).await
+}
+#[tauri::command]
+pub async fn remote_bridge_extension_apply(id: String, confirmed: bool) -> BridgeResult<()> {
+    run(move || bridge::extension::apply(id, confirmed)).await
+}

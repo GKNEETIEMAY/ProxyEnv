@@ -402,6 +402,38 @@ pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResu
     OwnedChild::spawn(&mut cmd)
 }
 
+pub(super) fn extension_remote(
+    alias: &str,
+    request: &serde_json::Value,
+) -> BridgeResult<serde_json::Value> {
+    // JSON is data inside a quoted heredoc. No user-provided command or path is executed.
+    let source = format!("{}\n\"$bridge_node\" - <<'PROXYENV_EXTENSION_JS'\nglobalThis.bridgeExtensionRequest = {};\n{}\nPROXYENV_EXTENSION_JS\n",
+        include_str!("extension-launch.sh"), request, include_str!("extension-helper.cjs"));
+    let (mut cmd, alias) = target_command(alias)?;
+    cmd.args(["-oClearAllForwardings=yes", alias, "sh -s"]);
+    let raw = output(cmd, Some(source), 30)?;
+    let value: serde_json::Value = serde_json::from_str(raw.trim()).map_err(|_| "remoteFailed")?;
+    if let Some(error) = value["error"].as_str() {
+        return Err(match error {
+            "configConflict"
+            | "unsafePath"
+            | "noBackup"
+            | "verifyFailed"
+            | "rollbackConflict"
+            | "rollbackFailed"
+            | "writeRolledBack"
+            | "extensionMissing"
+            | "extensionUnsupported"
+            | "extensionContextChanged"
+            | "customHome"
+            | "remoteUnsupported" => error,
+            _ => "remoteFailed",
+        }
+        .into());
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

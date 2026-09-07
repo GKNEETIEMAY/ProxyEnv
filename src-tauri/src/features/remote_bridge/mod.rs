@@ -1,3 +1,4 @@
+pub mod extension;
 mod ssh;
 pub(crate) mod vscode;
 use super::proxy::{active, plan, ProxyEndpoint, ProxyProtocol, ProxyVariable};
@@ -47,6 +48,8 @@ pub struct Summary {
     pub environment: String,
     pub codex_configured: bool,
     pub claude_configured: bool,
+    pub codex_extension: Option<String>,
+    pub claude_extension: Option<String>,
     pub error: Option<String>,
 }
 #[derive(Debug, Clone, Default, Serialize)]
@@ -63,6 +66,8 @@ pub struct Report {
     pub cc_status: Option<Status>,
     pub codex_configured: bool,
     pub claude_configured: bool,
+    pub codex_extension: Option<String>,
+    pub claude_extension: Option<String>,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +95,7 @@ struct Store {
     summary: Summary,
     child: Option<ssh::OwnedChild>,
     pending: Option<Pending>,
+    extension_pending: Option<extension::Pending>,
     cc_detected: bool,
     reachable: bool,
     target_fingerprint: Option<String>,
@@ -176,6 +182,7 @@ fn refresh(state: &mut Store) {
             state.cc_status = Status::Disconnected;
             state.reachable = false;
             state.pending = None;
+            state.extension_pending = None;
             return;
         }
         let current = active::snapshot().ok();
@@ -229,6 +236,8 @@ pub fn report() -> Report {
         cc_status: s.cc.as_ref().map(|_| state.cc_status),
         codex_configured: s.codex_configured,
         claude_configured: s.claude_configured,
+        codex_extension: s.codex_extension.clone(),
+        claude_extension: s.claude_extension.clone(),
     }
 }
 pub fn targets() -> BridgeResult<Vec<String>> {
@@ -316,6 +325,7 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
     }
     state.pending = None;
     let result = (|| {
+        state.extension_pending = None;
         let fingerprint = ssh::fingerprint(&request.alias)?;
         let mut next = preview(&request)?;
         state.summary.status = Status::Connecting;
@@ -380,6 +390,7 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     let mut state = lock()?;
     state.child = None;
     state.pending = None;
+    state.extension_pending = None;
     state.summary.status = Status::Disconnected;
     state.proxy_status = Status::Disconnected;
     state.cc_status = Status::Disconnected;

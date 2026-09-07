@@ -33,6 +33,15 @@ importers:
       '@vitejs/plugin-vue':
         specifier: ^6.0.1
         version: 6.0.8(vite@7.3.6)(vue@3.5.41(typescript@5.9.3))
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
+      toml-eslint-parser:
+        specifier: ^1.0.3
+        version: 1.0.3
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
@@ -505,6 +514,10 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  eslint-visitor-keys@5.0.1:
+    resolution: {integrity: sha512-tD40eHxA35h0PEIZNeIjkHoDR4YjjJp34biM0mDvplBe//mB+IHCqHDGV7pxF+7MklTvighcCPPZC7ynWyjdTA==}
+    engines: {node: ^20.19.0 || ^22.13.0 || >=24}
+
   estree-walker@2.0.2:
     resolution: {integrity: sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==}
 
@@ -521,6 +534,9 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  jsonc-parser@3.3.1:
+    resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -559,6 +575,10 @@ packages:
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
     engines: {node: '>=12.0.0'}
+
+  toml-eslint-parser@1.0.3:
+    resolution: {integrity: sha512-A5F0cM6+mDleacLIEUkmfpkBbnHJFV1d2rprHU2MXNk7mlxHq2zGojA+SRvQD1RoMo9gqjZPWEaKG4v1BQ48lw==}
+    engines: {node: ^20.19.0 || ^22.13.0 || >=24}
 
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
@@ -981,6 +1001,8 @@ snapshots:
       '@esbuild/win32-ia32': 0.28.2
       '@esbuild/win32-x64': 0.28.2
 
+  eslint-visitor-keys@5.0.1: {}
+
   estree-walker@2.0.2: {}
 
   fdir@6.5.0(picomatch@4.0.5):
@@ -989,6 +1011,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  jsonc-parser@3.3.1: {}
 
   magic-string@0.30.21:
     dependencies:
@@ -1048,6 +1072,10 @@ snapshots:
     dependencies:
       fdir: 6.5.0(picomatch@4.0.5)
       picomatch: 4.0.5
+
+  toml-eslint-parser@1.0.3:
+    dependencies:
+      eslint-visitor-keys: 5.0.1
 
   typescript@5.9.3: {}
 
