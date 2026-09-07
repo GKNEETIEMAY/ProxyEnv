@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import CompactSelect from "../../../shared/components/CompactSelect.vue";
+import RemoteToolDialog from "./RemoteToolDialog.vue";
 import type { ActiveProxyContext } from "../../../shared/types";
 import { bridgeError, type RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
 import { copyText } from "../../../shared/utils/clipboard";
-import { remoteBackend, targetLabel, type BridgeRequest, type BridgeSummary, type ConfigPreview } from "../state";
+import { remoteBackend, targetLabel, type BridgeRequest, type BridgeSummary } from "../state";
 const props=defineProps<{copy:RemoteBridgeCopy; activeProxy:ActiveProxyContext; summary:BridgeSummary}>();
 const emit=defineEmits<{refresh:[]}>();
 const dialog=ref<HTMLDialogElement>();
+const toolDialog=ref<InstanceType<typeof RemoteToolDialog>>();
+const vscodeOpened=ref(false);
 const confirmation=ref<HTMLDialogElement>();
 const heading=ref<HTMLElement>();
 const step=ref(1);
@@ -25,9 +28,6 @@ const error=ref<unknown>();
 const feedback=ref<"copied"|"tested"|"applied"|"restored">();
 const preview=ref<BridgeSummary>();
 const reviewedRequest=ref<BridgeRequest>();
-const config=ref<ConfigPreview>();
-const launch=ref("");
-const confirmationAction=ref<"disconnect"|"apply"|"restore">();
 let previousFocus: HTMLElement | null=null;
 const options=computed(() => aliases.value.map(value => ({value,label:targetLabel(value)})));
 const live=computed(() => ["connected","stale","unavailable","connecting"].includes(props.summary.status) && !!props.summary.alias);
@@ -53,26 +53,24 @@ function open() {
   dialog.value?.showModal();
   void perform(load);
 }
-function close() { confirmation.value?.close(); dialog.value?.close(); previousFocus?.focus(); }
+function close() { toolDialog.value?.close(); confirmation.value?.close(); dialog.value?.close(); previousFocus?.focus(); }
 function go(value:number) { step.value=value; error.value=undefined; void nextTick(()=>heading.value?.focus()); }
 function request():BridgeRequest { return {alias:alias.value,proxyPort:proxy.value?proxyPort.value:null,ccPort:cc.value?ccPort.value:null,ccLocalPort:ccLocalPort.value,expectedRevision:props.activeProxy.revision}; }
 function review() { void perform(async()=>{ const selected=request(); preview.value=await remoteBackend.preview(selected); reviewedRequest.value=selected; go(3); }); }
 function connect() { if(!reviewedRequest.value) return; const selected=reviewedRequest.value; void perform(async()=>{ await remoteBackend.connect(selected); go(4); }); }
-function ask(action:typeof confirmationAction.value) { if (!dialog.value?.open) return; confirmationAction.value=action; confirmation.value?.showModal(); }
-function configure(tool:string) { void perform(async()=>{ config.value=await remoteBackend.configPreview(tool); ask("apply"); }); }
-function restore(tool:string, target=alias.value) { void perform(async()=>{ config.value=await remoteBackend.configRestorePreview(target,tool); ask("restore"); }); }
+function ask() { if (!dialog.value?.open) return; confirmation.value?.showModal(); }
+function configure(tool:string) { toolDialog.value?.open(tool,props.summary.alias || alias.value); }
+function restore(tool:string, target=alias.value) { toolDialog.value?.open(tool,target,true); }
 function confirm() {
-  const action=confirmationAction.value;
   confirmation.value?.close();
   void perform(async()=>{
-    if(action==="disconnect") { await remoteBackend.disconnect(); launch.value=""; go(4); }
-    else if(action==="apply" && config.value) { await remoteBackend.configApply(config.value.id); launch.value=config.value.launch; feedback.value="applied"; config.value=undefined; }
-    else if(action==="restore" && config.value) { await remoteBackend.configRestore(config.value.id); launch.value=""; config.value=undefined; feedback.value="restored"; }
+    await remoteBackend.disconnect(); go(4);
   });
 }
 function copyValue(value:string) { void perform(async()=>{ await copyText(value); feedback.value="copied"; }); }
-watch(alias,()=>{ checked.value=false; launch.value=""; });
-watch(()=>props.summary.status,(value)=>{ if(value==="disconnected" || value==="error") launch.value=""; });
+watch(alias,()=>{ checked.value=false; vscodeOpened.value=false; });
+watch(()=>props.summary.alias,()=>{ vscodeOpened.value=false; });
+const extensionStatus=(value:string|null|undefined)=>value==='configured' ? props.copy.rbExtPending : value==='notConfigured' ? props.copy.rbExtNotConfigured : value==='conflict' ? props.copy.rbConfigError : props.copy.rbExtUnknown;
 watch(ccLocalPort,()=>{ ccDetected.value=false; });
 watch(()=>props.activeProxy.revision,()=>{ if(step.value===3 && reviewedRequest.value?.proxyPort) { reviewedRequest.value=undefined; go(2); error.value="activeChanged"; } });
 defineExpose({open});
@@ -111,12 +109,12 @@ defineExpose({open});
           <section v-for="row in endpoints" :key="row.title" class="remote-capability"><h4>{{row.title}}</h4><dl><dt>{{copy.rbLocal}}</dt><dd><code>{{row.value!.local.host}}:{{row.value!.local.port}} · {{row.value!.local.protocol}}</code></dd><dt>{{copy.rbRemote}}</dt><dd><code>127.0.0.1:{{row.value!.remotePort}}</code></dd></dl></section>
           <p class="remote-hint">{{copy.rbSafety}}</p>
           <template v-if="step===4">
-            <section v-if="summary.alias && live" class="remote-capability"><h4>VS Code · Remote - SSH</h4><p class="remote-hint">{{copy.rbVscodeHint}}</p><button class="secondary-action" type="button" @click="perform(()=>remoteBackend.openVscode(summary.alias!))">{{copy.rbVscodeOpen}}</button></section>
+            <section v-if="summary.alias && live" class="remote-capability"><h4>VS Code · Remote - SSH</h4><p class="remote-hint">{{copy.rbVscodeHint}}</p><button class="secondary-action" type="button" @click="perform(async()=>{ await remoteBackend.openVscode(summary.alias!); vscodeOpened=true; })">{{copy.rbVscodeOpen}}</button><p v-if="vscodeOpened" role="status">{{copy.rbExtOpened}}</p></section>
             <div v-if="summary.proxy && live" class="remote-actions"><button class="secondary-action" type="button" @click="copyValue(summary.environment)">{{copy.rbCopy}}</button><button class="secondary-action" type="button" :disabled="summary.status!=='connected'" @click="perform(async()=>{await remoteBackend.test();feedback='tested';})">{{copy.rbTest}}</button></div>
             <p v-if="summary.proxy && live" class="remote-hint">{{copy.rbTestHint}}</p>
-            <template v-if="summary.cc && live"><p class="remote-hint">{{copy.rbConfigHint}}</p><div class="remote-actions"><button class="secondary-action" type="button" @click="configure('codex')">{{copy.rbCodex}}</button><button class="secondary-action" type="button" @click="configure('claude')">{{copy.rbClaude}}</button></div></template>
+            <template v-if="summary.cc && live"><p class="remote-hint">{{copy.rbExtScope}}</p><div class="remote-actions"><button class="secondary-action" type="button" @click="configure('codex')">{{copy.rbCodex}}</button><button class="secondary-action" type="button" @click="configure('claude')">{{copy.rbClaude}}</button></div><p class="remote-hint">Codex CLI · {{summary.codexConfigured ? copy.rbExtPending : copy.rbExtNotConfigured}}<br>Claude Code CLI · {{summary.claudeConfigured ? copy.rbExtPending : copy.rbExtNotConfigured}}</p></template>
             <div v-if="summary.alias" class="remote-actions"><button class="secondary-action" type="button" @click="restore('codex',summary.alias!)">{{copy.rbRestoreCodex}}</button><button class="secondary-action" type="button" @click="restore('claude',summary.alias!)">{{copy.rbRestoreClaude}}</button></div>
-            <div v-if="launch" class="remote-launch"><label>{{copy.rbLaunch}}</label><pre>{{launch}}</pre><button class="secondary-action" type="button" @click="copyValue(launch)">{{copy.rbCopyLaunch}}</button></div>
+            <p v-if="summary.cc && live" class="remote-hint">Codex · {{copy.rbExtGui}} · {{extensionStatus(summary.codexExtension)}}<br>Claude Code · {{copy.rbExtGui}} · {{extensionStatus(summary.claudeExtension)}}</p>
           </template>
         </template>
       </fieldset>
@@ -126,19 +124,19 @@ defineExpose({open});
         <button v-if="step===1" class="primary-action" type="button" :disabled="busy || !checked" @click="go(2)">{{copy.rbNext}}</button>
         <button v-if="step===2" class="primary-action" type="submit" :disabled="busy || !valid">{{copy.rbNext}}</button>
         <button v-if="step===3" class="primary-action" type="submit" :disabled="busy || !reviewedRequest">{{copy.rbConnect}}</button>
-        <button v-if="step===4 && live" class="secondary-action remote-danger" type="button" :disabled="busy" @click="ask('disconnect')">{{copy.rbDisconnect}}</button>
+        <button v-if="step===4 && live" class="secondary-action remote-danger" type="button" :disabled="busy" @click="ask()">{{copy.rbDisconnect}}</button>
         <button v-if="step===4 && !live" class="primary-action" type="button" :disabled="busy" @click="go(1)">{{copy.rbReconnect}}</button>
       </div>
     </form>
   </dialog>
   <dialog ref="confirmation" class="confirmation-dialog remote-bridge-dialog" aria-labelledby="remote-confirm-title" @cancel.prevent="confirmation?.close()">
     <form @submit.prevent="confirm">
-      <h2 id="remote-confirm-title">{{confirmationAction==='apply' ? copy.rbApply : confirmationAction==='disconnect' ? copy.rbDisconnect : copy.rbConfirm}}</h2>
-      <template v-if="confirmationAction!=='disconnect' && config"><p><strong>{{targetLabel(config.alias)}}</strong> · {{config.tool}} {{config.version}}</p><p>{{config.path}}</p><h3>{{copy.rbBefore}}</h3><pre>{{config.before || copy.rbAbsent}}</pre><h3>{{copy.rbAfter}}</h3><pre>{{config.after || copy.rbAbsent}}</pre><p class="remote-hint">{{config.restore ? copy.rbRestoreHint : copy.rbConfigHint}}</p><template v-if="config.launch"><h3>{{copy.rbLaunch}}</h3><pre>{{config.launch}}</pre></template></template>
-      <p v-else>{{confirmationAction==='disconnect' ? copy.rbDisconnectHint : copy.rbRestoreHint}}</p>
+      <h2 id="remote-confirm-title">{{copy.rbDisconnect}}</h2>
+      <p>{{copy.rbDisconnectHint}}</p>
       <div class="confirmation-actions"><button class="secondary-action" type="button" autofocus @click="confirmation?.close()">{{copy.rbCancel}}</button><button class="primary-action" type="submit" :disabled="busy">{{copy.rbConfirm}}</button></div>
     </form>
   </dialog>
+  <RemoteToolDialog ref="toolDialog" :copy="copy" :session-alias="summary.alias" :session-status="summary.status" @refresh="emit('refresh')" />
 </template>
 <style>
 .confirmation-dialog.remote-bridge-dialog { width: min(640px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow-y: auto; }

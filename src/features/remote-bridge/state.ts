@@ -3,12 +3,18 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { ProxyEndpoint } from "../../shared/types";
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "stale" | "unavailable" | "error";
 export interface BridgeEndpoint { local: ProxyEndpoint; remotePort: number }
-export interface BridgeSummary { status: BridgeStatus; alias: string | null; proxy: BridgeEndpoint | null; cc: BridgeEndpoint | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; error: string | null }
+export interface BridgeSummary { status: BridgeStatus; alias: string | null; proxy: BridgeEndpoint | null; cc: BridgeEndpoint | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; codexExtension?: string | null; claudeExtension?: string | null; error: string | null }
 export interface BridgeRequest { alias: string; proxyPort: number | null; ccPort: number | null; ccLocalPort: number; expectedRevision: number }
 export interface ConfigPreview { id: string; tool: string; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean }
+export interface ExtensionCapability { tool: string; detected: boolean; supported: boolean; version: string; runtimeVersion: string; configuration: 'configured' | 'notConfigured' | 'conflict' }
+export interface ExtensionInspection { user: string; contextHash: string; extensions: ExtensionCapability[] }
+export interface ExtensionPreview { id: string; alias: string; tool: string; path: string; version: string; runtimeVersion: string; port: number; previousPort: number | null; originalExists: boolean; restore: boolean }
 export const emptySummary = (): BridgeSummary => ({ status:"disconnected", alias:null, proxy:null, cc:null, activeProxyRevision:null, environment:"", codexConfigured:false, claudeConfigured:false, error:null });
 export const targetLabel = (target:string) => target.startsWith("vscode:") ? `${target.slice(7)} · VS Code` : target;
 export const remoteBackend = {
+  extensionInspect: (alias: string) => invoke<ExtensionInspection>("remote_bridge_extension_inspect", { alias }),
+  extensionPreview: (selection: { alias: string; tool: string; contextHash: string; remoteConfirmed: boolean; restore: boolean }) => invoke<ExtensionPreview>("remote_bridge_extension_preview", { selection }),
+  extensionApply: (id: string) => invoke<void>("remote_bridge_extension_apply", { id, confirmed: true }),
   targets: () => invoke<string[]>("remote_bridge_targets"),
   summary: () => invoke<BridgeSummary>("remote_bridge_summary"),
   check: (alias: string) => invoke<void>("remote_bridge_check", { alias }),

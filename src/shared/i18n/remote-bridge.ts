@@ -1,4 +1,86 @@
+const extensionEn = {
+  rbExtConfirmRestore: 'Confirm restore',
+  rbExtRestoreTitle: 'Choose configuration to restore', rbExtRestoreScope: 'Restore only the selected files from their remote backups. Changes to the file or backup stop restoration.',
+  rbExtRestoreImpact: 'Reverts ProxyEnv configuration changes. After reloading, new sessions use the restored configuration and routing; requests may no longer pass through the bridge.',
+  rbExtRestored: 'Restored. Reload VS Code and start a new session to use the original configuration. This does not disconnect the tunnel or verify model routing.',
+  rbExtTitle: 'Choose configuration scope', rbExtCli: 'CLI', rbExtGui: 'VS Code Extension',
+  rbExtScope: 'Choose only the surfaces you want to change. Each file has its own preview and transaction; partial success is reported separately.',
+  rbExtInspect: 'Inspect remote extensions', rbExtDetected: 'Installed', rbExtUnknown: 'Not checked', rbExtUnsupported: 'Missing, ambiguous or unsupported runtime',
+  rbExtLocation: 'In the target Remote - SSH window, open Developer: Show Running Extensions. Confirm this extension runs remotely under the account shown below. Also confirm Open config.toml (Codex) or Open Remote Settings (Claude) uses the displayed path. Custom server/config directories are not supported.',
+  rbExtConfirmLocation: 'I confirmed the remote execution account and configuration path in VS Code',
+  rbExtCodexImpact: 'Changes model_provider in the shared remote Codex config. Other Codex sessions using defaults will also use the bridge. Model, permissions and MCP settings are preserved.',
+  rbExtClaudeImpact: 'Adds the gateway endpoint and public PROXY_MANAGED placeholder to remote claudeCode.environmentVariables. Existing routing or credential entries cause a conflict. No real key is copied.',
+  rbExtPending: 'Written · reload and model verification required', rbExtNotConfigured: 'Not configured', rbExtReview: 'Preview selected files',
+  rbExtRestart: 'Reload the VS Code window and start a new extension session. File verification does not verify model routing. Disconnect keeps the bridge endpoint; restore is a separate action.',
+  rbExtPartial: 'Some files succeeded. Review each result below; failed files require a new preview.',
+  rbExtOpaque: 'Existing configuration is retained in the remote backup. Unrelated content and credentials are not returned.',
+  rbExtRestoreOpaque: 'Restore the original remote file after hash verification; original values are not returned.',
+  rbExtRestoreAbsent: 'Remove the file created by ProxyEnv.', rbExtError: 'Could not safely configure this extension. Recheck the remote execution location, default paths, installed versions and existing routing settings. No software was installed.',
+  rbExtApplied: 'Applied', rbExtFailed: 'Failed', rbExtWaiting: 'Not applied', rbExtOpened: 'VS Code open requested',
+};
+type ExtensionLabels = { [K in keyof typeof extensionEn]: string };
+const extensionZh: ExtensionLabels = {
+  rbExtConfirmRestore:'确认恢复',
+  rbExtRestoreTitle:'选择要恢复的配置',rbExtRestoreScope:'仅从远端备份恢复所选文件。文件或备份已被修改时停止恢复。',
+  rbExtRestoreImpact:'撤销 ProxyEnv 的配置改动。重载后新会话使用恢复的原配置及路由，后续请求可能不再经过桥接。',
+  rbExtRestored:'已恢复。请重载 VS Code 并新建会话以使用原配置。此次操作不会断开隧道，也不验证模型路由。',
+  rbExtTitle:'选择配置范围',rbExtCli:'CLI',rbExtGui:'VS Code 图形化扩展',
+  rbExtScope:'只选择需要修改的入口。各文件分别预览和执行事务，部分成功会逐项显示。',
+  rbExtInspect:'检查远端扩展',rbExtDetected:'已检测安装',rbExtUnknown:'未检查',rbExtUnsupported:'未安装、版本不唯一或运行时不受支持',
+  rbExtLocation:'在目标 Remote - SSH 窗口运行 Developer: Show Running Extensions，确认该扩展运行在下方账户的远端。再确认 Codex 的 Open config.toml 或 Claude 的 Open Remote Settings 使用所示路径。暂不支持自定义 Server 或配置目录。',
+  rbExtConfirmLocation:'我已在 VS Code 确认远端执行账户与配置路径',
+  rbExtCodexImpact:'将修改远端共享 Codex 配置的 model_provider。同账户其他使用默认配置的 Codex 会话也会走桥接；保留模型、权限和 MCP 配置。',
+  rbExtClaudeImpact:'向远端 claudeCode.environmentVariables 增加网关地址及公开占位值 PROXY_MANAGED。已有路由或凭据项会触发冲突，不复制真实密钥。',
+  rbExtPending:'已写入 · 待重载及模型验收',rbExtNotConfigured:'未配置',rbExtReview:'预览所选文件',
+  rbExtRestart:'请重载 VS Code 窗口并新建扩展会话。文件校验不等于模型路由已验证。断开时保留桥接端点，恢复需单独操作。',
+  rbExtPartial:'部分文件已成功。请查看逐项结果；失败项需要重新预览。',
+  rbExtOpaque:'原配置保留在远端备份中，不回传无关内容和凭据。',
+  rbExtRestoreOpaque:'校验哈希后恢复远端原文件，不回传原值。',rbExtRestoreAbsent:'删除由 ProxyEnv 创建的文件。',
+  rbExtError:'无法安全配置此扩展。请重新确认远端运行位置、默认目录、安装版本及已有路由配置。未安装任何软件。',
+  rbExtApplied:'已应用',rbExtFailed:'失败',rbExtWaiting:'未应用',rbExtOpened:'已请求打开 VS Code',
+};
+const extensionJa: ExtensionLabels = {
+  rbExtConfirmRestore:'復元を確認',
+  rbExtRestoreTitle:'復元する設定を選択',rbExtRestoreScope:'選択したファイルだけをリモートのバックアップから復元します。ファイルやバックアップに変更があれば停止します。',
+  rbExtRestoreImpact:'ProxyEnv の設定変更を取り消します。再読込後の新規セッションは元の設定と経路を使い、ブリッジを経由しない場合があります。',
+  rbExtRestored:'復元しました。VS Code を再読込して新規セッションで元の設定を使用してください。トンネルの切断やモデル経路の検証は行いません。',
+  rbExtTitle:'設定する対象を選択',rbExtCli:'CLI',rbExtGui:'VS Code 拡張機能',
+  rbExtScope:'変更する対象だけを選択してください。ファイルごとに確認して適用し、一部の成功も個別に表示します。',
+  rbExtInspect:'リモート拡張を確認',rbExtDetected:'インストール確認済み',rbExtUnknown:'未確認',rbExtUnsupported:'未導入・複数バージョン・未対応ランタイム',
+  rbExtLocation:'対象の Remote - SSH ウィンドウで Developer: Show Running Extensions を開き、下記アカウントのリモートで動作することを確認してください。Codex の Open config.toml または Claude の Open Remote Settings で表示パスも確認します。独自の Server・設定ディレクトリは未対応です。',
+  rbExtConfirmLocation:'VS Code でリモート実行アカウントと設定パスを確認しました',
+  rbExtCodexImpact:'共有 Codex 設定の model_provider を変更します。同じアカウントで既定値を使う他のセッションにも影響します。モデル・権限・MCP 設定は保持します。',
+  rbExtClaudeImpact:'リモートの claudeCode.environmentVariables に接続先と公開値 PROXY_MANAGED を追加します。既存の経路・認証項目があれば停止します。実際のキーはコピーしません。',
+  rbExtPending:'書き込み済み・再読込とモデル検証が必要',rbExtNotConfigured:'未設定',rbExtReview:'選択したファイルを確認',
+  rbExtRestart:'VS Code を再読込し、新しい拡張セッションを開始してください。ファイル検証はモデル経路の検証ではありません。切断時も接続先は保持され、復元は別操作です。',
+  rbExtPartial:'一部のファイルが成功しました。個別の結果を確認し、失敗した項目を再プレビューしてください。',
+  rbExtOpaque:'元の設定はリモートにバックアップされます。無関係の内容と認証情報は返しません。',
+  rbExtRestoreOpaque:'ハッシュ確認後に元のファイルを復元します。元の値は返しません。',rbExtRestoreAbsent:'ProxyEnv が作成したファイルを削除します。',
+  rbExtError:'安全に設定できませんでした。リモート実行場所、既定パス、バージョン、既存の経路設定を確認してください。ソフトウェアは導入していません。',
+  rbExtApplied:'適用済み',rbExtFailed:'失敗',rbExtWaiting:'未適用',rbExtOpened:'VS Code を開く要求を送信しました',
+};
+const extensionKo: ExtensionLabels = {
+  rbExtConfirmRestore:'복원 확인',
+  rbExtRestoreTitle:'복원할 설정 선택',rbExtRestoreScope:'선택한 파일만 원격 백업에서 복원합니다. 파일이나 백업이 변경되었으면 중단합니다.',
+  rbExtRestoreImpact:'ProxyEnv의 설정 변경을 취소합니다. 다시 로드한 새 세션은 원래 설정과 라우팅을 사용하며 이후 요청은 브리지를 거치지 않을 수 있습니다.',
+  rbExtRestored:'복원했습니다. VS Code를 다시 로드하고 새 세션에서 원래 설정을 사용하세요. 터널을 끊거나 모델 라우팅을 검증하지 않습니다.',
+  rbExtTitle:'설정 범위 선택',rbExtCli:'CLI',rbExtGui:'VS Code 그래픽 확장',
+  rbExtScope:'변경할 대상만 선택하세요. 파일별로 미리 보고 적용하며 일부 성공도 각각 표시합니다.',
+  rbExtInspect:'원격 확장 확인',rbExtDetected:'설치 확인됨',rbExtUnknown:'확인 안 됨',rbExtUnsupported:'미설치, 여러 버전 또는 미지원 런타임',
+  rbExtLocation:'대상 Remote - SSH 창에서 Developer: Show Running Extensions를 열어 아래 계정의 원격에서 실행되는지 확인하세요. Codex의 Open config.toml 또는 Claude의 Open Remote Settings에서 표시된 경로도 확인하세요. 사용자 지정 Server 및 설정 디렉터리는 지원하지 않습니다.',
+  rbExtConfirmLocation:'VS Code에서 원격 실행 계정과 설정 경로를 확인했습니다',
+  rbExtCodexImpact:'공유 Codex 설정의 model_provider를 변경합니다. 같은 계정에서 기본 설정을 쓰는 다른 세션에도 영향을 줍니다. 모델, 권한, MCP 설정은 보존합니다.',
+  rbExtClaudeImpact:'원격 claudeCode.environmentVariables에 게이트웨이 주소와 공개 값 PROXY_MANAGED를 추가합니다. 기존 라우팅이나 인증 항목이 있으면 중단합니다. 실제 키는 복사하지 않습니다.',
+  rbExtPending:'기록됨 · 다시 로드 및 모델 검증 필요',rbExtNotConfigured:'미설정',rbExtReview:'선택한 파일 미리 보기',
+  rbExtRestart:'VS Code 창을 다시 로드하고 새 확장 세션을 시작하세요. 파일 검증은 모델 라우팅 검증이 아닙니다. 연결 해제 시 엔드포인트는 유지되며 복원은 별도 작업입니다.',
+  rbExtPartial:'일부 파일이 성공했습니다. 각 결과를 확인하고 실패 항목을 다시 미리 보세요.',
+  rbExtOpaque:'원래 설정은 원격 백업에 보존됩니다. 무관한 내용과 인증 정보는 반환하지 않습니다.',
+  rbExtRestoreOpaque:'해시 확인 후 원래 파일을 복원합니다. 원래 값은 반환하지 않습니다.',rbExtRestoreAbsent:'ProxyEnv가 만든 파일을 삭제합니다.',
+  rbExtError:'확장을 안전하게 설정할 수 없습니다. 원격 실행 위치, 기본 경로, 설치 버전 및 기존 라우팅을 확인하세요. 소프트웨어를 설치하지 않았습니다.',
+  rbExtApplied:'적용됨',rbExtFailed:'실패',rbExtWaiting:'미적용',rbExtOpened:'VS Code 열기 요청됨',
+};
 const en = {
+  ...extensionEn,
   rbVscodeOpen: "Open in VS Code", rbVscodeTargets: "Also reads remote.SSH.configFile from the default VS Code user settings (JSONC). Hosts from that file are marked VS Code. Custom profiles and portable settings are not scanned.", rbVscodeHint: "Connect VS Code Remote - SSH to this same host, then paste the proxy variables and CLI launch commands into its remote terminal. The bridge remains owned by ProxyEnv. Terminal exports do not reconfigure an already-running VS Code Server or extension host.", rbVscodeError: "Could not open the reviewed SSH target in VS Code. Check that VS Code and Remote - SSH are installed, and select a host from the same SSH configuration used by VS Code.",
   rbTitle: "Remote environment bridge", rbHint: "Share your current local proxy and CC Switch with a server or VM over SSH.",
   rbOpen: "Configure bridge", rbView: "View bridge", rbTarget: "Remote environment", rbCapabilities: "Bridge capabilities", rbPreview: "Review bridge", rbStatus: "Bridge status",
@@ -27,6 +109,7 @@ const en = {
 };
 type Labels = { [K in keyof typeof en]: K extends "rbStates" ? Record<keyof typeof en.rbStates, string> : string };
 const zh: Labels = {
+  ...extensionZh,
   rbVscodeOpen:"在 VS Code 中打开", rbVscodeTargets:"同时读取 VS Code 默认用户设置（JSONC）中的 remote.SSH.configFile；该文件中的主机标注为 VS Code。不扫描自定义 Profile 或便携版设置。", rbVscodeHint:"在 VS Code Remote - SSH 中连接同一主机，再把代理变量和 CLI 启动命令粘贴到远程终端。桥接由 ProxyEnv 独立维护。终端 export 不会重新配置已运行的 VS Code Server 或扩展宿主。", rbVscodeError:"无法在 VS Code 中打开已确认的 SSH 目标。请确认已安装 VS Code 与 Remote - SSH，并选择与 VS Code 使用同一 SSH 配置的主机。",
   rbTitle:"远程环境桥接", rbHint:"通过 SSH 让服务器或虚拟机复用当前本机代理与 CC Switch。", rbOpen:"配置远程桥接", rbView:"查看桥接", rbTarget:"选择远程环境", rbCapabilities:"选择桥接能力", rbPreview:"确认桥接配置", rbStatus:"桥接状态",
   rbAlias:"SSH 主机别名", rbEmpty:"未在 ~/.ssh/config 中发现明确的 Host 别名。请先通过 OpenSSH 配置主机，再刷新。", rbRequirements:"复用现有 OpenSSH 密钥与 Agent。请先在终端连接并确认主机指纹。远端需使用非 root Linux 账户，并具备 ss、flock 和 coreutils。",
@@ -40,10 +123,12 @@ const zh: Labels = {
   rbStates:{disconnected:"未连接",connecting:"正在连接",connected:"已连接",stale:"配置已变化",unavailable:"当前不可用",error:"连接失败"},
 };
 const ja: Labels = {
+  ...extensionJa,
   rbVscodeOpen:"VS Code で開く", rbVscodeTargets:"VS Code の既定ユーザー設定（JSONC）の remote.SSH.configFile も読みます。該当ホストは VS Code と表示します。カスタム Profile とポータブル設定は対象外です。", rbVscodeHint:"Remote - SSH で同じホストに接続し、リモートターミナルに環境変数と CLI コマンドを貼り付けてください。ブリッジは ProxyEnv が管理します。export は起動済みの Server や拡張ホストを再設定しません。", rbVscodeError:"VS Code で接続先を開けません。VS Code と Remote - SSH のインストール、および SSH 設定ファイルの一致を確認してください。",
   rbTitle:"リモート環境ブリッジ",rbHint:"SSH 経由でサーバーや VM と現在のプロキシ・CC Switch を共有します。",rbOpen:"ブリッジを設定",rbView:"ブリッジを表示",rbTarget:"接続先を選択",rbCapabilities:"機能を選択",rbPreview:"設定を確認",rbStatus:"ブリッジの状態",rbAlias:"SSH ホスト別名",rbEmpty:"~/.ssh/config に明示的な Host がありません。OpenSSH で追加して更新してください。",rbRequirements:"既存の鍵と Agent を使用します。先にターミナルでホスト鍵を確認してください。接続先は非 root の Linux、ss・flock・coreutils が必要です。",rbCheck:"接続を確認",rbChecked:"SSH 接続を確認済み",rbRefresh:"ホストを更新",rbNext:"次へ",rbBack:"戻る",rbClose:"閉じる",rbProxy:"現在のローカルプロキシ",rbNoProxy:"プロキシが利用できません。ホームで利用可能なプロキシを選択してください。",rbCc:"CC Switch ローカルルーティング",rbCcHint:"ポートの待ち受けのみ確認します。CC Switch のポートと CLI のルーティング有効化を確認してください。",rbLocalPort:"ローカルポート",rbDetect:"ポートを確認",rbDetected:"ポートは待ち受け中です",rbRemotePort:"リモートポート",rbPortHint:"1024～65535 の異なるポートを指定してください。",rbSafety:"リモートは 127.0.0.1 のみ。ProxyEnv の実行中だけ有効です。Shell 起動ファイルは変更しません。",rbConnect:"ブリッジを接続",rbDisconnect:"ブリッジを切断",rbDisconnectHint:"リモートプログラムの接続が失われます。保存済み CLI 設定は復元できます。",rbConfirm:"確認",rbCancel:"キャンセル",rbReconnect:"再設定",rbStaleHint:"現在のプロキシが変更されました。既存の接続先は保持されています。切断してから再接続してください。",rbUnavailableHint:"ローカルの接続先を利用できません。プロキシまたは CC Switch を確認してください。自動切替は行いません。",rbLocal:"ローカル",rbRemote:"リモート",rbCopy:"環境変数をコピー",rbCopied:"コピーしました",rbTest:"ブリッジをテスト",rbTestHint:"この操作のみがリモートプロキシ経由で gstatic.com に接続します。AI リクエストは送りません。",rbTested:"ネットワークテスト成功",rbCodex:"Codex を設定",rbClaude:"Claude Code を設定",rbRestoreCodex:"Codex 設定を復元",rbRestoreClaude:"Claude 設定を復元",rbConfigHint:"専用設定を作成します。Codex CLI 0.134+（0.x）と Claude Code 2.x に対応。既存の設定と認証情報を保持します。表示されたコマンドで有効にしてください。上位設定による上書きがあり得ます。PROXY_MANAGED は公開プレースホルダーです。",rbBefore:"変更前",rbAfter:"変更後",rbAbsent:"ファイルなし",rbApply:"確認して適用",rbApplied:"設定を検証済み",rbLaunch:"リモート起動コマンド",rbCopyLaunch:"起動コマンドをコピー",rbRestoreHint:"リモートバックアップから専用設定を復元します。他の変更があれば上書きせず停止します。",rbRestored:"元の設定を復元しました",rbBusy:"処理中…",rbFailed:"操作に失敗しました。SSH とローカル接続先を確認して再試行してください。",rbSshError:"SSH 接続に失敗しました。ターミナルでホスト鍵、認証、設定を確認してください。サーバー設定は変更していません。",rbForwardError:"転送できません。ポートの使用状況と SSH 転送ポリシーを確認してください。サーバー設定は変更していません。",rbBindingError:"Loopback のみの待ち受けを確認できず、新しい接続を閉じました。管理者に GatewayPorts を確認してください。",rbConfigError:"設定が競合するか未対応です。競合を上書きしていません。リモートの専用設定と復元ファイルを確認してください。",rbDependencyError:"非対応の環境またはツール不足です。非 root Linux と ss・flock・coreutils、Codex 0.134+（0.x）または Claude Code 2.x が必要です。",rbPortError:"ポートが無効か使用中です。1024～65535 の空きポートを選択してください。",rbActiveError:"プロキシが変更されたか利用できません。ホームで確認して再設定してください。",rbStates:{disconnected:"未接続",connecting:"接続中",connected:"接続済み",stale:"設定変更あり",unavailable:"利用不可",error:"接続失敗"},
 };
 const ko: Labels = {
+  ...extensionKo,
   rbVscodeOpen:"VS Code에서 열기", rbVscodeTargets:"VS Code 기본 사용자 설정(JSONC)의 remote.SSH.configFile도 읽습니다. 해당 호스트는 VS Code로 표시됩니다. 사용자 지정 Profile 및 휴대용 설정은 검색하지 않습니다.", rbVscodeHint:"Remote - SSH로 같은 호스트에 연결한 뒤 원격 터미널에 프록시 변수와 CLI 명령을 붙여 넣으세요. 브리지는 ProxyEnv가 관리합니다. 터미널 export는 실행 중인 Server나 확장 호스트를 다시 설정하지 않습니다.", rbVscodeError:"VS Code에서 대상 호스트를 열 수 없습니다. VS Code와 Remote - SSH 설치 및 SSH 설정 파일 일치 여부를 확인하세요.",
   rbTitle:"원격 환경 브리지",rbHint:"SSH로 서버 또는 VM에서 현재 프록시와 CC Switch를 사용합니다.",rbOpen:"브리지 설정",rbView:"브리지 보기",rbTarget:"원격 환경 선택",rbCapabilities:"기능 선택",rbPreview:"설정 확인",rbStatus:"브리지 상태",rbAlias:"SSH 호스트 별칭",rbEmpty:"~/.ssh/config에 명시적인 Host가 없습니다. OpenSSH로 호스트를 추가한 후 새로 고치세요.",rbRequirements:"기존 키와 Agent를 사용합니다. 터미널에서 호스트 키를 먼저 확인하세요. 원격에는 ss, flock, coreutils가 있는 비 root Linux 계정이 필요합니다.",rbCheck:"연결 확인",rbChecked:"SSH 연결 확인됨",rbRefresh:"호스트 새로 고침",rbNext:"다음",rbBack:"이전",rbClose:"닫기",rbProxy:"현재 로컬 프록시",rbNoProxy:"프록시를 사용할 수 없습니다. 홈에서 사용 가능한 프록시를 선택하세요.",rbCc:"CC Switch 로컬 라우팅",rbCcHint:"포트 수신만 확인합니다. CC Switch 포트인지, 해당 CLI의 라우팅이 켜져 있는지 확인하세요.",rbLocalPort:"로컬 라우팅 포트",rbDetect:"로컬 포트 확인",rbDetected:"포트가 수신 중입니다",rbRemotePort:"원격 포트",rbPortHint:"1024–65535 범위에서 서로 다른 포트를 사용하세요.",rbSafety:"원격은 127.0.0.1에만 바인딩합니다. ProxyEnv 실행 중에만 유효하며 Shell 시작 파일을 변경하지 않습니다.",rbConnect:"브리지 연결",rbDisconnect:"브리지 연결 해제",rbDisconnectHint:"원격 프로그램의 브리지 연결이 끊깁니다. 저장된 CLI 설정은 복원할 수 있습니다.",rbConfirm:"확인",rbCancel:"취소",rbReconnect:"다시 설정",rbStaleHint:"현재 프록시가 변경되었습니다. 기존 터널은 원래 대상을 사용합니다. 연결을 해제한 후 다시 설정하세요.",rbUnavailableHint:"로컬 대상을 사용할 수 없습니다. 프록시 또는 CC Switch를 확인하세요. 대상은 자동으로 전환되지 않습니다.",rbLocal:"로컬",rbRemote:"원격",rbCopy:"환경 변수 복사",rbCopied:"복사됨",rbTest:"브리지 테스트",rbTestHint:"이 버튼만 원격 프록시를 통해 gstatic.com에 접속합니다. AI 요청은 보내지 않습니다.",rbTested:"원격 네트워크 테스트 통과",rbCodex:"Codex 설정",rbClaude:"Claude Code 설정",rbRestoreCodex:"Codex 설정 복원",rbRestoreClaude:"Claude 설정 복원",rbConfigHint:"전용 설정을 생성합니다. Codex CLI 0.134+ (0.x) 또는 Claude Code 2.x를 지원합니다. 기존 기본 설정과 인증 정보를 유지합니다. 표시된 명령으로 사용하며 상위 설정이 덮어쓸 수 있습니다. PROXY_MANAGED는 공개 자리표시자입니다.",rbBefore:"변경 전",rbAfter:"변경 후",rbAbsent:"파일 없음",rbApply:"설정 확인 후 적용",rbApplied:"설정 검증 완료",rbLaunch:"원격 실행 명령",rbCopyLaunch:"실행 명령 복사",rbRestoreHint:"원격 백업에서 원래 전용 설정을 복원합니다. 다른 프로그램이 변경했다면 덮어쓰지 않고 중단합니다.",rbRestored:"원래 설정 복원됨",rbBusy:"처리 중…",rbFailed:"작업이 실패했습니다. SSH 대상과 로컬 포트를 확인한 후 다시 시도하세요.",rbSshError:"SSH 연결 실패. 터미널에서 호스트 키, 키/Agent 인증, SSH 설정을 확인하세요. 서버 설정은 변경하지 않았습니다.",rbForwardError:"역방향 전달 실패. 원격 포트 점유와 SSH 전달 정책을 확인하세요. 서버 설정은 변경하지 않았습니다.",rbBindingError:"Loopback 전용 수신을 확인할 수 없어 새 터널을 닫았습니다. 관리자에게 GatewayPorts 정책을 확인하세요.",rbConfigError:"설정 충돌 또는 미지원 파일입니다. 충돌한 변경을 덮어쓰지 않았습니다. 원격의 전용 설정과 복구 파일을 확인하세요.",rbDependencyError:"미지원 원격 환경 또는 도구 누락입니다. ss, flock, coreutils가 있는 비 root Linux와 Codex 0.134+ (0.x) 또는 Claude Code 2.x가 필요합니다.",rbPortError:"잘못되었거나 사용 중인 포트입니다. 1024–65535 범위의 서로 다른 빈 포트를 선택하세요.",rbActiveError:"프록시가 변경되었거나 사용할 수 없습니다. 홈에서 확인한 후 다시 미리 보세요.",rbStates:{disconnected:"연결 안 됨",connecting:"연결 중",connected:"연결됨",stale:"설정 변경됨",unavailable:"사용 불가",error:"연결 실패"},
 };
@@ -52,6 +137,7 @@ export type RemoteBridgeCopy = Labels;
 
 export function bridgeError(code: unknown, copy: Labels): string {
   const value = typeof code === "string" ? code : "";
+  if (["extensionMissing","extensionUnsupported","extensionContextChanged","extensionLocationRequired"].includes(value)) return copy.rbExtError;
   if (["vscodeMissing","vscodeConfigInvalid","vscodeConfigMismatch"].includes(value)) return copy.rbVscodeError;
   if (["sshConfigChanged","sshMissing","sshConfigMissing","sshConfigUnsafe","sshTimeout","hostKey","sshAuth","sshFailed","invalidTarget"].includes(value)) return copy.rbSshError;
   if (value === "forwardDenied") return copy.rbForwardError;

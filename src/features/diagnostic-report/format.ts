@@ -39,7 +39,8 @@ export function formatDiagnosticReport(data: DiagnosticReportData, copy: Copy): 
       field(copy.rbProxy, `${data.remoteBridge.proxyStatus ? copy.rbStates[data.remoteBridge.proxyStatus] : unknown} / ${data.remoteBridge.proxyPort ?? copy.reportNone}`),
       field(copy.rbCc, `${data.remoteBridge.ccDetected ? copy.reportListening : unknown} / ${data.remoteBridge.ccStatus ? copy.rbStates[data.remoteBridge.ccStatus] : unknown} / ${data.remoteBridge.ccPort ?? copy.reportNone}`),
       field("Codex", data.remoteBridge.codexConfigured ? copy.rbApplied : copy.reportUnknown),
-      field("Claude Code", data.remoteBridge.claudeConfigured ? copy.rbApplied : copy.reportUnknown)
+      field("Claude Code CLI", data.remoteBridge.claudeConfigured ? copy.rbApplied : copy.reportUnknown),
+      ...([['Codex', data.remoteBridge.codexExtension], ['Claude Code', data.remoteBridge.claudeExtension]] as const).map(([name, state]) => field(`${name} · ${copy.rbExtGui}`, state === 'configured' ? copy.rbExtPending : state === 'notConfigured' ? copy.rbExtNotConfigured : state === 'conflict' ? copy.rbConfigError : copy.reportUnknown))
     ])] : []),
     `${copy.reportVersion}: ${data.appVersion}\n${copy.reportOs}: ${os} ${data.osVersion ?? unknown}`,
     section(copy.proxyClient, [field(copy.reportDetected, data.detectedCount), field(copy.reportListening, data.listeningCount),
