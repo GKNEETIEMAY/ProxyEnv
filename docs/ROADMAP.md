@@ -28,10 +28,13 @@ Implementation is on `v0.2.0dev`; the stable release remains v0.1.4 pending live
 - SSH host alias selection and explicit connection checks.
 - Current ActiveProxyContext reverse forwarding, revision protection and session lifecycle.
 - CC Switch loopback routing bridge and dedicated Codex/Claude overlays.
+- Opt-in Codex / Claude Code VS Code extension configuration, separate from CLI scope, with user-confirmed remote execution location; real model routing acceptance remains pending.
 - Reviewed writes and restore, remote backups and conflict protection.
 - Matching Home entry, four-step dialog, four languages and redacted diagnostics.
 
 实现已进入 `v0.2.0dev`，仍需真实 Windows/SSH 环境验收；尚未作为稳定版发布。
+
+图形化扩展适配已进入开发分支：可分别选择 CLI 与扩展，确认远端运行位置后预览、应用或恢复配置。两种 CLI、两种扩展、Provider 切换与断连失败链路全部真实验收后，才可声明扩展支持。详见[扩展审计](REMOTE_BRIDGE_EXTENSION_AUDIT.md)。
 
 ## Future
 
