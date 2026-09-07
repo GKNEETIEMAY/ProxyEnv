@@ -20,6 +20,7 @@ ProxyEnv/
 │  │  ├─ diagnostic-report/          # Safe snapshot preview and locale formatter
 │  │  ├─ network-observation/         # Shared live system-proxy and TUN presentation
 │  │  ├─ proxy/components/           # Proxy discovery, environment status, and actions
+│  │  ├─ remote-bridge/              # First-level remote workflow, state, and tool dialogs
 │  │  └─ settings/components/        # General and About surfaces
 │  └─ shared/                        # Typed IPC, i18n, types, design tokens
 ├─ src-tauri/
@@ -43,6 +44,13 @@ ProxyEnv/
 │  │  │  ├─ processes.rs             # Visible user-application enumeration
 │  │  │  ├─ launcher.rs              # Explicit child-process environment construction
 │  │  │  └─ rules/                   # Schema, match, preview, backup, apply, restore
+│  │  ├─ features/remote_bridge/
+│  │  │  ├─ ssh.rs                   # Structured target discovery and OpenSSH invocation
+│  │  │  ├─ mobaxterm.rs             # Bounded bookmark parsing and safe compatibility adapter
+│  │  │  ├─ process.rs               # Owned SSH process and Windows Job Object lifecycle
+│  │  │  ├─ remote.sh                # Fixed remote checks, overlays, and recovery operations
+│  │  │  ├─ extension.rs             # Reviewed VS Code remote-extension adapters
+│  │  │  └─ mod.rs                   # Session, ports, health, and bridge orchestration
 │  │  ├─ services/
 │  │  │  ├─ local_file.rs            # Bounded safe reads and atomic local writes
 │  │  │  ├─ redaction.rs             # Shared diagnostic redaction boundary
@@ -57,19 +65,20 @@ ProxyEnv/
 
 ```text
 Tauri Commands / Desktop Tray
-        │                    │
-        ▼                    ▼
-Application Assistant   Proxy Feature Service ──→ Proxy Discovery
-   │       │    │                │
-   │       │    └─→ Rule Engine  ▼
-   │       └──────→ Launcher   Environment Manager
-   └──────────────→ Network Observation     │
+        │                 │                         │
+        ▼                 ▼                         ▼
+Application Assistant  Proxy Feature Service   Remote Bridge
+   │       │    │          │       │             │      │
+   │       │    └─→ Rule Engine    └─→ Discovery │      └─→ OpenSSH / remote helper
+   │       └──────→ Launcher       ▼             └─→ ActiveProxyContext
+   └──────────────→ Network Observation      Environment Manager
+                                                   │
                                       Registry / Snapshot / Broadcast
 ```
 
 The dependency is one-way. `features/proxy` may depend on `environment`; the application assistant may depend on proxy discovery and network observation. The Environment Core must not reference `ProxyProtocol`, `ProxyVariable`, application rules, proxy variable names, or client brands.
 
-依赖只能单向流动：`features/proxy` 可以依赖 `environment`，应用助手可以依赖代理发现与网络观测；Environment Core 不得引用 `ProxyProtocol`、`ProxyVariable`、应用规则、代理变量名或客户端品牌。
+依赖只能单向流动：`features/proxy` 可以依赖 `environment`，应用助手可以依赖代理发现与网络观测；远程桥接只读取统一的 `ActiveProxyContext`，不能自行重新选择代理。Environment Core 不得引用 `ProxyProtocol`、`ProxyVariable`、应用规则、代理变量名或客户端品牌。
 
 ## Environment Core / 通用环境核心
 
@@ -149,6 +158,36 @@ The rule engine accepts only bundled, schema-versioned JSON. It rejects unknown 
 
 应用助手只做编排，不做流量路由。`ApplicationNetworkState` 是唯一诊断真源：只有已评审且当前值正确的应用规则能得到 `ConfirmedReady`；仅启用环境变量只能得到 `EnvironmentConfigured`，因为目标应用未必读取这些变量。只有 `ProxyLaunchRecommended` 和 `RuleSyncRecommended` 会产生代理启动或写入建议。系统代理、代理环境、TUN 与应用规则始终独立观察，系统代理和 TUN 只作为只读证据展示，不会把应用提升为“已确认可用”。Rust 枚举与原生文件选择器会签发短期随机 `application_id`，前端调用诊断、规则或启动 IPC 时不再传入可执行路径；后端每次使用前重新验证规范路径与文件身份。普通启动操作不附加、不注入、不结束已选择进程。手动代理引导只有一个明确的重启例外：先提示破坏性风险并进行第二次确认，Rust 再校验实时 PID 仍对应已授权可执行文件，优先请求正常关闭，在强制终止回退前再次校验身份，最后启动一个已清除代理变量的替代进程。规则引擎只接受随软件打包、带 Schema 版本的 JSON 数据；写入必须经历读取、预览、确认、备份、单字段写入、读回验证，冲突时停止且不覆盖。
 
+## Remote Bridge / 远程环境桥接
+
+Next — v0.2.0 development / 开发中。
+
+Remote Bridge is a first-level product surface beside Local Environment. `AppShell.vue` owns the primary `local | remote` navigation context; the application assistant remains a Local Environment drill-down, while Settings returns to whichever primary surface opened it. `RemoteBridgePage.vue` owns the four-step workflow and uses dialogs only for reviewed Codex/Claude configuration, restore, and disconnect confirmation.
+
+远程桥接与本机环境并列为一级页面。页面按“目标 → 能力 → 确认 → 状态”推进；大页面不再塞进弹窗，弹窗仅用于配置写入、恢复和断开等需要确认的操作。
+
+### Structured target discovery / 结构化目标发现
+
+Every target is represented by an opaque `RemoteTarget.id` plus a display name, source, sanitized configuration path, resolved SSH fields, availability, compatibility state, and source-specific capabilities. IDs bind the source, configuration-file identity, and alias/session name; the frontend never parses a `vscode:`-style prefix. Target discovery is bounded to:
+
+- the current user's default OpenSSH config;
+- the explicit `remote.SSH.configFile` from VS Code's default user settings, without duplicating the default OpenSSH config;
+- MobaXterm's active `-i` file, executable-adjacent file, user Documents file, and user configuration directory.
+
+MobaXterm discovery reads bookmark sections only. It never reads or decrypts password, credential, or master-password sections and never scans the whole disk. Only simple SSH sessions that can be converted deterministically into Windows OpenSSH arguments are connectable; unsupported authentication, key, jump, or session behavior stays visible as `Unsupported` with a reason. OpenSSH continues to resolve aliases, keys, agents, ports, and `ProxyJump`; private-key contents never enter ProxyEnv.
+
+### Session, ports, and errors / 会话、端口与错误
+
+After an explicit SSH check, the backend queries remote listeners and allocates distinct loopback ports in `20000–60000`. Connection performs the listener check again immediately before creating reverse forwards. If a port becomes occupied in between, the frontend performs one new allocation, returns to review, and explains the race instead of silently connecting with an unreviewed endpoint.
+
+The bridge captures the current `ActiveProxyContext` revision. Refresh can make the session `Stale` or `Unavailable`, but it cannot silently switch the tunnel to another local proxy. One owned SSH session is active at a time; Windows Job Objects terminate the process tree when ProxyEnv exits. Remote listeners must verify as loopback-only, otherwise the new tunnel is closed.
+
+Tauri commands serialize `BridgeCommandError { code, phase, target, retryable }`. Stable codes identify SSH, port allocation, local endpoint, process, network, remote helper, and configuration phases without exposing raw command output, aliases, paths, or credentials. CC Switch detection combines loopback listener ownership with recognized process identity and reports `Confirmed`, `ListeningUnknown`, or `NotDetected`; an open TCP port alone is never presented as confirmed CC Switch routing.
+
+### Post-connect guidance / 建桥后指引
+
+The status surface separates transport health from product completion. It reports the selected target, SSH process, local endpoints, and remote reverse forwards, then provides capability-specific next steps. Proxy bridging yields explicit current-shell environment exports and an opt-in connectivity test. CC Switch bridging yields visible Codex/Claude configuration actions and launch commands. Claude CLI apply also performs a hash-bound, minimal top-level update of `~/.claude.json` to mark first-run onboarding complete; it never seeds project trust, so Claude retains its folder trust prompt. A successful tunnel does not imply that a CLI, extension, provider route, or model request has been verified. Disconnect closes reverse forwards but deliberately does not remove reviewed remote overlays; restore remains a separate confirmed transaction.
+
 ## Local data and WebView boundary / 本地数据与 WebView 边界
 
 ### Safe diagnostic reports / 安全诊断报告
@@ -186,7 +225,7 @@ ProxyEnv does not read, persist, or manage proxy credentials, subscription token
 | `select_active_proxy` | Explicitly select one currently usable discovered candidate | No | Session selection only |
 | `detect_proxies` | Discover and score local candidates | No | No |
 | `get_tun_observation` | Classify local virtual-adapter evidence | No | No |
-| `generate_diagnostic_report` (Next) | Project a non-probing snapshot into a safe report DTO | No | No |
+| `generate_diagnostic_report` | Project a non-probing snapshot into a safe report DTO | No | No |
 | `list_running_applications` | List visible selectable applications | No | No |
 | `pick_application` | Native selection and short-lived backend authorization | No | No |
 | `diagnose_application` | Combine proxy, environment, system proxy, TUN, and rule state | No | No |
@@ -200,18 +239,26 @@ ProxyEnv does not read, persist, or manage proxy credentials, subscription token
 | `sync_manual_proxy_environment` | Validate and apply a manual endpoint | Before apply | `HKCU\\Environment` |
 | `disable_proxy_environment` | Remove managed values | Before delete | `HKCU\\Environment` |
 | `restore_proxy_environment` | Restore the latest snapshot exactly | Uses existing | `HKCU\\Environment` |
+| `remote_bridge_targets` | Discover structured OpenSSH, VS Code, and MobaXterm targets | No | No |
+| `remote_bridge_check` | Verify one target and allocate reviewed remote loopback ports | No | No |
+| `remote_bridge_allocate_ports` | Regenerate distinct unused remote loopback ports | No | No |
+| `remote_bridge_detect_cc` | Classify CC Switch listener ownership without probing AI APIs | No | No |
+| `remote_bridge_preview` | Revalidate target, active proxy revision, capabilities, and ports | No | No |
+| `remote_bridge_connect` | Create one confirmed, loopback-only reverse-forward session | No | Owned SSH child process |
+| `remote_bridge_disconnect` | Stop the owned reverse-forward process after confirmation | No | Owned SSH child process |
+| `remote_bridge_config_*` | Preview, apply, or restore dedicated remote CLI overlays; Claude apply may mark first-run onboarding complete without granting project trust | Remote backup plus preview-bound state hash | Dedicated remote overlay; Claude apply also minimally updates `~/.claude.json` |
 
 The Windows System Proxy and TUN observation are read-only sources. ProxyEnv never toggles either one.
 
 ## Frontend boundary / 前端边界
 
-Frontend dependencies flow `App.vue → app → features → shared`. `AppShell.vue` owns lifecycle, view routing, periodic read-only refresh, and cross-feature state. Its single five-second refresh reads environment/proxy discovery and TUN observation together, then passes the same system-proxy and TUN snapshot to every active surface. A TUN observation failure becomes `Unknown` without preventing the other network layers from refreshing.
+Frontend dependencies flow `App.vue → app → features → shared`. `AppShell.vue` owns lifecycle, primary `local | remote` routing, drill-down return context, periodic read-only refresh, and cross-feature state. Its single five-second refresh reads environment/proxy discovery and TUN observation together, then passes the same system-proxy and TUN snapshot to every active surface. A TUN observation failure becomes `Unknown` without preventing the other network layers from refreshing.
 
 `features/network-observation/components/NetworkObservationPanel.vue` is the shared presentation for live system-proxy and TUN virtual-adapter state. Home adds it below proxy-client discovery; the application assistant reuses it with the local-listener fact enabled. Neither feature starts another timer or duplicates state-label, help, or status-icon logic. Feature components otherwise own their local IPC orchestration and interaction.
 
 Proxy discovery keeps every endpoint candidate returned by the detector and groups candidates by PID or process identity for compact client navigation. Home renders the backend's active selection, including its unavailable last-known details, and exposes an explicit selector for all usable addresses. Client navigation also selects globally rather than maintaining a private viewed candidate. The automatic-detection label counts listening/total client processes rather than raw endpoints. Copy and manual fast-path validation use the active candidate; mismatch state comes from Rust. When no selection exists and TUN evidence is `Possible` or `Detected`, the UI can show a presentation-only suspected client. It never synthesizes an endpoint or replaces an unavailable selection.
 
-The home surface exposes proxy-client, Windows System Proxy, and proxy-environment layers plus one clear entry to the application assistant. The assistant keeps selection, diagnosis, protected confirmation, and result in one guided surface. Advanced evidence is collapsed by default. Errors always state what happened, whether anything changed, and what to do next.
+The Local Environment surface exposes proxy-client, Windows System Proxy, and proxy-environment layers plus one clear entry to the application assistant. The Remote Bridge surface is its first-level peer and owns remote target discovery, capability review, connection status, and next-step guidance. The assistant keeps selection, diagnosis, protected confirmation, and result in one guided surface. Advanced evidence is collapsed by default. Errors always state what happened, whether anything changed, and what to do next.
 
 The proxy console exposes four distinct observable layers:
 
@@ -239,10 +286,12 @@ The single-instance plugin establishes process ownership before tray and window 
 ```powershell
 pnpm build
 pnpm test:report
+pnpm test:remote
+pnpm test:extensions
 cargo test --manifest-path src-tauri/Cargo.toml --locked
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-GitHub Actions repeats frozen pnpm installation, frontend audit/build, Rust formatting, Clippy, tests, locked release compilation, and RustSec audit for PRs and protected development/release branches. Current v0.1.4 includes `pnpm test:report` for focused locale/formatter and non-probing-boundary checks; broader frontend interaction tests remain planned. Dependabot tracks npm, Cargo, and Actions updates against `develop`.
+GitHub Actions repeats frozen pnpm installation, frontend audit/build, Rust formatting, Clippy, tests, locked release compilation, and RustSec audit for PRs and protected development/release branches. Current v0.1.4 includes `pnpm test:report` for focused locale/formatter and non-probing-boundary checks. The v0.2.0 development branch adds fixed remote-helper, localized error, extension parser, and recovery-transaction tests; live SSH and model-routing acceptance remains manual. Dependabot tracks npm, Cargo, and Actions updates against `develop`.
 
 Changes to Registry, broadcast, snapshots, tray, or single-instance behavior also require Windows integration testing. At minimum verify exact deletion/restoration, rollback after injected write/broadcast/verification failure, restore conflict behavior, `WM_SETTINGCHANGE`, new-process inheritance, unchanged running-process environments, mismatch after a client port change, and explicit Sync to the new port.

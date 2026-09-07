@@ -5,13 +5,13 @@ This is development scope, not a published stable-release announcement.
 
 ## 使用方式
 
-1. 在 Windows OpenSSH 的 `~/.ssh/config` 中配置明确的 Host 别名，先在自己的终端完成主机指纹验证与密钥/ssh-agent 登录。
-2. 在首页选择可用的活动代理，打开应用助手入口下方的“远程环境桥接”。
-3. 选择别名并检查连接。选择本机代理、CC Switch，或同时选择两者。
-4. CC Switch 默认检查 `127.0.0.1:15721`，也可输入实际本地路由端口。检查结果仅表示端口监听，用户需确认服务身份和相应 CLI 的路由已开启。
-5. 预览本机和远端端点。默认远程端口为 `17897` / `25721`，确认后创建 SSH reverse forward。
+1. 在“本机环境”选择可用的活动代理，再切换到一级页面“远程桥接”。
+2. 从本机 OpenSSH、VS Code Remote 或 MobaXterm 发现结果中选择一个结构化远程目标。请先在自己的终端完成主机指纹验证与密钥/ssh-agent 登录。
+3. 检查 SSH 连接。检查通过后，ProxyEnv 会在 `20000–60000` 中自动生成两个互不相同且当时未占用的远程 Loopback 端口。
+4. 选择本机代理、CC Switch，或同时选择两者。CC Switch 默认检查 `127.0.0.1:15721`，也可输入实际本地路由端口；结果会区分已确认的 CC Switch、身份未知的监听程序和未检测到监听。
+5. 预览本机和远端端点。建立连接前会再次检查远程端口；如发生端口竞争，页面会重新生成并要求再次确认。
 6. 代理桥接成功后复制环境变量，在远端当前 Shell 主动执行。仅“测试桥接”会经代理请求 `https://www.gstatic.com/generate_204`。
-7. CC Switch 桥接成功后可预览并应用专用 CLI 接入文件；复制显示的启动命令在远端使用。
+7. CC Switch 桥接成功后，状态页会直接显示 Codex / Claude Code 配置入口和启动命令；预览并应用专用 CLI 接入文件后，再在远端显式使用对应命令。
 8. 断开桥接需确认。退出 ProxyEnv 会结束隧道；关闭窗口到托盘仍属同一运行会话。
 
 ## Current implementation / 当前实现
@@ -19,15 +19,17 @@ This is development scope, not a published stable-release announcement.
 | Area | Implementation |
 | --- | --- |
 | Stack | Existing Vue 3 + TypeScript + Tauri 2 + Rust and OpenSSH. Fixed POSIX Shell operations plus a bundled JavaScript configuration helper using an already-installed remote Node 20+. No Python, new frontend framework, SSH library, runtime installation or daemon. |
-| UI | Existing Home / Assistant / Settings and header remain. One matching Home entry and independent four-step native dialog; Chinese, English, Japanese and Korean. |
+| UI | Local Environment and Remote Bridge are peer first-level pages; Assistant remains a Local Environment drill-down and Settings remains global. Remote Bridge uses an independent four-step page and keeps dialogs for protected mutations; Chinese, English, Japanese and Korean. |
 | Active proxy | Reads `active::snapshot()` only. No bridge discovery or secondary selection. Captures revision, local endpoint and protocol; changes become Stale, loss becomes Unavailable. |
 | Protocol | HTTP → HTTP_PROXY/HTTPS_PROXY; SOCKS5 → ALL_PROXY with socks5h; Mixed → all three. Unknown is refused. Existing variable mapping is reused. |
-| SSH target | Explicit aliases from `~/.ssh/config` and the default VS Code user `remote.SSH.configFile`; OpenSSH resolves HostName, User, Port, IdentityFile and ProxyJump. No private-key contents are read. |
+| SSH target | Structured targets from `~/.ssh/config`, the default VS Code user `remote.SSH.configFile`, and bounded MobaXterm bookmark sources. IDs bind source, configuration identity, and alias/session name. OpenSSH resolves its own aliases; no private-key or credential contents are read. |
+| Port allocation | After SSH verification, distinct remote Loopback ports are selected from `20000–60000` and checked again immediately before connection. A race causes one regeneration and a return to review. |
+| CC Switch | Loopback listener ownership is classified as confirmed CC Switch, listening with unknown identity, or not detected. A listening port alone is not treated as service identity. |
 | Forward | Explicit `127.0.0.1:remote:loopback:local`, ExitOnForwardFailure, strict host-key checks, BatchMode and bounded connection/keepalive timeouts. |
 | Remote listener | Checks remote TCP listeners before creation and validates actual loopback-only listeners after creation. A wildcard/unknown binding closes the new tunnel. |
 | Session | One combined target/session at a time. No automatic reconnect. Windows Job Objects close created SSH processes and descendants on process exit, including abnormal exit. |
 | Config | CLI uses dedicated files. Opt-in VS Code extension adapters patch shared remote configuration with parser-based edits. Read/validate → preview → confirmation → remote backup → atomic replace → hash readback. Conflicts stop writes and restore. |
-| Diagnostics | Cached, allowlisted summaries only; no aliases, usernames, home paths, keys, secrets, raw SSH stderr or upstream URLs. |
+| Diagnostics | Structured command errors expose only code, phase, safe target category and retryability. Cached summaries remain allowlisted: no usernames, home paths, keys, secrets, raw SSH stderr or upstream URLs. |
 
 ## CLI configuration compatibility
 
@@ -40,7 +42,7 @@ codex --profile proxyenv_bridge
 
 The profile selects a dedicated `proxyenv_bridge` provider, a loopback `/v1` base URL and Responses wire protocol. It does not select a model or read `auth.json`. Provider fields follow the [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 
-Claude Code `2.x` uses a dedicated JSON file with `env.ANTHROPIC_BASE_URL` and the public `PROXY_MANAGED` placeholder. It does not change `settings.json` or read authentication files. A custom `CLAUDE_CONFIG_DIR` is refused. The settings mechanism follows [Claude Code settings](https://code.claude.com/docs/en/settings); routing behavior is described in [CC Switch routing](https://github.com/farion1231/cc-switch/blob/main/docs/user-manual/en/4-proxy/4.2-routing.md).
+Claude Code `2.x` uses a dedicated JSON file with `env.ANTHROPIC_BASE_URL` and the public `PROXY_MANAGED` placeholder. It does not change `settings.json` or read authentication files. To prevent the interactive CLI from ignoring gateway settings and returning to the three-way first-run login chooser, the same reviewed apply transaction minimally sets top-level `hasCompletedOnboarding: true` in `~/.claude.json`. Existing fields are retained, malformed or concurrently changed state fails closed, and no project trust entry is created: Claude Code still asks the user to trust the current folder before starting a conversation. A custom `CLAUDE_CONFIG_DIR` is refused. The settings mechanism follows [Claude Code settings](https://code.claude.com/docs/en/settings); routing behavior is described in [CC Switch routing](https://github.com/farion1231/cc-switch/blob/main/docs/user-manual/en/4-proxy/4.2-routing.md).
 
 ```text
 ~/.claude/proxyenv-bridge.json
@@ -51,9 +53,15 @@ claude --settings "$HOME/.claude/proxyenv-bridge.json"
 
 ## Supported remote environment
 
+### Structured targets and MobaXterm
+
+Target discovery returns structured records rather than encoded strings such as `vscode:<alias>`. A target ID binds the source, configuration-file identity, and alias/session name, so identically named hosts from different files cannot cross-connect. User-facing cards show the display name, source, and a sanitized configuration-path hint; resolved usernames, identity files, and other connection details are not promoted in the UI.
+
+MobaXterm discovery is deliberately bounded to an active process `-i` argument, an executable-adjacent `MobaXterm.ini`, and the current user's conventional Documents/config locations. Only `[Bookmarks]` and `[Bookmarks_N]` SSH sessions are parsed. Password, credential, and master-password sections are never read or decrypted, and ProxyEnv never performs a full-disk search. A simple session with deterministic host/user/port data can be adapted to Windows OpenSSH arguments. Sessions requiring MobaXterm-only authentication, unsupported key formats, jump behavior, or ambiguous fields remain listed as “recognized, currently unavailable” rather than being guessed.
+
 ### VS Code Remote - SSH
 
-提供 Remote - SSH 的同机远程终端与 CLI 接入，以及可选的 Codex / Claude Code 图形化扩展配置适配。扩展适配的实现和本地测试已具备，真实模型链路尚待验收。主机列表同时读取 Windows VS Code 默认用户 `Code/User/settings.json` 的 `remote.SSH.configFile`（支持 JSONC 注释和尾逗号）；来源不同的同名别名分开展示，VS Code 来源带有标识。桥接的 OpenSSH 调用使用对应的 `-F` 配置文件。
+提供 Remote - SSH 的同机远程终端与 CLI 接入，以及可选的 Codex / Claude Code 图形化扩展配置适配。扩展适配的实现和本地测试已具备，真实模型链路尚待验收。主机列表同时读取 Windows VS Code 默认用户 `Code/User/settings.json` 的 `remote.SSH.configFile`（支持 JSONC 注释和尾逗号）；来源不同的同名别名使用不同结构化 ID，默认配置与本机 OpenSSH 重合时不重复展示。桥接的 OpenSSH 调用使用对应的 `-F` 配置文件。
 
 在桥接状态页点击“在 VS Code 中打开”，使用本机已安装的 VS Code 以 `--new-window --remote ssh-remote+<alias>` 打开目标。打开前比较 VS Code 与桥接使用的 SSH 配置文件，来源不同则停止，避免同名别名连到不同机器。OpenSSH 有效配置也记录哈希，在建立隧道前后及后续远端写入/联网测试前校验，变化后要求重新建立。
 
@@ -127,13 +135,13 @@ Real Windows → Linux SSH forwarding, ProxyJump authentication, server forwardi
 
 发布前必须分别完成两种 CLI 和两种图形化扩展的真实模型请求、Provider A → B 切换、断连请求失败，以及冲突恢复测试。当前这些实机条目仍未执行，不应发布“VS Code AI extensions supported”的稳定版声明。
 
-2026-09-07 本机验证记录：Vue/TypeScript 构建通过；诊断报告与原 CLI 桥接测试共 14 项通过；扩展测试 14 项通过、2 项 Linux 专用测试在 Windows 跳过；Rust 测试 125 项通过（另有 3 个供父测试调用的忽略项）；Rust 格式检查、Clippy 与 pnpm 依赖漏洞审计通过。已添加独立 Ubuntu CI 作业运行 Linux 权限、软链接和完整 helper 流程测试，该 CI 作业尚未在本轮远端执行。UI 模拟回归及独立收尾评审通过，评审范围不包含真实 SSH 或模型请求。
+2026-09-07 本机验证记录：Vue/TypeScript 构建、远程桥接测试、扩展测试、Rust 测试、Rust 格式检查与 Clippy 均通过；Linux 专用用例在 Windows 按预期跳过。已添加独立 Ubuntu CI 作业运行 Linux 权限、软链接和完整 helper 流程测试，该 CI 作业尚未在本轮远端执行。Remote Bridge 的桌面、窄窗口和连接后状态已完成静态视觉复核，评审范围不包含真实 SSH 或模型请求；准确测试数量以本次验证输出与 CI 为准。
 
 ## Source map
 
 - `src-tauri/src/features/remote_bridge/`: Rust session/state/preview management, OpenSSH process ownership and audited remote operations.
 - `src-tauri/src/commands/remote_bridge.rs`: typed Tauri commands; blocking work runs outside the UI thread.
-- `src/features/remote-bridge/`: frontend state and two components.
+- `src/features/remote-bridge/`: first-level page state, workflow, and protected tool dialogs.
 - `src/shared/i18n/remote-bridge.ts`: four-language messages and safe error categories.
 - `scripts/test-remote-bridge.mjs`: isolated regression tests.
 - `scripts/remote-extension/`: fixed remote JSONC/TOML patcher, file transactions and read-only inspection.

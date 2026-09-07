@@ -25,16 +25,21 @@ This is the release-scope reference for project documentation. Checked items und
 
 Implementation is on `v0.2.0dev`; the stable release remains v0.1.4 pending live Windows/SSH acceptance. See [implementation and compatibility notes](REMOTE_BRIDGE.md).
 
-- SSH host alias selection and explicit connection checks.
-- Current ActiveProxyContext reverse forwarding, revision protection and session lifecycle.
-- CC Switch loopback routing bridge and dedicated Codex/Claude overlays.
-- Opt-in Codex / Claude Code VS Code extension configuration, separate from CLI scope, with user-confirmed remote execution location; real model routing acceptance remains pending.
-- Reviewed writes and restore, remote backups and conflict protection.
-- Matching Home entry, four-step dialog, four languages and redacted diagnostics.
+- [x] Separate first-level Local Environment and Remote Bridge pages with a shared global Settings surface.
+- [x] Structured remote targets from local OpenSSH, VS Code Remote SSH configuration, and safely convertible MobaXterm bookmarks.
+- [x] Source-aware connection behavior, explicit SSH checks, and VS Code actions only for compatible targets.
+- [x] Current ActiveProxyContext reverse forwarding, revision protection, and session lifecycle.
+- [x] Automatically allocated remote loopback ports with a second occupancy check before connection.
+- [x] CC Switch route detection that distinguishes confirmed ownership, an unknown listener, and no listener.
+- [x] Structured bridge errors, a bridge-health panel, and capability-specific next-step guidance.
+- [x] Dedicated Codex/Claude CLI overlays with reviewed writes, remote backups, and conflict-safe restore.
+- [x] Four-language Remote Bridge interface and redacted diagnostics.
+- [ ] Live Windows → Linux SSH, MobaXterm compatibility, CC Switch routing, and real Codex/Claude request acceptance.
+- [ ] Opt-in Codex / Claude Code VS Code extension acceptance, separate from CLI scope, with user-confirmed remote execution location.
 
 实现已进入 `v0.2.0dev`，仍需真实 Windows/SSH 环境验收；尚未作为稳定版发布。
 
-图形化扩展适配已进入开发分支：可分别选择 CLI 与扩展，确认远端运行位置后预览、应用或恢复配置。两种 CLI、两种扩展、Provider 切换与断连失败链路全部真实验收后，才可声明扩展支持。详见[扩展审计](REMOTE_BRIDGE_EXTENSION_AUDIT.md)。
+图形化扩展适配已进入开发分支：可分别选择 CLI 与扩展，确认远端运行位置后预览、应用或恢复配置。结构化目标、自动端口、CC Switch 分级检测和桥接后指引已经实现，但两种 CLI、两种扩展、Provider 切换与断连失败链路全部真实验收后，才可声明稳定支持。详见[扩展审计](REMOTE_BRIDGE_EXTENSION_AUDIT.md)。
 
 ## Future
 
