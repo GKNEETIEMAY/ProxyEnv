@@ -21,6 +21,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  remote-extension-linux:
+    name: Remote extension Linux filesystem tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.1 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:extensions
+
   build-and-test:
     name: Windows build and test
     runs-on: windows-latest
@@ -54,6 +70,9 @@ jobs:
 
       - name: Test remote bridge safety and localization
         run: pnpm test:remote
+
+      - name: Test extension configuration transactions
+        run: pnpm test:extensions
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
