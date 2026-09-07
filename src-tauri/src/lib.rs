@@ -48,6 +48,7 @@ pub fn run() {
             commands::remote_bridge::remote_bridge_targets,
             commands::remote_bridge::remote_bridge_summary,
             commands::remote_bridge::remote_bridge_check,
+            commands::remote_bridge::remote_bridge_allocate_ports,
             commands::remote_bridge::remote_bridge_detect_cc,
             commands::remote_bridge::remote_bridge_preview,
             commands::remote_bridge::remote_bridge_connect,

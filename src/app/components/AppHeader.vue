@@ -4,13 +4,15 @@ import type { Copy } from "../../shared/i18n";
 defineProps<{
   copy: Copy;
   maximized: boolean;
-  view: "home" | "assistant" | "settings";
+  view: "local" | "remote" | "assistant" | "settings";
 }>();
 
 defineEmits<{
   closeSettings: [];
   openSettings: [];
   openReport: [];
+  openLocal: [];
+  openRemote: [];
   minimize: [];
   toggleMaximize: [];
   close: [];
@@ -19,13 +21,13 @@ defineEmits<{
 
 <template>
   <header class="app-header">
-    <div v-if="view !== 'home'" class="settings-header-context">
+    <div v-if="view === 'assistant' || view === 'settings'" class="settings-header-context">
       <button class="header-back-button" type="button" :aria-label="copy.back" @click="$emit('closeSettings')">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 5-5 5 5 5" /></svg>
       </button>
       <strong>{{ view === 'assistant' ? copy.assistantTitle : copy.settingsTitle }}</strong>
     </div>
-    <button v-else class="wordmark" type="button" @click="$emit('closeSettings')">
+    <button v-else class="wordmark" type="button" @click="$emit('openLocal')">
       <span class="brand-symbol" aria-hidden="true">
         <svg viewBox="0 0 28 28">
           <path class="brand-arrow-blue" d="M4.5 9.4h13.2M14.4 5.2l4.2 4.2-4.2 4.2" />
@@ -36,12 +38,16 @@ defineEmits<{
     </button>
     <div class="titlebar-drag-zone" data-tauri-drag-region @dblclick="$emit('toggleMaximize')"></div>
     <div class="header-actions">
-      <button class="header-icon-button" type="button" :aria-label="copy.reportOpen" :title="copy.reportOpen" aria-haspopup="dialog" @click="$emit('openReport')">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 4v16h16M8 15v-4m4 4V7m4 8v-6" />
-        </svg>
-      </button>
-      <div v-if="view === 'home'" class="primary-nav">
+      <nav v-if="view === 'local' || view === 'remote'" class="primary-nav" :aria-label="copy.appName">
+        <button type="button" :aria-current="view === 'local' ? 'page' : undefined" @click="$emit('openLocal')">{{ copy.navLocal }}</button>
+        <button type="button" :aria-current="view === 'remote' ? 'page' : undefined" @click="$emit('openRemote')">{{ copy.navRemote }}</button>
+      </nav>
+      <div v-if="view === 'local' || view === 'remote'" class="primary-nav-actions">
+        <button class="header-icon-button" type="button" :aria-label="copy.reportOpen" :title="copy.reportOpen" aria-haspopup="dialog" @click="$emit('openReport')">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 4v16h16M8 15v-4m4 4V7m4 8v-6" />
+          </svg>
+        </button>
         <button class="header-icon-button" type="button" :aria-label="copy.settings" :title="copy.settings" @click="$emit('openSettings')">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12.2 3h-.4a1.8 1.8 0 0 0-1.8 1.8v.3a1.8 1.8 0 0 1-.9 1.56l-.6.34a1.8 1.8 0 0 1-1.8 0l-.25-.14a1.8 1.8 0 0 0-2.46.66l-.2.35a1.8 1.8 0 0 0 .66 2.46l.25.15a1.8 1.8 0 0 1 .9 1.56v.68a1.8 1.8 0 0 1-.9 1.56l-.25.15a1.8 1.8 0 0 0-.66 2.46l.2.35a1.8 1.8 0 0 0 2.46.66l.25-.14a1.8 1.8 0 0 1 1.8 0l.6.34a1.8 1.8 0 0 1 .9 1.56v.3a1.8 1.8 0 0 0 1.8 1.8h.4a1.8 1.8 0 0 0 1.8-1.8v-.3a1.8 1.8 0 0 1 .9-1.56l.6-.34a1.8 1.8 0 0 1 1.8 0l.25.14a1.8 1.8 0 0 0 2.46-.66l.2-.35a1.8 1.8 0 0 0-.66-2.46l-.25-.15a1.8 1.8 0 0 1-.9-1.56v-.68a1.8 1.8 0 0 1 .9-1.56l.25-.15a1.8 1.8 0 0 0 .66-2.46l-.2-.35a1.8 1.8 0 0 0-2.46-.66l-.25.14a1.8 1.8 0 0 1-1.8 0l-.6-.34a1.8 1.8 0 0 1-.9-1.56v-.3A1.8 1.8 0 0 0 12.2 3Z" />

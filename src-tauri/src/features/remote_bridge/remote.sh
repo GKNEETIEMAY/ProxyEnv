@@ -62,6 +62,73 @@ render() {
   fi
 }
 hash() { if [ -f "$1" ]; then sha256sum "$1" | awk '{print $1}'; else printf absent; fi; }
+render_claude_onboarding() {
+  source_file="$1"
+  awk '
+    { text = text (NR == 1 ? "" : "\n") $0 }
+    END {
+      if (text == "") {
+        print "{\"hasCompletedOnboarding\":true}"
+        exit
+      }
+      first = 1
+      while (first <= length(text) && substr(text, first, 1) ~ /[[:space:]]/) first++
+      last = length(text)
+      while (last >= first && substr(text, last, 1) ~ /[[:space:]]/) last--
+      if (substr(text, first, 1) != "{" || substr(text, last, 1) != "}") exit 42
+      depth = 0; square = 0; in_string = 0; escaped = 0; found = 0; value_at = 0; value_len = 0
+      for (i = first; i <= last; i++) {
+        ch = substr(text, i, 1)
+        if (in_string) {
+          if (escaped) escaped = 0
+          else if (ch == "\\") escaped = 1
+          else if (ch == "\"") in_string = 0
+          continue
+        }
+        if (ch == "\"") {
+          if (depth == 1 && square == 0) {
+            start = i + 1; j = start; key_escaped = 0
+            while (j <= last) {
+              key_ch = substr(text, j, 1)
+              if (key_escaped) key_escaped = 0
+              else if (key_ch == "\\") key_escaped = 1
+              else if (key_ch == "\"") break
+              j++
+            }
+            if (j > last) exit 42
+            key = substr(text, start, j - start)
+            k = j + 1
+            while (k <= last && substr(text, k, 1) ~ /[[:space:]]/) k++
+            if (key == "hasCompletedOnboarding" && substr(text, k, 1) == ":") {
+              found++
+              if (found > 1) exit 42
+              k++
+              while (k <= last && substr(text, k, 1) ~ /[[:space:]]/) k++
+              literal = substr(text, k, 5)
+              if (substr(text, k, 4) == "true") { value_at = k; value_len = 4 }
+              else if (literal == "false") { value_at = k; value_len = 5 }
+              else exit 42
+            }
+          }
+          in_string = 1
+        } else if (ch == "{") depth++
+        else if (ch == "}") { depth--; if (depth < 0) exit 42 }
+        else if (ch == "[") square++
+        else if (ch == "]") { square--; if (square < 0) exit 42 }
+      }
+      if (in_string || depth != 0 || square != 0) exit 42
+      if (found == 1) {
+        if (value_len == 4) print text
+        else print substr(text, 1, value_at - 1) "true" substr(text, value_at + value_len)
+        exit
+      }
+      inside = substr(text, first + 1, last - first - 1)
+      if (inside ~ /^[[:space:]]*$/) replacement = "\n  \"hasCompletedOnboarding\": true\n"
+      else replacement = "\n  \"hasCompletedOnboarding\": true," inside
+      print substr(text, 1, first) replacement substr(text, last)
+    }
+  ' "$source_file"
+}
 validate() {
   if [ -f "$1" ]; then
     previous=$(sed -n 's/.*http:\/\/127\.0\.0\.1:\([0-9]*\).*/\1/p' "$1")
@@ -88,7 +155,20 @@ if [ "$operation" = preview ] || [ "$operation" = apply ]; then
   fi
 fi
 if [ "$operation" = preview ]; then
-  printf '{"previousPort":%s,"expectedHash":"%s","version":"%s"}\n' "$previous" "$(hash "$file")" "$version"
+  if [ "$tool" = claude ]; then
+    state_file="$HOME/.claude.json"
+    safe "$state_file"
+    [ ! -e "$state_file" ] || [ -f "$state_file" ] || fail unsafePath
+    state_preview=$(mktemp) || fail remoteFailed
+    trap 'unlink "$state_preview" 2>/dev/null || :' EXIT
+    if [ -f "$state_file" ]; then state_source="$state_file"; else state_source=/dev/null; fi
+    render_claude_onboarding "$state_source" >"$state_preview" || fail configConflict
+    state_hash=$(hash "$state_file")
+    if [ "$state_hash" = "$(hash "$state_preview")" ]; then onboarding=false; else onboarding=true; fi
+    printf '{"previousPort":%s,"expectedHash":"%s","stateHash":"%s","onboardingRequired":%s,"version":"%s"}\n' "$previous" "$(hash "$file")" "$state_hash" "$onboarding" "$version"
+  else
+    printf '{"previousPort":%s,"expectedHash":"%s","stateHash":"absent","onboardingRequired":false,"version":"%s"}\n' "$previous" "$(hash "$file")" "$version"
+  fi
   exit 0
 fi
 if [ "$operation" = restore-preview ]; then
@@ -140,6 +220,13 @@ rollback=$(mktemp "$directory/.proxyenv-rollback.XXXXXX") || fail remoteFailed
 transaction=false
 committed=false
 next="$current"
+state_transaction=false
+state_changed=false
+state_current=absent
+state_next=absent
+state_file=''
+state_temporary=''
+state_rollback=''
 cleanup() {
   if [ "$transaction" = true ] && [ "$committed" = false ]; then
     actual=$(hash "$file")
@@ -161,12 +248,42 @@ cleanup() {
       return 1
     fi
   fi
+  if [ "$state_transaction" = true ] && [ "$committed" = false ]; then
+    actual_state=$(hash "$state_file")
+    if [ "$actual_state" = "$state_next" ] || [ "$actual_state" = "$state_current" ]; then
+      if [ "$state_current" = absent ]; then
+        [ ! -e "$state_file" ] || unlink "$state_file" || return 1
+      else
+        mv -f "$state_rollback" "$state_file" || return 1
+      fi
+      [ "$(hash "$state_file")" = "$state_current" ] || return 1
+    else
+      return 1
+    fi
+  fi
   unlink "$temporary" 2>/dev/null || :
   unlink "$rollback" 2>/dev/null || :
+  [ -z "$state_temporary" ] || unlink "$state_temporary" 2>/dev/null || :
+  [ -z "$state_rollback" ] || unlink "$state_rollback" 2>/dev/null || :
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 if [ -f "$file" ]; then cp -p "$file" "$rollback" || fail remoteFailed; fi
+if [ "$operation" = apply ] && [ "$tool" = claude ]; then
+  state_file="$HOME/.claude.json"
+  safe "$state_file"
+  [ ! -e "$state_file" ] || [ -f "$state_file" ] || fail unsafePath
+  state_current=$(hash "$state_file")
+  [ "$state_current" = "$expected_state" ] || fail configConflict
+  state_temporary=$(mktemp "$HOME/.proxyenv-claude-state.XXXXXX") || fail remoteFailed
+  state_rollback=$(mktemp "$HOME/.proxyenv-claude-rollback.XXXXXX") || fail remoteFailed
+  if [ -f "$state_file" ]; then state_source="$state_file"; else state_source=/dev/null; fi
+  render_claude_onboarding "$state_source" >"$state_temporary" || fail configConflict
+  sync -f "$state_temporary" || fail remoteFailed
+  state_next=$(hash "$state_temporary")
+  if [ -f "$state_file" ]; then cp -p "$state_file" "$state_rollback" || fail remoteFailed; fi
+  [ "$state_current" = "$state_next" ] || state_changed=true
+fi
 if [ "$operation" = apply ]; then
   render "$port" >"$temporary"
 else
@@ -193,6 +310,13 @@ sync -f "$directory" || :
 if [ "$(hash "$file")" != "$next" ]; then
   # A third party changed it: never clobber their edit during rollback.
   fail rollbackConflict
+fi
+if [ "$state_changed" = true ]; then
+  [ "$(hash "$state_file")" = "$state_current" ] || fail configConflict
+  state_transaction=true
+  mv -f "$state_temporary" "$state_file" || fail remoteFailed
+  sync -f "$HOME" || :
+  [ "$(hash "$state_file")" = "$state_next" ] || fail rollbackConflict
 fi
 committed=true
 if [ "$operation" = restore ]; then

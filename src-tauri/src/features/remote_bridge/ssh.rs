@@ -1,6 +1,9 @@
-use super::{BridgeResult, Request};
+use super::{
+    mobaxterm, BridgeResult, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request,
+};
 use std::{
     io::{Read, Write},
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     thread,
     time::{Duration, Instant},
@@ -50,6 +53,16 @@ pub fn safe_name(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
 }
 
+pub fn safe_host(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 253
+        && (value.parse::<std::net::IpAddr>().is_ok()
+            || (value.as_bytes()[0].is_ascii_alphanumeric()
+                && value.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_')
+                })))
+}
+
 pub fn aliases_from(text: &str) -> Vec<String> {
     let mut aliases = Vec::new();
     for line in text.lines() {
@@ -73,7 +86,7 @@ pub fn aliases_from(text: &str) -> Vec<String> {
     aliases
 }
 
-fn aliases_at(path: &std::path::Path) -> BridgeResult<Vec<String>> {
+fn aliases_at(path: &Path) -> BridgeResult<Vec<String>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -85,64 +98,221 @@ fn aliases_at(path: &std::path::Path) -> BridgeResult<Vec<String>> {
         &std::fs::read_to_string(path).map_err(|_| "sshConfigMissing")?,
     ))
 }
-pub fn aliases() -> BridgeResult<Vec<String>> {
+#[derive(Debug, Clone)]
+enum Connection {
+    Config {
+        alias: String,
+        config: Option<PathBuf>,
+    },
+    Direct {
+        host: String,
+        user: String,
+        port: u16,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedTarget {
+    public: RemoteTarget,
+    connection: Connection,
+}
+
+fn path_key(path: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(path.to_string_lossy().as_bytes()))[..16].to_owned()
+}
+
+fn target_id(source: RemoteTargetSource, path: &Path, name: &str) -> String {
+    let source = match source {
+        RemoteTargetSource::Openssh => "openssh",
+        RemoteTargetSource::Vscode => "vscode",
+        RemoteTargetSource::Mobaxterm => "mobaxterm",
+    };
+    format!("{source}|{}|{name}", path_key(path))
+}
+
+fn display_path(path: &Path) -> String {
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(suffix) = path.strip_prefix(&home) {
+            return format!("~{}{}", std::path::MAIN_SEPARATOR, suffix.display());
+        }
+    }
+    path.to_string_lossy().into_owned()
+}
+
+fn config_targets(
+    path: &Path,
+    source: RemoteTargetSource,
+    source_label: &str,
+    can_open_vscode: bool,
+) -> BridgeResult<Vec<ResolvedTarget>> {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    Ok(aliases_at(path)?
+        .into_iter()
+        .map(|alias| ResolvedTarget {
+            public: RemoteTarget {
+                id: target_id(source, &canonical, &alias),
+                display_name: alias.clone(),
+                source,
+                source_label: source_label.into(),
+                config_path: display_path(&canonical),
+                ssh_alias: Some(alias.clone()),
+                host: None,
+                user: None,
+                port: None,
+                identity_file: None,
+                available: true,
+                compatibility: RemoteTargetCompatibility::Compatible,
+                unavailable_reason: None,
+                can_open_vscode,
+            },
+            connection: Connection::Config {
+                alias,
+                config: (source == RemoteTargetSource::Vscode).then_some(canonical.clone()),
+            },
+        })
+        .collect())
+}
+
+fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
     let default = dirs::home_dir()
         .ok_or("sshConfigMissing")?
         .join(".ssh/config");
-    let mut result = aliases_at(&default)?;
-    // An unrelated invalid VS Code settings file must not break OpenSSH hosts.
-    if let Some(path) = super::vscode::custom_ssh_config().ok().flatten() {
-        if default.canonicalize().ok().as_ref() != Some(&path) {
-            result.extend(
-                aliases_at(&path)?
-                    .into_iter()
-                    .map(|alias| format!("vscode:{alias}")),
-            );
+    let vscode_config = super::vscode::custom_ssh_config().ok().flatten();
+    let default_canonical = default.canonicalize().ok();
+    let vscode_uses_default = vscode_config.is_none()
+        || (default_canonical.is_some() && vscode_config.as_ref() == default_canonical.as_ref());
+    let mut result = config_targets(
+        &default,
+        RemoteTargetSource::Openssh,
+        "OpenSSH",
+        vscode_uses_default,
+    )?;
+    if let Some(path) = vscode_config {
+        if default_canonical.as_ref() != Some(&path) {
+            result.extend(config_targets(
+                &path,
+                RemoteTargetSource::Vscode,
+                "VS Code Remote",
+                true,
+            )?);
+        }
+    }
+    for path in mobaxterm::config_paths() {
+        let Ok(sessions) = mobaxterm::sessions(&path) else {
+            // MobaXterm is an optional source. A malformed or unreadable INI
+            // must not hide otherwise valid OpenSSH or VS Code targets.
+            continue;
+        };
+        for session in sessions {
+            let compatible = session.compatible;
+            let public = RemoteTarget {
+                id: target_id(RemoteTargetSource::Mobaxterm, &path, &session.name),
+                display_name: session.name.clone(),
+                source: RemoteTargetSource::Mobaxterm,
+                source_label: "MobaXterm".into(),
+                config_path: display_path(&path),
+                ssh_alias: None,
+                host: session.host.clone(),
+                user: session.user.clone(),
+                port: session.port,
+                identity_file: None,
+                available: compatible,
+                compatibility: if compatible {
+                    RemoteTargetCompatibility::Compatible
+                } else {
+                    RemoteTargetCompatibility::Unsupported
+                },
+                unavailable_reason: (!compatible).then(|| "mobaSessionUnsupported".into()),
+                can_open_vscode: false,
+            };
+            if let (Some(host), Some(user), Some(port)) = (session.host, session.user, session.port)
+            {
+                result.push(ResolvedTarget {
+                    public,
+                    connection: Connection::Direct { host, user, port },
+                });
+            } else {
+                result.push(ResolvedTarget {
+                    public,
+                    connection: Connection::Direct {
+                        host: String::new(),
+                        user: String::new(),
+                        port: 0,
+                    },
+                });
+            }
         }
     }
     Ok(result)
 }
-pub fn target_parts(target: &str) -> BridgeResult<(&str, Option<std::path::PathBuf>)> {
-    if let Some(alias) = target.strip_prefix("vscode:") {
-        if !safe_name(alias) {
-            return Err("invalidTarget".into());
-        }
-        Ok((
-            alias,
-            Some(super::vscode::custom_ssh_config()?.ok_or("vscodeConfigInvalid")?),
-        ))
-    } else if safe_name(target) {
-        Ok((target, None))
-    } else {
-        Err("invalidTarget".into())
-    }
+
+pub fn targets() -> BridgeResult<Vec<RemoteTarget>> {
+    Ok(discovered()?
+        .into_iter()
+        .map(|target| target.public)
+        .collect())
 }
-fn target_command(target: &str) -> BridgeResult<(Command, &str)> {
-    let (alias, config) = target_parts(target)?;
-    let mut cmd = command();
-    if let Some(path) = config {
-        cmd.arg("-F").arg(path);
+
+pub fn target(id: &str) -> BridgeResult<RemoteTarget> {
+    discovered()?
+        .into_iter()
+        .find(|target| target.public.id == id)
+        .map(|target| target.public)
+        .ok_or_else(|| "invalidTarget".into())
+}
+
+fn resolve(id: &str) -> BridgeResult<ResolvedTarget> {
+    discovered()?
+        .into_iter()
+        .find(|target| target.public.id == id)
+        .ok_or_else(|| "invalidTarget".into())
+}
+
+fn target_command(id: &str) -> BridgeResult<(Command, String)> {
+    let target = resolve(id)?;
+    if !target.public.available
+        || target.public.compatibility != RemoteTargetCompatibility::Compatible
+    {
+        return Err(target
+            .public
+            .unavailable_reason
+            .unwrap_or_else(|| "targetUnsupported".into()));
     }
-    Ok((cmd, alias))
+    let mut cmd = command();
+    let destination = match target.connection {
+        Connection::Config { alias, config } => {
+            if let Some(path) = config {
+                cmd.arg("-F").arg(path);
+            }
+            alias
+        }
+        Connection::Direct { host, user, port } => {
+            if !safe_host(&host) || !safe_name(&user) || port == 0 {
+                return Err("mobaSessionUnsupported".into());
+            }
+            cmd.arg("-p").arg(port.to_string()).arg("-l").arg(user);
+            host
+        }
+    };
+    Ok((cmd, destination))
 }
 
 // Reuse OpenSSH's resolution for IdentityFile, ProxyJump and ssh-agent. Refuse
 // preconfigured forwards so a bridge can only open the reviewed endpoints.
-pub fn validate_target(alias: &str) -> BridgeResult<()> {
-    effective_target(alias).map(|_| ())
+pub fn validate_target(target_id: &str) -> BridgeResult<()> {
+    effective_target(target_id).map(|_| ())
 }
-pub fn fingerprint(alias: &str) -> BridgeResult<String> {
+pub fn fingerprint(target_id: &str) -> BridgeResult<String> {
     use sha2::{Digest, Sha256};
-    Ok(hex::encode(Sha256::digest(
-        effective_target(alias)?.as_bytes(),
-    )))
+    Ok(hex::encode(Sha256::digest(format!(
+        "{target_id}\n{}",
+        effective_target(target_id)?
+    ))))
 }
-fn effective_target(alias: &str) -> BridgeResult<String> {
-    if !aliases()?.contains(&alias.to_owned()) {
-        return Err("invalidTarget".into());
-    }
-    let (mut cmd, alias) = target_command(alias)?;
-    cmd.args(["-G", alias]);
+fn effective_target(target_id: &str) -> BridgeResult<String> {
+    let (mut cmd, destination) = target_command(target_id)?;
+    cmd.args(["-G", &destination]);
     let text = output(cmd, None, 12)?;
     for line in text.lines() {
         let (key, value) = line.split_once(' ').unwrap_or((line, ""));
@@ -325,7 +495,8 @@ pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_jso
     }
     let expected = request["expectedHash"].as_str().unwrap_or("absent");
     let expected_backup = request["backupHash"].as_str().unwrap_or("absent");
-    for hash in [expected, expected_backup] {
+    let expected_state = request["stateHash"].as_str().unwrap_or("absent");
+    for hash in [expected, expected_backup, expected_state] {
         if hash != "absent" && !(hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())) {
             return Err("invalidRequest".into());
         }
@@ -335,9 +506,11 @@ pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_jso
     } else {
         "http"
     };
-    let source = format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nscheme='{scheme}'\n{}", ports.join(" "), include_str!("remote.sh"));
-    let (mut cmd, alias) = target_command(alias)?;
-    cmd.args(["-oClearAllForwardings=yes", alias, "sh -s"]);
+    let source = format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nexpected_state='{expected_state}'\nscheme='{scheme}'\n{}", ports.join(" "), include_str!("remote.sh"));
+    let (mut cmd, destination) = target_command(alias)?;
+    cmd.arg("-oClearAllForwardings=yes")
+        .arg(destination)
+        .arg("sh -s");
     let text = output(cmd, Some(source), 25)?;
     let value: serde_json::Value =
         serde_json::from_str(text.trim()).map_err(|_| "remoteUnsupported")?;
@@ -384,7 +557,7 @@ pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_jso
 }
 
 pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResult<OwnedChild> {
-    let (mut cmd, alias) = target_command(&request.alias)?;
+    let (mut cmd, destination) = target_command(&request.target_id)?;
     cmd.args(["-N", "-oClearAllForwardings=no"]);
     for (remote, host, local) in endpoints {
         let host = if host.contains(':') {
@@ -395,7 +568,7 @@ pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResu
         cmd.arg("-R")
             .arg(format!("127.0.0.1:{remote}:{host}:{local}"));
     }
-    cmd.arg(alias)
+    cmd.arg(destination)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -409,8 +582,10 @@ pub(super) fn extension_remote(
     // JSON is data inside a quoted heredoc. No user-provided command or path is executed.
     let source = format!("{}\n\"$bridge_node\" - <<'PROXYENV_EXTENSION_JS'\nglobalThis.bridgeExtensionRequest = {};\n{}\nPROXYENV_EXTENSION_JS\n",
         include_str!("extension-launch.sh"), request, include_str!("extension-helper.cjs"));
-    let (mut cmd, alias) = target_command(alias)?;
-    cmd.args(["-oClearAllForwardings=yes", alias, "sh -s"]);
+    let (mut cmd, destination) = target_command(alias)?;
+    cmd.arg("-oClearAllForwardings=yes")
+        .arg(destination)
+        .arg("sh -s");
     let raw = output(cmd, Some(source), 30)?;
     let value: serde_json::Value = serde_json::from_str(raw.trim()).map_err(|_| "remoteFailed")?;
     if let Some(error) = value["error"].as_str() {
@@ -448,9 +623,7 @@ mod tests {
         for value in ["a\nb", "a&&b", "a`id`", "a@b", "a b", "-R", "a/b"] {
             assert!(!safe_name(value));
         }
-        for value in ["vscode:host;id", "vscode:-R", "vscode:a\nb", "vscode:$(id)"] {
-            assert!(target_parts(value).is_err());
-        }
+        assert!(!safe_host("bad host"));
     }
     #[test]
     fn openssh_parameters_keep_security_overrides_and_have_no_shell() {
@@ -469,6 +642,21 @@ mod tests {
         ] {
             assert!(args.iter().any(|arg| arg == required));
         }
+    }
+    #[test]
+    fn target_ids_separate_sources_paths_and_aliases_without_exposing_paths() {
+        let first = Path::new("C:/Users/example/.ssh/config");
+        let second = Path::new("D:/SSH/config");
+        let open_ssh = target_id(RemoteTargetSource::Openssh, first, "dev");
+        let vscode = target_id(RemoteTargetSource::Vscode, first, "dev");
+        let other_path = target_id(RemoteTargetSource::Openssh, second, "dev");
+        let other_alias = target_id(RemoteTargetSource::Openssh, first, "prod");
+
+        assert_ne!(open_ssh, vscode);
+        assert_ne!(open_ssh, other_path);
+        assert_ne!(open_ssh, other_alias);
+        assert!(!open_ssh.contains("Users"));
+        assert!(!other_path.contains("D:/SSH"));
     }
     #[cfg(windows)]
     #[test]

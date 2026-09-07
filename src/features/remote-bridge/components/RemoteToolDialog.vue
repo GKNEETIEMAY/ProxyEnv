@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { RemoteBridgeCopy } from '../../../shared/i18n/remote-bridge';
-import { bridgeError } from '../../../shared/i18n/remote-bridge';
+import { bridgeError, bridgeErrorCode } from '../../../shared/i18n/remote-bridge';
 import { copyText } from '../../../shared/utils/clipboard';
-import { remoteBackend, targetLabel, type ConfigPreview, type ExtensionInspection, type ExtensionPreview } from '../state';
+import { remoteBackend, type ConfigPreview, type ExtensionInspection, type ExtensionPreview } from '../state';
 
 const props = defineProps<{ copy: RemoteBridgeCopy; sessionAlias: string | null; sessionStatus: string }>();
 const emit = defineEmits<{ refresh: [] }>();
 const dialog = ref<HTMLDialogElement>();
 const heading = ref<HTMLElement>();
 const tool = ref('codex'), alias = ref('');
+const targetName = ref('');
 const restoring = ref(false), cli = ref(true), extension = ref(false), locationConfirmed = ref(false), busy = ref(false);
 const phase = ref<'select' | 'preview' | 'result'>('select');
 const inspection = ref<ExtensionInspection>();
@@ -28,7 +29,7 @@ const canPreview = computed(() => (cli.value || extension.value) && (!extension.
 const outcome = (result: string) => result === 'success' ? (restoring.value ? props.copy.rbRestored : props.copy.rbExtApplied) : result === 'failed' ? props.copy.rbExtFailed : props.copy.rbExtWaiting;
 const title = computed(() => `${tool.value === 'codex' ? 'Codex' : 'Claude Code'} · ${restoring.value ? props.copy.rbExtRestoreTitle : props.copy.rbExtTitle}`);
 const impact = computed(() => restoring.value ? props.copy.rbExtRestoreImpact : tool.value === 'codex' ? props.copy.rbExtCodexImpact : props.copy.rbExtClaudeImpact);
-const errorText = computed(() => operationSurface.value === 'extension' && ['configConflict','unsafePath','noBackup','rollbackConflict','rollbackFailed','writeRolledBack','verifyFailed'].includes(String(error.value)) ? props.copy.rbExtError : bridgeError(error.value, props.copy));
+const errorText = computed(() => operationSurface.value === 'extension' && ['configConflict','unsafePath','noBackup','rollbackConflict','rollbackFailed','writeRolledBack','verifyFailed'].includes(bridgeErrorCode(error.value)) ? props.copy.rbExtError : bridgeError(error.value, props.copy));
 const after = computed(() => {
   const p = extensionPreview.value;
   if (!p) return '';
@@ -42,11 +43,11 @@ async function perform(action: () => Promise<void>) {
   busy.value = true; error.value = undefined;
   try { await action(); } catch(cause) { error.value = cause; } finally { busy.value = false; emit('refresh'); }
 }
-function open(selected: string, target: string, restore = false) {
+function open(selected: string, target: string, restore = false, label = '') {
   if (busy.value) return;
   generation++;
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  tool.value = selected; alias.value = target; restoring.value = restore;
+  tool.value = selected; alias.value = target; targetName.value = label; restoring.value = restore;
   cli.value = true; extension.value = false; inspection.value = undefined; locationConfirmed.value = false;
   phase.value = 'select'; cliPreview.value = undefined; extensionPreview.value = undefined;
   cliResult.value = 'waiting'; extensionResult.value = 'waiting'; error.value = undefined; copied.value = false;
@@ -121,7 +122,7 @@ defineExpose({ open, close });
   <dialog ref="dialog" class="confirmation-dialog remote-bridge-dialog" aria-labelledby="remote-tool-title" @keydown.esc.stop.prevent="busy ? undefined : close()" @cancel.prevent="busy ? undefined : close()">
     <form @submit.prevent="phase === 'select' ? review() : phase === 'preview' ? apply() : undefined">
       <div class="remote-heading"><h2 id="remote-tool-title" ref="heading" tabindex="-1">{{ title }}</h2><button type="button" class="secondary-action" :disabled="busy" @click="close">{{ copy.rbClose }}</button></div>
-      <p><strong>{{ targetLabel(alias) }}</strong></p>
+      <p><strong>{{ targetName }}</strong></p>
       <p class="remote-hint">{{ restoring ? copy.rbExtRestoreScope : copy.rbExtScope }}</p>
       <fieldset class="remote-fields" :disabled="busy">
         <template v-if="phase === 'select'">
@@ -140,7 +141,7 @@ defineExpose({ open, close });
           </section>
         </template>
         <template v-else-if="phase === 'preview'">
-          <section v-if="cliPreview" class="remote-capability"><h3>{{ copy.rbExtCli }}</h3><p><code>{{ cliPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><pre>{{ cliPreview.before || copy.rbAbsent }}</pre><h4>{{ copy.rbAfter }}</h4><pre>{{ cliPreview.after || copy.rbAbsent }}</pre></section>
+          <section v-if="cliPreview" class="remote-capability"><h3>{{ copy.rbExtCli }}</h3><p><code>{{ cliPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><pre>{{ cliPreview.before || copy.rbAbsent }}</pre><h4>{{ copy.rbAfter }}</h4><pre>{{ cliPreview.after || copy.rbAbsent }}</pre><p v-if="cliPreview.onboardingRequired" class="notice notice-warning">{{ copy.rbClaudeOnboarding }}</p></section>
           <section v-if="extensionPreview" class="remote-capability"><h3>{{ copy.rbExtGui }}</h3><p><code>{{ extensionPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><p>{{ copy.rbExtOpaque }}</p><p v-if="extensionPreview.previousPort"><code>127.0.0.1:{{ extensionPreview.previousPort }}</code></p><h4>{{ copy.rbAfter }}</h4><pre>{{ after }}</pre><p class="notice notice-warning">{{ impact }}</p></section>
           <p v-if="restoring" class="remote-hint">{{ copy.rbExtRestoreScope }}</p>
         </template>

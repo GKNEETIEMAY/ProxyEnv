@@ -1,11 +1,11 @@
 pub(crate) mod active;
 pub(crate) mod connectivity;
 mod detector;
-mod listeners;
+pub(crate) mod listeners;
 mod models;
 pub(crate) mod plan;
 mod probe;
-mod processes;
+pub(crate) mod processes;
 mod service;
 mod system_proxy;
 

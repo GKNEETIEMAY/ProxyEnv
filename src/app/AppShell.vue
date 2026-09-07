@@ -24,9 +24,8 @@ import { copyText } from "../shared/utils/clipboard";
 import AppHeader from "./components/AppHeader.vue";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 
-import RemoteBridgeDialog from "../features/remote-bridge/components/RemoteBridgeDialog.vue";
+import RemoteBridgePage from "../features/remote-bridge/components/RemoteBridgePage.vue";
 import { useRemoteBridge } from "../features/remote-bridge/state";
-const remoteBridgeDialog = ref<InstanceType<typeof RemoteBridgeDialog>>();
 const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge } = useRemoteBridge();
 
 const reportDialog = ref<InstanceType<typeof DiagnosticReportDialog>>();
@@ -41,7 +40,8 @@ const defaultSettings: AppSettings = {
   proxyVariables: ["http", "https"]
 };
 
-const view = ref<"home" | "assistant" | "settings">("home");
+const primaryView = ref<"local" | "remote">("local");
+const view = ref<"local" | "remote" | "assistant" | "settings">("local");
 const settingsTab = ref<SettingsTab>("general");
 const loading = ref(true);
 const toggling = ref(false);
@@ -285,7 +285,17 @@ function openSettings() {
 }
 
 function closeSettings() {
-  view.value = "home";
+  view.value = primaryView.value;
+}
+
+function openLocal() {
+  primaryView.value = "local";
+  view.value = "local";
+}
+
+function openRemote() {
+  primaryView.value = "remote";
+  view.value = "remote";
 }
 
 function openAssistant() {
@@ -426,7 +436,7 @@ function onViewShortcut(event: KeyboardEvent) {
     openSettings();
     return;
   }
-  if (event.key !== "Escape" || view.value === "home" || event.defaultPrevented) return;
+  if (event.key !== "Escape" || view.value === primaryView.value || event.defaultPrevented) return;
   const target = event.target;
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
   event.preventDefault();
@@ -586,6 +596,21 @@ onMounted(async () => {
       settingsTab.value = preview === "about" ? "about" : "general";
     } else if (preview === "assistant" || preview === "assistant-result") {
       view.value = "assistant";
+    } else if (preview === "remote" || preview === "remote-connected") {
+      openRemote();
+      if (preview === "remote-connected") remoteBridgeSummary.value = {
+        status: "connected",
+        target: { id: "openssh|preview|aliyun-dev", displayName: "aliyun-dev", source: "openssh", sourceLabel: "OpenSSH", configPath: "~\\.ssh\\config", sshAlias: "aliyun-dev", host: null, user: null, port: null, identityFile: null, available: true, compatibility: "compatible", unavailableReason: null, canOpenVscode: true },
+        proxy: { local: { host: "127.0.0.1", port: 10809, protocol: "mixed" }, remotePort: 23841 },
+        cc: { local: { host: "127.0.0.1", port: 15721, protocol: "http" }, remotePort: 31472 },
+        activeProxyRevision: 1,
+        environment: "export HTTP_PROXY=http://127.0.0.1:23841\nexport HTTPS_PROXY=http://127.0.0.1:23841\nexport ALL_PROXY=socks5h://127.0.0.1:23841",
+        codexConfigured: true,
+        claudeConfigured: false,
+        codexExtension: "notConfigured",
+        claudeExtension: "notConfigured",
+        error: null
+      };
     }
     loading.value = false;
     return;
@@ -638,6 +663,8 @@ onBeforeUnmount(() => {
       :maximized="maximized"
       :view="view"
       @close-settings="closeSettings"
+      @open-local="openLocal"
+      @open-remote="openRemote"
       @open-settings="openSettings"
       @open-report="reportDialog?.open()"
       @minimize="minimizeWindow"
@@ -647,13 +674,13 @@ onBeforeUnmount(() => {
 
     <div v-if="activeProxyContext.candidate && !activeProxyContext.available" class="notice notice-warning active-proxy-alert" role="status">
       <p><strong>{{ copy.activeProxyUnavailableTitle }}</strong><span>{{ copy.activeProxyUnavailable }}</span></p>
-      <button v-if="view !== 'home'" class="secondary-action" type="button" @click="view = 'home'">{{ copy.selectActiveProxy }}</button>
+      <button v-if="view !== 'local'" class="secondary-action" type="button" @click="openLocal">{{ copy.selectActiveProxy }}</button>
     </div>
 
     <Transition name="view-fade" mode="out-in">
     <ProxyPage
-      v-if="view === 'home'"
-      key="home"
+      v-if="view === 'local'"
+      key="local"
       :copy="copy"
       :environment="environment"
       :candidates="candidates"
@@ -674,9 +701,17 @@ onBeforeUnmount(() => {
       @restore="restoreEnvironment"
       @copy-endpoint="copyEndpoint"
       @toggle-variable="toggleManagedVariable"
-      :remote-bridge-summary="remoteBridgeSummary"
-      @open-remote-bridge="remoteBridgeDialog?.open()"
       @open-assistant="openAssistant"
+    />
+
+    <RemoteBridgePage
+      v-else-if="view === 'remote'"
+      key="remote"
+      :copy="copy"
+      :active-proxy="activeProxyContext"
+      :summary="remoteBridgeSummary"
+      :review-preview="reviewPreview"
+      @refresh="refreshRemoteBridge"
     />
 
     <ApplicationAssistantPage
@@ -715,7 +750,6 @@ onBeforeUnmount(() => {
       @open-release="openLatestRelease"
     />
     </Transition>
-    <RemoteBridgeDialog ref="remoteBridgeDialog" :copy="copy" :active-proxy="activeProxyContext" :summary="remoteBridgeSummary" @refresh="refreshRemoteBridge" />
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
   </div>
 </template>

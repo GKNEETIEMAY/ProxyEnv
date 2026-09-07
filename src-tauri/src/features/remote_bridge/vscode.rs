@@ -145,21 +145,14 @@ fn executable() -> Option<PathBuf> {
 }
 
 pub fn open(target: String) -> BridgeResult<()> {
-    let (alias, config) = ssh::target_parts(&target)?;
-    let vscode_config = custom_ssh_config()?;
-    let default = dirs::home_dir()
-        .map(|p| p.join(".ssh/config"))
-        .and_then(|p| p.canonicalize().ok());
-    // VS Code resolves the alias itself; never open a different host when it
-    // uses another SSH config than the reviewed bridge.
-    let selected = config.as_ref().or(default.as_ref());
-    let actual = vscode_config.as_ref().or(default.as_ref());
-    if selected != actual {
+    let selected = ssh::target(&target)?;
+    if !selected.can_open_vscode {
         return Err("vscodeConfigMismatch".into());
     }
-    if !ssh::aliases()?.contains(&target) {
-        return Err("invalidTarget".into());
-    }
+    let alias = selected
+        .ssh_alias
+        .as_deref()
+        .ok_or("vscodeConfigMismatch")?;
     let executable = executable().ok_or("vscodeMissing")?;
     launch(&executable, alias)
 }

@@ -2,32 +2,37 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { ProxyEndpoint } from "../../shared/types";
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "stale" | "unavailable" | "error";
+export type RemoteTargetSource = "openssh" | "vscode" | "mobaxterm";
+export interface RemoteTarget { id: string; displayName: string; source: RemoteTargetSource; sourceLabel: string; configPath: string; sshAlias: string | null; host: string | null; user: string | null; port: number | null; identityFile: string | null; available: boolean; compatibility: "compatible" | "unsupported"; unavailableReason: string | null; canOpenVscode: boolean }
 export interface BridgeEndpoint { local: ProxyEndpoint; remotePort: number }
-export interface BridgeSummary { status: BridgeStatus; alias: string | null; proxy: BridgeEndpoint | null; cc: BridgeEndpoint | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; codexExtension?: string | null; claudeExtension?: string | null; error: string | null }
-export interface BridgeRequest { alias: string; proxyPort: number | null; ccPort: number | null; ccLocalPort: number; expectedRevision: number }
-export interface ConfigPreview { id: string; tool: string; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean }
+export interface BridgeSummary { status: BridgeStatus; target: RemoteTarget | null; proxy: BridgeEndpoint | null; cc: BridgeEndpoint | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; codexExtension?: string | null; claudeExtension?: string | null; error: string | null }
+export interface BridgeRequest { targetId: string; proxyPort: number | null; ccPort: number | null; ccLocalPort: number; expectedRevision: number }
+export interface PortAllocation { proxyPort: number; ccPort: number }
+export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
+export interface ConfigPreview { id: string; tool: string; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean; onboardingRequired:boolean }
 export interface ExtensionCapability { tool: string; detected: boolean; supported: boolean; version: string; runtimeVersion: string; configuration: 'configured' | 'notConfigured' | 'conflict' }
 export interface ExtensionInspection { user: string; contextHash: string; extensions: ExtensionCapability[] }
 export interface ExtensionPreview { id: string; alias: string; tool: string; path: string; version: string; runtimeVersion: string; port: number; previousPort: number | null; originalExists: boolean; restore: boolean }
-export const emptySummary = (): BridgeSummary => ({ status:"disconnected", alias:null, proxy:null, cc:null, activeProxyRevision:null, environment:"", codexConfigured:false, claudeConfigured:false, error:null });
-export const targetLabel = (target:string) => target.startsWith("vscode:") ? `${target.slice(7)} · VS Code` : target;
+export const emptySummary = (): BridgeSummary => ({ status:"disconnected", target:null, proxy:null, cc:null, activeProxyRevision:null, environment:"", codexConfigured:false, claudeConfigured:false, error:null });
+export const targetLabel = (target:RemoteTarget|null|undefined) => target ? `${target.displayName} · ${target.sourceLabel}` : "";
 export const remoteBackend = {
-  extensionInspect: (alias: string) => invoke<ExtensionInspection>("remote_bridge_extension_inspect", { alias }),
+  extensionInspect: (targetId: string) => invoke<ExtensionInspection>("remote_bridge_extension_inspect", { targetId }),
   extensionPreview: (selection: { alias: string; tool: string; contextHash: string; remoteConfirmed: boolean; restore: boolean }) => invoke<ExtensionPreview>("remote_bridge_extension_preview", { selection }),
   extensionApply: (id: string) => invoke<void>("remote_bridge_extension_apply", { id, confirmed: true }),
-  targets: () => invoke<string[]>("remote_bridge_targets"),
+  targets: () => invoke<RemoteTarget[]>("remote_bridge_targets"),
   summary: () => invoke<BridgeSummary>("remote_bridge_summary"),
-  check: (alias: string) => invoke<void>("remote_bridge_check", { alias }),
-  detectCc: (localPort: number) => invoke<boolean>("remote_bridge_detect_cc", { localPort }),
+  check: (targetId: string) => invoke<PortAllocation>("remote_bridge_check", { targetId }),
+  allocatePorts: (targetId: string) => invoke<PortAllocation>("remote_bridge_allocate_ports", { targetId }),
+  detectCc: (localPort: number) => invoke<CcDetection>("remote_bridge_detect_cc", { localPort }),
   preview: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_preview", { request }),
   connect: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_connect", { request, confirmed:true }),
   disconnect: () => invoke<BridgeSummary>("remote_bridge_disconnect", { confirmed:true }),
   test: () => invoke<void>("remote_bridge_test"),
   configPreview: (tool: string) => invoke<ConfigPreview>("remote_bridge_config_preview", { tool }),
   configApply: (id: string) => invoke<void>("remote_bridge_config_apply", { id, confirmed:true }),
-  configRestorePreview: (alias:string, tool:string) => invoke<ConfigPreview>("remote_bridge_config_restore_preview", { alias,tool }),
+  configRestorePreview: (targetId:string, tool:string) => invoke<ConfigPreview>("remote_bridge_config_restore_preview", { targetId,tool }),
   configRestore: (id: string) => invoke<void>("remote_bridge_config_restore", { id, confirmed:true }),
-  openVscode: (alias:string) => invoke<void>("remote_bridge_open_vscode",{alias}),
+  openVscode: (targetId:string) => invoke<void>("remote_bridge_open_vscode",{targetId}),
 };
 export function useRemoteBridge() {
   const summary = ref<BridgeSummary>(emptySummary());

@@ -90,7 +90,7 @@ pub fn inspect(alias: String) -> BridgeResult<Inspection> {
         return Err("sshConfigChanged".into());
     }
     let mut state = lock()?;
-    if state.summary.alias.as_ref() == Some(&alias) {
+    if state.summary.target.as_ref().map(|target| &target.id) == Some(&alias) {
         state.summary.codex_extension = Some(inspection.extensions[0].configuration.clone());
         state.summary.claude_extension = Some(inspection.extensions[1].configuration.clone());
     }
@@ -112,7 +112,9 @@ pub fn preview(selection: Selection) -> BridgeResult<Preview> {
     let port = if selection.restore {
         25721
     } else {
-        if state.child.is_none() || state.summary.alias.as_ref() != Some(&selection.alias) {
+        if state.child.is_none()
+            || state.summary.target.as_ref().map(|target| &target.id) != Some(&selection.alias)
+        {
             return Err("bridgeUnavailable".into());
         }
         if state.target_fingerprint.as_ref() != Some(&fingerprint) {
@@ -216,7 +218,8 @@ pub fn apply(id: String, confirmed: bool) -> BridgeResult<()> {
     }
     if !pending.preview.restore {
         if state.child.is_none()
-            || state.summary.alias.as_ref() != Some(&pending.preview.alias)
+            || state.summary.target.as_ref().map(|target| &target.id)
+                != Some(&pending.preview.alias)
             || state.target_fingerprint.as_ref() != Some(&pending.fingerprint)
         {
             return Err("bridgeUnavailable".into());
@@ -237,7 +240,7 @@ pub fn apply(id: String, confirmed: bool) -> BridgeResult<()> {
     if value["configured"] != !pending.preview.restore {
         return Err("verifyFailed".into());
     }
-    if state.summary.alias.as_ref() == Some(&pending.preview.alias) {
+    if state.summary.target.as_ref().map(|target| &target.id) == Some(&pending.preview.alias) {
         let status = Some(
             if pending.preview.restore {
                 "notConfigured"
