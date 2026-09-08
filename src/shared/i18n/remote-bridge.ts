@@ -157,8 +157,9 @@ const foundationKo: FoundationLabels = {
 };
 const authEn = {
   rbAuthTitle: "OpenSSH authentication", rbAuthPrompt: "OpenSSH prompt", rbAuthCancel: "Cancel authentication",
-  rbAuthWaitingPrompt: "Waiting for server", rbAuthWaitingUser: "Waiting for input", rbAuthVerifying: "Verifying", rbAuthSuccess: "SSH authentication succeeded", rbAuthFailure: "Authentication failed",
-  rbAuthWaitingPromptMessage: "Waiting for the server authentication request…", rbAuthPromptUnavailable: "OpenSSH is waiting for input but did not expose a readable prompt. Enter only the information your server normally requests at this step.",
+  rbAuthWaitingPrompt: "Waiting for server", rbAuthWaitingUser: "Waiting for input", rbAuthVerifying: "Verifying", rbAuthCompleting: "Completing remote check", rbAuthCompletingTitle: "Signed in, checking the remote environment", rbAuthCompletingDescription: "OpenSSH authentication succeeded. ProxyEnv is waiting for the remote check result.", rbAuthRemoteCheckFailure: "Remote check failed", rbAuthRemoteCheckFailureTitle: "The remote check did not complete", rbAuthSuccess: "SSH authentication succeeded", rbAuthFailure: "Authentication failed",
+  rbAuthWaitingPromptMessage: "Waiting for the server authentication request…", rbAuthInteractionError: "Interaction error", rbAuthPromptUnavailableTitle: "Could not read the authentication prompt", rbAuthPromptUnavailableDescription: "ProxyEnv started OpenSSH but did not receive a recognizable authentication request.", rbAuthPromptUnavailableHint: "This usually indicates a local OpenSSH or ConPTY interaction problem. It does not mean your server password is wrong.",
+  rbAuthRetry: "Try again", rbAuthOpenDiagnostic: "Open diagnostics", rbAuthHideDiagnostic: "Hide diagnostics", rbAuthDiagnosticBytes: "PTY bytes received", rbAuthDiagnosticPrintable: "Printable bytes", rbAuthDiagnosticCpr: "Cursor queries", rbAuthDiagnosticPrompt: "Prompt detected", rbAuthDiagnosticMarker: "Authentication marker", rbAuthDiagnosticResult: "Remote result detected", rbAuthDiagnosticClosed: "PTY output closed", rbAuthDiagnosticYes: "Yes", rbAuthDiagnosticNo: "No", rbAuthCompletionTimeout: "Authentication succeeded, but the remote check did not return a result in time. Open diagnostics and retry.",
   rbAuthPasswordTitle: "SSH password authentication", rbAuthPasswordDescription: "This server requires your account password to complete SSH sign-in.", rbAuthPasswordLabel: "Server password",
   rbAuthPassphraseTitle: "SSH key passphrase", rbAuthPassphraseDescription: "The selected SSH private key is protected. Enter its passphrase to unlock it for this session.", rbAuthPassphraseLabel: "Key passphrase",
   rbAuthOtpTitle: "Verification code", rbAuthOtpDescription: "The server requires an additional identity verification step.", rbAuthOtpLabel: "Verification code",
@@ -173,7 +174,8 @@ const authEn = {
 type AuthLabels = { [K in keyof typeof authEn]: string };
 const authZh: AuthLabels = {
   rbAuthTitle:"OpenSSH 认证",rbAuthPrompt:"OpenSSH 提示",rbAuthCancel:"取消认证",
-  rbAuthWaitingPrompt:"等待服务器",rbAuthWaitingUser:"等待输入",rbAuthVerifying:"正在验证",rbAuthSuccess:"SSH 认证成功",rbAuthFailure:"认证失败",rbAuthWaitingPromptMessage:"正在等待服务器的认证请求……",rbAuthPromptUnavailable:"OpenSSH 正在等待输入，但没有提供可读取的提示。请只填写服务器在此步骤通常要求的认证信息。",
+  rbAuthWaitingPrompt:"等待服务器",rbAuthWaitingUser:"等待输入",rbAuthVerifying:"正在验证",rbAuthCompleting:"正在完成远端检查",rbAuthCompletingTitle:"认证通过，正在检查远端环境",rbAuthCompletingDescription:"OpenSSH 已完成登录，ProxyEnv 正在等待远端检查结果。",rbAuthRemoteCheckFailure:"远端检查失败",rbAuthRemoteCheckFailureTitle:"远端检查未完成",rbAuthSuccess:"SSH 认证成功",rbAuthFailure:"认证失败",rbAuthWaitingPromptMessage:"正在等待服务器的认证请求……",rbAuthInteractionError:"交互异常",rbAuthPromptUnavailableTitle:"未能读取认证提示",rbAuthPromptUnavailableDescription:"ProxyEnv 已启动 OpenSSH，但没有收到可以识别的认证请求。",rbAuthPromptUnavailableHint:"这通常属于本机 OpenSSH 或 ConPTY 交互异常，并不表示服务器密码错误。",
+  rbAuthRetry:"重新尝试",rbAuthOpenDiagnostic:"打开诊断",rbAuthHideDiagnostic:"收起诊断",rbAuthDiagnosticBytes:"PTY 接收字节",rbAuthDiagnosticPrintable:"可显示字节",rbAuthDiagnosticCpr:"光标查询",rbAuthDiagnosticPrompt:"识别到提示",rbAuthDiagnosticMarker:"认证标记",rbAuthDiagnosticResult:"识别到远端结果",rbAuthDiagnosticClosed:"PTY 输出已关闭",rbAuthDiagnosticYes:"是",rbAuthDiagnosticNo:"否",rbAuthCompletionTimeout:"SSH 认证已通过，但远端检查未在限定时间内返回结果。请打开诊断后重试。",
   rbAuthPasswordTitle:"SSH 密码认证",rbAuthPasswordDescription:"此服务器要求使用账户密码完成 SSH 登录。",rbAuthPasswordLabel:"服务器密码",
   rbAuthPassphraseTitle:"SSH 密钥密码",rbAuthPassphraseDescription:"当前 SSH 私钥受到密码保护，请输入密码以在本次会话中解锁。",rbAuthPassphraseLabel:"密钥密码",
   rbAuthOtpTitle:"身份验证码",rbAuthOtpDescription:"服务器要求进一步验证你的身份。",rbAuthOtpLabel:"验证码",
@@ -186,7 +188,8 @@ const authZh: AuthLabels = {
 };
 const authJa: AuthLabels = {
   rbAuthTitle:"OpenSSH 認証",rbAuthPrompt:"OpenSSH の確認",rbAuthCancel:"認証をキャンセル",
-  rbAuthWaitingPrompt:"サーバーを待機",rbAuthWaitingUser:"入力待ち",rbAuthVerifying:"確認中",rbAuthSuccess:"SSH 認証に成功しました",rbAuthFailure:"認証に失敗しました",rbAuthWaitingPromptMessage:"サーバーの認証要求を待っています…",rbAuthPromptUnavailable:"OpenSSH は入力待ちですが、読み取れる確認内容を表示しませんでした。この段階でサーバーが通常求める認証情報だけを入力してください。",
+  rbAuthWaitingPrompt:"サーバーを待機",rbAuthWaitingUser:"入力待ち",rbAuthVerifying:"確認中",rbAuthCompleting:"リモート確認を完了中",rbAuthCompletingTitle:"認証済み、リモート環境を確認中",rbAuthCompletingDescription:"OpenSSH の認証が完了しました。ProxyEnv はリモート確認結果を待っています。",rbAuthRemoteCheckFailure:"リモート確認に失敗",rbAuthRemoteCheckFailureTitle:"リモート確認を完了できませんでした",rbAuthSuccess:"SSH 認証に成功しました",rbAuthFailure:"認証に失敗しました",rbAuthWaitingPromptMessage:"サーバーの認証要求を待っています…",rbAuthInteractionError:"対話エラー",rbAuthPromptUnavailableTitle:"認証プロンプトを読み取れませんでした",rbAuthPromptUnavailableDescription:"ProxyEnv は OpenSSH を起動しましたが、識別可能な認証要求を受信できませんでした。",rbAuthPromptUnavailableHint:"通常はローカル OpenSSH または ConPTY の対話問題であり、サーバーパスワードの誤りを意味しません。",
+  rbAuthRetry:"再試行",rbAuthOpenDiagnostic:"診断を開く",rbAuthHideDiagnostic:"診断を閉じる",rbAuthDiagnosticBytes:"PTY 受信バイト",rbAuthDiagnosticPrintable:"表示可能バイト",rbAuthDiagnosticCpr:"カーソル照会",rbAuthDiagnosticPrompt:"プロンプト検出",rbAuthDiagnosticMarker:"認証マーカー",rbAuthDiagnosticResult:"リモート結果を検出",rbAuthDiagnosticClosed:"PTY 出力終了",rbAuthDiagnosticYes:"はい",rbAuthDiagnosticNo:"いいえ",rbAuthCompletionTimeout:"SSH 認証は成功しましたが、リモート確認結果が時間内に返りませんでした。診断を開いて再試行してください。",
   rbAuthPasswordTitle:"SSH パスワード認証",rbAuthPasswordDescription:"このサーバーではアカウントのパスワードによる SSH ログインが必要です。",rbAuthPasswordLabel:"サーバーパスワード",
   rbAuthPassphraseTitle:"SSH キーのパスフレーズ",rbAuthPassphraseDescription:"選択した SSH 秘密鍵は保護されています。このセッションで解除するパスフレーズを入力してください。",rbAuthPassphraseLabel:"キーパスフレーズ",
   rbAuthOtpTitle:"確認コード",rbAuthOtpDescription:"サーバーが追加の本人確認を要求しています。",rbAuthOtpLabel:"確認コード",
@@ -199,7 +202,8 @@ const authJa: AuthLabels = {
 };
 const authKo: AuthLabels = {
   rbAuthTitle:"OpenSSH 인증",rbAuthPrompt:"OpenSSH 요청",rbAuthCancel:"인증 취소",
-  rbAuthWaitingPrompt:"서버 대기 중",rbAuthWaitingUser:"입력 대기",rbAuthVerifying:"확인 중",rbAuthSuccess:"SSH 인증 성공",rbAuthFailure:"인증 실패",rbAuthWaitingPromptMessage:"서버의 인증 요청을 기다리는 중…",rbAuthPromptUnavailable:"OpenSSH가 입력을 기다리지만 읽을 수 있는 요청을 표시하지 않았습니다. 이 단계에서 서버가 일반적으로 요구하는 인증 정보만 입력하세요.",
+  rbAuthWaitingPrompt:"서버 대기 중",rbAuthWaitingUser:"입력 대기",rbAuthVerifying:"확인 중",rbAuthCompleting:"원격 확인 완료 중",rbAuthCompletingTitle:"인증됨, 원격 환경 확인 중",rbAuthCompletingDescription:"OpenSSH 인증이 완료되었습니다. ProxyEnv가 원격 확인 결과를 기다리고 있습니다.",rbAuthRemoteCheckFailure:"원격 확인 실패",rbAuthRemoteCheckFailureTitle:"원격 확인을 완료하지 못했습니다",rbAuthSuccess:"SSH 인증 성공",rbAuthFailure:"인증 실패",rbAuthWaitingPromptMessage:"서버의 인증 요청을 기다리는 중…",rbAuthInteractionError:"상호 작용 오류",rbAuthPromptUnavailableTitle:"인증 요청을 읽지 못했습니다",rbAuthPromptUnavailableDescription:"ProxyEnv가 OpenSSH를 시작했지만 인식 가능한 인증 요청을 받지 못했습니다.",rbAuthPromptUnavailableHint:"일반적으로 로컬 OpenSSH 또는 ConPTY 상호 작용 문제이며 서버 비밀번호가 틀렸다는 의미는 아닙니다.",
+  rbAuthRetry:"다시 시도",rbAuthOpenDiagnostic:"진단 열기",rbAuthHideDiagnostic:"진단 닫기",rbAuthDiagnosticBytes:"PTY 수신 바이트",rbAuthDiagnosticPrintable:"표시 가능 바이트",rbAuthDiagnosticCpr:"커서 조회",rbAuthDiagnosticPrompt:"요청 감지",rbAuthDiagnosticMarker:"인증 마커",rbAuthDiagnosticResult:"원격 결과 감지",rbAuthDiagnosticClosed:"PTY 출력 종료",rbAuthDiagnosticYes:"예",rbAuthDiagnosticNo:"아니요",rbAuthCompletionTimeout:"SSH 인증은 성공했지만 원격 확인 결과가 제한 시간 내에 반환되지 않았습니다. 진단을 열고 다시 시도하세요.",
   rbAuthPasswordTitle:"SSH 비밀번호 인증",rbAuthPasswordDescription:"이 서버는 계정 비밀번호로 SSH 로그인을 완료해야 합니다.",rbAuthPasswordLabel:"서버 비밀번호",
   rbAuthPassphraseTitle:"SSH 키 암호",rbAuthPassphraseDescription:"선택한 SSH 개인 키가 보호되어 있습니다. 이 세션에서 잠금을 해제할 암호를 입력하세요.",rbAuthPassphraseLabel:"키 암호",
   rbAuthOtpTitle:"인증 코드",rbAuthOtpDescription:"서버가 추가 본인 인증을 요구합니다.",rbAuthOtpLabel:"인증 코드",
@@ -296,8 +300,9 @@ export function bridgeError(code: unknown, copy: Labels): string {
   if (value === "stateUnavailable") return copy.rbStateError;
   if (value === "processFailed") return copy.rbProcessError;
   if (value === "sshAuthRejected") return copy.rbAuthRejected;
+  if (value === "sshAuthCompletionTimeout") return copy.rbAuthCompletionTimeout;
   if (value === "hostKeyChanged") return copy.rbAuthHostKeyChanged;
-  if (["ptyUnavailable","sshAuthSessionMissing","sshAuthSessionClosed","sshAuthInputInvalid","sshAuthPending"].includes(value)) return copy.rbAuthError;
+  if (["ptyUnavailable","sshAuthSessionMissing","sshAuthSessionClosed","sshAuthInputInvalid","sshAuthPromptChanged","sshAuthPending"].includes(value)) return copy.rbAuthError;
   if (value === "networkFailed") return copy.rbNetworkError;
   if (value === "remoteFailed") return copy.rbRemoteError;
   if (["mobaSessionUnsupported","targetUnsupported","mobaConfigInvalid"].includes(value)) return copy.rbTargetError;

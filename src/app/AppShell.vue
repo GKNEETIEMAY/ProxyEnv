@@ -25,7 +25,7 @@ import AppHeader from "./components/AppHeader.vue";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 
 import RemoteBridgePage from "../features/remote-bridge/components/RemoteBridgePage.vue";
-import { useRemoteBridge } from "../features/remote-bridge/state";
+import { useRemoteBridge, type BridgeSummary } from "../features/remote-bridge/state";
 const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge } = useRemoteBridge();
 
 const reportDialog = ref<InstanceType<typeof DiagnosticReportDialog>>();
@@ -300,6 +300,10 @@ function openRemote() {
 
 function openAssistant() {
   view.value = "assistant";
+}
+
+function acceptRemoteBridgeSummary(summary: BridgeSummary) {
+  remoteBridgeSummary.value = summary;
 }
 
 async function copyEndpoint(candidate?: ProxyCandidate) {
@@ -596,7 +600,7 @@ onMounted(async () => {
       settingsTab.value = preview === "about" ? "about" : "general";
     } else if (preview === "assistant" || preview === "assistant-result") {
       view.value = "assistant";
-    } else if (["remote", "remote-connected", "remote-auth"].includes(preview ?? "")) {
+    } else if (["remote", "remote-connected", "remote-auth", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(preview ?? "")) {
       openRemote();
       if (preview === "remote-connected") remoteBridgeSummary.value = {
         status: "connected",
@@ -680,10 +684,11 @@ onBeforeUnmount(() => {
       <button v-if="view !== 'local'" class="secondary-action" type="button" @click="openLocal">{{ copy.selectActiveProxy }}</button>
     </div>
 
-    <Transition name="view-fade" mode="out-in">
+    <div class="view-stage">
+    <Transition name="view-fade" mode="in-out">
+    <div :key="view" class="view-outlet">
     <ProxyPage
       v-if="view === 'local'"
-      key="local"
       :copy="copy"
       :environment="environment"
       :candidates="candidates"
@@ -709,17 +714,16 @@ onBeforeUnmount(() => {
 
     <RemoteBridgePage
       v-else-if="view === 'remote'"
-      key="remote"
       :copy="copy"
       :active-proxy="activeProxyContext"
       :summary="remoteBridgeSummary"
       :review-preview="reviewPreview"
       @refresh="refreshRemoteBridge"
+      @connected="acceptRemoteBridgeSummary"
     />
 
     <ApplicationAssistantPage
       v-else-if="view === 'assistant'"
-      key="assistant"
       :copy="copy"
       :review-preview="reviewPreview"
       :active-proxy-context="activeProxyContext"
@@ -733,7 +737,6 @@ onBeforeUnmount(() => {
 
     <SettingsPage
       v-else-if="view === 'settings'"
-      key="settings"
       v-model:settings="draftSettings"
       v-model:tab="settingsTab"
       :copy="copy"
@@ -752,7 +755,9 @@ onBeforeUnmount(() => {
       @install-update="installPendingUpdate"
       @open-release="openLatestRelease"
     />
+    </div>
     </Transition>
+    </div>
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
   </div>
 </template>

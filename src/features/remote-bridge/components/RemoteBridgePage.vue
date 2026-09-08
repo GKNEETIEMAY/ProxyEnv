@@ -21,7 +21,7 @@ import {
 } from "../state";
 
 const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; reviewPreview?: boolean }>();
-const emit = defineEmits<{ refresh: [] }>();
+const emit = defineEmits<{ refresh: []; connected: [summary: BridgeSummary] }>();
 const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
 const confirmation = ref<HTMLDialogElement>();
 const authDialog = ref<HTMLDialogElement>();
@@ -52,6 +52,8 @@ const vscodeOpened = ref(false);
 const authSession = ref<SshAuthSnapshot>();
 const authResponse = ref("");
 const authSubmitting = ref(false);
+const showAuthDiagnostic = ref(false);
+const authRetryContext = ref<{ operation: SshAuthOperation; request: BridgeRequest | null }>();
 let authPollTimer: ReturnType<typeof setTimeout> | undefined;
 const codexLaunch = "codex --profile proxyenv_bridge";
 const claudeLaunch = 'claude --settings "$HOME/.claude/proxyenv-bridge.json"';
@@ -93,15 +95,22 @@ const sshRuntimeState = computed<CheckState>(() => live.value ? (props.summary.s
 const sshRuntimeLabel = computed(() => sshRuntimeState.value === "healthy" ? props.copy.rbHealthy : genericStateLabel(sshRuntimeState.value));
 const authPrompt = computed(() => authSession.value?.prompt);
 const authPromptType = computed(() => authPrompt.value?.type ?? "unknown");
+const authPromptUnavailable = computed(() => authSession.value?.status === "promptUnavailable");
+const authCompleting = computed(() => authSession.value?.status === "authenticated");
+const authRemoteCheckFailed = computed(() => authSession.value?.status === "failed" && authSession.value.auth.authenticated);
+const authDiagnosticAvailable = computed(() => ["failed", "promptUnavailable"].includes(authSession.value?.status ?? ""));
 const authStatusState = computed<CheckState>(() => {
-  if (authSession.value?.status === "failed") return "failed";
-  if (["authenticated", "succeeded"].includes(authSession.value?.status ?? "")) return "healthy";
+  if (["failed", "promptUnavailable"].includes(authSession.value?.status ?? "")) return "failed";
+  if (authSession.value?.status === "succeeded") return "healthy";
   if (authSession.value?.status === "waitingUser") return "warning";
   return "checking";
 });
 const authStatusLabel = computed(() => {
+  if (authRemoteCheckFailed.value) return props.copy.rbAuthRemoteCheckFailure;
   if (authSession.value?.status === "failed") return props.copy.rbAuthFailure;
-  if (["authenticated", "succeeded"].includes(authSession.value?.status ?? "")) return props.copy.rbAuthSuccess;
+  if (authPromptUnavailable.value) return props.copy.rbAuthInteractionError;
+  if (authSession.value?.status === "succeeded") return props.copy.rbAuthSuccess;
+  if (authCompleting.value) return props.copy.rbAuthCompleting;
   if (authSession.value?.status === "waitingUser") return props.copy.rbAuthWaitingUser;
   if (["submitting", "waitingServer"].includes(authSession.value?.status ?? "")) return props.copy.rbAuthVerifying;
   return props.copy.rbAuthWaitingPrompt;
@@ -191,14 +200,15 @@ async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
   if (authSession.value?.sessionId !== snapshot.sessionId) return;
   const outcome = await remoteBackend.sshAuthFinish(snapshot.sessionId);
   clearAuthPoll();
+  authDialog.value?.close();
   authSession.value = undefined;
   authResponse.value = "";
-  authDialog.value?.close();
   if (outcome.operation === "check" && outcome.ports) {
     usePorts(outcome.ports);
     checked.value = true;
     sshCheck.value = { state: "healthy", checkedAt: Date.now() };
   } else if (outcome.operation === "connect" && outcome.summary) {
+    emit("connected", outcome.summary);
     go(4);
   }
   emit("refresh");
@@ -219,7 +229,7 @@ async function pollInteractiveAuth() {
     clearAuthPoll();
     return;
   }
-  if (authSession.value?.status !== "failed") {
+  if (!["failed", "promptUnavailable"].includes(authSession.value?.status ?? "")) {
     authPollTimer = setTimeout(pollInteractiveAuth, 180);
   }
 }
@@ -228,23 +238,44 @@ async function beginInteractiveAuth(operation: SshAuthOperation, request: Bridge
   clearAuthPoll();
   error.value = undefined;
   authResponse.value = "";
+  showAuthDiagnostic.value = false;
+  authRetryContext.value = { operation, request };
   authSession.value = await remoteBackend.sshAuthBegin(operation, targetId.value, request);
   await nextTick();
-  authDialog.value?.showModal();
+  if (!authDialog.value?.open) authDialog.value?.showModal();
   authPollTimer = setTimeout(pollInteractiveAuth, 120);
 }
 
 async function submitInteractiveAuth() {
   const session = authSession.value;
-  if (!session || !authCanRespond.value || authSubmitting.value) return;
+  const promptId = session?.prompt?.id;
+  if (!session || !promptId || !authCanRespond.value || authSubmitting.value) return;
   if (!authIsHostConfirmation.value && !authResponse.value) return;
   authSubmitting.value = true;
   const response = authResponse.value;
   authResponse.value = "";
   try {
     authSession.value = authIsHostConfirmation.value
-      ? await remoteBackend.sshAuthConfirmHost(session.sessionId)
-      : await remoteBackend.sshAuthSubmit(session.sessionId, response);
+      ? await remoteBackend.sshAuthConfirmHost(session.sessionId, promptId)
+      : await remoteBackend.sshAuthSubmit(session.sessionId, promptId, response);
+  } catch (cause) {
+    error.value = cause;
+  } finally {
+    authSubmitting.value = false;
+  }
+}
+
+async function retryInteractiveAuth() {
+  const retry = authRetryContext.value;
+  const sessionId = authSession.value?.sessionId;
+  if (!retry || authSubmitting.value) return;
+  authSubmitting.value = true;
+  clearAuthPoll();
+  try {
+    if (sessionId) {
+      try { await remoteBackend.sshAuthCancel(sessionId); } catch { /* The timed-out PTY may already be closed. */ }
+    }
+    await beginInteractiveAuth(retry.operation, retry.request);
   } catch (cause) {
     error.value = cause;
   } finally {
@@ -266,6 +297,8 @@ async function cancelInteractiveAuth() {
   const sessionId = authSession.value?.sessionId;
   authSession.value = undefined;
   authResponse.value = "";
+  showAuthDiagnostic.value = false;
+  authRetryContext.value = undefined;
   authDialog.value?.close();
   if (sessionId) {
     try { await remoteBackend.sshAuthCancel(sessionId); } catch { /* Session may already be closed. */ }
@@ -476,15 +509,21 @@ onMounted(() => {
   updateLocalProxyCheck();
   step.value = props.summary.target ? 4 : 1;
   void perform(load);
-  if (props.reviewPreview && new URLSearchParams(window.location.search).get("impeccable-review") === "remote-auth") {
+  const authReview = new URLSearchParams(window.location.search).get("impeccable-review");
+  if (props.reviewPreview && ["remote-auth", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(authReview ?? "")) {
+    const unavailable = authReview === "remote-auth-unavailable";
+    const completing = authReview === "remote-auth-completing";
+    const completionTimeout = authReview === "remote-auth-timeout";
     authSession.value = {
       sessionId: "review-session",
       operation: "check",
-      status: "waitingUser",
-      auth: { mode: "interactive", method: "password", authenticated: false, passwordStored: false },
-      prompt: { type: "password", message: "dev@remote's password:", secret: true, attempt: 1, target: "remote", fingerprint: null },
-      error: null,
+      status: unavailable ? "promptUnavailable" : completionTimeout ? "failed" : completing ? "authenticated" : "waitingUser",
+      auth: { mode: "interactive", method: "password", authenticated: completing || completionTimeout, passwordStored: false },
+      prompt: unavailable || completing || completionTimeout ? null : { id: "review-session:1", type: "password", message: "dev@remote's password:", secret: true, attempt: 1, target: "remote", fingerprint: null },
+      diagnostic: { bytesReceived: 34, printableBytes: 18, cprRequests: 1, promptDetected: false, authMarkerDetected: completing || completionTimeout, remoteResultDetected: false, outputClosed: false },
+      error: unavailable ? "sshAuthPromptUnavailable" : completionTimeout ? "sshAuthCompletionTimeout" : null,
     };
+    authRetryContext.value = { operation: "check", request: null };
     void nextTick(() => authDialog.value?.showModal());
   }
 });
@@ -662,15 +701,35 @@ onBeforeUnmount(() => {
 
       <section class="remote-auth-context" aria-live="polite">
         <h3 v-if="authCanRespond">{{ authPromptCopy.title }}</h3>
+        <h3 v-else-if="authPromptUnavailable">{{ copy.rbAuthPromptUnavailableTitle }}</h3>
+        <h3 v-else-if="authRemoteCheckFailed">{{ copy.rbAuthRemoteCheckFailureTitle }}</h3>
         <h3 v-else-if="authSession?.status === 'failed'">{{ copy.rbAuthFailure }}</h3>
-        <h3 v-else-if="authSession?.auth.authenticated">{{ copy.rbAuthSuccess }}</h3>
+        <h3 v-else-if="authCompleting">{{ copy.rbAuthCompletingTitle }}</h3>
+        <h3 v-else-if="authSession?.status === 'succeeded'">{{ copy.rbAuthSuccess }}</h3>
         <h3 v-else>{{ copy.rbAuthWaitingPrompt }}</h3>
         <p v-if="authCanRespond">{{ authPromptCopy.description }}</p>
+        <p v-else-if="authCompleting">{{ copy.rbAuthCompletingDescription }}</p>
+        <template v-else-if="authPromptUnavailable">
+          <p>{{ copy.rbAuthPromptUnavailableDescription }}</p>
+          <p>{{ copy.rbAuthPromptUnavailableHint }}</p>
+        </template>
       </section>
 
-      <section class="remote-auth-terminal" :aria-label="copy.rbAuthPrompt" aria-live="polite">
+      <section v-if="!authPromptUnavailable && !authSession?.auth.authenticated" class="remote-auth-terminal" :aria-label="copy.rbAuthPrompt" aria-live="polite">
         <span>{{ copy.rbAuthPrompt }}</span>
-        <pre>{{ authPrompt ? (authPrompt.message || copy.rbAuthPromptUnavailable) : copy.rbAuthWaitingPromptMessage }}</pre>
+        <pre>{{ authPrompt ? authPrompt.message : copy.rbAuthWaitingPromptMessage }}</pre>
+      </section>
+
+      <section v-if="authDiagnosticAvailable && showAuthDiagnostic && authSession" class="remote-auth-diagnostic" aria-live="polite">
+        <dl>
+          <div><dt>{{ copy.rbAuthDiagnosticBytes }}</dt><dd>{{ authSession.diagnostic.bytesReceived }}</dd></div>
+          <div><dt>{{ copy.rbAuthDiagnosticPrintable }}</dt><dd>{{ authSession.diagnostic.printableBytes }}</dd></div>
+          <div><dt>{{ copy.rbAuthDiagnosticCpr }}</dt><dd>{{ authSession.diagnostic.cprRequests }}</dd></div>
+          <div><dt>{{ copy.rbAuthDiagnosticPrompt }}</dt><dd>{{ authSession.diagnostic.promptDetected ? copy.rbAuthDiagnosticYes : copy.rbAuthDiagnosticNo }}</dd></div>
+          <div><dt>{{ copy.rbAuthDiagnosticMarker }}</dt><dd>{{ authSession.diagnostic.authMarkerDetected ? copy.rbAuthDiagnosticYes : copy.rbAuthDiagnosticNo }}</dd></div>
+          <div><dt>{{ copy.rbAuthDiagnosticResult }}</dt><dd>{{ authSession.diagnostic.remoteResultDetected ? copy.rbAuthDiagnosticYes : copy.rbAuthDiagnosticNo }}</dd></div>
+          <div><dt>{{ copy.rbAuthDiagnosticClosed }}</dt><dd>{{ authSession.diagnostic.outputClosed ? copy.rbAuthDiagnosticYes : copy.rbAuthDiagnosticNo }}</dd></div>
+        </dl>
       </section>
 
       <dl v-if="authIsHostConfirmation && authPrompt?.fingerprint" class="remote-auth-fingerprint">
@@ -684,9 +743,11 @@ onBeforeUnmount(() => {
       </label>
 
       <p v-if="authCanRespond && !authIsHostConfirmation" class="notice notice-warning remote-auth-privacy">{{ authPromptCopy.notice }}</p>
-      <p v-if="authSession?.error" class="remote-error remote-auth-error" role="alert">{{ bridgeError(authSession.error, copy) }}</p>
+      <p v-if="authSession?.error && !authPromptUnavailable" class="remote-error remote-auth-error" role="alert">{{ bridgeError(authSession.error, copy) }}</p>
       <div class="confirmation-actions">
         <button v-if="authSession?.status !== 'succeeded'" class="secondary-action" type="button" :disabled="authSubmitting" @click="cancelInteractiveAuth">{{ authSession?.status === 'failed' ? copy.rbClose : copy.rbAuthCancel }}</button>
+        <button v-if="authDiagnosticAvailable" class="secondary-action" type="button" :aria-expanded="showAuthDiagnostic" :disabled="authSubmitting" @click="showAuthDiagnostic = !showAuthDiagnostic">{{ showAuthDiagnostic ? copy.rbAuthHideDiagnostic : copy.rbAuthOpenDiagnostic }}</button>
+        <button v-if="authPromptUnavailable" class="primary-action" type="button" :disabled="authSubmitting" @click="retryInteractiveAuth">{{ copy.rbAuthRetry }}</button>
         <button v-if="authCanRespond" class="primary-action" type="submit" :disabled="(!authIsHostConfirmation && !authResponse) || authSubmitting">{{ authPromptCopy.action }}</button>
       </div>
     </form>
@@ -781,6 +842,11 @@ onBeforeUnmount(() => {
 .remote-auth-field input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
 .remote-auth-privacy { margin:14px 0 0; font-size:11px; line-height:1.6; }
 .remote-auth-error { margin:14px 0 0; }
+.remote-auth-diagnostic { padding:12px 14px; margin:16px 0; border:1px solid var(--line); border-radius:12px; background:var(--surface-strong); }
+.remote-auth-diagnostic dl { display:grid; margin:0; gap:7px; }
+.remote-auth-diagnostic dl > div { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.remote-auth-diagnostic dt { color:var(--muted); font-size:11px; }
+.remote-auth-diagnostic dd { margin:0; color:var(--text); font:600 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; }
 @media (max-width:680px) {
   .remote-page-intro,.remote-port-footer,.remote-workspace-heading { align-items:flex-start; flex-direction:column; }
   .remote-status-toolbar { width:100%; justify-content:space-between; }
