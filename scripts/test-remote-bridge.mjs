@@ -68,12 +68,19 @@ test("server internet observation is independent from bridge port checks",{skip:
 });
 test("remote status UI uses shared checks and keeps network capabilities independent",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const shell=readFileSync("src/app/AppShell.vue","utf8");
   for(const component of ["CheckRow","StatusIndicator","LastChecked"]) assert.match(page,new RegExp(`<${component}`));
   assert.match(page,/remoteBackend\.checkNetwork/);
   assert.match(page,/remoteBackend\.detectCc/);
   assert.match(page,/serverInternetCheck/);
   assert.match(page,/localProxyCheck/);
   assert.match(page,/ccCheck/);
+  assert.match(page,/emit\("connected", outcome\.summary\)/);
+  assert.match(shell,/<div class="view-stage">/);
+  assert.match(shell,/<Transition name="view-fade" mode="in-out">/);
+  assert.match(shell,/<div :key="view" class="view-outlet">/);
+  assert.doesNotMatch(shell,/<Transition name="view-fade" mode="out-in">/);
+  assert.match(shell,/@connected="acceptRemoteBridgeSummary"/);
   for(const file of ["StatusIndicator.vue","CheckRow.vue","HelpHint.vue","LastChecked.vue"]) {
     assert.ok(existsSync(join("src/shared/components",file)),file);
   }
@@ -92,10 +99,23 @@ test("interactive SSH auth is PTY-backed, explicit, and never persists responses
   assert.match(ssh,/-oKbdInteractiveAuthentication=yes/);
   assert.match(auth,/native_pty_system\(\)/);
   for(const promptType of ["Password","KeyPassphrase","HostKeyConfirmation","VerificationCode","KeyboardInteractive","Unknown"]) assert.match(auth,new RegExp(promptType));
-  assert.match(auth,/PROMPT_FALLBACK_DELAY/);
+  assert.match(auth,/PROMPT_WAIT_TIMEOUT/);
+  assert.doesNotMatch(auth,/PROMPT_FALLBACK_DELAY/);
+  assert.match(auth,/current_prompt/);
+  assert.match(auth,/prompt_id/);
+  assert.match(auth,/sshAuthPromptUnavailable/);
+  assert.match(auth,/TerminalControlParser/);
+  assert.match(auth,/\\x1b\[1;1R/);
+  assert.match(auth,/COMPLETION_WAIT_TIMEOUT/);
+  assert.match(auth,/interactive_check_remote_command/);
+  assert.doesNotMatch(auth,/source_after_auth/);
+  assert.match(auth,/authenticated && remote_result_ready/);
   assert.match(auth,/Zeroizing::new\(response\)/);
   assert.match(auth,/password_stored: false/);
   assert.doesNotMatch(auth,/\.arg\(response\)/);
+  const submitBody=auth.slice(auth.indexOf("pub fn submit"),auth.indexOf("pub fn confirm_host"));
+  assert.match(submitBody,/matching_prompt\(session\.current_prompt\.as_ref\(\), prompt_id\)/);
+  assert.doesNotMatch(submitBody,/parse_ssh_prompt/);
   for(const command of ["ssh_auth_begin","ssh_auth_state","ssh_auth_submit","ssh_auth_confirm_host","ssh_auth_finish","ssh_auth_cancel"]) {
     assert.match(commands,new RegExp(`fn ${command}`));
     assert.match(runtime,new RegExp(`remote_bridge::${command}`));
@@ -104,6 +124,11 @@ test("interactive SSH auth is PTY-backed, explicit, and never persists responses
   assert.match(page,/authPrompt\?\.secret \? 'password' : 'text'/);
   assert.match(page,/remoteBackend\.sshAuthSubmit/);
   assert.match(page,/remoteBackend\.sshAuthConfirmHost/);
+  assert.match(page,/authPromptUnavailable/);
+  assert.match(page,/authCompleting/);
+  assert.match(page,/!authPromptUnavailable && !authSession\?\.auth\.authenticated/);
+  assert.match(page,/retryInteractiveAuth/);
+  assert.match(page,/authSession\.diagnostic\.cprRequests/);
   assert.doesNotMatch(page,/Authentication response|认证响应/);
 });
 test("Claude onboarding is completed without pre-trusting a project or discarding state",{skip:!available},()=>{
@@ -152,7 +177,8 @@ test("all remote UI labels and error categories are localized",async()=>{
   for(const [locale,copy] of Object.entries(messages)) {
     assert.deepEqual(Object.keys(copy).sort(),Object.keys(messages.en).sort(),locale);
     for(const state of ["disconnected","connecting","connected","stale","unavailable","error"]) assert.ok(copy.rbStates[state]);
-    for(const code of ["sshAuth","sshAuthRejected","hostKeyChanged","ptyUnavailable","sshAuthSessionMissing","forwardDenied","unsafeBinding","configConflict","rootForbidden","portInUse","activeChanged","ccUnavailable","bridgeUnavailable","noCapability","alreadyConnected","stateUnavailable","processFailed","remoteFailed","networkFailed","targetUnsupported","portAllocationFailed","portRace","random-secret"]) assert.ok(bridgeError(code,copy) && !bridgeError(code,copy).includes("random-secret"));
+    for(const key of ["rbAuthInteractionError","rbAuthCompleting","rbAuthCompletingTitle","rbAuthCompletingDescription","rbAuthRemoteCheckFailure","rbAuthRemoteCheckFailureTitle","rbAuthPromptUnavailableTitle","rbAuthPromptUnavailableDescription","rbAuthPromptUnavailableHint","rbAuthRetry","rbAuthOpenDiagnostic","rbAuthDiagnosticBytes","rbAuthDiagnosticPrintable","rbAuthDiagnosticCpr","rbAuthDiagnosticPrompt","rbAuthDiagnosticMarker","rbAuthDiagnosticResult","rbAuthDiagnosticClosed","rbAuthCompletionTimeout"]) assert.ok(copy[key],`${locale}:${key}`);
+    for(const code of ["sshAuth","sshAuthRejected","sshAuthPromptChanged","sshAuthCompletionTimeout","hostKeyChanged","ptyUnavailable","sshAuthSessionMissing","forwardDenied","unsafeBinding","configConflict","rootForbidden","portInUse","activeChanged","ccUnavailable","bridgeUnavailable","noCapability","alreadyConnected","stateUnavailable","processFailed","remoteFailed","networkFailed","targetUnsupported","portAllocationFailed","portRace","random-secret"]) assert.ok(bridgeError(code,copy) && !bridgeError(code,copy).includes("random-secret"));
     assert.equal(
       bridgeError({code:"ccUnavailable",phase:"localDetection",target:"ccSwitch",retryable:true},copy),
       copy.rbCcError,
