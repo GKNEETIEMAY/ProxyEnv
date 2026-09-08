@@ -26,6 +26,7 @@ function fixture() {
   mock("mv",'for target do :; done; if [ "${TEST_FAIL_REPLACE:-}" = 1 ] && [ ! -e "$HOME/.replace-failed" ]; then case "$target" in *.config.toml|*bridge.json) touch "$HOME/.replace-failed"; exit 1;; esac; fi; /usr/bin/mv "$@"');
   mock("codex",'printf "%s\\n" "${TEST_CODEX_VERSION:-codex-cli 0.134.0}"');
   mock("claude",'printf "2.1.0 (Claude Code)\\n"');
+  mock("curl",'[ "${TEST_CURL_RESULT:-ok}" = ok ]');
   const run=(operation,tool="codex",port=25721,expected="absent",env={},expectedState="absent")=>{
     let backupHash="absent";
     if(operation==="restore") { const reviewed=run("restore-preview",tool,port); if(reviewed.error) return reviewed; if(expected==="absent") expected=reviewed.expectedHash; backupHash=reviewed.backupHash; }
@@ -58,6 +59,24 @@ for(const tool of ["codex","claude"]) test(`${tool}: preview, apply, stale previ
     assert.equal(f.run("restore",tool).configured,false);assert.equal(existsSync(file),false);
     assert.equal(f.run("restore",tool).error,"noBackup");
   } finally { f.cleanup(); }
+});
+test("server internet observation is independent from bridge port checks",{skip:!available},()=>{
+  const f=fixture();try {
+    assert.equal(f.run("internet").internet,"reachable");
+    assert.equal(f.run("internet","codex",25721,"absent",{TEST_CURL_RESULT:"failed"}).internet,"unreachable");
+  } finally { f.cleanup(); }
+});
+test("remote status UI uses shared checks and keeps network capabilities independent",()=>{
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  for(const component of ["CheckRow","StatusIndicator","LastChecked"]) assert.match(page,new RegExp(`<${component}`));
+  assert.match(page,/remoteBackend\.checkNetwork/);
+  assert.match(page,/remoteBackend\.detectCc/);
+  assert.match(page,/serverInternetCheck/);
+  assert.match(page,/localProxyCheck/);
+  assert.match(page,/ccCheck/);
+  for(const file of ["StatusIndicator.vue","CheckRow.vue","HelpHint.vue","LastChecked.vue"]) {
+    assert.ok(existsSync(join("src/shared/components",file)),file);
+  }
 });
 test("Claude onboarding is completed without pre-trusting a project or discarding state",{skip:!available},()=>{
   const f=fixture();try {

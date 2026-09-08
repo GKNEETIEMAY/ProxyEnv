@@ -20,6 +20,15 @@ check_ports() {
 }
 case "$operation" in
   check|verify) check_ports; printf '{"verified":true}\n'; exit 0;;
+  internet)
+    if ! command -v curl >/dev/null 2>&1; then
+      printf '{"internet":"unknown"}\n'
+    elif curl --disable --silent --fail --output /dev/null --max-time 12 --noproxy '*' https://www.gstatic.com/generate_204 >/dev/null 2>&1; then
+      printf '{"internet":"reachable"}\n'
+    else
+      printf '{"internet":"unreachable"}\n'
+    fi
+    exit 0;;
   test)
     check_ports
     command -v curl >/dev/null 2>&1 || fail dependencyMissing

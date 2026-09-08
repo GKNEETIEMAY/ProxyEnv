@@ -80,6 +80,8 @@ pub struct Summary {
     pub target: Option<RemoteTarget>,
     pub proxy: Option<Endpoint>,
     pub cc: Option<Endpoint>,
+    pub proxy_status: Option<Status>,
+    pub cc_status: Option<Status>,
     pub active_proxy_revision: Option<u64>,
     pub environment: String,
     pub codex_configured: bool,
@@ -149,6 +151,20 @@ pub enum CcDetectionState {
 pub struct CcDetection {
     pub state: CcDetectionState,
     pub local_port: u16,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RemoteInternetState {
+    Reachable,
+    Unreachable,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteNetworkObservation {
+    pub server_internet: RemoteInternetState,
 }
 #[derive(Default)]
 struct Store {
@@ -240,6 +256,8 @@ fn refresh(state: &mut Store) {
             state.summary.status = Status::Disconnected;
             state.proxy_status = Status::Disconnected;
             state.cc_status = Status::Disconnected;
+            state.summary.proxy_status = state.summary.proxy.as_ref().map(|_| Status::Disconnected);
+            state.summary.cc_status = state.summary.cc.as_ref().map(|_| Status::Disconnected);
             state.reachable = false;
             state.pending = None;
             state.extension_pending = None;
@@ -262,6 +280,8 @@ fn refresh(state: &mut Store) {
         } else {
             Status::Unavailable
         };
+        state.summary.proxy_status = state.summary.proxy.as_ref().map(|_| state.proxy_status);
+        state.summary.cc_status = state.summary.cc.as_ref().map(|_| state.cc_status);
         let endpoints_available = proxy_available && cc_available;
         state.summary.status =
             observed_status(&state.summary, current.as_ref(), endpoints_available);
@@ -310,6 +330,17 @@ pub fn check(target_id: String) -> BridgeResult<PortAllocation> {
     state.reachable = true;
     drop(state);
     allocate_ports(target_id)
+}
+pub fn check_remote_network(target_id: String) -> BridgeResult<RemoteNetworkObservation> {
+    ssh::validate_target(&target_id)?;
+    let value = ssh::remote(&target_id, json!({"operation":"internet"}))?;
+    let server_internet = match value.get("internet").and_then(|entry| entry.as_str()) {
+        Some("reachable") => RemoteInternetState::Reachable,
+        Some("unreachable") => RemoteInternetState::Unreachable,
+        Some("unknown") => RemoteInternetState::Unknown,
+        _ => return Err("remoteUnsupported".into()),
+    };
+    Ok(RemoteNetworkObservation { server_internet })
 }
 pub fn allocate_ports(target_id: String) -> BridgeResult<PortAllocation> {
     ssh::validate_target(&target_id)?;
@@ -479,6 +510,8 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
             preview(&request)?;
         }
         next.status = Status::Connected;
+        next.proxy_status = next.proxy.as_ref().map(|_| Status::Connected);
+        next.cc_status = next.cc.as_ref().map(|_| Status::Connected);
         state.summary = next;
         state.proxy_status = Status::Connected;
         state.cc_status = Status::Connected;
@@ -502,6 +535,8 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     state.pending = None;
     state.extension_pending = None;
     state.summary.status = Status::Disconnected;
+    state.summary.proxy_status = state.summary.proxy.as_ref().map(|_| Status::Disconnected);
+    state.summary.cc_status = state.summary.cc.as_ref().map(|_| Status::Disconnected);
     state.proxy_status = Status::Disconnected;
     state.cc_status = Status::Disconnected;
     Ok(state.summary.clone())

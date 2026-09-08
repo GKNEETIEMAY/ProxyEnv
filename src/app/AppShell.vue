@@ -603,6 +603,8 @@ onMounted(async () => {
         target: { id: "openssh|preview|aliyun-dev", displayName: "aliyun-dev", source: "openssh", sourceLabel: "OpenSSH", configPath: "~\\.ssh\\config", sshAlias: "aliyun-dev", host: null, user: null, port: null, identityFile: null, available: true, compatibility: "compatible", unavailableReason: null, canOpenVscode: true },
         proxy: { local: { host: "127.0.0.1", port: 10809, protocol: "mixed" }, remotePort: 23841 },
         cc: { local: { host: "127.0.0.1", port: 15721, protocol: "http" }, remotePort: 31472 },
+        proxyStatus: "connected",
+        ccStatus: "connected",
         activeProxyRevision: 1,
         environment: "export HTTP_PROXY=http://127.0.0.1:23841\nexport HTTPS_PROXY=http://127.0.0.1:23841\nexport ALL_PROXY=socks5h://127.0.0.1:23841",
         codexConfigured: true,

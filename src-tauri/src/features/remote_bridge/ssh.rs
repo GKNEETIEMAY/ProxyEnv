@@ -462,6 +462,7 @@ pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_jso
     if ![
         "check",
         "verify",
+        "internet",
         "test",
         "preview",
         "apply",

@@ -1,6 +1,6 @@
 use crate::features::remote_bridge::{
-    self as bridge, BridgeResult, CcDetection, ConfigPreview, PortAllocation, RemoteTarget,
-    Request, Summary,
+    self as bridge, BridgeResult, CcDetection, ConfigPreview, PortAllocation,
+    RemoteNetworkObservation, RemoteTarget, Request, Summary,
 };
 use serde::Serialize;
 
@@ -65,6 +65,15 @@ pub async fn remote_bridge_summary() -> CommandResult<Summary> {
 pub async fn remote_bridge_check(target_id: String) -> CommandResult<PortAllocation> {
     run("connectionCheck", Some("ssh"), move || {
         bridge::check(target_id)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn remote_bridge_check_network(
+    target_id: String,
+) -> CommandResult<RemoteNetworkObservation> {
+    run("networkCheck", Some("serverInternet"), move || {
+        bridge::check_remote_network(target_id)
     })
     .await
 }

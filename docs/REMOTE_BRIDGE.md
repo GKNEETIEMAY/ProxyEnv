@@ -8,7 +8,7 @@ This is development scope, not a published stable-release announcement.
 1. 在“本机环境”选择可用的活动代理，再切换到一级页面“远程桥接”。
 2. 从本机 OpenSSH、VS Code Remote 或 MobaXterm 发现结果中选择一个结构化远程目标。请先在自己的终端完成主机指纹验证与密钥/ssh-agent 登录。
 3. 检查 SSH 连接。检查通过后，ProxyEnv 会在 `20000–60000` 中自动生成两个互不相同且当时未占用的远程 Loopback 端口。
-4. 选择本机代理、CC Switch，或同时选择两者。CC Switch 默认检查 `127.0.0.1:15721`，也可输入实际本地路由端口；结果会区分已确认的 CC Switch、身份未知的监听程序和未检测到监听。
+4. 在能力页分别查看服务器互联网、本机活动代理与 CC Switch AI 路由。三项检测彼此独立：SSH 成功不代表服务器能够联网，普通代理可用也不代表 CC Switch 可用。按需选择桥接本机代理、CC Switch，或同时选择两者。CC Switch 默认检查 `127.0.0.1:15721`，也可输入实际本地路由端口；结果会区分已确认的 CC Switch、身份未知的监听程序和未检测到监听。
 5. 预览本机和远端端点。建立连接前会再次检查远程端口；如发生端口竞争，页面会重新生成并要求再次确认。
 6. 代理桥接成功后复制环境变量，在远端当前 Shell 主动执行。仅“测试桥接”会经代理请求 `https://www.gstatic.com/generate_204`。
 7. CC Switch 桥接成功后，状态页会直接显示 Codex / Claude Code 配置入口和启动命令；预览并应用专用 CLI 接入文件后，再在远端显式使用对应命令。
@@ -20,6 +20,8 @@ This is development scope, not a published stable-release announcement.
 | --- | --- |
 | Stack | Existing Vue 3 + TypeScript + Tauri 2 + Rust and OpenSSH. Fixed POSIX Shell operations plus a bundled JavaScript configuration helper using an already-installed remote Node 20+. No Python, new frontend framework, SSH library, runtime installation or daemon. |
 | UI | Local Environment and Remote Bridge are peer first-level pages; Assistant remains a Local Environment drill-down and Settings remains global. Remote Bridge uses an independent four-step page and keeps dialogs for protected mutations; Chinese, English, Japanese and Korean. |
+| Status UI | Shared `StatusIndicator`, `CheckRow`, `HelpHint`, and `LastChecked` components provide one six-state vocabulary, accessible icon/text feedback, structured help, independent timestamps, and a unified recheck action. |
+| Network observations | Server direct internet, the shared local `ActiveProxyContext`, and CC Switch routing are evaluated independently. Direct server testing bypasses proxy variables; a missing remote `curl` becomes Unknown rather than a false success or failure. |
 | Active proxy | Reads `active::snapshot()` only. No bridge discovery or secondary selection. Captures revision, local endpoint and protocol; changes become Stale, loss becomes Unavailable. |
 | Protocol | HTTP → HTTP_PROXY/HTTPS_PROXY; SOCKS5 → ALL_PROXY with socks5h; Mixed → all three. Unknown is refused. Existing variable mapping is reused. |
 | SSH target | Structured targets from `~/.ssh/config`, the default VS Code user `remote.SSH.configFile`, and bounded MobaXterm bookmark sources. IDs bind source, configuration identity, and alias/session name. OpenSSH resolves its own aliases; no private-key or credential contents are read. |

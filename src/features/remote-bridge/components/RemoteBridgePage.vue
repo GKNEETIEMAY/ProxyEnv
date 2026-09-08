@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import type { ActiveProxyContext } from "../../../shared/types";
+import type { ActiveProxyContext, CheckState } from "../../../shared/types";
 import { bridgeError, bridgeErrorCode, type RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
 import { copyText } from "../../../shared/utils/clipboard";
 import { withoutWindowsExtendedPathPrefix } from "../../../shared/utils/path";
+import CheckRow from "../../../shared/components/CheckRow.vue";
+import LastChecked from "../../../shared/components/LastChecked.vue";
+import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
 import RemoteToolDialog from "./RemoteToolDialog.vue";
 import {
   remoteBackend,
@@ -30,6 +33,12 @@ const proxyPort = ref(0);
 const ccPort = ref(0);
 const ccLocalPort = ref(15721);
 const ccDetection = ref<CcDetection>({ state: "notDetected", localPort: 15721 });
+type CheckSnapshot = { state: CheckState; checkedAt: number | null };
+const sshCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
+const serverInternetCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
+const localProxyCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
+const ccCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
+let networkRefreshRevision = 0;
 const busy = ref(false);
 const error = ref<unknown>();
 const feedback = ref<"copied" | "tested" | "ports">();
@@ -59,6 +68,69 @@ const endpoints = computed(() => {
 });
 const activeTarget = computed(() => (step.value === 3 ? preview.value?.target : props.summary.target) ?? selectedTarget.value);
 const sourceLabel = (target: RemoteTarget) => ({ openssh: props.copy.rbSourceOpenSsh, vscode: props.copy.rbSourceVscode, mobaxterm: props.copy.rbSourceMoba })[target.source];
+const helpHeadings = computed(() => ({ check: props.copy.rbHelpCheck, success: props.copy.rbHelpSuccess, failure: props.copy.rbHelpFailure, next: props.copy.rbHelpNext }));
+const helpContent = computed(() => ({
+  ssh: { check: props.copy.rbSshHelpCheck, success: props.copy.rbSshHelpSuccess, failure: props.copy.rbSshHelpFailure, next: props.copy.rbSshHelpNext },
+  internet: { check: props.copy.rbInternetHelpCheck, success: props.copy.rbInternetHelpSuccess, failure: props.copy.rbInternetHelpFailure, next: props.copy.rbInternetHelpNext },
+  proxy: { check: props.copy.rbProxyHelpCheck, success: props.copy.rbProxyHelpSuccess, failure: props.copy.rbProxyHelpFailure, next: props.copy.rbProxyHelpNext },
+  cc: { check: props.copy.rbCcHelpCheck, success: props.copy.rbCcHelpSuccess, failure: props.copy.rbCcHelpFailure, next: props.copy.rbCcHelpNext },
+}));
+const genericStateLabel = (state: CheckState) => ({ idle: props.copy.rbCheckIdle, checking: props.copy.rbCheckChecking, healthy: props.copy.rbCheckHealthy, warning: props.copy.rbCheckWarning, failed: props.copy.rbCheckFailed, disabled: props.copy.rbCheckDisabled })[state];
+const serverInternetLabel = computed(() => serverInternetCheck.value.state === "healthy" ? props.copy.rbServerInternetReachable : serverInternetCheck.value.state === "failed" ? props.copy.rbServerInternetUnreachable : serverInternetCheck.value.state === "warning" ? props.copy.rbServerInternetUnknown : genericStateLabel(serverInternetCheck.value.state));
+const localProxyLabel = computed(() => localProxyCheck.value.state === "healthy" ? props.copy.rbLocalProxyReady : localProxyCheck.value.state === "failed" ? props.copy.rbLocalProxyUnavailable : genericStateLabel(localProxyCheck.value.state));
+const ccStateLabel = computed(() => ccCheck.value.state === "healthy" ? props.copy.rbCcConfirmed : ccCheck.value.state === "warning" ? props.copy.rbCcUnknown : ccCheck.value.state === "failed" ? props.copy.rbCcMissing : ccCheck.value.state === "disabled" ? props.copy.rbCcDisabled : genericStateLabel(ccCheck.value.state));
+const lastNetworkChecked = computed(() => Math.max(0, sshCheck.value.checkedAt ?? 0, serverInternetCheck.value.checkedAt ?? 0, localProxyCheck.value.checkedAt ?? 0, ccCheck.value.checkedAt ?? 0) || null);
+const networkChecking = computed(() => serverInternetCheck.value.state === "checking" || ccCheck.value.state === "checking");
+const sshRuntimeState = computed<CheckState>(() => live.value ? (props.summary.status === "connecting" ? "checking" : "healthy") : bridgeCheckState(props.summary.status));
+const sshRuntimeLabel = computed(() => sshRuntimeState.value === "healthy" ? props.copy.rbHealthy : genericStateLabel(sshRuntimeState.value));
+
+function bridgeCheckState(status: BridgeSummary["status"] | null, enabled = true): CheckState {
+  if (!enabled) return "disabled";
+  if (status === "connected") return "healthy";
+  if (status === "connecting") return "checking";
+  if (status === "stale") return "warning";
+  if (status === "unavailable" || status === "error") return "failed";
+  return "idle";
+}
+
+function updateLocalProxyCheck() {
+  localProxyCheck.value = { state: proxyAvailable.value ? "healthy" : "failed", checkedAt: Date.now() };
+}
+
+async function refreshNetworkChecks() {
+  const currentTarget = selectedTarget.value ?? props.summary.target;
+  if (!currentTarget?.available) return;
+  if (props.reviewPreview) {
+    const checkedAt = Date.now();
+    sshCheck.value = { state: "healthy", checkedAt };
+    serverInternetCheck.value = { state: "healthy", checkedAt };
+    updateLocalProxyCheck();
+    ccDetection.value = { state: "confirmed", localPort: ccLocalPort.value };
+    ccCheck.value = cc.value || props.summary.cc ? { state: "healthy", checkedAt } : { state: "disabled", checkedAt };
+    return;
+  }
+  const revision = ++networkRefreshRevision;
+  updateLocalProxyCheck();
+  serverInternetCheck.value = { ...serverInternetCheck.value, state: "checking" };
+  ccCheck.value = cc.value ? { ...ccCheck.value, state: "checking" } : { state: "disabled", checkedAt: Date.now() };
+  const serverTask = remoteBackend.checkNetwork(currentTarget.id).then((result) => {
+    if (revision !== networkRefreshRevision) return;
+    serverInternetCheck.value = {
+      state: result.serverInternet === "reachable" ? "healthy" : result.serverInternet === "unreachable" ? "failed" : "warning",
+      checkedAt: Date.now(),
+    };
+  }).catch(() => {
+    if (revision === networkRefreshRevision) serverInternetCheck.value = { state: "warning", checkedAt: Date.now() };
+  });
+  const ccTask = cc.value ? remoteBackend.detectCc(ccLocalPort.value).then((result) => {
+    if (revision !== networkRefreshRevision) return;
+    ccDetection.value = result;
+    ccCheck.value = { state: result.state === "confirmed" ? "healthy" : result.state === "listeningUnknown" ? "warning" : "failed", checkedAt: Date.now() };
+  }).catch(() => {
+    if (revision === networkRefreshRevision) ccCheck.value = { state: "failed", checkedAt: Date.now() };
+  }) : Promise.resolve();
+  await Promise.allSettled([serverTask, ccTask]);
+}
 
 async function perform(action: () => Promise<void>) {
   if (busy.value) return;
@@ -96,6 +168,7 @@ function go(value: number) {
   step.value = value;
   error.value = undefined;
   void nextTick(() => heading.value?.focus());
+  if (value === 2 || value === 4) void refreshNetworkChecks();
 }
 
 function usePorts(ports: PortAllocation) {
@@ -109,10 +182,23 @@ function checkTarget() {
   proxyPort.value = 0;
   ccPort.value = 0;
   reviewedRequest.value = undefined;
-  void perform(async () => {
-    const ports = await remoteBackend.check(targetId.value);
-    usePorts(ports);
+  sshCheck.value = { ...sshCheck.value, state: "checking" };
+  if (props.reviewPreview) {
+    usePorts({ proxyPort: 23841, ccPort: 31472 });
     checked.value = true;
+    sshCheck.value = { state: "healthy", checkedAt: Date.now() };
+    return;
+  }
+  void perform(async () => {
+    try {
+      const ports = await remoteBackend.check(targetId.value);
+      usePorts(ports);
+      checked.value = true;
+      sshCheck.value = { state: "healthy", checkedAt: Date.now() };
+    } catch (cause) {
+      sshCheck.value = { state: "failed", checkedAt: Date.now() };
+      throw cause;
+    }
   });
 }
 
@@ -174,8 +260,13 @@ function connect() {
 }
 
 function detectCc() {
-  void perform(async () => {
-    ccDetection.value = await remoteBackend.detectCc(ccLocalPort.value);
+  ccCheck.value = { ...ccCheck.value, state: "checking" };
+  void remoteBackend.detectCc(ccLocalPort.value).then((result) => {
+    ccDetection.value = result;
+    ccCheck.value = { state: result.state === "confirmed" ? "healthy" : result.state === "listeningUnknown" ? "warning" : "failed", checkedAt: Date.now() };
+  }).catch((cause) => {
+    ccCheck.value = { state: "failed", checkedAt: Date.now() };
+    error.value = cause;
   });
 }
 
@@ -206,14 +297,24 @@ function confirmDisconnect() {
 }
 
 watch(targetId, () => {
+  networkRefreshRevision += 1;
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
   reviewedRequest.value = undefined;
   vscodeOpened.value = false;
+  sshCheck.value = { state: "idle", checkedAt: null };
+  serverInternetCheck.value = { state: "idle", checkedAt: null };
+  ccCheck.value = { state: "idle", checkedAt: null };
 });
 watch(ccLocalPort, () => {
   ccDetection.value = { state: "notDetected", localPort: ccLocalPort.value };
+  ccCheck.value = cc.value ? { state: "idle", checkedAt: null } : { state: "disabled", checkedAt: null };
+});
+watch(proxyAvailable, updateLocalProxyCheck);
+watch(cc, (enabled) => {
+  ccCheck.value = enabled ? { state: "idle", checkedAt: null } : { state: "disabled", checkedAt: Date.now() };
+  if (enabled && (step.value === 2 || step.value === 4)) void refreshNetworkChecks();
 });
 watch(() => props.activeProxy.revision, () => {
   if (step.value === 3 && reviewedRequest.value?.proxyPort) {
@@ -226,11 +327,13 @@ watch(() => props.summary.target?.id, (id) => {
   if (id && live.value) {
     targetId.value = id;
     step.value = 4;
+    void refreshNetworkChecks();
   }
 });
 
 onMounted(() => {
   proxy.value = proxyAvailable.value;
+  updateLocalProxyCheck();
   step.value = props.summary.target ? 4 : 1;
   void perform(load);
 });
@@ -240,7 +343,7 @@ onMounted(() => {
   <main class="page remote-bridge-page">
     <header class="remote-page-intro">
       <div><h1>{{ copy.rbTitle }}</h1><p>{{ copy.rbPageIntro }}</p></div>
-      <span class="remote-state" :data-state="summary.status" role="status">{{ copy.rbStates[summary.status] }}</span>
+      <StatusIndicator :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
     </header>
 
     <ol class="remote-steps" :aria-label="copy.rbTitle">
@@ -250,7 +353,13 @@ onMounted(() => {
     </ol>
 
     <section class="remote-workspace">
-      <h2 ref="heading" tabindex="-1">{{ labels[step - 1] }}</h2>
+      <div class="remote-workspace-heading">
+        <h2 ref="heading" tabindex="-1">{{ labels[step - 1] }}</h2>
+        <div v-if="step === 2 || step === 4" class="remote-status-toolbar">
+          <LastChecked :label="copy.rbLastChecked" :checked-at="lastNetworkChecked" />
+          <button class="secondary-action" type="button" :disabled="busy || networkChecking" @click="refreshNetworkChecks">{{ copy.rbRefreshStatus }}</button>
+        </div>
+      </div>
       <fieldset :disabled="busy" class="remote-fields">
         <template v-if="step === 1">
           <div v-if="targets.length" class="remote-target-list" role="radiogroup" :aria-label="copy.rbTarget">
@@ -280,20 +389,26 @@ onMounted(() => {
         </template>
 
         <template v-else-if="step === 2">
-          <section class="remote-capability">
-            <label class="remote-choice"><input v-model="proxy" type="checkbox" :disabled="!proxyAvailable" />{{ copy.rbProxy }}</label>
-            <p v-if="proxyAvailable"><span>{{ activeProxy.candidate?.clientName }}</span> <code>{{ activeProxy.candidate?.host }}:{{ activeProxy.candidate?.port }} · {{ activeProxy.candidate?.protocol }}</code></p>
-            <p v-else class="remote-hint">{{ copy.rbNoProxy }}</p>
+          <section class="remote-check-group">
+            <header><h3>{{ copy.rbNetworkSection }}</h3><p>{{ copy.rbNetworkSectionHint }}</p></header>
+            <CheckRow :label="copy.rbServerInternet" :state="serverInternetCheck.state" :state-label="serverInternetLabel" :checked-at="serverInternetCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.internet">
+              <template #detail><p class="check-row-detail">{{ selectedTarget?.displayName }}</p></template>
+            </CheckRow>
+            <CheckRow :label="copy.rbProxy" :state="localProxyCheck.state" :state-label="localProxyLabel" :checked-at="localProxyCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.proxy">
+              <template #detail><p v-if="proxyAvailable" class="check-row-detail"><span>{{ activeProxy.candidate?.clientName }}</span> · <code>{{ activeProxy.candidate?.host }}:{{ activeProxy.candidate?.port }} · {{ activeProxy.candidate?.protocol }}</code></p><p v-else class="check-row-detail">{{ copy.rbNoProxy }}</p></template>
+              <template #actions><label class="remote-choice"><input v-model="proxy" type="checkbox" :disabled="!proxyAvailable" />{{ copy.rbUseProxyBridge }}</label></template>
+            </CheckRow>
             <dl v-if="proxy" class="remote-port-pair"><dt>{{ copy.rbRemotePort }}</dt><dd><code>127.0.0.1:{{ proxyPort }}</code></dd></dl>
           </section>
-          <section class="remote-capability">
-            <label class="remote-choice"><input v-model="cc" type="checkbox" />{{ copy.rbCc }}</label>
+          <section class="remote-check-group">
+            <header><h3>{{ copy.rbAiRouteSection }}</h3><p>{{ copy.rbAiRouteSectionHint }}</p></header>
+            <CheckRow :label="copy.rbCc" :state="ccCheck.state" :state-label="ccStateLabel" :checked-at="ccCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.cc">
+              <template #detail><p class="check-row-detail">{{ copy.rbCcHint }}</p></template>
+              <template #actions><label class="remote-choice"><input v-model="cc" type="checkbox" />{{ copy.rbUseCcBridge }}</label></template>
+            </CheckRow>
             <template v-if="cc">
               <label class="remote-port">{{ copy.rbLocalPort }}<input v-model.number="ccLocalPort" type="number" min="1024" max="65535" required /></label>
               <div class="remote-actions"><button class="secondary-action" type="button" @click="detectCc">{{ copy.rbDetect }}</button></div>
-              <p class="cc-detection" :data-state="ccDetection.state" role="status">
-                {{ ccDetection.state === 'confirmed' ? copy.rbCcConfirmed : ccDetection.state === 'listeningUnknown' ? copy.rbCcUnknown : copy.rbCcMissing }}
-              </p>
               <p v-if="ccDetection.state === 'notDetected'" class="remote-hint">{{ copy.rbCcOpenHint }}</p>
               <dl class="remote-port-pair"><dt>{{ copy.rbRemotePort }}</dt><dd><code>127.0.0.1:{{ ccPort }}</code></dd></dl>
             </template>
@@ -304,7 +419,7 @@ onMounted(() => {
         <template v-else>
           <div v-if="activeTarget" class="remote-selected-target">
             <div><strong>{{ activeTarget.displayName }}</strong><span>{{ sourceLabel(activeTarget) }}</span><code>{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></div>
-            <span v-if="step === 4" class="remote-state" :data-state="summary.status">{{ copy.rbStates[summary.status] }}</span>
+            <StatusIndicator v-if="step === 4" :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
           </div>
           <p v-if="step === 4 && summary.status === 'stale'" class="notice notice-warning">{{ copy.rbStaleHint }}</p>
           <p v-if="step === 4 && summary.status === 'unavailable'" class="notice notice-warning">{{ copy.rbUnavailableHint }}</p>
@@ -317,15 +432,18 @@ onMounted(() => {
           <template v-if="step === 4">
             <section v-if="live" class="remote-health">
               <h3>{{ copy.rbStatus }}</h3>
-              <dl>
-                <div><dt>{{ copy.rbSshHealth }}</dt><dd><span class="health-dot"></span>{{ copy.rbHealthy }}</dd></div>
-                <div v-if="summary.proxy"><dt>{{ copy.rbLocalProxyHealth }}</dt><dd><code>{{ summary.proxy.local.host }}:{{ summary.proxy.local.port }}</code></dd></div>
-                <div v-if="summary.proxy"><dt>{{ copy.rbRemoteProxyHealth }}</dt><dd><code>127.0.0.1:{{ summary.proxy.remotePort }}</code></dd></div>
-                <div v-if="summary.cc"><dt>{{ copy.rbLocalCcHealth }}</dt><dd><code>{{ summary.cc.local.host }}:{{ summary.cc.local.port }}</code></dd></div>
-                <div v-if="summary.cc"><dt>{{ copy.rbRemoteCcHealth }}</dt><dd><code>127.0.0.1:{{ summary.cc.remotePort }}</code></dd></div>
-                <div v-if="summary.cc"><dt>Codex</dt><dd>{{ summary.codexConfigured ? copy.rbExtPending : copy.rbNotConfigured }}</dd></div>
-                <div v-if="summary.cc"><dt>Claude Code</dt><dd>{{ summary.claudeConfigured ? copy.rbExtPending : copy.rbNotConfigured }}</dd></div>
-              </dl>
+              <CheckRow :label="copy.rbSshHealth" :state="sshRuntimeState" :state-label="sshRuntimeLabel" :checked-at="sshCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.ssh">
+                <template #detail><p class="check-row-detail">{{ summary.target?.displayName }}</p></template>
+              </CheckRow>
+              <CheckRow :label="copy.rbServerInternet" :state="serverInternetCheck.state" :state-label="serverInternetLabel" :checked-at="serverInternetCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.internet" />
+              <CheckRow v-if="summary.proxy" :label="copy.rbLocalProxyHealth" :state="bridgeCheckState(summary.proxyStatus)" :state-label="summary.proxyStatus ? copy.rbStates[summary.proxyStatus] : copy.rbCheckIdle" :checked-at="localProxyCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.proxy">
+                <template #detail><p class="check-row-detail"><code>{{ summary.proxy.local.host }}:{{ summary.proxy.local.port }}</code> → <code>127.0.0.1:{{ summary.proxy.remotePort }}</code></p></template>
+              </CheckRow>
+              <CheckRow v-if="summary.cc" :label="copy.rbLocalCcHealth" :state="bridgeCheckState(summary.ccStatus)" :state-label="summary.ccStatus ? copy.rbStates[summary.ccStatus] : copy.rbCheckIdle" :checked-at="ccCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.cc">
+                <template #detail><p class="check-row-detail"><code>{{ summary.cc.local.host }}:{{ summary.cc.local.port }}</code> → <code>127.0.0.1:{{ summary.cc.remotePort }}</code></p></template>
+              </CheckRow>
+              <div v-if="summary.cc" class="remote-tool-status"><span>Codex</span><span>{{ summary.codexConfigured ? copy.rbExtPending : copy.rbNotConfigured }}</span></div>
+              <div v-if="summary.cc" class="remote-tool-status"><span>Claude Code</span><span>{{ summary.claudeConfigured ? copy.rbExtPending : copy.rbNotConfigured }}</span></div>
             </section>
 
             <header v-if="live" class="remote-next-heading">
@@ -398,7 +516,10 @@ onMounted(() => {
 .remote-steps span { display:grid; width:23px; height:23px; flex:none; place-items:center; border:1px solid var(--line-strong); border-radius:50%; font-size:10px; }
 .remote-steps [aria-current] span { border-color:var(--accent); background:var(--accent-soft); }
 .remote-workspace { padding:26px 28px; border:1px solid var(--line); border-radius:16px; background:var(--surface); box-shadow:var(--shadow); }
-.remote-workspace > h2 { margin:0 0 18px; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
+.remote-workspace-heading { display:flex; margin-bottom:18px; align-items:center; justify-content:space-between; gap:18px; }
+.remote-workspace-heading h2 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
+.remote-status-toolbar { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
+.remote-status-toolbar .secondary-action { min-height:30px; padding:6px 10px; font-size:10px; }
 .remote-fields { min-width:0; padding:0; margin:0; border:0; }
 .remote-target-list { display:grid; gap:8px; }
 .remote-target { display:grid; min-width:0; padding:14px 15px; align-items:center; grid-template-columns:18px minmax(0,1fr); gap:12px; border:1px solid var(--line); border-radius:12px; background:var(--surface-strong); cursor:pointer; }
@@ -428,15 +549,20 @@ onMounted(() => {
 .remote-port-pair dt { color:var(--muted); font-size:12px; }.remote-port-pair dd { margin:0; }
 .remote-port-footer { display:flex; align-items:center; justify-content:space-between; gap:18px; }
 .cc-detection { color:var(--warning); font-size:12px; }.cc-detection[data-state=confirmed] { color:var(--success); }.cc-detection[data-state=notDetected] { color:var(--danger); }
+.remote-check-group { padding:18px 0 4px; border-bottom:1px solid var(--line); }
+.remote-check-group > header { margin-bottom:8px; }
+.remote-check-group > header h3 { margin:0; font-size:16px; }
+.remote-check-group > header p { max-width:68ch; margin:5px 0 0; color:var(--muted); font-size:11px; line-height:1.55; }
+.remote-check-group .remote-port-pair { padding:10px 0 12px; margin:0; border-top:1px solid var(--line); }
+.remote-check-group .remote-choice { color:var(--muted); font-size:10px; font-weight:600; white-space:nowrap; }
 .remote-selected-target { display:flex; padding-bottom:18px; align-items:flex-start; justify-content:space-between; gap:20px; border-bottom:1px solid var(--line); }
 .remote-selected-target > div { display:grid; min-width:0; gap:4px; }.remote-selected-target span,.remote-selected-target code { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
-.remote-state { display:inline-flex; flex:none; align-items:center; gap:7px; color:var(--muted); font-size:11px; }
-.remote-state::before { width:7px; height:7px; border-radius:50%; content:""; background:var(--muted); }.remote-state[data-state=connected]::before { background:var(--success); box-shadow:0 0 0 4px var(--success-soft); }.remote-state[data-state=stale]::before,.remote-state[data-state=unavailable]::before { background:var(--warning); box-shadow:0 0 0 4px var(--warning-soft); }
 .remote-capability dl { display:grid; grid-template-columns:64px minmax(0,1fr); gap:8px; margin:0; font-size:12px; }.remote-capability dt { color:var(--muted); }.remote-capability dd { margin:0; overflow-wrap:anywhere; }
 .remote-health,.remote-next-section,.remote-vscode { padding:20px 0; border-top:1px solid var(--line); }
 .remote-next-heading { padding:26px 0 4px; border-top:1px solid var(--line); }.remote-next-heading strong { color:var(--success); font-size:12px; }.remote-next-heading h3 { margin:5px 0 0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
 .remote-health h3,.remote-next-section h3 { margin:0 0 14px; font-size:16px; }
-.remote-health dl { margin:0; }.remote-health dl > div { display:grid; min-height:36px; padding:7px 0; align-items:center; grid-template-columns:minmax(150px,.8fr) minmax(0,1fr); gap:16px; border-top:1px solid var(--line); }.remote-health dt { color:var(--muted); }.remote-health dd { display:flex; min-width:0; margin:0; align-items:center; gap:8px; overflow-wrap:anywhere; }.health-dot { width:7px; height:7px; flex:none; border-radius:50%; background:var(--success); }
+.remote-tool-status { display:grid; min-height:36px; padding:7px 0; align-items:center; grid-template-columns:minmax(150px,.8fr) minmax(0,1fr); gap:16px; border-top:1px solid var(--line); font-size:11px; }
+.remote-tool-status span:first-child { color:var(--muted); }
 .remote-next-section ol { padding-left:22px; color:var(--muted); font-size:12px; line-height:1.8; }
 .remote-next-section pre { padding:12px; overflow-wrap:anywhere; white-space:pre-wrap; border:1px solid var(--line); border-radius:8px; background:var(--surface-strong); font-size:11px; line-height:1.65; }
 .remote-bridge-dialog pre { padding:12px; overflow-wrap:anywhere; white-space:pre-wrap; border:1px solid var(--line); border-radius:8px; background:var(--surface); font-size:11px; line-height:1.65; }
@@ -445,10 +571,11 @@ onMounted(() => {
 .remote-error,.remote-danger { color:var(--danger); }.remote-error { font-size:12px; line-height:1.65; }.remote-feedback { min-height:18px; color:var(--muted); font-size:12px; }.remote-fields:disabled { opacity:.7; }
 .remote-disconnect-dialog { width:min(520px,calc(100vw - 40px)); }
 @media (max-width:680px) {
-  .remote-page-intro,.remote-port-footer { align-items:flex-start; flex-direction:column; }
+  .remote-page-intro,.remote-port-footer,.remote-workspace-heading { align-items:flex-start; flex-direction:column; }
+  .remote-status-toolbar { width:100%; justify-content:space-between; }
   .remote-steps { grid-template-columns:1fr 1fr; }.remote-steps li:nth-child(2)::after { display:none; }
   .remote-workspace { padding:22px 20px; }
-  .remote-health dl > div { grid-template-columns:1fr; gap:4px; }
+  .remote-tool-status { grid-template-columns:1fr; gap:4px; }
   .remote-command { grid-template-columns:1fr; gap:6px; }.remote-command button { justify-self:start; }
 }
 </style>

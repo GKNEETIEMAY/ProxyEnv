@@ -5,15 +5,16 @@ export type BridgeStatus = "disconnected" | "connecting" | "connected" | "stale"
 export type RemoteTargetSource = "openssh" | "vscode" | "mobaxterm";
 export interface RemoteTarget { id: string; displayName: string; source: RemoteTargetSource; sourceLabel: string; configPath: string; sshAlias: string | null; host: string | null; user: string | null; port: number | null; identityFile: string | null; available: boolean; compatibility: "compatible" | "unsupported"; unavailableReason: string | null; canOpenVscode: boolean }
 export interface BridgeEndpoint { local: ProxyEndpoint; remotePort: number }
-export interface BridgeSummary { status: BridgeStatus; target: RemoteTarget | null; proxy: BridgeEndpoint | null; cc: BridgeEndpoint | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; codexExtension?: string | null; claudeExtension?: string | null; error: string | null }
+export interface BridgeSummary { status: BridgeStatus; target: RemoteTarget | null; proxy: BridgeEndpoint | null; cc: BridgeEndpoint | null; proxyStatus: BridgeStatus | null; ccStatus: BridgeStatus | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; codexExtension?: string | null; claudeExtension?: string | null; error: string | null }
 export interface BridgeRequest { targetId: string; proxyPort: number | null; ccPort: number | null; ccLocalPort: number; expectedRevision: number }
 export interface PortAllocation { proxyPort: number; ccPort: number }
 export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
+export interface RemoteNetworkObservation { serverInternet: "reachable" | "unreachable" | "unknown" }
 export interface ConfigPreview { id: string; tool: string; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean; onboardingRequired:boolean }
 export interface ExtensionCapability { tool: string; detected: boolean; supported: boolean; version: string; runtimeVersion: string; configuration: 'configured' | 'notConfigured' | 'conflict' }
 export interface ExtensionInspection { user: string; contextHash: string; extensions: ExtensionCapability[] }
 export interface ExtensionPreview { id: string; alias: string; tool: string; path: string; version: string; runtimeVersion: string; port: number; previousPort: number | null; originalExists: boolean; restore: boolean }
-export const emptySummary = (): BridgeSummary => ({ status:"disconnected", target:null, proxy:null, cc:null, activeProxyRevision:null, environment:"", codexConfigured:false, claudeConfigured:false, error:null });
+export const emptySummary = (): BridgeSummary => ({ status:"disconnected", target:null, proxy:null, cc:null, proxyStatus:null, ccStatus:null, activeProxyRevision:null, environment:"", codexConfigured:false, claudeConfigured:false, error:null });
 export const targetLabel = (target:RemoteTarget|null|undefined) => target ? `${target.displayName} · ${target.sourceLabel}` : "";
 export const remoteBackend = {
   extensionInspect: (targetId: string) => invoke<ExtensionInspection>("remote_bridge_extension_inspect", { targetId }),
@@ -22,6 +23,7 @@ export const remoteBackend = {
   targets: () => invoke<RemoteTarget[]>("remote_bridge_targets"),
   summary: () => invoke<BridgeSummary>("remote_bridge_summary"),
   check: (targetId: string) => invoke<PortAllocation>("remote_bridge_check", { targetId }),
+  checkNetwork: (targetId: string) => invoke<RemoteNetworkObservation>("remote_bridge_check_network", { targetId }),
   allocatePorts: (targetId: string) => invoke<PortAllocation>("remote_bridge_allocate_ports", { targetId }),
   detectCc: (localPort: number) => invoke<CcDetection>("remote_bridge_detect_cc", { localPort }),
   preview: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_preview", { request }),

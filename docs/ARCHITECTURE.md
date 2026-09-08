@@ -166,6 +166,16 @@ Remote Bridge is a first-level product surface beside Local Environment. `AppShe
 
 远程桥接与本机环境并列为一级页面。页面按“目标 → 能力 → 确认 → 状态”推进；大页面不再塞进弹窗，弹窗仅用于配置写入、恢复和断开等需要确认的操作。
 
+### Independent remote checks / 独立远端检查
+
+The first v0.2 remediation stage introduces one shared `CheckState` vocabulary (`Idle`, `Checking`, `Healthy`, `Warning`, `Failed`, `Disabled`) and reusable `StatusIndicator`, `CheckRow`, `HelpHint`, and `LastChecked` components. Every row includes text and an authored icon in addition to semantic color. Help content follows the same four-part contract: what is checked, what success means, what failure means, and what to do next. A single refresh starts independent checks and applies each result separately; one failed check cannot erase successful sibling observations, and stale asynchronous results are discarded when the target changes.
+
+第一阶段统一使用一套状态枚举与状态行组件。状态不仅依赖颜色，同时显示图标和文字；帮助提示固定说明“检查什么、成功代表什么、失败代表什么、下一步怎么做”。统一刷新会分别更新各项结果，单项失败不会阻断或覆盖其它检查；目标变化后，旧的异步结果不会写回新目标。
+
+Server internet, the session-wide local active proxy, and CC Switch AI routing are independent observations. `remote_bridge_check_network` performs a direct remote HTTPS reachability check with proxy variables explicitly bypassed and returns only `Reachable`, `Unreachable`, or `Unknown`. The local proxy row reads the shared `ActiveProxyContext`; it never reselects a candidate. CC Switch keeps its separate listener-identity classification. General proxy forwarding and CC Switch forwarding now expose their own runtime status in `BridgeSummary`, so an unavailable endpoint no longer visually rewrites the other route's state. SSH success remains transport evidence only and never implies server internet, proxy, or AI-route availability.
+
+服务器互联网、本机会话级活动代理和 CC Switch AI 路由是三项独立观测。服务器直连检测明确绕过代理环境，只返回可达、不可达或无法判断；本机代理继续读取统一 `ActiveProxyContext`，不会自行选择候选项；CC Switch 保留独立的监听进程身份判断。普通代理转发与 CC Switch 转发分别在 `BridgeSummary` 暴露运行状态，任何一个入口失效都不会在界面上改写另一项结论。SSH 成功只代表传输层可用，不代表服务器联网、代理桥接或 AI 路由可用。
+
 ### Structured target discovery / 结构化目标发现
 
 Every target is represented by an opaque `RemoteTarget.id` plus a display name, source, sanitized configuration path, resolved SSH fields, availability, compatibility state, and source-specific capabilities. IDs bind the source, configuration-file identity, and alias/session name; the frontend never parses a `vscode:`-style prefix. Target discovery is bounded to:
@@ -241,6 +251,7 @@ ProxyEnv does not read, persist, or manage proxy credentials, subscription token
 | `restore_proxy_environment` | Restore the latest snapshot exactly | Uses existing | `HKCU\\Environment` |
 | `remote_bridge_targets` | Discover structured OpenSSH, VS Code, and MobaXterm targets | No | No |
 | `remote_bridge_check` | Verify one target and allocate reviewed remote loopback ports | No | No |
+| `remote_bridge_check_network` | Independently classify direct server HTTPS reachability while bypassing proxy variables | No | No |
 | `remote_bridge_allocate_ports` | Regenerate distinct unused remote loopback ports | No | No |
 | `remote_bridge_detect_cc` | Classify CC Switch listener ownership without probing AI APIs | No | No |
 | `remote_bridge_preview` | Revalidate target, active proxy revision, capabilities, and ports | No | No |

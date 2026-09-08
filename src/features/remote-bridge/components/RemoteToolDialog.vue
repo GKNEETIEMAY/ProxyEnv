@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { RemoteBridgeCopy } from '../../../shared/i18n/remote-bridge';
 import { bridgeError, bridgeErrorCode } from '../../../shared/i18n/remote-bridge';
 import { copyText } from '../../../shared/utils/clipboard';
+import type { CheckState } from '../../../shared/types';
+import StatusIndicator from '../../../shared/components/StatusIndicator.vue';
 import { remoteBackend, type ConfigPreview, type ExtensionInspection, type ExtensionPreview } from '../state';
 
 const props = defineProps<{ copy: RemoteBridgeCopy; sessionAlias: string | null; sessionStatus: string }>();
@@ -27,6 +29,9 @@ const capability = computed(() => inspection.value?.extensions.find(e => e.tool 
 const path = computed(() => tool.value === 'codex' ? '~/.codex/config.toml' : '~/.vscode-server/data/Machine/settings.json');
 const canPreview = computed(() => (cli.value || extension.value) && (!extension.value || inspection.value && locationConfirmed.value && (restoring.value || capability.value?.supported)));
 const outcome = (result: string) => result === 'success' ? (restoring.value ? props.copy.rbRestored : props.copy.rbExtApplied) : result === 'failed' ? props.copy.rbExtFailed : props.copy.rbExtWaiting;
+const resultState = (result: string): CheckState => result === 'success' ? 'healthy' : result === 'failed' ? 'failed' : 'idle';
+const extensionDetectionState = computed<CheckState>(() => !inspection.value ? 'idle' : capability.value?.supported ? 'healthy' : 'warning');
+const extensionConfigurationState = computed<CheckState>(() => capability.value?.configuration === 'configured' ? 'warning' : capability.value?.configuration === 'conflict' ? 'failed' : 'idle');
 const title = computed(() => `${tool.value === 'codex' ? 'Codex' : 'Claude Code'} · ${restoring.value ? props.copy.rbExtRestoreTitle : props.copy.rbExtTitle}`);
 const impact = computed(() => restoring.value ? props.copy.rbExtRestoreImpact : tool.value === 'codex' ? props.copy.rbExtCodexImpact : props.copy.rbExtClaudeImpact);
 const errorText = computed(() => operationSurface.value === 'extension' && ['configConflict','unsafePath','noBackup','rollbackConflict','rollbackFailed','writeRolledBack','verifyFailed'].includes(bridgeErrorCode(error.value)) ? props.copy.rbExtError : bridgeError(error.value, props.copy));
@@ -133,8 +138,8 @@ defineExpose({ open, close });
             <p class="remote-hint">{{ copy.rbExtLocation }}</p>
             <p><code>{{ path }}</code></p>
             <button type="button" class="secondary-action" @click="inspect">{{ copy.rbExtInspect }}</button>
-            <p role="status">{{ !inspection ? copy.rbExtUnknown : capability?.supported ? copy.rbExtDetected : copy.rbExtUnsupported }}</p>
-            <p v-if="capability" role="status">{{ capability.configuration === 'configured' ? copy.rbExtPending : capability.configuration === 'conflict' ? copy.rbConfigError : copy.rbExtNotConfigured }}</p>
+            <StatusIndicator :state="extensionDetectionState" :label="!inspection ? copy.rbExtUnknown : capability?.supported ? copy.rbExtDetected : copy.rbExtUnsupported" />
+            <StatusIndicator v-if="capability" :state="extensionConfigurationState" :label="capability.configuration === 'configured' ? copy.rbExtPending : capability.configuration === 'conflict' ? copy.rbConfigError : copy.rbExtNotConfigured" />
             <p v-if="inspection"><strong>{{ inspection.user }}</strong> · {{ capability?.version }}<span v-if="capability?.runtimeVersion"> · Codex {{ capability.runtimeVersion }}</span></p>
             <label class="remote-choice"><input v-model="locationConfirmed" type="checkbox" :disabled="!inspection || (!restoring && !capability?.supported)">{{ copy.rbExtConfirmLocation }}</label>
             <p class="notice notice-warning">{{ impact }}</p>
@@ -146,8 +151,8 @@ defineExpose({ open, close });
           <p v-if="restoring" class="remote-hint">{{ copy.rbExtRestoreScope }}</p>
         </template>
         <template v-else>
-          <p v-if="cliPreview">{{ copy.rbExtCli }} · {{ outcome(cliResult) }}</p>
-          <p v-if="extensionPreview">{{ copy.rbExtGui }} · {{ outcome(extensionResult) }}</p>
+          <StatusIndicator v-if="cliPreview" :state="resultState(cliResult)" :label="`${copy.rbExtCli} · ${outcome(cliResult)}`" />
+          <StatusIndicator v-if="extensionPreview" :state="resultState(extensionResult)" :label="`${copy.rbExtGui} · ${outcome(extensionResult)}`" />
           <p v-if="error && (cliResult === 'success' || extensionResult === 'success')" class="notice notice-warning">{{ copy.rbExtPartial }}</p>
           <p v-if="extensionResult === 'success'" class="remote-hint">{{ restoring ? copy.rbExtRestored : copy.rbExtRestart }}</p>
           <template v-if="cliResult === 'success' && cliPreview?.launch && !restoring"><pre>{{ cliPreview.launch }}</pre><button class="secondary-action" type="button" @click="perform(async () => { await copyText(cliPreview!.launch); copied = true; })">{{ copied ? copy.rbCopied : copy.rbCopyLaunch }}</button></template>

@@ -3,7 +3,7 @@ import { nextTick, onBeforeUnmount, ref, useId } from "vue";
 
 defineProps<{
   label: string;
-  text: string;
+  text?: string;
 }>();
 
 const tooltipId = `help-${useId().replaceAll(":", "")}`;
@@ -79,6 +79,6 @@ onBeforeUnmount(hideTooltip);
     </svg>
   </span>
   <Teleport to="body">
-    <span v-if="visible" :id="tooltipId" ref="tooltip" class="help-tooltip-content" :class="{ positioned }" role="tooltip" :style="position">{{ text }}</span>
+    <span v-if="visible" :id="tooltipId" ref="tooltip" class="help-tooltip-content" :class="{ positioned }" role="tooltip" :style="position"><slot>{{ text }}</slot></span>
   </Teleport>
 </template>

@@ -58,6 +58,8 @@ export interface ProxyEndpoint {
   protocol: ProxyProtocol;
 }
 
+export type CheckState = "idle" | "checking" | "healthy" | "warning" | "failed" | "disabled";
+
 export interface ActiveProxyContext {
   selectedCandidateId: string | null;
   candidate: ProxyCandidate | null;
