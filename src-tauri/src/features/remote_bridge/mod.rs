@@ -1,6 +1,7 @@
 pub mod extension;
 mod mobaxterm;
 mod ssh;
+pub mod ssh_auth;
 pub(crate) mod vscode;
 use super::proxy::{active, plan, ProxyEndpoint, ProxyProtocol, ProxyVariable};
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,34 @@ pub enum RemoteTargetSource {
 pub enum RemoteTargetCompatibility {
     Compatible,
     Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SshAuthMode {
+    #[default]
+    NonInteractive,
+    Interactive,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SshAuthMethod {
+    IdentityFile,
+    Agent,
+    Password,
+    KeyboardInteractive,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SshAuthState {
+    pub mode: SshAuthMode,
+    pub method: SshAuthMethod,
+    pub authenticated: bool,
+    pub password_stored: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -89,6 +118,7 @@ pub struct Summary {
     pub codex_extension: Option<String>,
     pub claude_extension: Option<String>,
     pub error: Option<String>,
+    pub ssh_auth: SshAuthState,
 }
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,7 +199,7 @@ pub struct RemoteNetworkObservation {
 #[derive(Default)]
 struct Store {
     summary: Summary,
-    child: Option<ssh::OwnedChild>,
+    child: Option<Box<dyn ssh::ManagedSsh>>,
     pending: Option<Pending>,
     extension_pending: Option<extension::Pending>,
     cc_detected: bool,
@@ -177,6 +207,7 @@ struct Store {
     target_fingerprint: Option<String>,
     proxy_status: Status,
     cc_status: Status,
+    ssh_auth: SshAuthState,
 }
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
 fn store() -> &'static Mutex<Store> {
@@ -251,7 +282,7 @@ fn observed_status(
 }
 fn refresh(state: &mut Store) {
     if let Some(child) = state.child.as_mut() {
-        if !matches!(child.child.try_wait(), Ok(None)) {
+        if !matches!(child.is_running(), Ok(true)) {
             state.child = None;
             state.summary.status = Status::Disconnected;
             state.proxy_status = Status::Disconnected;
@@ -290,6 +321,7 @@ fn refresh(state: &mut Store) {
 pub fn start_monitor() {
     std::thread::spawn(|| loop {
         std::thread::sleep(Duration::from_secs(2));
+        ssh_auth::cleanup();
         if let Ok(mut state) = store().try_lock() {
             refresh(&mut state);
         }
@@ -328,6 +360,13 @@ pub fn check(target_id: String) -> BridgeResult<PortAllocation> {
     ssh::remote(&target_id, json!({"operation":"check","ports":[]}))?;
     let mut state = lock()?;
     state.reachable = true;
+    state.ssh_auth = SshAuthState {
+        mode: SshAuthMode::NonInteractive,
+        method: ssh::non_interactive_auth_method(&target_id),
+        authenticated: true,
+        password_stored: false,
+    };
+    state.summary.ssh_auth = state.ssh_auth;
     drop(state);
     allocate_ports(target_id)
 }
@@ -450,6 +489,103 @@ pub fn preview(request: &Request) -> BridgeResult<Summary> {
         ..Summary::default()
     })
 }
+
+pub(super) fn complete_interactive_check(auth: SshAuthState) {
+    if let Ok(mut state) = lock() {
+        state.reachable = true;
+        state.ssh_auth = auth;
+        state.summary.ssh_auth = auth;
+    }
+}
+
+pub(super) struct InteractiveConnectPlan {
+    pub summary: Summary,
+    pub fingerprint: String,
+    pub endpoints: Vec<(u16, String, u16)>,
+}
+
+pub(super) fn prepare_interactive_connect(
+    request: &Request,
+) -> BridgeResult<InteractiveConnectPlan> {
+    {
+        let state = lock()?;
+        if state.child.is_some() {
+            return Err("alreadyConnected".into());
+        }
+    }
+    let fingerprint = ssh::fingerprint(&request.target_id)?;
+    let summary = preview(request)?;
+    let endpoints = summary
+        .proxy
+        .iter()
+        .chain(summary.cc.iter())
+        .map(|endpoint| {
+            (
+                endpoint.remote_port,
+                endpoint.local.host.clone(),
+                endpoint.local.port,
+            )
+        })
+        .collect();
+    Ok(InteractiveConnectPlan {
+        summary,
+        fingerprint,
+        endpoints,
+    })
+}
+
+pub(super) fn mark_interactive_connecting() -> BridgeResult<()> {
+    let mut state = lock()?;
+    if state.child.is_some() {
+        return Err("alreadyConnected".into());
+    }
+    state.pending = None;
+    state.extension_pending = None;
+    state.summary.status = Status::Connecting;
+    state.summary.error = None;
+    Ok(())
+}
+
+pub(super) fn cancel_interactive_connect() {
+    if let Ok(mut state) = lock() {
+        if state.child.is_none() && state.summary.status == Status::Connecting {
+            state.summary.status = Status::Disconnected;
+            state.summary.error = None;
+        }
+    }
+}
+
+pub(super) fn complete_interactive_connect(
+    request: Request,
+    mut summary: Summary,
+    fingerprint: String,
+    process: ssh_auth::PtyProcess,
+    auth: SshAuthState,
+) -> BridgeResult<Summary> {
+    if ssh::fingerprint(&request.target_id)? != fingerprint {
+        return Err("sshConfigChanged".into());
+    }
+    if request.proxy_port.is_some() {
+        preview(&request)?;
+    }
+    summary.status = Status::Connected;
+    summary.proxy_status = summary.proxy.as_ref().map(|_| Status::Connected);
+    summary.cc_status = summary.cc.as_ref().map(|_| Status::Connected);
+    summary.ssh_auth = auth;
+    let mut state = lock()?;
+    if state.child.is_some() {
+        return Err("alreadyConnected".into());
+    }
+    state.summary = summary;
+    state.proxy_status = Status::Connected;
+    state.cc_status = Status::Connected;
+    state.child = Some(Box::new(process));
+    state.reachable = true;
+    state.target_fingerprint = Some(fingerprint);
+    state.ssh_auth = auth;
+    Ok(state.summary.clone())
+}
+
 pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
     if !confirmed {
         return Err("confirmationRequired".into());
@@ -515,7 +651,14 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         state.summary = next;
         state.proxy_status = Status::Connected;
         state.cc_status = Status::Connected;
-        state.child = Some(child);
+        state.child = Some(Box::new(child));
+        state.ssh_auth = SshAuthState {
+            mode: SshAuthMode::NonInteractive,
+            method: ssh::non_interactive_auth_method(&request.target_id),
+            authenticated: true,
+            password_stored: false,
+        };
+        state.summary.ssh_auth = state.ssh_auth;
         state.reachable = true;
         state.target_fingerprint = Some(fingerprint);
         Ok(state.summary.clone())
@@ -547,6 +690,7 @@ pub fn shutdown() {
     if let Ok(mut state) = store().try_lock() {
         state.child = None;
     }
+    ssh_auth::shutdown();
 }
 pub fn test() -> BridgeResult<()> {
     let mut state = lock()?;

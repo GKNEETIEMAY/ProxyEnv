@@ -596,7 +596,7 @@ onMounted(async () => {
       settingsTab.value = preview === "about" ? "about" : "general";
     } else if (preview === "assistant" || preview === "assistant-result") {
       view.value = "assistant";
-    } else if (preview === "remote" || preview === "remote-connected") {
+    } else if (["remote", "remote-connected", "remote-auth"].includes(preview ?? "")) {
       openRemote();
       if (preview === "remote-connected") remoteBridgeSummary.value = {
         status: "connected",
@@ -611,7 +611,8 @@ onMounted(async () => {
         claudeConfigured: false,
         codexExtension: "notConfigured",
         claudeExtension: "notConfigured",
-        error: null
+        error: null,
+        sshAuth: { mode: "nonInteractive", method: "identityFile", authenticated: true, passwordStored: false }
       };
     }
     loading.value = false;

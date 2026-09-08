@@ -45,7 +45,8 @@ ProxyEnv/
 │  │  │  ├─ launcher.rs              # Explicit child-process environment construction
 │  │  │  └─ rules/                   # Schema, match, preview, backup, apply, restore
 │  │  ├─ features/remote_bridge/
-│  │  │  ├─ ssh.rs                   # Structured target discovery and OpenSSH invocation
+│  │  │  ├─ ssh.rs                   # Structured target discovery and hardened OpenSSH invocation
+│  │  │  ├─ ssh_auth.rs              # Short-lived PTY / ConPTY interactive authentication sessions
 │  │  │  ├─ mobaxterm.rs             # Bounded bookmark parsing and safe compatibility adapter
 │  │  │  ├─ process.rs               # Owned SSH process and Windows Job Object lifecycle
 │  │  │  ├─ remote.sh                # Fixed remote checks, overlays, and recovery operations
@@ -176,6 +177,12 @@ Server internet, the session-wide local active proxy, and CC Switch AI routing a
 
 服务器互联网、本机会话级活动代理和 CC Switch AI 路由是三项独立观测。服务器直连检测明确绕过代理环境，只返回可达、不可达或无法判断；本机代理继续读取统一 `ActiveProxyContext`，不会自行选择候选项；CC Switch 保留独立的监听进程身份判断。普通代理转发与 CC Switch 转发分别在 `BridgeSummary` 暴露运行状态，任何一个入口失效都不会在界面上改写另一项结论。SSH 成功只代表传输层可用，不代表服务器联网、代理桥接或 AI 路由可用。
 
+### SSH authentication / SSH 认证
+
+Every SSH operation first keeps the existing non-interactive OpenSSH path (`BatchMode=yes`) so IdentityFile and ssh-agent behavior stays native. Only the stable `sshAuth` failure category offers an interactive session. `ssh_auth_*` commands own a short-lived `portable-pty` session (Windows ConPTY), parse bounded accumulated output into a typed current prompt, accept one response at a time through stdin, and never place that response in command arguments, files, settings, logs, or frontend snapshots. Password, key-passphrase, verification-code, host-key confirmation, keyboard-interactive and unknown prompts share one multi-round state machine. Backend input uses a zeroizing buffer; frontend input is cleared before awaiting the IPC result. Submitted response echo is suppressed from retained terminal state. Sessions use random opaque IDs and per-session authenticated markers, expire after three minutes, and die on cancel or shutdown.
+
+非交互模式严格拒绝未知主机，交互模式只把首次主机指纹交给用户确认；任何 `known_hosts` 不匹配仍直接失败。两种模式都禁用 Agent/X11 转发、禁止本地命令并在转发失败时退出。交互建桥只有在 OpenSSH 认证完成、反向转发已建立，并且远端 `ss` 证据确认所有端口仅监听 `127.0.0.1` 后才进入 Connected。认证状态独立记录为 `SshAuthState`，其中 `passwordStored` 固定为 `false`。当前认证回答不会跨操作缓存；后续需要再次认证的受保护远端操作必须重新进入交互编排，不能复用密码。
+
 ### Structured target discovery / 结构化目标发现
 
 Every target is represented by an opaque `RemoteTarget.id` plus a display name, source, sanitized configuration path, resolved SSH fields, availability, compatibility state, and source-specific capabilities. IDs bind the source, configuration-file identity, and alias/session name; the frontend never parses a `vscode:`-style prefix. Target discovery is bounded to:
@@ -252,6 +259,7 @@ ProxyEnv does not read, persist, or manage proxy credentials, subscription token
 | `remote_bridge_targets` | Discover structured OpenSSH, VS Code, and MobaXterm targets | No | No |
 | `remote_bridge_check` | Verify one target and allocate reviewed remote loopback ports | No | No |
 | `remote_bridge_check_network` | Independently classify direct server HTTPS reachability while bypassing proxy variables | No | No |
+| `ssh_auth_begin/state/submit/finish/cancel` | Own one bounded OpenSSH PTY authentication flow; never persist the submitted response | No | Short-lived PTY process only; successful connect transfers the owned tunnel to bridge state |
 | `remote_bridge_allocate_ports` | Regenerate distinct unused remote loopback ports | No | No |
 | `remote_bridge_detect_cc` | Classify CC Switch listener ownership without probing AI APIs | No | No |
 | `remote_bridge_preview` | Revalidate target, active proxy revision, capabilities, and ports | No | No |

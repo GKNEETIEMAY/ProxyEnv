@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ActiveProxyContext, CheckState } from "../../../shared/types";
 import { bridgeError, bridgeErrorCode, type RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
 import { copyText } from "../../../shared/utils/clipboard";
@@ -16,12 +16,16 @@ import {
   type CcDetection,
   type PortAllocation,
   type RemoteTarget,
+  type SshAuthOperation,
+  type SshAuthSnapshot,
 } from "../state";
 
 const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; reviewPreview?: boolean }>();
 const emit = defineEmits<{ refresh: [] }>();
 const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
 const confirmation = ref<HTMLDialogElement>();
+const authDialog = ref<HTMLDialogElement>();
+const authInput = ref<HTMLInputElement>();
 const heading = ref<HTMLElement>();
 const step = ref(1);
 const targets = ref<RemoteTarget[]>([]);
@@ -45,6 +49,10 @@ const feedback = ref<"copied" | "tested" | "ports">();
 const preview = ref<BridgeSummary>();
 const reviewedRequest = ref<BridgeRequest>();
 const vscodeOpened = ref(false);
+const authSession = ref<SshAuthSnapshot>();
+const authResponse = ref("");
+const authSubmitting = ref(false);
+let authPollTimer: ReturnType<typeof setTimeout> | undefined;
 const codexLaunch = "codex --profile proxyenv_bridge";
 const claudeLaunch = 'claude --settings "$HOME/.claude/proxyenv-bridge.json"';
 
@@ -83,6 +91,31 @@ const lastNetworkChecked = computed(() => Math.max(0, sshCheck.value.checkedAt ?
 const networkChecking = computed(() => serverInternetCheck.value.state === "checking" || ccCheck.value.state === "checking");
 const sshRuntimeState = computed<CheckState>(() => live.value ? (props.summary.status === "connecting" ? "checking" : "healthy") : bridgeCheckState(props.summary.status));
 const sshRuntimeLabel = computed(() => sshRuntimeState.value === "healthy" ? props.copy.rbHealthy : genericStateLabel(sshRuntimeState.value));
+const authPrompt = computed(() => authSession.value?.prompt);
+const authPromptType = computed(() => authPrompt.value?.type ?? "unknown");
+const authStatusState = computed<CheckState>(() => {
+  if (authSession.value?.status === "failed") return "failed";
+  if (["authenticated", "succeeded"].includes(authSession.value?.status ?? "")) return "healthy";
+  if (authSession.value?.status === "waitingUser") return "warning";
+  return "checking";
+});
+const authStatusLabel = computed(() => {
+  if (authSession.value?.status === "failed") return props.copy.rbAuthFailure;
+  if (["authenticated", "succeeded"].includes(authSession.value?.status ?? "")) return props.copy.rbAuthSuccess;
+  if (authSession.value?.status === "waitingUser") return props.copy.rbAuthWaitingUser;
+  if (["submitting", "waitingServer"].includes(authSession.value?.status ?? "")) return props.copy.rbAuthVerifying;
+  return props.copy.rbAuthWaitingPrompt;
+});
+const authPromptCopy = computed(() => ({
+  password: { title: props.copy.rbAuthPasswordTitle, description: props.copy.rbAuthPasswordDescription, label: props.copy.rbAuthPasswordLabel, action: props.copy.rbAuthConnect, notice: props.copy.rbAuthSecretNotice },
+  keyPassphrase: { title: props.copy.rbAuthPassphraseTitle, description: props.copy.rbAuthPassphraseDescription, label: props.copy.rbAuthPassphraseLabel, action: props.copy.rbAuthContinue, notice: props.copy.rbAuthPassphraseNotice },
+  verificationCode: { title: props.copy.rbAuthOtpTitle, description: props.copy.rbAuthOtpDescription, label: props.copy.rbAuthOtpLabel, action: props.copy.rbAuthVerify, notice: props.copy.rbAuthSecretNotice },
+  hostKeyConfirmation: { title: props.copy.rbAuthHostKeyTitle, description: props.copy.rbAuthHostKeyDescription, label: "", action: props.copy.rbAuthConfirmHost, notice: props.copy.rbAuthGenericNotice },
+  keyboardInteractive: { title: props.copy.rbAuthKeyboardTitle, description: props.copy.rbAuthKeyboardDescription, label: props.copy.rbAuthResponseLabel, action: props.copy.rbAuthSubmit, notice: props.copy.rbAuthSecretNotice },
+  unknown: { title: props.copy.rbAuthUnknownTitle, description: props.copy.rbAuthUnknownDescription, label: props.copy.rbAuthResponseLabel, action: props.copy.rbAuthSubmit, notice: props.copy.rbAuthGenericNotice },
+})[authPromptType.value]);
+const authCanRespond = computed(() => authSession.value?.status === "waitingUser" && !!authPrompt.value);
+const authIsHostConfirmation = computed(() => authPromptType.value === "hostKeyConfirmation");
 
 function bridgeCheckState(status: BridgeSummary["status"] | null, enabled = true): CheckState {
   if (!enabled) return "disabled";
@@ -147,6 +180,101 @@ async function perform(action: () => Promise<void>) {
   }
 }
 
+function clearAuthPoll() {
+  clearTimeout(authPollTimer);
+  authPollTimer = undefined;
+}
+
+async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
+  authSession.value = snapshot;
+  await new Promise((resolve) => setTimeout(resolve, 420));
+  if (authSession.value?.sessionId !== snapshot.sessionId) return;
+  const outcome = await remoteBackend.sshAuthFinish(snapshot.sessionId);
+  clearAuthPoll();
+  authSession.value = undefined;
+  authResponse.value = "";
+  authDialog.value?.close();
+  if (outcome.operation === "check" && outcome.ports) {
+    usePorts(outcome.ports);
+    checked.value = true;
+    sshCheck.value = { state: "healthy", checkedAt: Date.now() };
+  } else if (outcome.operation === "connect" && outcome.summary) {
+    go(4);
+  }
+  emit("refresh");
+}
+
+async function pollInteractiveAuth() {
+  const session = authSession.value;
+  if (!session) return;
+  try {
+    const next = await remoteBackend.sshAuthState(session.sessionId);
+    authSession.value = next;
+    if (next.status === "succeeded") {
+      await completeInteractiveAuth(next);
+      return;
+    }
+  } catch (cause) {
+    error.value = cause;
+    clearAuthPoll();
+    return;
+  }
+  if (authSession.value?.status !== "failed") {
+    authPollTimer = setTimeout(pollInteractiveAuth, 180);
+  }
+}
+
+async function beginInteractiveAuth(operation: SshAuthOperation, request: BridgeRequest | null = null) {
+  clearAuthPoll();
+  error.value = undefined;
+  authResponse.value = "";
+  authSession.value = await remoteBackend.sshAuthBegin(operation, targetId.value, request);
+  await nextTick();
+  authDialog.value?.showModal();
+  authPollTimer = setTimeout(pollInteractiveAuth, 120);
+}
+
+async function submitInteractiveAuth() {
+  const session = authSession.value;
+  if (!session || !authCanRespond.value || authSubmitting.value) return;
+  if (!authIsHostConfirmation.value && !authResponse.value) return;
+  authSubmitting.value = true;
+  const response = authResponse.value;
+  authResponse.value = "";
+  try {
+    authSession.value = authIsHostConfirmation.value
+      ? await remoteBackend.sshAuthConfirmHost(session.sessionId)
+      : await remoteBackend.sshAuthSubmit(session.sessionId, response);
+  } catch (cause) {
+    error.value = cause;
+  } finally {
+    authSubmitting.value = false;
+  }
+}
+
+watch(
+  () => [authSession.value?.prompt?.type, authSession.value?.prompt?.attempt, authSession.value?.status],
+  async () => {
+    if (!authCanRespond.value || authIsHostConfirmation.value) return;
+    await nextTick();
+    authInput.value?.focus();
+  },
+);
+
+async function cancelInteractiveAuth() {
+  clearAuthPoll();
+  const sessionId = authSession.value?.sessionId;
+  authSession.value = undefined;
+  authResponse.value = "";
+  authDialog.value?.close();
+  if (sessionId) {
+    try { await remoteBackend.sshAuthCancel(sessionId); } catch { /* Session may already be closed. */ }
+  }
+  if (sshCheck.value.state === "checking") {
+    sshCheck.value = { state: "idle", checkedAt: null };
+  }
+}
+
 async function load() {
   if (props.reviewPreview) {
     targets.value = [
@@ -196,6 +324,10 @@ function checkTarget() {
       checked.value = true;
       sshCheck.value = { state: "healthy", checkedAt: Date.now() };
     } catch (cause) {
+      if (bridgeErrorCode(cause) === "sshAuth") {
+        await beginInteractiveAuth("check");
+        return;
+      }
       sshCheck.value = { state: "failed", checkedAt: Date.now() };
       throw cause;
     }
@@ -251,7 +383,15 @@ function connect() {
         error.value = allocationError;
       }
     } else {
-      error.value = cause;
+      if (bridgeErrorCode(cause) === "sshAuth") {
+        try {
+          await beginInteractiveAuth("connect", selected);
+        } catch (authError) {
+          error.value = authError;
+        }
+      } else {
+        error.value = cause;
+      }
     }
   }).finally(() => {
     busy.value = false;
@@ -336,6 +476,22 @@ onMounted(() => {
   updateLocalProxyCheck();
   step.value = props.summary.target ? 4 : 1;
   void perform(load);
+  if (props.reviewPreview && new URLSearchParams(window.location.search).get("impeccable-review") === "remote-auth") {
+    authSession.value = {
+      sessionId: "review-session",
+      operation: "check",
+      status: "waitingUser",
+      auth: { mode: "interactive", method: "password", authenticated: false, passwordStored: false },
+      prompt: { type: "password", message: "dev@remote's password:", secret: true, attempt: 1, target: "remote", fingerprint: null },
+      error: null,
+    };
+    void nextTick(() => authDialog.value?.showModal());
+  }
+});
+onBeforeUnmount(() => {
+  const sessionId = authSession.value?.sessionId;
+  clearAuthPoll();
+  if (sessionId) void remoteBackend.sshAuthCancel(sessionId).catch(() => undefined);
 });
 </script>
 
@@ -497,6 +653,44 @@ onMounted(() => {
       <div class="confirmation-actions"><button class="secondary-action" type="button" autofocus @click="confirmation?.close()">{{ copy.rbCancel }}</button><button class="primary-action" type="submit" :disabled="busy">{{ copy.rbConfirm }}</button></div>
     </form>
   </dialog>
+  <dialog ref="authDialog" class="confirmation-dialog remote-auth-dialog" aria-labelledby="remote-auth-title" @cancel.prevent="cancelInteractiveAuth">
+    <form @submit.prevent="submitInteractiveAuth">
+      <header class="remote-auth-heading">
+        <h2 id="remote-auth-title">{{ copy.rbAuthTitle }}</h2>
+        <StatusIndicator :state="authStatusState" :label="authStatusLabel" />
+      </header>
+
+      <section class="remote-auth-context" aria-live="polite">
+        <h3 v-if="authCanRespond">{{ authPromptCopy.title }}</h3>
+        <h3 v-else-if="authSession?.status === 'failed'">{{ copy.rbAuthFailure }}</h3>
+        <h3 v-else-if="authSession?.auth.authenticated">{{ copy.rbAuthSuccess }}</h3>
+        <h3 v-else>{{ copy.rbAuthWaitingPrompt }}</h3>
+        <p v-if="authCanRespond">{{ authPromptCopy.description }}</p>
+      </section>
+
+      <section class="remote-auth-terminal" :aria-label="copy.rbAuthPrompt" aria-live="polite">
+        <span>{{ copy.rbAuthPrompt }}</span>
+        <pre>{{ authPrompt ? (authPrompt.message || copy.rbAuthPromptUnavailable) : copy.rbAuthWaitingPromptMessage }}</pre>
+      </section>
+
+      <dl v-if="authIsHostConfirmation && authPrompt?.fingerprint" class="remote-auth-fingerprint">
+        <dt>{{ copy.rbAuthFingerprint }}</dt>
+        <dd><code>{{ authPrompt.fingerprint }}</code></dd>
+      </dl>
+
+      <label v-if="authCanRespond && !authIsHostConfirmation" class="remote-auth-field">
+        <span>{{ authPromptCopy.label }}</span>
+        <input ref="authInput" v-model="authResponse" :type="authPrompt?.secret ? 'password' : 'text'" autocomplete="off" maxlength="4096" :disabled="authSubmitting" />
+      </label>
+
+      <p v-if="authCanRespond && !authIsHostConfirmation" class="notice notice-warning remote-auth-privacy">{{ authPromptCopy.notice }}</p>
+      <p v-if="authSession?.error" class="remote-error remote-auth-error" role="alert">{{ bridgeError(authSession.error, copy) }}</p>
+      <div class="confirmation-actions">
+        <button v-if="authSession?.status !== 'succeeded'" class="secondary-action" type="button" :disabled="authSubmitting" @click="cancelInteractiveAuth">{{ authSession?.status === 'failed' ? copy.rbClose : copy.rbAuthCancel }}</button>
+        <button v-if="authCanRespond" class="primary-action" type="submit" :disabled="(!authIsHostConfirmation && !authResponse) || authSubmitting">{{ authPromptCopy.action }}</button>
+      </div>
+    </form>
+  </dialog>
   <RemoteToolDialog ref="toolDialog" :copy="copy" :session-alias="summary.target?.id ?? targetId" :session-status="summary.status" @refresh="emit('refresh')" />
 </template>
 
@@ -570,6 +764,23 @@ onMounted(() => {
 .remote-command em { color:var(--muted); font-size:11px; font-style:normal; }
 .remote-error,.remote-danger { color:var(--danger); }.remote-error { font-size:12px; line-height:1.65; }.remote-feedback { min-height:18px; color:var(--muted); font-size:12px; }.remote-fields:disabled { opacity:.7; }
 .remote-disconnect-dialog { width:min(520px,calc(100vw - 40px)); }
+.remote-auth-dialog { width:min(540px,calc(100vw - 40px)); }
+.remote-auth-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; }
+.remote-auth-heading h2 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:22px; letter-spacing:-.025em; }
+.remote-auth-heading .check-status { flex:none; }
+.remote-auth-context { margin-top:22px; }
+.remote-auth-context h3 { margin:0; font-size:16px; letter-spacing:-.01em; }
+.remote-auth-context p { max-width:62ch; margin:6px 0 0; color:var(--muted); font-size:12px; line-height:1.65; }
+.remote-auth-terminal { margin:16px 0; overflow:hidden; border-radius:12px; background:#1a1a19; color:#f6f3ec; box-shadow:0 10px 28px rgba(20,20,19,.12); }
+.remote-auth-terminal > span { display:block; padding:8px 12px; border-bottom:1px solid #343431; color:#aaa69e; font-size:10px; font-weight:650; }
+.remote-auth-terminal pre { min-height:62px; max-height:132px; padding:13px 14px; margin:0; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; color:inherit; background:transparent; font:11px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.remote-auth-fingerprint { display:grid; padding:11px 0; margin:0 0 16px; grid-template-columns:100px minmax(0,1fr); gap:12px; border-block:1px solid var(--line); font-size:11px; }
+.remote-auth-fingerprint dt { color:var(--muted); }.remote-auth-fingerprint dd { min-width:0; margin:0; overflow-wrap:anywhere; }
+.remote-auth-field { display:grid; gap:7px; color:var(--muted); font-size:11px; font-weight:650; }
+.remote-auth-field input { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--line-strong); border-radius:9px; color:var(--text); background:var(--surface-strong); outline:none; }
+.remote-auth-field input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+.remote-auth-privacy { margin:14px 0 0; font-size:11px; line-height:1.6; }
+.remote-auth-error { margin:14px 0 0; }
 @media (max-width:680px) {
   .remote-page-intro,.remote-port-footer,.remote-workspace-heading { align-items:flex-start; flex-direction:column; }
   .remote-status-toolbar { width:100%; justify-content:space-between; }

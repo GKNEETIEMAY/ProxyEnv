@@ -32,6 +32,8 @@ fn command_error(
             | "bridgeUnavailable"
             | "networkFailed"
             | "processFailed"
+            | "ptyUnavailable"
+            | "sshAuthPending"
             | "remoteFailed"
             | "stateUnavailable"
     );
@@ -74,6 +76,63 @@ pub async fn remote_bridge_check_network(
 ) -> CommandResult<RemoteNetworkObservation> {
     run("networkCheck", Some("serverInternet"), move || {
         bridge::check_remote_network(target_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ssh_auth_begin(
+    operation: bridge::ssh_auth::Operation,
+    target_id: String,
+    request: Option<Request>,
+) -> CommandResult<bridge::ssh_auth::Snapshot> {
+    run("sshAuthentication", Some("ssh"), move || {
+        bridge::ssh_auth::begin(operation, target_id, request)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ssh_auth_state(session_id: String) -> CommandResult<bridge::ssh_auth::Snapshot> {
+    run("sshAuthentication", Some("ssh"), move || {
+        bridge::ssh_auth::state(&session_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ssh_auth_submit(
+    session_id: String,
+    response: String,
+) -> CommandResult<bridge::ssh_auth::Snapshot> {
+    run("sshAuthentication", Some("ssh"), move || {
+        bridge::ssh_auth::submit(&session_id, response)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ssh_auth_confirm_host(
+    session_id: String,
+) -> CommandResult<bridge::ssh_auth::Snapshot> {
+    run("sshAuthentication", Some("sshHostKey"), move || {
+        bridge::ssh_auth::confirm_host(&session_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ssh_auth_finish(session_id: String) -> CommandResult<bridge::ssh_auth::Outcome> {
+    run("sshAuthentication", Some("ssh"), move || {
+        bridge::ssh_auth::finish(&session_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn ssh_auth_cancel(session_id: String) -> CommandResult<()> {
+    run("sshAuthentication", Some("ssh"), move || {
+        bridge::ssh_auth::cancel(&session_id)
     })
     .await
 }

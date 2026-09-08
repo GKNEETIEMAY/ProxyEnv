@@ -1,5 +1,6 @@
 use super::{
     mobaxterm, BridgeResult, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request,
+    SshAuthMethod,
 };
 use std::{
     io::{Read, Write},
@@ -9,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub fn command() -> Command {
+fn command_with_batch_mode(batch_mode: bool) -> Command {
     #[cfg(windows)]
     let mut command = Command::new(
         std::path::PathBuf::from(
@@ -26,8 +27,6 @@ pub fn command() -> Command {
     }
     command.args([
         "-T",
-        "-oBatchMode=yes",
-        "-oStrictHostKeyChecking=yes",
         "-oConnectTimeout=8",
         "-oConnectionAttempts=1",
         "-oServerAliveInterval=5",
@@ -41,7 +40,24 @@ pub fn command() -> Command {
         "-oExitOnForwardFailure=yes",
         "-oForkAfterAuthentication=no",
     ]);
+    if batch_mode {
+        command.args(["-oStrictHostKeyChecking=yes", "-oBatchMode=yes"]);
+    } else {
+        command.args([
+            "-oStrictHostKeyChecking=ask",
+            "-oBatchMode=no",
+            "-oPasswordAuthentication=yes",
+            "-oKbdInteractiveAuthentication=yes",
+            "-oNumberOfPasswordPrompts=3",
+            "-oPreferredAuthentications=publickey,keyboard-interactive,password",
+        ]);
+    }
     command
+}
+
+#[cfg(test)]
+pub fn command() -> Command {
+    command_with_batch_mode(true)
 }
 
 pub fn safe_name(value: &str) -> bool {
@@ -269,7 +285,7 @@ fn resolve(id: &str) -> BridgeResult<ResolvedTarget> {
         .ok_or_else(|| "invalidTarget".into())
 }
 
-fn target_command(id: &str) -> BridgeResult<(Command, String)> {
+fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(Command, String)> {
     let target = resolve(id)?;
     if !target.public.available
         || target.public.compatibility != RemoteTargetCompatibility::Compatible
@@ -279,7 +295,7 @@ fn target_command(id: &str) -> BridgeResult<(Command, String)> {
             .unavailable_reason
             .unwrap_or_else(|| "targetUnsupported".into()));
     }
-    let mut cmd = command();
+    let mut cmd = command_with_batch_mode(batch_mode);
     let destination = match target.connection {
         Connection::Config { alias, config } => {
             if let Some(path) = config {
@@ -298,6 +314,14 @@ fn target_command(id: &str) -> BridgeResult<(Command, String)> {
     Ok((cmd, destination))
 }
 
+fn target_command(id: &str) -> BridgeResult<(Command, String)> {
+    target_command_with_batch_mode(id, true)
+}
+
+pub(super) fn interactive_target_command(id: &str) -> BridgeResult<(Command, String)> {
+    target_command_with_batch_mode(id, false)
+}
+
 // Reuse OpenSSH's resolution for IdentityFile, ProxyJump and ssh-agent. Refuse
 // preconfigured forwards so a bridge can only open the reviewed endpoints.
 pub fn validate_target(target_id: &str) -> BridgeResult<()> {
@@ -309,6 +333,35 @@ pub fn fingerprint(target_id: &str) -> BridgeResult<String> {
         "{target_id}\n{}",
         effective_target(target_id)?
     ))))
+}
+
+pub fn non_interactive_auth_method(target_id: &str) -> SshAuthMethod {
+    if std::env::var_os("SSH_AUTH_SOCK").is_some() {
+        return SshAuthMethod::Agent;
+    }
+    let Ok(effective) = effective_target(target_id) else {
+        return SshAuthMethod::Unknown;
+    };
+    let home = dirs::home_dir();
+    if effective.lines().any(|line| {
+        let Some(path) = line.strip_prefix("identityfile ") else {
+            return false;
+        };
+        let path = path.trim();
+        let expanded = home.as_ref().and_then(|home| {
+            path.strip_prefix("~/")
+                .or_else(|| path.strip_prefix("~\\"))
+                .map(|suffix| home.join(suffix))
+        });
+        expanded
+            .as_deref()
+            .unwrap_or_else(|| Path::new(path))
+            .is_file()
+    }) {
+        SshAuthMethod::IdentityFile
+    } else {
+        SshAuthMethod::Unknown
+    }
 }
 fn effective_target(target_id: &str) -> BridgeResult<String> {
     let (mut cmd, destination) = target_command(target_id)?;
@@ -338,6 +391,19 @@ pub struct OwnedChild {
     pub child: Child,
     #[cfg(windows)]
     job: windows::Win32::Foundation::HANDLE,
+}
+
+pub trait ManagedSsh: Send {
+    fn is_running(&mut self) -> BridgeResult<bool>;
+}
+
+impl ManagedSsh for OwnedChild {
+    fn is_running(&mut self) -> BridgeResult<bool> {
+        self.child
+            .try_wait()
+            .map(|status| status.is_none())
+            .map_err(|_| "processFailed".into())
+    }
 }
 // HANDLE is only owned and closed here; all child access is serialized.
 #[cfg(windows)]
@@ -457,7 +523,7 @@ pub fn output(mut cmd: Command, input: Option<String>, seconds: u64) -> BridgeRe
     String::from_utf8(output).map_err(|_| "remoteFailed".into())
 }
 
-pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_json::Value> {
+pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(String, &'static str)> {
     let operation = request["operation"].as_str().ok_or("invalidRequest")?;
     if ![
         "check",
@@ -508,11 +574,21 @@ pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_jso
         "http"
     };
     let source = format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nexpected_state='{expected_state}'\nscheme='{scheme}'\n{}", ports.join(" "), include_str!("remote.sh"));
-    let (mut cmd, destination) = target_command(alias)?;
-    cmd.arg("-oClearAllForwardings=yes")
-        .arg(destination)
-        .arg("sh -s");
-    let text = output(cmd, Some(source), 25)?;
+    let operation = match operation {
+        "check" => "check",
+        "verify" => "verify",
+        "internet" => "internet",
+        "test" => "test",
+        "preview" => "preview",
+        "apply" => "apply",
+        "restore" => "restore",
+        "restore-preview" => "restore-preview",
+        _ => return Err("invalidRequest".into()),
+    };
+    Ok((source, operation))
+}
+
+pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<serde_json::Value> {
     let value: serde_json::Value =
         serde_json::from_str(text.trim()).map_err(|_| "remoteUnsupported")?;
     if let Some(code) = value.get("error").and_then(|v| v.as_str()) {
@@ -555,6 +631,16 @@ pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_jso
         return Err("remoteFailed".into());
     }
     Ok(value)
+}
+
+pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_json::Value> {
+    let (source, operation) = remote_payload(&request)?;
+    let (mut cmd, destination) = target_command(alias)?;
+    cmd.arg("-oClearAllForwardings=yes")
+        .arg(destination)
+        .arg("sh -s");
+    let text = output(cmd, Some(source), 25)?;
+    parse_remote_output(operation, &text)
 }
 
 pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResult<OwnedChild> {
@@ -643,6 +729,31 @@ mod tests {
         ] {
             assert!(args.iter().any(|arg| arg == required));
         }
+    }
+    #[test]
+    fn interactive_openssh_parameters_enable_prompts_without_weakening_hardening() {
+        let command = command_with_batch_mode(false);
+        let args: Vec<_> = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect();
+        for required in [
+            "-oBatchMode=no",
+            "-oPasswordAuthentication=yes",
+            "-oKbdInteractiveAuthentication=yes",
+            "-oStrictHostKeyChecking=ask",
+            "-oForwardAgent=no",
+            "-oForwardX11=no",
+            "-oPermitLocalCommand=no",
+            "-oExitOnForwardFailure=yes",
+            "-oControlPath=none",
+        ] {
+            assert!(args.iter().any(|argument| argument == required));
+        }
+        assert!(!args.iter().any(|argument| argument == "-oBatchMode=yes"));
+        assert!(!args
+            .iter()
+            .any(|argument| argument == "-oStrictHostKeyChecking=no"));
     }
     #[test]
     fn target_ids_separate_sources_paths_and_aliases_without_exposing_paths() {

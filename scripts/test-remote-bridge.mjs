@@ -78,6 +78,34 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
     assert.ok(existsSync(join("src/shared/components",file)),file);
   }
 });
+test("interactive SSH auth is PTY-backed, explicit, and never persists responses",()=>{
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh_auth.rs","utf8");
+  const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
+  const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(ssh,/-oBatchMode=yes/);
+  assert.match(ssh,/-oBatchMode=no/);
+  assert.match(ssh,/-oStrictHostKeyChecking=yes/);
+  assert.match(ssh,/-oStrictHostKeyChecking=ask/);
+  assert.match(ssh,/-oPasswordAuthentication=yes/);
+  assert.match(ssh,/-oKbdInteractiveAuthentication=yes/);
+  assert.match(auth,/native_pty_system\(\)/);
+  for(const promptType of ["Password","KeyPassphrase","HostKeyConfirmation","VerificationCode","KeyboardInteractive","Unknown"]) assert.match(auth,new RegExp(promptType));
+  assert.match(auth,/PROMPT_FALLBACK_DELAY/);
+  assert.match(auth,/Zeroizing::new\(response\)/);
+  assert.match(auth,/password_stored: false/);
+  assert.doesNotMatch(auth,/\.arg\(response\)/);
+  for(const command of ["ssh_auth_begin","ssh_auth_state","ssh_auth_submit","ssh_auth_confirm_host","ssh_auth_finish","ssh_auth_cancel"]) {
+    assert.match(commands,new RegExp(`fn ${command}`));
+    assert.match(runtime,new RegExp(`remote_bridge::${command}`));
+  }
+  assert.match(page,/bridgeErrorCode\(cause\) === "sshAuth"/);
+  assert.match(page,/authPrompt\?\.secret \? 'password' : 'text'/);
+  assert.match(page,/remoteBackend\.sshAuthSubmit/);
+  assert.match(page,/remoteBackend\.sshAuthConfirmHost/);
+  assert.doesNotMatch(page,/Authentication response|认证响应/);
+});
 test("Claude onboarding is completed without pre-trusting a project or discarding state",{skip:!available},()=>{
   const f=fixture();try {
     const stateFile=join(f.home,".claude.json");
@@ -124,7 +152,7 @@ test("all remote UI labels and error categories are localized",async()=>{
   for(const [locale,copy] of Object.entries(messages)) {
     assert.deepEqual(Object.keys(copy).sort(),Object.keys(messages.en).sort(),locale);
     for(const state of ["disconnected","connecting","connected","stale","unavailable","error"]) assert.ok(copy.rbStates[state]);
-    for(const code of ["sshAuth","forwardDenied","unsafeBinding","configConflict","rootForbidden","portInUse","activeChanged","ccUnavailable","bridgeUnavailable","noCapability","alreadyConnected","stateUnavailable","processFailed","remoteFailed","networkFailed","targetUnsupported","portAllocationFailed","portRace","random-secret"]) assert.ok(bridgeError(code,copy) && !bridgeError(code,copy).includes("random-secret"));
+    for(const code of ["sshAuth","sshAuthRejected","hostKeyChanged","ptyUnavailable","sshAuthSessionMissing","forwardDenied","unsafeBinding","configConflict","rootForbidden","portInUse","activeChanged","ccUnavailable","bridgeUnavailable","noCapability","alreadyConnected","stateUnavailable","processFailed","remoteFailed","networkFailed","targetUnsupported","portAllocationFailed","portRace","random-secret"]) assert.ok(bridgeError(code,copy) && !bridgeError(code,copy).includes("random-secret"));
     assert.equal(
       bridgeError({code:"ccUnavailable",phase:"localDetection",target:"ccSwitch",retryable:true},copy),
       copy.rbCcError,

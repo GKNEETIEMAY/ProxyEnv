@@ -6,8 +6,8 @@ This is development scope, not a published stable-release announcement.
 ## 使用方式
 
 1. 在“本机环境”选择可用的活动代理，再切换到一级页面“远程桥接”。
-2. 从本机 OpenSSH、VS Code Remote 或 MobaXterm 发现结果中选择一个结构化远程目标。请先在自己的终端完成主机指纹验证与密钥/ssh-agent 登录。
-3. 检查 SSH 连接。检查通过后，ProxyEnv 会在 `20000–60000` 中自动生成两个互不相同且当时未占用的远程 Loopback 端口。
+2. 从本机 OpenSSH、VS Code Remote 或 MobaXterm 发现结果中选择一个结构化远程目标。新主机仍需先在自己的终端确认主机指纹。
+3. 检查 SSH 连接。ProxyEnv 先复用密钥、IdentityFile 或 ssh-agent 做非交互认证；仅当 OpenSSH 明确要求认证时，才显示应用内交互窗口承载密码或 Keyboard Interactive / PAM 提示。检查通过后会在 `20000–60000` 中生成两个互不相同且当时未占用的远程 Loopback 端口。
 4. 在能力页分别查看服务器互联网、本机活动代理与 CC Switch AI 路由。三项检测彼此独立：SSH 成功不代表服务器能够联网，普通代理可用也不代表 CC Switch 可用。按需选择桥接本机代理、CC Switch，或同时选择两者。CC Switch 默认检查 `127.0.0.1:15721`，也可输入实际本地路由端口；结果会区分已确认的 CC Switch、身份未知的监听程序和未检测到监听。
 5. 预览本机和远端端点。建立连接前会再次检查远程端口；如发生端口竞争，页面会重新生成并要求再次确认。
 6. 代理桥接成功后复制环境变量，在远端当前 Shell 主动执行。仅“测试桥接”会经代理请求 `https://www.gstatic.com/generate_204`。
@@ -27,9 +27,10 @@ This is development scope, not a published stable-release announcement.
 | SSH target | Structured targets from `~/.ssh/config`, the default VS Code user `remote.SSH.configFile`, and bounded MobaXterm bookmark sources. IDs bind source, configuration identity, and alias/session name. OpenSSH resolves its own aliases; no private-key or credential contents are read. |
 | Port allocation | After SSH verification, distinct remote Loopback ports are selected from `20000–60000` and checked again immediately before connection. A race causes one regeneration and a return to review. |
 | CC Switch | Loopback listener ownership is classified as confirmed CC Switch, listening with unknown identity, or not detected. A listening port alone is not treated as service identity. |
-| Forward | Explicit `127.0.0.1:remote:loopback:local`, ExitOnForwardFailure, strict host-key checks, BatchMode and bounded connection/keepalive timeouts. |
+| SSH auth | `BatchMode=yes` remains the first path for IdentityFile / ssh-agent. Authentication failures may opt into a short-lived OpenSSH session hosted by Windows ConPTY with `BatchMode=no`, password and keyboard-interactive enabled. |
+| Forward | Explicit `127.0.0.1:remote:loopback:local`, ExitOnForwardFailure, strict host-key checks and bounded connection/keepalive timeouts. Interactive forwarding is not accepted until the remote listeners are verified as loopback-only. |
 | Remote listener | Checks remote TCP listeners before creation and validates actual loopback-only listeners after creation. A wildcard/unknown binding closes the new tunnel. |
-| Session | One combined target/session at a time. No automatic reconnect. Windows Job Objects close created SSH processes and descendants on process exit, including abnormal exit. |
+| Session | One combined target/session at a time. No automatic reconnect. Non-interactive SSH uses the existing Windows Job Object lifecycle; interactive OpenSSH is owned by a short-lived ConPTY session and is killed on cancel, expiry, disconnect or application shutdown. |
 | Config | CLI uses dedicated files. Opt-in VS Code extension adapters patch shared remote configuration with parser-based edits. Read/validate → preview → confirmation → remote backup → atomic replace → hash readback. Conflicts stop writes and restore. |
 | Diagnostics | Structured command errors expose only code, phase, safe target category and retryability. Cached summaries remain allowlisted: no usernames, home paths, keys, secrets, raw SSH stderr or upstream URLs. |
 
@@ -107,7 +108,17 @@ Codex 扩展单独检查内置 `bin/linux-<architecture>/codex --version`，不�
 - No existing LocalForward/RemoteForward/DynamicForward in the selected effective SSH configuration. These are rejected so the new connection opens only reviewed ports. Use a separate alias with no inherited forwards.
 - The remote home/config path and recovery files must not be symlinks, have another owner, or be group/world-writable. Only exact ProxyEnv-generated overlays may be read back or replaced; unknown contents fail closed.
 
-Explicit aliases inside complex Include/Match configurations are not enumerated in this MVP. Interactive passwords, remote Windows/macOS, custom CLI home directories, older Codex profiles, service identity attestation, AI request verification, permanent tunnels and automatic reconnect are outside this implementation.
+Explicit aliases inside complex Include/Match configurations are not enumerated in this MVP. Remote Windows/macOS, custom CLI home directories, older Codex profiles, service identity attestation, AI request verification, permanent tunnels and automatic reconnect are outside this implementation.
+
+### SSH 交互认证边界
+
+交互认证继续由系统 OpenSSH 实现协议，ProxyEnv 不解析或替代 SSH 认证。Windows 10 1809 及以上使用 ConPTY 承载终端提示；非交互路径保持 `StrictHostKeyChecking=yes`，交互路径使用 `StrictHostKeyChecking=ask`，只允许用户明确确认首次连接的真实指纹，绝不使用 `no`。已有主机指纹不匹配会失败关闭。`ForwardAgent=no`、`ForwardX11=no`、`PermitLocalCommand=no` 与 `ExitOnForwardFailure=yes` 在两种模式中保持一致。
+
+后端基于有界累积缓冲识别服务器密码、私钥密码、验证码、首次主机指纹确认和常见 Keyboard Interactive 提示，只把当前经过清理的 Prompt 交给界面。密码、私钥路径、历史终端输出和用户回答不会进入状态快照。Password → OTP 等多轮认证在同一会话内继续，不会重复创建弹窗。
+
+用户回答只作为一次 Tauri 调用中的临时值写入 PTY stdin：不进入 SSH 参数、配置文件或日志，提交后立即清空前后端缓冲；终端回显窗口会丢弃回答后的第一段回显，避免不遵守无回显约定的 PAM 提示把凭据留在状态快照中。ProxyEnv 不保存密码。交互会话使用随机 ID 与随机成功标记，三分钟未完成会被销毁。取消、窗口退出或应用退出都会终止对应 OpenSSH 进程。
+
+当前交互路径覆盖连接检查和桥接建立。建桥完成仍不等于后续 CLI 配置或模型请求已验证；这些远端操作若服务器每次都要求密码，仍需后续受控认证编排，不能复用或缓存本次密码。
 
 ## Recovery and conflict behavior
 
@@ -131,7 +142,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D w
 
 Browser checks use the existing development preview and mocked IPC: host selection, capabilities, review before mutation, apply/restore confirmation, disconnect cancellation, stale state, ESC/focus restoration, dark theme and 560px window layout. No browser mock is included in production source.
 
-Real Windows → Linux SSH forwarding, ProxyJump authentication, server forwarding rejection, Windows shutdown cleanup, and actual Codex/Claude routing still require acceptance on a user-provided test host. No real SSH target or model API was used during implementation.
+Real Windows → Linux password/PAM authentication, ProxyJump authentication, server forwarding rejection, Windows shutdown cleanup, and actual Codex/Claude routing still require acceptance on a user-provided test host. Unit and source-boundary tests cover PTY ownership, response zeroization, terminal-control filtering and hardening flags, but do not claim a live-server authentication result. No real SSH target or model API was used during implementation.
 
 `pnpm test:extensions` 同时检查远端 bundle 与源代码一致，并覆盖无损增量修改、重复键/凭据冲突、预览后第三方修改、恢复、原子替换故障回滚和硬链接拒绝。Windows 测试不证明 Linux 的权限/锁语义；生产入口仅允许非 root Linux。模拟 IPC 的浏览器回归覆盖范围选择、远端确认门槛、写入前预览、部分成功、恢复及键盘焦点。
 

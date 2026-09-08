@@ -67,6 +67,8 @@ The Diagnostic Report preview uses a backend-issued allowlisted DTO, not seriali
 
 ProxyEnv does not read, save, or manage proxy user names or passwords, subscription tokens, node credentials, or any other proxy authentication material. Such values must never be added to logs, reports, snapshots, backups, settings, or application rules.
 
+Remote Bridge may accept an SSH password, key passphrase, verification code, or keyboard-interactive response only after the user explicitly opens an interactive authentication flow. The value is written directly to the current OpenSSH PTY stdin, is never added to command arguments, configuration, settings, diagnostics, logs, or authentication snapshots, and is cleared from frontend and backend input buffers after submission. It is not retained for later operations. Non-interactive checks reject unknown hosts; the interactive flow may ask the user to confirm a first-seen fingerprint, but never disables host-key checking and never bypasses an existing `known_hosts` mismatch. Cancelling, expiry, disconnect, or application shutdown terminates the owned authentication process.
+
 ## Release security priorities
 
 Release CI, locked dependencies, SHA-256 checksums, GitHub Artifact Attestation, the environment transaction, restore conflict detection, CSP, backend IPC authorization, snapshot validation, signed Tauri Updater artifacts, an embedded public verification key, a fixed HTTPS source, and default anti-downgrade behavior are the trust requirements for a formal public Windows release.

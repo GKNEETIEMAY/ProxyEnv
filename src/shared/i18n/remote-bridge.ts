@@ -155,15 +155,71 @@ const foundationKo: FoundationLabels = {
   rbProxyHelpCheck:"세션의 현재 활성 프록시가 이 컴퓨터에서 계속 수신 중인지 확인합니다.",rbProxyHelpSuccess:"이 활성 프록시로 일반 네트워크 브리지를 만들 수 있습니다.",rbProxyHelpFailure:"사용 가능한 프록시가 선택되지 않았거나 수신 포트가 사라졌습니다.",rbProxyHelpNext:"로컬 환경에서 사용 가능한 프록시를 선택한 뒤 다시 검사하세요.",
   rbCcHelpCheck:"CC Switch 라우팅 포트가 수신 중인지, 가능한 경우 프로세스도 확인합니다.",rbCcHelpSuccess:"일반 프록시와 별도로 AI 라우트를 브리지할 수 있습니다.",rbCcHelpFailure:"Routing Service가 꺼졌거나 포트가 틀렸거나 프로세스를 확인할 수 없습니다.",rbCcHelpNext:"CC Switch에서 Routing Service와 포트를 확인한 뒤 다시 검사하세요.",
 };
+const authEn = {
+  rbAuthTitle: "OpenSSH authentication", rbAuthPrompt: "OpenSSH prompt", rbAuthCancel: "Cancel authentication",
+  rbAuthWaitingPrompt: "Waiting for server", rbAuthWaitingUser: "Waiting for input", rbAuthVerifying: "Verifying", rbAuthSuccess: "SSH authentication succeeded", rbAuthFailure: "Authentication failed",
+  rbAuthWaitingPromptMessage: "Waiting for the server authentication request…", rbAuthPromptUnavailable: "OpenSSH is waiting for input but did not expose a readable prompt. Enter only the information your server normally requests at this step.",
+  rbAuthPasswordTitle: "SSH password authentication", rbAuthPasswordDescription: "This server requires your account password to complete SSH sign-in.", rbAuthPasswordLabel: "Server password",
+  rbAuthPassphraseTitle: "SSH key passphrase", rbAuthPassphraseDescription: "The selected SSH private key is protected. Enter its passphrase to unlock it for this session.", rbAuthPassphraseLabel: "Key passphrase",
+  rbAuthOtpTitle: "Verification code", rbAuthOtpDescription: "The server requires an additional identity verification step.", rbAuthOtpLabel: "Verification code",
+  rbAuthHostKeyTitle: "Confirm first connection", rbAuthHostKeyDescription: "OpenSSH has not seen this server key before. Confirm the fingerprint belongs to the server you intend to use.", rbAuthFingerprint: "Host fingerprint",
+  rbAuthKeyboardTitle: "Additional server authentication", rbAuthKeyboardDescription: "The server is asking an additional authentication question.", rbAuthUnknownTitle: "Your confirmation is required", rbAuthUnknownDescription: "OpenSSH needs more information to continue.", rbAuthResponseLabel: "Response",
+  rbAuthSecretNotice: "This value is sent only to the current OpenSSH session. ProxyEnv does not save it in commands, configuration, or logs.", rbAuthPassphraseNotice: "This is not your server account password. It is used only to unlock the SSH key for this OpenSSH session.", rbAuthGenericNotice: "This response is sent only to the current OpenSSH session.",
+  rbAuthConnect: "Connect", rbAuthContinue: "Continue", rbAuthVerify: "Verify", rbAuthConfirmHost: "Confirm and continue", rbAuthSubmit: "Submit",
+  rbAuthRejected: "The server rejected that response. Check it and try again.", rbAuthHostKeyChanged: "The server key differs from the existing known_hosts record. ProxyEnv will not bypass or overwrite it.",
+  rbAuthMethodIdentityFile: "SSH key", rbAuthMethodAgent: "SSH agent", rbAuthMethodPassword: "Password", rbAuthMethodKeyboardInteractive: "Interactive challenge", rbAuthMethodUnknown: "OpenSSH authentication",
+  rbAuthError: "Interactive SSH authentication could not be completed. Check the prompt, account policy, and host key, then try again.",
+};
+type AuthLabels = { [K in keyof typeof authEn]: string };
+const authZh: AuthLabels = {
+  rbAuthTitle:"OpenSSH 认证",rbAuthPrompt:"OpenSSH 提示",rbAuthCancel:"取消认证",
+  rbAuthWaitingPrompt:"等待服务器",rbAuthWaitingUser:"等待输入",rbAuthVerifying:"正在验证",rbAuthSuccess:"SSH 认证成功",rbAuthFailure:"认证失败",rbAuthWaitingPromptMessage:"正在等待服务器的认证请求……",rbAuthPromptUnavailable:"OpenSSH 正在等待输入，但没有提供可读取的提示。请只填写服务器在此步骤通常要求的认证信息。",
+  rbAuthPasswordTitle:"SSH 密码认证",rbAuthPasswordDescription:"此服务器要求使用账户密码完成 SSH 登录。",rbAuthPasswordLabel:"服务器密码",
+  rbAuthPassphraseTitle:"SSH 密钥密码",rbAuthPassphraseDescription:"当前 SSH 私钥受到密码保护，请输入密码以在本次会话中解锁。",rbAuthPassphraseLabel:"密钥密码",
+  rbAuthOtpTitle:"身份验证码",rbAuthOtpDescription:"服务器要求进一步验证你的身份。",rbAuthOtpLabel:"验证码",
+  rbAuthHostKeyTitle:"首次连接确认",rbAuthHostKeyDescription:"OpenSSH 尚未记录这台服务器的主机密钥，请确认指纹属于你要连接的服务器。",rbAuthFingerprint:"主机指纹",
+  rbAuthKeyboardTitle:"服务器附加认证",rbAuthKeyboardDescription:"服务器要求回答额外的身份认证问题。",rbAuthUnknownTitle:"需要你的确认",rbAuthUnknownDescription:"OpenSSH 需要更多信息才能继续。",rbAuthResponseLabel:"响应",
+  rbAuthSecretNotice:"此内容只会发送给当前 OpenSSH 会话。ProxyEnv 不会保存到命令、配置或日志。",rbAuthPassphraseNotice:"这不是服务器账户密码，只用于在本次 OpenSSH 会话中解锁 SSH 密钥。",rbAuthGenericNotice:"此响应只会发送给当前 OpenSSH 会话。",
+  rbAuthConnect:"连接",rbAuthContinue:"继续",rbAuthVerify:"验证",rbAuthConfirmHost:"确认并继续",rbAuthSubmit:"提交",rbAuthRejected:"服务器拒绝了本次认证，请检查后重新输入。",rbAuthHostKeyChanged:"服务器主机密钥与 known_hosts 中的记录不同。ProxyEnv 不会绕过或覆盖已有指纹。",
+  rbAuthMethodIdentityFile:"SSH 密钥",rbAuthMethodAgent:"SSH Agent",rbAuthMethodPassword:"密码",rbAuthMethodKeyboardInteractive:"交互式验证",rbAuthMethodUnknown:"OpenSSH 认证",
+  rbAuthError:"未能完成 SSH 交互认证。请检查提示内容、账户策略与主机指纹后重试。",
+};
+const authJa: AuthLabels = {
+  rbAuthTitle:"OpenSSH 認証",rbAuthPrompt:"OpenSSH の確認",rbAuthCancel:"認証をキャンセル",
+  rbAuthWaitingPrompt:"サーバーを待機",rbAuthWaitingUser:"入力待ち",rbAuthVerifying:"確認中",rbAuthSuccess:"SSH 認証に成功しました",rbAuthFailure:"認証に失敗しました",rbAuthWaitingPromptMessage:"サーバーの認証要求を待っています…",rbAuthPromptUnavailable:"OpenSSH は入力待ちですが、読み取れる確認内容を表示しませんでした。この段階でサーバーが通常求める認証情報だけを入力してください。",
+  rbAuthPasswordTitle:"SSH パスワード認証",rbAuthPasswordDescription:"このサーバーではアカウントのパスワードによる SSH ログインが必要です。",rbAuthPasswordLabel:"サーバーパスワード",
+  rbAuthPassphraseTitle:"SSH キーのパスフレーズ",rbAuthPassphraseDescription:"選択した SSH 秘密鍵は保護されています。このセッションで解除するパスフレーズを入力してください。",rbAuthPassphraseLabel:"キーパスフレーズ",
+  rbAuthOtpTitle:"確認コード",rbAuthOtpDescription:"サーバーが追加の本人確認を要求しています。",rbAuthOtpLabel:"確認コード",
+  rbAuthHostKeyTitle:"初回接続の確認",rbAuthHostKeyDescription:"OpenSSH に未登録のホスト鍵です。接続先サーバーの指紋であることを確認してください。",rbAuthFingerprint:"ホスト指紋",
+  rbAuthKeyboardTitle:"サーバーの追加認証",rbAuthKeyboardDescription:"サーバーが追加の認証質問を要求しています。",rbAuthUnknownTitle:"確認が必要です",rbAuthUnknownDescription:"OpenSSH を続行するには追加情報が必要です。",rbAuthResponseLabel:"応答",
+  rbAuthSecretNotice:"この内容は現在の OpenSSH セッションだけに送信され、コマンド・設定・ログには保存されません。",rbAuthPassphraseNotice:"これはサーバーのアカウントパスワードではありません。現在のセッションで SSH キーを解除するためだけに使用します。",rbAuthGenericNotice:"この応答は現在の OpenSSH セッションだけに送信されます。",
+  rbAuthConnect:"接続",rbAuthContinue:"続行",rbAuthVerify:"確認",rbAuthConfirmHost:"確認して続行",rbAuthSubmit:"送信",rbAuthRejected:"サーバーがこの認証を拒否しました。確認して再入力してください。",rbAuthHostKeyChanged:"サーバー鍵が known_hosts の記録と異なります。ProxyEnv は既存の指紋を回避または上書きしません。",
+  rbAuthMethodIdentityFile:"SSH キー",rbAuthMethodAgent:"SSH Agent",rbAuthMethodPassword:"パスワード",rbAuthMethodKeyboardInteractive:"対話チャレンジ",rbAuthMethodUnknown:"OpenSSH 認証",
+  rbAuthError:"SSH 対話認証を完了できませんでした。表示内容、アカウントポリシー、ホスト鍵を確認して再試行してください。",
+};
+const authKo: AuthLabels = {
+  rbAuthTitle:"OpenSSH 인증",rbAuthPrompt:"OpenSSH 요청",rbAuthCancel:"인증 취소",
+  rbAuthWaitingPrompt:"서버 대기 중",rbAuthWaitingUser:"입력 대기",rbAuthVerifying:"확인 중",rbAuthSuccess:"SSH 인증 성공",rbAuthFailure:"인증 실패",rbAuthWaitingPromptMessage:"서버의 인증 요청을 기다리는 중…",rbAuthPromptUnavailable:"OpenSSH가 입력을 기다리지만 읽을 수 있는 요청을 표시하지 않았습니다. 이 단계에서 서버가 일반적으로 요구하는 인증 정보만 입력하세요.",
+  rbAuthPasswordTitle:"SSH 비밀번호 인증",rbAuthPasswordDescription:"이 서버는 계정 비밀번호로 SSH 로그인을 완료해야 합니다.",rbAuthPasswordLabel:"서버 비밀번호",
+  rbAuthPassphraseTitle:"SSH 키 암호",rbAuthPassphraseDescription:"선택한 SSH 개인 키가 보호되어 있습니다. 이 세션에서 잠금을 해제할 암호를 입력하세요.",rbAuthPassphraseLabel:"키 암호",
+  rbAuthOtpTitle:"인증 코드",rbAuthOtpDescription:"서버가 추가 본인 인증을 요구합니다.",rbAuthOtpLabel:"인증 코드",
+  rbAuthHostKeyTitle:"첫 연결 확인",rbAuthHostKeyDescription:"OpenSSH에 아직 등록되지 않은 호스트 키입니다. 연결할 서버의 지문인지 확인하세요.",rbAuthFingerprint:"호스트 지문",
+  rbAuthKeyboardTitle:"서버 추가 인증",rbAuthKeyboardDescription:"서버가 추가 인증 질문을 요청합니다.",rbAuthUnknownTitle:"확인이 필요합니다",rbAuthUnknownDescription:"OpenSSH를 계속하려면 추가 정보가 필요합니다.",rbAuthResponseLabel:"응답",
+  rbAuthSecretNotice:"이 내용은 현재 OpenSSH 세션에만 전송되며 명령, 설정 또는 로그에 저장되지 않습니다.",rbAuthPassphraseNotice:"서버 계정 비밀번호가 아닙니다. 현재 OpenSSH 세션에서 SSH 키를 잠금 해제할 때만 사용합니다.",rbAuthGenericNotice:"이 응답은 현재 OpenSSH 세션에만 전송됩니다.",
+  rbAuthConnect:"연결",rbAuthContinue:"계속",rbAuthVerify:"확인",rbAuthConfirmHost:"확인 후 계속",rbAuthSubmit:"제출",rbAuthRejected:"서버가 이번 인증을 거부했습니다. 확인한 뒤 다시 입력하세요.",rbAuthHostKeyChanged:"서버 키가 known_hosts 기록과 다릅니다. ProxyEnv는 기존 지문을 우회하거나 덮어쓰지 않습니다.",
+  rbAuthMethodIdentityFile:"SSH 키",rbAuthMethodAgent:"SSH Agent",rbAuthMethodPassword:"비밀번호",rbAuthMethodKeyboardInteractive:"대화형 확인",rbAuthMethodUnknown:"OpenSSH 인증",
+  rbAuthError:"SSH 대화형 인증을 완료하지 못했습니다. 요청 내용, 계정 정책 및 호스트 키를 확인한 뒤 다시 시도하세요.",
+};
 const en = {
   ...extensionEn,
   ...flowEn,
   ...foundationEn,
+  ...authEn,
   rbVscodeOpen: "Open in VS Code", rbVscodeTargets: "Also reads remote.SSH.configFile from the default VS Code user settings (JSONC). Hosts from that file are marked VS Code. Custom profiles and portable settings are not scanned.", rbVscodeHint: "Connect VS Code Remote - SSH to this same host, then paste the proxy variables and CLI launch commands into its remote terminal. The bridge remains owned by ProxyEnv. Terminal exports do not reconfigure an already-running VS Code Server or extension host.", rbVscodeError: "Could not open the reviewed SSH target in VS Code. Check that VS Code and Remote - SSH are installed, and select a host from the same SSH configuration used by VS Code.",
   rbTitle: "Remote environment bridge", rbHint: "Share your current local proxy and CC Switch with a server or VM over SSH.",
   rbOpen: "Configure bridge", rbView: "View bridge", rbTarget: "Remote environment", rbCapabilities: "Bridge capabilities", rbPreview: "Review bridge", rbStatus: "Bridge status",
   rbAlias: "SSH host alias", rbEmpty: "No compatible remote environments were found in OpenSSH, VS Code Remote, or MobaXterm. Add or repair a target, then refresh.",
-  rbRequirements: "Uses your existing OpenSSH keys and agent. First connect in your terminal to verify the host key. Remote: a non-root Linux account with ss, flock and coreutils.",
+  rbRequirements: "Uses OpenSSH keys or agent first, then offers in-app password / keyboard-interactive authentication when required. Verify a new host key in your terminal first. Remote: a non-root Linux account with ss, flock and coreutils.",
   rbCheck: "Check connection", rbChecked: "SSH connection verified", rbRefresh: "Refresh remote environments", rbNext: "Continue", rbBack: "Back", rbClose: "Close",
   rbProxy: "Current local proxy", rbNoProxy: "The active proxy is unavailable. Select an available proxy under Local environment.",
   rbCc: "CC Switch local routing", rbCcHint: "Checks only the loopback port, not service identity. Confirm this is your CC Switch routing port and routing is enabled for the desired CLI.",
@@ -190,9 +246,10 @@ const zh: Labels = {
   ...extensionZh,
   ...flowZh,
   ...foundationZh,
+  ...authZh,
   rbVscodeOpen:"在 VS Code 中打开", rbVscodeTargets:"同时读取 VS Code 默认用户设置（JSONC）中的 remote.SSH.configFile；该文件中的主机标注为 VS Code。不扫描自定义 Profile 或便携版设置。", rbVscodeHint:"在 VS Code Remote - SSH 中连接同一主机，再把代理变量和 CLI 启动命令粘贴到远程终端。桥接由 ProxyEnv 独立维护。终端 export 不会重新配置已运行的 VS Code Server 或扩展宿主。", rbVscodeError:"无法在 VS Code 中打开已确认的 SSH 目标。请确认已安装 VS Code 与 Remote - SSH，并选择与 VS Code 使用同一 SSH 配置的主机。",
   rbTitle:"远程环境桥接", rbHint:"通过 SSH 让服务器或虚拟机复用当前本机代理与 CC Switch。", rbOpen:"配置远程桥接", rbView:"查看桥接", rbTarget:"选择远程环境", rbCapabilities:"选择桥接能力", rbPreview:"确认桥接配置", rbStatus:"桥接状态",
-  rbAlias:"SSH 主机别名", rbEmpty:"未在 OpenSSH、VS Code Remote 或 MobaXterm 中发现可用的远程环境。请添加或修复目标后刷新。", rbRequirements:"复用现有 OpenSSH 密钥与 Agent。请先在终端连接并确认主机指纹。远端需使用非 root Linux 账户，并具备 ss、flock 和 coreutils。",
+  rbAlias:"SSH 主机别名", rbEmpty:"未在 OpenSSH、VS Code Remote 或 MobaXterm 中发现可用的远程环境。请添加或修复目标后刷新。", rbRequirements:"优先复用 OpenSSH 密钥与 Agent；需要时可在应用内完成密码或 Keyboard Interactive 认证。新主机仍需先在终端确认指纹。远端需使用非 root Linux 账户，并具备 ss、flock 和 coreutils。",
   rbCheck:"检查连接", rbChecked:"SSH 连接已验证", rbRefresh:"刷新远程环境", rbNext:"下一步", rbBack:"上一步", rbClose:"关闭", rbProxy:"当前本机代理", rbNoProxy:"当前活动代理不可用，请回到本机环境选择可用代理。",
   rbCc:"CC Switch 本地路由", rbCcHint:"仅检查 Loopback 端口监听，不判断服务身份。请确认该端口属于 CC Switch，且已为所需 CLI 开启路由。", rbLocalPort:"本地路由端口", rbDetect:"检查本地端口", rbDetected:"本地端口正在监听", rbRemotePort:"远程端口", rbPortHint:"端口范围 1024–65535，两个桥接不能使用相同端口。",
   rbSafety:"远端仅绑定 127.0.0.1。隧道仅在本次 ProxyEnv 运行期间有效，不修改 Shell 启动文件。", rbConnect:"建立桥接", rbDisconnect:"断开桥接", rbDisconnectHint:"远程程序将无法继续通过桥接访问。已保存的 CLI 接入配置仍可恢复。", rbConfirm:"确认", rbCancel:"取消", rbReconnect:"重新配置",
@@ -206,6 +263,7 @@ const ja: Labels = {
   ...extensionJa,
   ...flowJa,
   ...foundationJa,
+  ...authJa,
   rbVscodeOpen:"VS Code で開く", rbVscodeTargets:"VS Code の既定ユーザー設定（JSONC）の remote.SSH.configFile も読みます。該当ホストは VS Code と表示します。カスタム Profile とポータブル設定は対象外です。", rbVscodeHint:"Remote - SSH で同じホストに接続し、リモートターミナルに環境変数と CLI コマンドを貼り付けてください。ブリッジは ProxyEnv が管理します。export は起動済みの Server や拡張ホストを再設定しません。", rbVscodeError:"VS Code で接続先を開けません。VS Code と Remote - SSH のインストール、および SSH 設定ファイルの一致を確認してください。",
   rbTitle:"リモート環境ブリッジ",rbHint:"SSH 経由でサーバーや VM と現在のプロキシ・CC Switch を共有します。",rbOpen:"ブリッジを設定",rbView:"ブリッジを表示",rbTarget:"接続先を選択",rbCapabilities:"機能を選択",rbPreview:"設定を確認",rbStatus:"ブリッジの状態",rbAlias:"SSH ホスト別名",rbEmpty:"~/.ssh/config に明示的な Host がありません。OpenSSH で追加して更新してください。",rbRequirements:"既存の鍵と Agent を使用します。先にターミナルでホスト鍵を確認してください。接続先は非 root の Linux、ss・flock・coreutils が必要です。",rbCheck:"接続を確認",rbChecked:"SSH 接続を確認済み",rbRefresh:"ホストを更新",rbNext:"次へ",rbBack:"戻る",rbClose:"閉じる",rbProxy:"現在のローカルプロキシ",rbNoProxy:"プロキシが利用できません。ホームで利用可能なプロキシを選択してください。",rbCc:"CC Switch ローカルルーティング",rbCcHint:"ポートの待ち受けのみ確認します。CC Switch のポートと CLI のルーティング有効化を確認してください。",rbLocalPort:"ローカルポート",rbDetect:"ポートを確認",rbDetected:"ポートは待ち受け中です",rbRemotePort:"リモートポート",rbPortHint:"1024～65535 の異なるポートを指定してください。",rbSafety:"リモートは 127.0.0.1 のみ。ProxyEnv の実行中だけ有効です。Shell 起動ファイルは変更しません。",rbConnect:"ブリッジを接続",rbDisconnect:"ブリッジを切断",rbDisconnectHint:"リモートプログラムの接続が失われます。保存済み CLI 設定は復元できます。",rbConfirm:"確認",rbCancel:"キャンセル",rbReconnect:"再設定",rbStaleHint:"現在のプロキシが変更されました。既存の接続先は保持されています。切断してから再接続してください。",rbUnavailableHint:"ローカルの接続先を利用できません。プロキシまたは CC Switch を確認してください。自動切替は行いません。",rbLocal:"ローカル",rbRemote:"リモート",rbCopy:"環境変数をコピー",rbCopied:"コピーしました",rbTest:"ブリッジをテスト",rbTestHint:"この操作のみがリモートプロキシ経由で gstatic.com に接続します。AI リクエストは送りません。",rbTested:"ネットワークテスト成功",rbCodex:"Codex を設定",rbClaude:"Claude Code を設定",rbRestoreCodex:"Codex 設定を復元",rbRestoreClaude:"Claude 設定を復元",rbConfigHint:"専用設定を作成します。Codex CLI 0.134+（0.x）と Claude Code 2.x に対応。既存の設定と認証情報を保持します。表示されたコマンドで有効にしてください。上位設定による上書きがあり得ます。PROXY_MANAGED は公開プレースホルダーです。",rbBefore:"変更前",rbAfter:"変更後",rbAbsent:"ファイルなし",rbApply:"確認して適用",rbApplied:"設定を検証済み",rbLaunch:"リモート起動コマンド",rbCopyLaunch:"起動コマンドをコピー",rbRestoreHint:"リモートバックアップから専用設定を復元します。他の変更があれば上書きせず停止します。",rbRestored:"元の設定を復元しました",rbBusy:"処理中…",rbFailed:"操作に失敗しました。SSH とローカル接続先を確認して再試行してください。",rbSshError:"SSH 接続に失敗しました。ターミナルでホスト鍵、認証、設定を確認してください。サーバー設定は変更していません。",rbForwardError:"転送できません。ポートの使用状況と SSH 転送ポリシーを確認してください。サーバー設定は変更していません。",rbBindingError:"Loopback のみの待ち受けを確認できず、新しい接続を閉じました。管理者に GatewayPorts を確認してください。",rbConfigError:"設定が競合するか未対応です。競合を上書きしていません。リモートの専用設定と復元ファイルを確認してください。",rbDependencyError:"非対応の環境またはツール不足です。非 root Linux と ss・flock・coreutils、Codex 0.134+（0.x）または Claude Code 2.x が必要です。",rbPortError:"ポートが無効か使用中です。1024～65535 の空きポートを選択してください。",rbActiveError:"プロキシが変更されたか利用できません。ホームで確認して再設定してください。",rbStates:{disconnected:"未接続",connecting:"接続中",connected:"接続済み",stale:"設定変更あり",unavailable:"利用不可",error:"接続失敗"},
 };
@@ -213,9 +271,13 @@ const ko: Labels = {
   ...extensionKo,
   ...flowKo,
   ...foundationKo,
+  ...authKo,
   rbVscodeOpen:"VS Code에서 열기", rbVscodeTargets:"VS Code 기본 사용자 설정(JSONC)의 remote.SSH.configFile도 읽습니다. 해당 호스트는 VS Code로 표시됩니다. 사용자 지정 Profile 및 휴대용 설정은 검색하지 않습니다.", rbVscodeHint:"Remote - SSH로 같은 호스트에 연결한 뒤 원격 터미널에 프록시 변수와 CLI 명령을 붙여 넣으세요. 브리지는 ProxyEnv가 관리합니다. 터미널 export는 실행 중인 Server나 확장 호스트를 다시 설정하지 않습니다.", rbVscodeError:"VS Code에서 대상 호스트를 열 수 없습니다. VS Code와 Remote - SSH 설치 및 SSH 설정 파일 일치 여부를 확인하세요.",
   rbTitle:"원격 환경 브리지",rbHint:"SSH로 서버 또는 VM에서 현재 프록시와 CC Switch를 사용합니다.",rbOpen:"브리지 설정",rbView:"브리지 보기",rbTarget:"원격 환경 선택",rbCapabilities:"기능 선택",rbPreview:"설정 확인",rbStatus:"브리지 상태",rbAlias:"SSH 호스트 별칭",rbEmpty:"~/.ssh/config에 명시적인 Host가 없습니다. OpenSSH로 호스트를 추가한 후 새로 고치세요.",rbRequirements:"기존 키와 Agent를 사용합니다. 터미널에서 호스트 키를 먼저 확인하세요. 원격에는 ss, flock, coreutils가 있는 비 root Linux 계정이 필요합니다.",rbCheck:"연결 확인",rbChecked:"SSH 연결 확인됨",rbRefresh:"호스트 새로 고침",rbNext:"다음",rbBack:"이전",rbClose:"닫기",rbProxy:"현재 로컬 프록시",rbNoProxy:"프록시를 사용할 수 없습니다. 홈에서 사용 가능한 프록시를 선택하세요.",rbCc:"CC Switch 로컬 라우팅",rbCcHint:"포트 수신만 확인합니다. CC Switch 포트인지, 해당 CLI의 라우팅이 켜져 있는지 확인하세요.",rbLocalPort:"로컬 라우팅 포트",rbDetect:"로컬 포트 확인",rbDetected:"포트가 수신 중입니다",rbRemotePort:"원격 포트",rbPortHint:"1024–65535 범위에서 서로 다른 포트를 사용하세요.",rbSafety:"원격은 127.0.0.1에만 바인딩합니다. ProxyEnv 실행 중에만 유효하며 Shell 시작 파일을 변경하지 않습니다.",rbConnect:"브리지 연결",rbDisconnect:"브리지 연결 해제",rbDisconnectHint:"원격 프로그램의 브리지 연결이 끊깁니다. 저장된 CLI 설정은 복원할 수 있습니다.",rbConfirm:"확인",rbCancel:"취소",rbReconnect:"다시 설정",rbStaleHint:"현재 프록시가 변경되었습니다. 기존 터널은 원래 대상을 사용합니다. 연결을 해제한 후 다시 설정하세요.",rbUnavailableHint:"로컬 대상을 사용할 수 없습니다. 프록시 또는 CC Switch를 확인하세요. 대상은 자동으로 전환되지 않습니다.",rbLocal:"로컬",rbRemote:"원격",rbCopy:"환경 변수 복사",rbCopied:"복사됨",rbTest:"브리지 테스트",rbTestHint:"이 버튼만 원격 프록시를 통해 gstatic.com에 접속합니다. AI 요청은 보내지 않습니다.",rbTested:"원격 네트워크 테스트 통과",rbCodex:"Codex 설정",rbClaude:"Claude Code 설정",rbRestoreCodex:"Codex 설정 복원",rbRestoreClaude:"Claude 설정 복원",rbConfigHint:"전용 설정을 생성합니다. Codex CLI 0.134+ (0.x) 또는 Claude Code 2.x를 지원합니다. 기존 기본 설정과 인증 정보를 유지합니다. 표시된 명령으로 사용하며 상위 설정이 덮어쓸 수 있습니다. PROXY_MANAGED는 공개 자리표시자입니다.",rbBefore:"변경 전",rbAfter:"변경 후",rbAbsent:"파일 없음",rbApply:"설정 확인 후 적용",rbApplied:"설정 검증 완료",rbLaunch:"원격 실행 명령",rbCopyLaunch:"실행 명령 복사",rbRestoreHint:"원격 백업에서 원래 전용 설정을 복원합니다. 다른 프로그램이 변경했다면 덮어쓰지 않고 중단합니다.",rbRestored:"원래 설정 복원됨",rbBusy:"처리 중…",rbFailed:"작업이 실패했습니다. SSH 대상과 로컬 포트를 확인한 후 다시 시도하세요.",rbSshError:"SSH 연결 실패. 터미널에서 호스트 키, 키/Agent 인증, SSH 설정을 확인하세요. 서버 설정은 변경하지 않았습니다.",rbForwardError:"역방향 전달 실패. 원격 포트 점유와 SSH 전달 정책을 확인하세요. 서버 설정은 변경하지 않았습니다.",rbBindingError:"Loopback 전용 수신을 확인할 수 없어 새 터널을 닫았습니다. 관리자에게 GatewayPorts 정책을 확인하세요.",rbConfigError:"설정 충돌 또는 미지원 파일입니다. 충돌한 변경을 덮어쓰지 않았습니다. 원격의 전용 설정과 복구 파일을 확인하세요.",rbDependencyError:"미지원 원격 환경 또는 도구 누락입니다. ss, flock, coreutils가 있는 비 root Linux와 Codex 0.134+ (0.x) 또는 Claude Code 2.x가 필요합니다.",rbPortError:"잘못되었거나 사용 중인 포트입니다. 1024–65535 범위의 서로 다른 빈 포트를 선택하세요.",rbActiveError:"프록시가 변경되었거나 사용할 수 없습니다. 홈에서 확인한 후 다시 미리 보세요.",rbStates:{disconnected:"연결 안 됨",connecting:"연결 중",connected:"연결됨",stale:"설정 변경됨",unavailable:"사용 불가",error:"연결 실패"},
 };
+ja.rbRequirements = "OpenSSH の鍵と Agent を優先し、必要ならアプリ内でパスワードまたは対話認証を行います。新しいホスト鍵は先にターミナルで確認してください。接続先は非 root の Linux、ss・flock・coreutils が必要です。";
+ko.rbRequirements = "OpenSSH 키와 Agent를 우선 사용하며 필요하면 앱 안에서 비밀번호 또는 대화형 인증을 진행합니다. 새 호스트 키는 터미널에서 먼저 확인하세요. 원격에는 ss, flock, coreutils가 있는 비 root Linux 계정이 필요합니다.";
+
 export const remoteBridgeMessages = { en, "zh-CN": zh, ja, ko };
 export type RemoteBridgeCopy = Labels;
 
@@ -233,6 +295,9 @@ export function bridgeError(code: unknown, copy: Labels): string {
   if (value === "alreadyConnected") return copy.rbAlreadyConnectedError;
   if (value === "stateUnavailable") return copy.rbStateError;
   if (value === "processFailed") return copy.rbProcessError;
+  if (value === "sshAuthRejected") return copy.rbAuthRejected;
+  if (value === "hostKeyChanged") return copy.rbAuthHostKeyChanged;
+  if (["ptyUnavailable","sshAuthSessionMissing","sshAuthSessionClosed","sshAuthInputInvalid","sshAuthPending"].includes(value)) return copy.rbAuthError;
   if (value === "networkFailed") return copy.rbNetworkError;
   if (value === "remoteFailed") return copy.rbRemoteError;
   if (["mobaSessionUnsupported","targetUnsupported","mobaConfigInvalid"].includes(value)) return copy.rbTargetError;
