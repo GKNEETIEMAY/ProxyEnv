@@ -3,7 +3,6 @@ use super::{
 };
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::{
     collections::HashMap,
     io::{Read, Write},
@@ -19,8 +18,10 @@ type SharedTerminalOutput = Arc<Mutex<TerminalOutput>>;
 const AUTH_MARKER_PREFIX: &str = "__PROXYENV_SSH_AUTH_";
 const MAX_TERMINAL_BYTES: usize = 65_536;
 const MAX_TRANSCRIPT_CHARS: usize = 8_192;
+const MAX_CONTROL_BYTES: usize = 64;
 const SESSION_TTL: Duration = Duration::from_secs(180);
-const PROMPT_FALLBACK_DELAY: Duration = Duration::from_millis(1_500);
+const PROMPT_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const COMPLETION_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +40,7 @@ pub enum SessionStatus {
     WaitingServer,
     Authenticated,
     Succeeded,
+    PromptUnavailable,
     Failed,
 }
 
@@ -56,6 +58,7 @@ pub enum PromptType {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthPrompt {
+    pub id: String,
     #[serde(rename = "type")]
     pub prompt_type: PromptType,
     pub message: String,
@@ -63,6 +66,18 @@ pub struct AuthPrompt {
     pub attempt: u16,
     pub target: Option<String>,
     pub fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyDiagnostic {
+    pub bytes_received: u64,
+    pub printable_bytes: u64,
+    pub cpr_requests: u32,
+    pub prompt_detected: bool,
+    pub auth_marker_detected: bool,
+    pub remote_result_detected: bool,
+    pub output_closed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -73,6 +88,7 @@ pub struct Snapshot {
     pub status: SessionStatus,
     pub auth: SshAuthState,
     pub prompt: Option<AuthPrompt>,
+    pub diagnostic: PtyDiagnostic,
     pub error: Option<String>,
 }
 
@@ -88,7 +104,12 @@ struct TerminalOutput {
     bytes: Vec<u8>,
     authenticated: bool,
     marker: Vec<u8>,
-    redact_until_line_break: bool,
+    pending_echo: Option<Zeroizing<Vec<u8>>>,
+    echo_match_len: usize,
+    bytes_received: u64,
+    printable_bytes: u64,
+    cpr_requests: u32,
+    remote_result_detected: bool,
     closed: bool,
 }
 
@@ -138,8 +159,12 @@ struct Session {
     completion: Completion,
     created_at: Instant,
     attempt: u16,
-    output_len_at_submit: Option<usize>,
-    submitted_at: Option<Instant>,
+    current_prompt: Option<AuthPrompt>,
+    last_prompt: Option<(PromptType, String)>,
+    prompt_generation: u32,
+    prompt_consumed_at: usize,
+    waiting_since: Instant,
+    authenticated_at: Option<Instant>,
 }
 
 static SESSIONS: OnceLock<Mutex<HashMap<String, Session>>> = OnceLock::new();
@@ -184,22 +209,115 @@ fn command_builder(command: &std::process::Command) -> CommandBuilder {
     builder
 }
 
-fn visible_after_response<'a>(bytes: &'a [u8], redact: &mut bool) -> Option<&'a [u8]> {
-    if !*redact {
-        return Some(bytes);
+#[derive(Default)]
+enum ControlState {
+    #[default]
+    Ground,
+    Escape,
+    Csi(Vec<u8>),
+    Osc {
+        escape: bool,
+    },
+}
+
+#[derive(Default)]
+struct TerminalControlParser {
+    state: ControlState,
+}
+
+struct ParsedTerminalChunk {
+    printable: Vec<u8>,
+    cpr_requests: u32,
+}
+
+impl TerminalControlParser {
+    fn push(&mut self, bytes: &[u8]) -> ParsedTerminalChunk {
+        let mut printable = Vec::with_capacity(bytes.len());
+        let mut cpr_requests = 0u32;
+        for &byte in bytes {
+            match &mut self.state {
+                ControlState::Ground if byte == 0x1b => self.state = ControlState::Escape,
+                ControlState::Ground => printable.push(byte),
+                ControlState::Escape if byte == b'[' => self.state = ControlState::Csi(Vec::new()),
+                ControlState::Escape if byte == b']' => {
+                    self.state = ControlState::Osc { escape: false }
+                }
+                ControlState::Escape => self.state = ControlState::Ground,
+                ControlState::Csi(sequence) => {
+                    if sequence.len() >= MAX_CONTROL_BYTES {
+                        self.state = ControlState::Ground;
+                    } else if (0x40..=0x7e).contains(&byte) {
+                        if byte == b'n' && sequence.as_slice() == b"6" {
+                            cpr_requests = cpr_requests.saturating_add(1);
+                        }
+                        self.state = ControlState::Ground;
+                    } else {
+                        sequence.push(byte);
+                    }
+                }
+                ControlState::Osc { .. } if byte == 0x07 => self.state = ControlState::Ground,
+                ControlState::Osc { escape } if *escape && byte == b'\\' => {
+                    self.state = ControlState::Ground
+                }
+                ControlState::Osc { escape } => *escape = byte == 0x1b,
+            }
+        }
+        ParsedTerminalChunk {
+            printable,
+            cpr_requests,
+        }
     }
-    let position = bytes
-        .iter()
-        .position(|byte| matches!(byte, b'\r' | b'\n'))?;
-    let mut visible = &bytes[position + 1..];
-    while visible
-        .first()
-        .is_some_and(|byte| matches!(byte, b'\r' | b'\n'))
-    {
-        visible = &visible[1..];
+}
+
+fn suppress_confirmed_echo(output: &mut TerminalOutput, bytes: &[u8]) -> Vec<u8> {
+    if output.pending_echo.is_none() {
+        return bytes.to_vec();
     }
-    *redact = false;
-    Some(visible)
+    let mut visible = Vec::with_capacity(bytes.len());
+    for &byte in bytes {
+        let Some((expected_byte, expected_len)) =
+            output.pending_echo.as_ref().and_then(|expected| {
+                expected
+                    .get(output.echo_match_len)
+                    .copied()
+                    .map(|expected_byte| (expected_byte, expected.len()))
+            })
+        else {
+            visible.push(byte);
+            continue;
+        };
+        if byte == expected_byte {
+            output.echo_match_len += 1;
+            if output.echo_match_len == expected_len {
+                output.pending_echo = None;
+                output.echo_match_len = 0;
+            }
+        } else {
+            output.pending_echo = None;
+            output.echo_match_len = 0;
+            visible.push(byte);
+        }
+    }
+    visible
+}
+
+fn terminal_after_marker(bytes: &[u8], marker: &[u8]) -> Option<String> {
+    let marker_end = bytes
+        .windows(marker.len())
+        .position(|window| window == marker)?
+        .saturating_add(marker.len());
+    Some(strip_terminal(&bytes[marker_end..], marker))
+}
+
+fn contains_remote_result(bytes: &[u8], marker: &[u8]) -> bool {
+    terminal_after_marker(bytes, marker).is_some_and(|text| {
+        text.lines().any(|line| {
+            let line = line.trim();
+            line.starts_with('{')
+                && line.ends_with('}')
+                && serde_json::from_str::<serde_json::Value>(line).is_ok()
+        })
+    })
 }
 
 struct SpawnedPty {
@@ -212,7 +330,6 @@ fn spawn(
     mut command: std::process::Command,
     destination: String,
     remote_command: String,
-    source_after_auth: Option<String>,
     marker: String,
 ) -> BridgeResult<SpawnedPty> {
     command.arg(destination).arg(remote_command);
@@ -241,25 +358,39 @@ fn spawn(
         bytes: Vec::new(),
         authenticated: false,
         marker: marker.into_bytes(),
-        redact_until_line_break: false,
+        pending_echo: None,
+        echo_match_len: 0,
+        bytes_received: 0,
+        printable_bytes: 0,
+        cpr_requests: 0,
+        remote_result_detected: false,
         closed: false,
     }));
     let reader_output = Arc::clone(&output);
     let reader_writer = Arc::clone(&writer);
     thread::spawn(move || {
         let mut chunk = [0u8; 2048];
-        let mut source_after_auth = source_after_auth;
+        let mut control_parser = TerminalControlParser::default();
         while let Ok(count) = reader.read(&mut chunk) {
             if count == 0 {
                 break;
             }
-            let mut should_send_source = false;
+            let parsed = control_parser.push(&chunk[..count]);
+            if parsed.cpr_requests > 0 {
+                if let Ok(mut stream) = reader_writer.lock() {
+                    for _ in 0..parsed.cpr_requests {
+                        let _ = stream.write_all(b"\x1b[1;1R");
+                    }
+                    let _ = stream.flush();
+                }
+            }
             if let Ok(mut state) = reader_output.lock() {
-                let Some(visible) =
-                    visible_after_response(&chunk[..count], &mut state.redact_until_line_break)
-                else {
-                    continue;
-                };
+                state.bytes_received = state.bytes_received.saturating_add(count as u64);
+                state.printable_bytes = state
+                    .printable_bytes
+                    .saturating_add(parsed.printable.len() as u64);
+                state.cpr_requests = state.cpr_requests.saturating_add(parsed.cpr_requests);
+                let visible = suppress_confirmed_echo(&mut state, &parsed.printable);
                 if state.bytes.len() < MAX_TERMINAL_BYTES {
                     let remaining = MAX_TERMINAL_BYTES - state.bytes.len();
                     state
@@ -274,16 +405,8 @@ fn spawn(
                         .any(|window| window == state.marker)
                 {
                     state.authenticated = true;
-                    should_send_source = source_after_auth.is_some();
                 }
-            }
-            if should_send_source {
-                if let Some(source) = source_after_auth.take() {
-                    if let Ok(mut stream) = reader_writer.lock() {
-                        let _ = stream.write_all(source.as_bytes());
-                        let _ = stream.flush();
-                    }
-                }
+                state.remote_result_detected = contains_remote_result(&state.bytes, &state.marker);
             }
         }
         if let Ok(mut state) = reader_output.lock() {
@@ -410,6 +533,7 @@ fn parse_ssh_prompt(text: &str, attempt: u16) -> Option<AuthPrompt> {
     let line = current_line(text);
     let line_lower = line.to_ascii_lowercase();
     let make = |prompt_type, message: String, secret| AuthPrompt {
+        id: String::new(),
         prompt_type,
         message,
         secret,
@@ -466,13 +590,13 @@ fn classify_error(transcript: &str) -> String {
         "hostKeyChanged"
     } else if text.contains("host key verification failed") || text.contains("host key") {
         "hostKey"
+    } else if text.contains("forwarding") || text.contains("remote port forwarding failed") {
+        "forwardDenied"
     } else if text.contains("permission denied")
         || text.contains("authentication failed")
         || text.contains("password")
     {
         "sshAuth"
-    } else if text.contains("forwarding") || text.contains("remote port forwarding failed") {
-        "forwardDenied"
     } else {
         "sshFailed"
     }
@@ -488,6 +612,15 @@ fn valid_response(response: &str) -> bool {
             .any(|byte| matches!(byte, b'\r' | b'\n' | 0))
 }
 
+fn matching_prompt<'a>(
+    prompt: Option<&'a AuthPrompt>,
+    prompt_id: &str,
+) -> BridgeResult<&'a AuthPrompt> {
+    prompt
+        .filter(|prompt| prompt.id == prompt_id)
+        .ok_or_else(|| "sshAuthPromptChanged".into())
+}
+
 fn transcript(output: &SharedTerminalOutput) -> BridgeResult<(String, bool, bool, usize)> {
     let output = output.lock().map_err(|_| "stateUnavailable")?;
     Ok((
@@ -498,8 +631,28 @@ fn transcript(output: &SharedTerminalOutput) -> BridgeResult<(String, bool, bool
     ))
 }
 
+fn terminal_delta(output: &SharedTerminalOutput, start: usize) -> BridgeResult<String> {
+    let output = output.lock().map_err(|_| "stateUnavailable")?;
+    let bytes = output.bytes.get(start..).unwrap_or_default();
+    Ok(strip_terminal(bytes, &output.marker))
+}
+
+fn diagnostic(output: &SharedTerminalOutput, prompt_detected: bool) -> BridgeResult<PtyDiagnostic> {
+    let output = output.lock().map_err(|_| "stateUnavailable")?;
+    Ok(PtyDiagnostic {
+        bytes_received: output.bytes_received,
+        printable_bytes: output.printable_bytes,
+        cpr_requests: output.cpr_requests,
+        prompt_detected,
+        auth_marker_detected: output.authenticated,
+        remote_result_detected: output.remote_result_detected,
+        output_closed: output.closed,
+    })
+}
+
 fn parse_json_result(output: &SharedTerminalOutput, operation: &str) -> BridgeResult<()> {
-    let (text, _, _, _) = transcript(output)?;
+    let output = output.lock().map_err(|_| "stateUnavailable")?;
+    let text = terminal_after_marker(&output.bytes, &output.marker).ok_or("remoteUnsupported")?;
     let json_line = text
         .lines()
         .rev()
@@ -524,6 +677,17 @@ fn tunnel_remote_command(ports: &[u16], marker: &str) -> String {
     )
 }
 
+fn interactive_check_remote_command(ports: &[u16], marker: &str) -> String {
+    let ports = ports
+        .iter()
+        .map(u16::to_string)
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "sh -c 'set -eu; printf \"\\n{marker}\\n\"; fail() {{ printf \"{{\\\"error\\\":\\\"%s\\\"}}\\n\" \"$1\"; exit 0; }}; [ \"$(uname -s)\" = Linux ] || fail remoteUnsupported; [ \"$(id -u)\" != 0 ] || fail rootForbidden; for utility in ss awk sha256sum mktemp flock sync cmp stat sed grep cut cp mv cat unlink; do command -v \"$utility\" >/dev/null 2>&1 || fail dependencyMissing; done; for number in {ports}; do entries=\"$(ss -H -ltn \"sport = :$number\")\" || fail remoteUnsupported; [ -z \"$entries\" ] || fail portInUse; done; printf \"{{\\\"verified\\\":true}}\\n\"'"
+    )
+}
+
 pub fn begin(
     operation: Operation,
     target_id: String,
@@ -534,18 +698,12 @@ pub fn begin(
     let id = session_id()?;
     let marker = format!("{AUTH_MARKER_PREFIX}{id}__");
     let (mut command, destination) = ssh::interactive_target_command(&target_id)?;
-    let (remote_command, source_after_auth, completion) = match operation {
+    let (remote_command, completion) = match operation {
         Operation::Check => {
             command.arg("-oClearAllForwardings=yes");
             let ports = random_ports()?;
-            let request = json!({
-                "operation": "check",
-                "ports": [ports.proxy_port, ports.cc_port]
-            });
-            let (source, _) = ssh::remote_payload(&request)?;
             (
-                format!("sh -c 'printf \"\\n{}\\n\"; exec sh -s'", marker),
-                Some(source),
+                interactive_check_remote_command(&[ports.proxy_port, ports.cc_port], &marker),
                 Completion::Check { ports },
             )
         }
@@ -573,7 +731,6 @@ pub fn begin(
                 .collect::<Vec<_>>();
             (
                 tunnel_remote_command(&ports, &marker),
-                None,
                 Completion::Connect {
                     request,
                     summary: Box::new(plan.summary),
@@ -582,13 +739,7 @@ pub fn begin(
             )
         }
     };
-    let spawned = spawn(
-        command,
-        destination,
-        remote_command,
-        source_after_auth,
-        marker,
-    )?;
+    let spawned = spawn(command, destination, remote_command, marker)?;
     let session = Session {
         id: id.clone(),
         target_id,
@@ -607,8 +758,12 @@ pub fn begin(
         completion,
         created_at: Instant::now(),
         attempt: 1,
-        output_len_at_submit: None,
-        submitted_at: None,
+        current_prompt: None,
+        last_prompt: None,
+        prompt_generation: 0,
+        prompt_consumed_at: 0,
+        waiting_since: Instant::now(),
+        authenticated_at: None,
     };
     if operation == Operation::Connect {
         super::mark_interactive_connecting()?;
@@ -623,23 +778,10 @@ pub fn state(session_id: &str) -> BridgeResult<Snapshot> {
         .get_mut(session_id)
         .ok_or("sshAuthSessionMissing")?;
     let (terminal_text, authenticated, output_closed, output_len) = transcript(&session.output)?;
-    let parsed_prompt = parse_ssh_prompt(&terminal_text, session.attempt);
-    let fallback_ready = session.submitted_at.map_or_else(
-        || session.created_at.elapsed() >= PROMPT_FALLBACK_DELAY,
-        |submitted_at| submitted_at.elapsed() >= PROMPT_FALLBACK_DELAY,
-    );
-    let fallback_prompt = parsed_prompt.is_none() && fallback_ready;
-    let prompt = parsed_prompt.or_else(|| {
-        fallback_prompt.then(|| AuthPrompt {
-            prompt_type: PromptType::Unknown,
-            message: String::new(),
-            secret: true,
-            attempt: session.attempt,
-            target: None,
-            fingerprint: None,
-        })
-    });
     session.auth.authenticated = authenticated;
+    if authenticated && session.authenticated_at.is_none() {
+        session.authenticated_at = Some(Instant::now());
+    }
     if authenticated && session.auth.method == SshAuthMethod::Unknown {
         session.auth.method = ssh::non_interactive_auth_method(&session.target_id);
     }
@@ -650,66 +792,94 @@ pub fn state(session_id: &str) -> BridgeResult<Snapshot> {
         .child
         .try_wait()
         .map_err(|_| "processFailed")?;
-    match (&session.completion, exit, output_closed) {
-        (Completion::Check { .. }, Some(status), true) if status.success() && authenticated => {
-            match parse_json_result(&session.output, "check") {
-                Ok(()) => session.status = SessionStatus::Succeeded,
-                Err(code) => {
-                    session.status = SessionStatus::Failed;
-                    session.error = Some(code);
+    let remote_result_ready = session
+        .output
+        .lock()
+        .map_err(|_| "stateUnavailable")?
+        .remote_result_detected;
+    if session.status == SessionStatus::PromptUnavailable {
+        // Preserve the actionable diagnostic state after terminating the stuck PTY.
+    } else {
+        let completion_timed_out = matches!(session.completion, Completion::Check { .. })
+            && session
+                .authenticated_at
+                .is_some_and(|started| started.elapsed() >= COMPLETION_WAIT_TIMEOUT);
+        match (&session.completion, exit, output_closed) {
+            (Completion::Check { .. }, _, _) if authenticated && remote_result_ready => {
+                match parse_json_result(&session.output, "check") {
+                    Ok(()) => session.status = SessionStatus::Succeeded,
+                    Err(code) => {
+                        session.status = SessionStatus::Failed;
+                        session.error = Some(code);
+                    }
                 }
             }
-        }
-        (Completion::Connect { .. }, None, _) if authenticated => {
-            session.status = SessionStatus::Succeeded;
-        }
-        (_, Some(_), true) => {
-            session.status = SessionStatus::Failed;
-            session.error = Some(classify_error(&terminal_text));
-        }
-        (_, _, _) if authenticated => session.status = SessionStatus::Authenticated,
-        (_, _, _) if prompt.is_some() => {
-            let prompt_is_new = fallback_prompt
-                || session
-                    .output_len_at_submit
-                    .is_none_or(|submitted_at| output_len > submitted_at);
-            if prompt_is_new {
-                session.status = SessionStatus::WaitingUser;
-                session.output_len_at_submit = None;
-                session.submitted_at = None;
-                if terminal_text
-                    .to_ascii_lowercase()
-                    .contains("permission denied, please try again")
-                {
-                    session.error = Some("sshAuthRejected".into());
-                }
-            } else {
-                session.status = SessionStatus::WaitingServer;
+            (Completion::Connect { .. }, None, _) if authenticated => {
+                session.status = SessionStatus::Succeeded;
             }
-        }
-        (_, _, _)
-            if matches!(session.status, SessionStatus::Submitting)
-                || session
-                    .output_len_at_submit
-                    .is_some_and(|submitted_at| output_len <= submitted_at) =>
-        {
-            session.status = SessionStatus::WaitingServer;
-        }
-        _ => {
-            session.output_len_at_submit = None;
-            session.submitted_at = None;
-            session.status = SessionStatus::WaitingPrompt;
+            (_, Some(_), true) => {
+                session.status = SessionStatus::Failed;
+                session.error = Some(classify_error(&terminal_text));
+            }
+            (_, _, _) if completion_timed_out => {
+                session.status = SessionStatus::Failed;
+                session.error = Some("sshAuthCompletionTimeout".into());
+                let _ = session
+                    .process
+                    .as_mut()
+                    .ok_or("sshAuthSessionMissing")?
+                    .child
+                    .kill();
+            }
+            (_, _, _) if authenticated => session.status = SessionStatus::Authenticated,
+            _ => {
+                if session.current_prompt.is_none() && output_len > session.prompt_consumed_at {
+                    let delta = terminal_delta(&session.output, session.prompt_consumed_at)?;
+                    if let Some(mut prompt) = parse_ssh_prompt(&delta, session.attempt) {
+                        let rejected = delta
+                            .to_ascii_lowercase()
+                            .contains("permission denied, please try again");
+                        session.prompt_generation = session.prompt_generation.saturating_add(1);
+                        prompt.id = format!("{}:{}", session.id, session.prompt_generation);
+                        session.last_prompt = Some((prompt.prompt_type, prompt.message.clone()));
+                        session.current_prompt = Some(prompt);
+                        session.status = SessionStatus::WaitingUser;
+                        if rejected {
+                            session.error = Some("sshAuthRejected".into());
+                        }
+                    }
+                }
+                if session.current_prompt.is_some() {
+                    session.status = SessionStatus::WaitingUser;
+                } else if session.waiting_since.elapsed() >= PROMPT_WAIT_TIMEOUT {
+                    session.status = SessionStatus::PromptUnavailable;
+                    session.error = Some("sshAuthPromptUnavailable".into());
+                    let _ = session
+                        .process
+                        .as_mut()
+                        .ok_or("sshAuthSessionMissing")?
+                        .child
+                        .kill();
+                } else if matches!(session.status, SessionStatus::Submitting) {
+                    session.status = SessionStatus::WaitingServer;
+                } else if session.status != SessionStatus::WaitingServer {
+                    session.status = SessionStatus::WaitingPrompt;
+                }
+            }
         }
     }
-    let visible_prompt = (session.status == SessionStatus::WaitingUser)
-        .then_some(prompt)
+    let prompt_detected = session.current_prompt.is_some() || session.last_prompt.is_some();
+    let prompt = (session.status == SessionStatus::WaitingUser)
+        .then(|| session.current_prompt.clone())
         .flatten();
+    let terminal_diagnostic = diagnostic(&session.output, prompt_detected)?;
     Ok(Snapshot {
         session_id: session.id.clone(),
         operation: session.operation,
         status: session.status,
         auth: session.auth,
-        prompt: visible_prompt,
+        prompt,
+        diagnostic: terminal_diagnostic,
         error: session.error.clone(),
     })
 }
@@ -718,19 +888,21 @@ fn write_response(
     session: &mut Session,
     response: &[u8],
     method: SshAuthMethod,
+    suppress_echo: bool,
 ) -> BridgeResult<()> {
     let (_, _, _, output_len) = transcript(&session.output)?;
     session.auth.method = method;
     session.status = SessionStatus::Submitting;
     session.error = None;
     session.attempt = session.attempt.saturating_add(1);
-    session.output_len_at_submit = Some(output_len);
-    session.submitted_at = Some(Instant::now());
-    session
-        .output
-        .lock()
-        .map_err(|_| "stateUnavailable")?
-        .redact_until_line_break = true;
+    session.prompt_consumed_at = output_len;
+    session.current_prompt = None;
+    session.waiting_since = Instant::now();
+    if suppress_echo {
+        let mut output = session.output.lock().map_err(|_| "stateUnavailable")?;
+        output.pending_echo = Some(Zeroizing::new(response.to_vec()));
+        output.echo_match_len = 0;
+    }
     let mut writer = session.writer.lock().map_err(|_| "stateUnavailable")?;
     writer
         .write_all(response)
@@ -739,7 +911,7 @@ fn write_response(
         .map_err(|_| "processFailed".into())
 }
 
-pub fn submit(session_id: &str, response: String) -> BridgeResult<Snapshot> {
+pub fn submit(session_id: &str, prompt_id: &str, response: String) -> BridgeResult<Snapshot> {
     if !valid_response(&response) {
         return Err("sshAuthInputInvalid".into());
     }
@@ -752,8 +924,7 @@ pub fn submit(session_id: &str, response: String) -> BridgeResult<Snapshot> {
         if session.auth.authenticated || session.status != SessionStatus::WaitingUser {
             return Err("sshAuthSessionClosed".into());
         }
-        let (current, _, _, _) = transcript(&session.output)?;
-        let prompt = parse_ssh_prompt(&current, session.attempt).ok_or("sshAuthPending")?;
+        let prompt = matching_prompt(session.current_prompt.as_ref(), prompt_id)?;
         if prompt.prompt_type == PromptType::HostKeyConfirmation {
             return Err("sshAuthInputInvalid".into());
         }
@@ -761,13 +932,13 @@ pub fn submit(session_id: &str, response: String) -> BridgeResult<Snapshot> {
             PromptType::Password | PromptType::KeyPassphrase => SshAuthMethod::Password,
             _ => SshAuthMethod::KeyboardInteractive,
         };
-        write_response(session, response.as_bytes(), method)?;
+        write_response(session, response.as_bytes(), method, prompt.secret)?;
     }
     response.clear();
     state(session_id)
 }
 
-pub fn confirm_host(session_id: &str) -> BridgeResult<Snapshot> {
+pub fn confirm_host(session_id: &str, prompt_id: &str) -> BridgeResult<Snapshot> {
     {
         let mut sessions = lock_sessions()?;
         let session = sessions
@@ -776,12 +947,11 @@ pub fn confirm_host(session_id: &str) -> BridgeResult<Snapshot> {
         if session.auth.authenticated || session.status != SessionStatus::WaitingUser {
             return Err("sshAuthSessionClosed".into());
         }
-        let (current, _, _, _) = transcript(&session.output)?;
-        let prompt = parse_ssh_prompt(&current, session.attempt).ok_or("sshAuthPending")?;
+        let prompt = matching_prompt(session.current_prompt.as_ref(), prompt_id)?;
         if prompt.prompt_type != PromptType::HostKeyConfirmation {
             return Err("sshAuthInputInvalid".into());
         }
-        write_response(session, b"yes", SshAuthMethod::Unknown)?;
+        write_response(session, b"yes", SshAuthMethod::Unknown, false)?;
     }
     state(session_id)
 }
@@ -859,6 +1029,21 @@ pub fn shutdown() {
 mod tests {
     use super::*;
 
+    fn test_output() -> TerminalOutput {
+        TerminalOutput {
+            bytes: Vec::new(),
+            authenticated: false,
+            marker: b"test-marker".to_vec(),
+            pending_echo: None,
+            echo_match_len: 0,
+            bytes_received: 0,
+            printable_bytes: 0,
+            cpr_requests: 0,
+            remote_result_detected: false,
+            closed: false,
+        }
+    }
+
     #[test]
     fn terminal_output_removes_control_sequences_and_private_marker() {
         let marker = b"__PROXYENV_SSH_AUTH_test__";
@@ -875,6 +1060,26 @@ mod tests {
             strip_terminal(&raw, b"marker").chars().count(),
             MAX_TRANSCRIPT_CHARS
         );
+    }
+
+    #[test]
+    fn remote_result_detection_accepts_only_complete_json_lines() {
+        assert!(contains_remote_result(
+            b"noise\r\nmarker\r\n{\"verified\":true}\r\n",
+            b"marker"
+        ));
+        assert!(!contains_remote_result(
+            b"{\"verified\":true}\r\nmarker\r\n",
+            b"marker"
+        ));
+        assert!(!contains_remote_result(
+            b"marker\r\nprintf '{\"verified\":true}'\r\n",
+            b"marker"
+        ));
+        assert!(!contains_remote_result(
+            b"marker\r\n{\"verified\":true",
+            b"marker"
+        ));
     }
 
     #[test]
@@ -928,16 +1133,79 @@ mod tests {
     }
 
     #[test]
-    fn submitted_response_echo_is_never_retained() {
-        let mut redact = true;
-        let visible = visible_after_response(b"secret-response\r\nPassword: ", &mut redact)
-            .expect("line ended");
-        assert_eq!(visible, b"Password: ");
-        assert!(!redact);
+    fn submitted_response_echo_is_suppressed_without_swallowing_the_next_prompt() {
+        let mut output = test_output();
+        output.pending_echo = Some(Zeroizing::new(b"secret-response".to_vec()));
 
-        let mut redact = true;
-        assert!(visible_after_response(b"secret-response", &mut redact).is_none());
-        assert!(redact);
+        let first = suppress_confirmed_echo(&mut output, b"secret-");
+        let second = suppress_confirmed_echo(&mut output, b"response\r\nVerification code:");
+
+        assert!(first.is_empty());
+        assert_eq!(second, b"\r\nVerification code:");
+        assert!(output.pending_echo.is_none());
+        assert_eq!(
+            parse_ssh_prompt(&String::from_utf8_lossy(&second), 2)
+                .expect("next prompt")
+                .prompt_type,
+            PromptType::VerificationCode
+        );
+    }
+
+    #[test]
+    fn terminal_control_parser_answers_complete_and_fragmented_cursor_queries() {
+        let mut complete = TerminalControlParser::default();
+        let parsed = complete.push(b"\x1b[6n");
+        assert_eq!(parsed.cpr_requests, 1);
+        assert!(parsed.printable.is_empty());
+
+        let mut fragmented = TerminalControlParser::default();
+        assert_eq!(fragmented.push(b"\x1b[").cpr_requests, 0);
+        assert_eq!(fragmented.push(b"6").cpr_requests, 0);
+        let parsed = fragmented.push(b"n");
+        assert_eq!(parsed.cpr_requests, 1);
+        assert!(parsed.printable.is_empty());
+    }
+
+    #[test]
+    fn fragmented_ansi_output_still_exposes_a_password_prompt() {
+        let mut parser = TerminalControlParser::default();
+        let mut visible = Vec::new();
+        for chunk in [
+            b"\x1b[".as_slice(),
+            b"31mPass".as_slice(),
+            b"word:".as_slice(),
+        ] {
+            visible.extend(parser.push(chunk).printable);
+        }
+        let text = String::from_utf8(visible).expect("utf8 prompt");
+        assert_eq!(
+            parse_ssh_prompt(&text, 1)
+                .expect("password prompt")
+                .prompt_type,
+            PromptType::Password
+        );
+    }
+
+    #[test]
+    fn response_must_match_the_session_owned_prompt_identifier() {
+        let prompt = AuthPrompt {
+            id: "session-a:2".into(),
+            prompt_type: PromptType::VerificationCode,
+            message: "Verification code:".into(),
+            secret: true,
+            attempt: 2,
+            target: None,
+            fingerprint: None,
+        };
+        assert!(matching_prompt(Some(&prompt), "session-a:2").is_ok());
+        assert_eq!(
+            matching_prompt(Some(&prompt), "session-a:1").unwrap_err(),
+            "sshAuthPromptChanged"
+        );
+        assert_eq!(
+            matching_prompt(None, "session-a:2").unwrap_err(),
+            "sshAuthPromptChanged"
+        );
     }
 
     #[test]
@@ -946,6 +1214,18 @@ mod tests {
         assert!(command.contains("127\\.0\\.0\\.1:23841"));
         assert!(command.contains("127\\.0\\.0\\.1:31472"));
         assert!(command.contains("while :; do sleep 3600"));
+    }
+
+    #[test]
+    fn interactive_check_is_a_bounded_fixed_command_without_stdin_payload() {
+        let command = interactive_check_remote_command(&[23841, 31472], "safe-marker");
+        assert!(command.contains("safe-marker"));
+        assert!(command.contains("for number in 23841 31472"));
+        assert!(command.contains("dependencyMissing"));
+        assert!(command.contains("portInUse"));
+        assert!(command.contains("{\\\"verified\\\":true}"));
+        assert!(!command.contains("sh -s"));
+        assert!(command.len() < 2_048);
     }
 
     #[test]

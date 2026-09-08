@@ -8,9 +8,10 @@ export type SshAuthMethod = "identityFile" | "agent" | "password" | "keyboardInt
 export interface SshAuthState { mode: SshAuthMode; method: SshAuthMethod; authenticated: boolean; passwordStored: false }
 export type SshAuthOperation = "check" | "connect";
 export type SshPromptType = "password" | "keyPassphrase" | "hostKeyConfirmation" | "verificationCode" | "keyboardInteractive" | "unknown";
-export type SshAuthSessionStatus = "starting" | "waitingPrompt" | "waitingUser" | "submitting" | "waitingServer" | "authenticated" | "succeeded" | "failed";
-export interface SshAuthPrompt { type: SshPromptType; message: string; secret: boolean; attempt: number; target: string | null; fingerprint: string | null }
-export interface SshAuthSnapshot { sessionId: string; operation: SshAuthOperation; status: SshAuthSessionStatus; auth: SshAuthState; prompt: SshAuthPrompt | null; error: string | null }
+export type SshAuthSessionStatus = "starting" | "waitingPrompt" | "waitingUser" | "submitting" | "waitingServer" | "authenticated" | "succeeded" | "promptUnavailable" | "failed";
+export interface SshAuthPrompt { id: string; type: SshPromptType; message: string; secret: boolean; attempt: number; target: string | null; fingerprint: string | null }
+export interface SshPtyDiagnostic { bytesReceived: number; printableBytes: number; cprRequests: number; promptDetected: boolean; authMarkerDetected: boolean; remoteResultDetected: boolean; outputClosed: boolean }
+export interface SshAuthSnapshot { sessionId: string; operation: SshAuthOperation; status: SshAuthSessionStatus; auth: SshAuthState; prompt: SshAuthPrompt | null; diagnostic: SshPtyDiagnostic; error: string | null }
 export interface SshAuthOutcome { operation: SshAuthOperation; ports: PortAllocation | null; summary: BridgeSummary | null }
 export interface RemoteTarget { id: string; displayName: string; source: RemoteTargetSource; sourceLabel: string; configPath: string; sshAlias: string | null; host: string | null; user: string | null; port: number | null; identityFile: string | null; available: boolean; compatibility: "compatible" | "unsupported"; unavailableReason: string | null; canOpenVscode: boolean }
 export interface BridgeEndpoint { local: ProxyEndpoint; remotePort: number }
@@ -35,8 +36,8 @@ export const remoteBackend = {
   checkNetwork: (targetId: string) => invoke<RemoteNetworkObservation>("remote_bridge_check_network", { targetId }),
   sshAuthBegin: (operation: SshAuthOperation, targetId: string, request: BridgeRequest | null = null) => invoke<SshAuthSnapshot>("ssh_auth_begin", { operation, targetId, request }),
   sshAuthState: (sessionId: string) => invoke<SshAuthSnapshot>("ssh_auth_state", { sessionId }),
-  sshAuthSubmit: (sessionId: string, response: string) => invoke<SshAuthSnapshot>("ssh_auth_submit", { sessionId, response }),
-  sshAuthConfirmHost: (sessionId: string) => invoke<SshAuthSnapshot>("ssh_auth_confirm_host", { sessionId }),
+  sshAuthSubmit: (sessionId: string, promptId: string, response: string) => invoke<SshAuthSnapshot>("ssh_auth_submit", { sessionId, promptId, response }),
+  sshAuthConfirmHost: (sessionId: string, promptId: string) => invoke<SshAuthSnapshot>("ssh_auth_confirm_host", { sessionId, promptId }),
   sshAuthFinish: (sessionId: string) => invoke<SshAuthOutcome>("ssh_auth_finish", { sessionId }),
   sshAuthCancel: (sessionId: string) => invoke<void>("ssh_auth_cancel", { sessionId }),
   allocatePorts: (targetId: string) => invoke<PortAllocation>("remote_bridge_allocate_ports", { targetId }),

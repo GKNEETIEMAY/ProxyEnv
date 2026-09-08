@@ -103,10 +103,11 @@ pub async fn ssh_auth_state(session_id: String) -> CommandResult<bridge::ssh_aut
 #[tauri::command]
 pub async fn ssh_auth_submit(
     session_id: String,
+    prompt_id: String,
     response: String,
 ) -> CommandResult<bridge::ssh_auth::Snapshot> {
     run("sshAuthentication", Some("ssh"), move || {
-        bridge::ssh_auth::submit(&session_id, response)
+        bridge::ssh_auth::submit(&session_id, &prompt_id, response)
     })
     .await
 }
@@ -114,9 +115,10 @@ pub async fn ssh_auth_submit(
 #[tauri::command]
 pub async fn ssh_auth_confirm_host(
     session_id: String,
+    prompt_id: String,
 ) -> CommandResult<bridge::ssh_auth::Snapshot> {
     run("sshAuthentication", Some("sshHostKey"), move || {
-        bridge::ssh_auth::confirm_host(&session_id)
+        bridge::ssh_auth::confirm_host(&session_id, &prompt_id)
     })
     .await
 }
