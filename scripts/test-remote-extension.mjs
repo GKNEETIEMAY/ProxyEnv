@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { findNodeAtLocation, getNodeValue } from 'jsonc-parser';
 import { patch, jsonTree, checkClaudeShared } from './remote-extension/config.mjs';
 import { transaction, hash, safe } from './remote-extension/files.mjs';
 
@@ -19,15 +20,46 @@ test('Codex never reuses existing provider names, legacy selectors or invalid TO
   assert.throws(() => patch('', 'codex', 0));
   assert.throws(() => patch('', 'anything', 25721));
 });
-test('Claude inserts only its two entries and preserves JSONC comments and unrelated credentials', () => {
+test('Claude inserts its route and login-prompt setting while preserving JSONC and unrelated credentials', () => {
   const text = '{ // before\r\n"claudeCode.environmentVariables": [/* keep */{"name":"OTHER_SECRET", "value":"secret-fixture"},],\r\n"other":{"unknown":true,},\r\n}';
   const result = patch(text, 'claude', 25721);
   assert.ok(result.includes('/* keep */{"name":"OTHER_SECRET", "value":"secret-fixture"},]'));
-  assert.ok(result.endsWith('"other":{"unknown":true,},\r\n}'));
+  assert.ok(result.includes('"other":{"unknown":true,},'));
   assert.match(result, /http:\/\/127.0.0.1:25721"/);
+  assert.match(result, /"claudeCode\.disableLoginPrompt"\s*:\s*true/);
   jsonTree(result);
   for (const empty of ['{}', '{"claudeCode.environmentVariables":[/* empty */]}']) jsonTree(patch(empty, 'claude', 25721));
 });
+test('Claude shows an explicit disableLoginPrompt override in preview and rejects invalid values', () => {
+  const alreadyEnabled = patch('{"claudeCode.disableLoginPrompt":true}', 'claude', 25721);
+  assert.equal(getSetting(alreadyEnabled, 'claudeCode.disableLoginPrompt'), true);
+  const explicitOptOut = patch('{ // user choice\n"claudeCode.disableLoginPrompt":false\n}', 'claude', 25721);
+  assert.equal(getSetting(explicitOptOut, 'claudeCode.disableLoginPrompt'), true);
+  assert.match(explicitOptOut, /\/\/ user choice/);
+  assert.throws(() => patch('{"claudeCode.disableLoginPrompt":"yes"}', 'claude', 25721), error => error.message === 'configConflict');
+});
+test('Claude transaction preview distinguishes adding, preserving, and overriding the login prompt setting', () => {
+  const f=fixture('claude');
+  try {
+    assert.equal(f.run('preview').loginPromptChange, 'add');
+    for (const [value, expected] of [[true, 'unchanged'], [false, 'overrideFalse']]) {
+      fs.writeFileSync(f.file, JSON.stringify({ 'claudeCode.disableLoginPrompt': value }), { mode: 0o600 });
+      assert.equal(f.run('preview').loginPromptChange, expected);
+    }
+    const original = '{ // explicit user choice\n"claudeCode.disableLoginPrompt":false\n}';
+    fs.writeFileSync(f.file, original, { mode: 0o600 });
+    const preview = f.run('preview');
+    assert.equal(preview.loginPromptChange, 'overrideFalse');
+    f.run('apply', preview);
+    assert.equal(getSetting(fs.readFileSync(f.file, 'utf8'), 'claudeCode.disableLoginPrompt'), true);
+    f.run('restore', f.run('restore-preview'));
+    assert.equal(fs.readFileSync(f.file, 'utf8'), original);
+  } finally { f.cleanup(); }
+});
+
+function getSetting(text, key) {
+  return getNodeValue(findNodeAtLocation(jsonTree(text), [key]));
+}
 test('Claude rejects duplicate keys, routing overrides and existing credentials without echoing values', () => {
   for (const text of ['{"a":1,"a":2}', '{"claudeCode.environmentVariables":{}}', '{"claudeCode.environmentVariables":[{"name":"ANTHROPIC_AUTH_TOKEN","value":"secret-fixture"}]}', '{"claudeCode.environmentVariables":[{"name":"CLAUDE_CODE_USE_BEDROCK","value":"1"}]}']) {
     assert.throws(() => patch(text, 'claude', 25721), e => e.message === 'configConflict');

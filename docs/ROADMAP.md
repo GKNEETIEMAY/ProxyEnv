@@ -33,8 +33,11 @@ Implementation is on `v0.2.0dev`; the stable release remains v0.1.4 pending live
 - [x] CC Switch route detection that distinguishes confirmed ownership, an unknown listener, and no listener.
 - [x] Structured bridge errors, a bridge-health panel, and capability-specific next-step guidance.
 - [x] Dedicated Codex/Claude CLI overlays with reviewed writes, remote backups, and conflict-safe restore.
+- [x] Shared RemoteToolAdapter registry for Codex/Claude CLI metadata, compatibility, lifecycle operations, launch commands, and honest pending-verification state.
+- [x] User-triggered Claude CLI request verification with isolated settings/tools, redacted result categories, and verification invalidation when the route changes.
+- [x] Claude Code Remote - SSH preview/apply/restore support for `environmentVariables` plus explicitly reviewed `disableLoginPrompt`.
 - [x] Four-language Remote Bridge interface and redacted diagnostics.
-- [ ] Live Windows → Linux SSH, MobaXterm compatibility, CC Switch routing, and real Codex/Claude request acceptance.
+- [ ] Live Windows → Linux SSH, MobaXterm compatibility, CC Switch routing, Claude request verification, and Codex request acceptance on user-provided targets.
 - [ ] Opt-in Codex / Claude Code VS Code extension acceptance, separate from CLI scope, with user-confirmed remote execution location.
 
 实现已进入 `v0.2.0dev`，仍需真实 Windows/SSH 环境验收；尚未作为稳定版发布。

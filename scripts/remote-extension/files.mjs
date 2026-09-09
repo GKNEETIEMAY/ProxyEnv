@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
-import { fail, patch } from './config.mjs';
+import { fail, patch, claudeLoginPromptState } from './config.mjs';
 
 export const digest = text => createHash('sha256').update(text).digest('hex');
 export const hash = text => text === null ? 'absent' : digest(text);
@@ -71,8 +71,12 @@ export function transaction({ file, root, uid, tool, port, operation, expectedHa
   const restoring = operation.startsWith('restore');
   function preview(data) {
     if (restoring && !data.record) fail('noBackup');
-    if (!restoring) patch(data.record ? data.original || '' : data.current || '', tool, port);
-    return { expectedHash: hash(data.current), journalHash: hash(data.raw), previousPort: data.record?.port ?? null, originalExists: data.record ? data.original !== null : data.current !== null };
+    const original = data.record ? data.original || '' : data.current || '';
+    if (!restoring) patch(original, tool, port);
+    const loginPromptChange = !restoring && tool === 'claude'
+      ? ({ absent: 'add', enabled: 'unchanged', disabled: 'overrideFalse' })[claudeLoginPromptState(original)]
+      : null;
+    return { expectedHash: hash(data.current), journalHash: hash(data.raw), previousPort: data.record?.port ?? null, originalExists: data.record ? data.original !== null : data.current !== null, loginPromptChange };
   }
   const initial = load();
   if (operation === 'preview' || operation === 'restore-preview') return preview(initial);

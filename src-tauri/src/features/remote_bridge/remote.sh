@@ -4,7 +4,7 @@ set -eu
 fail() { printf '{"error":"%s"}\n' "$1"; exit 0; }
 [ "$(uname -s)" = Linux ] || fail remoteUnsupported
 [ "$(id -u)" != 0 ] || fail rootForbidden
-for utility in ss awk sha256sum mktemp flock sync cmp stat sed grep cut cp mv cat unlink; do
+for utility in ss awk sha256sum mktemp flock sync cmp stat sed grep cut cp mv cat unlink rm rmdir; do
   command -v "$utility" >/dev/null 2>&1 || fail dependencyMissing
 done
 check_ports() {
@@ -149,7 +149,7 @@ validate() {
   fi
 }
 validate "$file"
-if [ "$operation" = preview ] || [ "$operation" = apply ]; then
+if [ "$operation" = preview ] || [ "$operation" = apply ] || [ "$operation" = tool-verify ]; then
   command -v "$tool" >/dev/null 2>&1 || fail cliUnsupported
   command -v timeout >/dev/null 2>&1 || fail dependencyMissing
   version=$(timeout 8 "$tool" --version 2>/dev/null) || fail cliUnsupported
@@ -178,6 +178,42 @@ if [ "$operation" = preview ]; then
   else
     printf '{"previousPort":%s,"expectedHash":"%s","stateHash":"absent","onboardingRequired":false,"version":"%s"}\n' "$previous" "$(hash "$file")" "$version"
   fi
+  exit 0
+fi
+if [ "$operation" = tool-verify ]; then
+  [ "$tool" = claude ] || fail invalidRequest
+  [ -f "$file" ] || fail configConflict
+  marker="$file.proxyenv-applied"
+  safe "$marker"
+  [ -f "$marker" ] || fail configConflict
+  [ "$(cat "$marker")" = "$(hash "$file")" ] || fail configConflict
+  verify_dir=$(mktemp -d) || fail remoteFailed
+  verify_out="$verify_dir/stdout"
+  verify_error="$verify_dir/stderr"
+  cleanup_verify() { rm -f "$verify_out" "$verify_error"; rmdir "$verify_dir" 2>/dev/null || :; }
+  trap cleanup_verify EXIT
+  trap 'exit 1' HUP INT TERM
+  set +e
+  (
+    cd "$verify_dir" || exit 1
+    timeout 75 claude --settings "$file" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' --tools "" --disallowedTools 'mcp__*' --no-session-persistence --max-turns 1 --output-format json -p 'Reply with exactly PROXYENV_VERIFY_OK.'
+  ) >"$verify_out" 2>"$verify_error"
+  verify_status=$?
+  set -e
+  if [ "$verify_status" -eq 0 ] && grep -q 'PROXYENV_VERIFY_OK' "$verify_out"; then
+    verification=verified
+  elif [ "$verify_status" -eq 124 ]; then
+    verification=timedOut
+  elif grep -Eiq 'not logged in|log in|login|authentication|authenticate|oauth|api key|auth token' "$verify_out" "$verify_error"; then
+    verification=authenticationRequired
+  elif grep -Eiq 'connection refused|failed to connect|network|socket|econnrefused|gateway|502|503|504' "$verify_out" "$verify_error"; then
+    verification=routeUnavailable
+  else
+    verification=failed
+  fi
+  cleanup_verify
+  trap - EXIT HUP INT TERM
+  printf '{"verification":"%s"}\n' "$verification"
   exit 0
 fi
 if [ "$operation" = restore-preview ]; then

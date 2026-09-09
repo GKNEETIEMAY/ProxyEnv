@@ -26,12 +26,22 @@ export function jsonTree(text) {
   check(tree);
   return tree;
 }
+export function claudeLoginPromptState(text) {
+  const node = findNodeAtLocation(jsonTree(text), ['claudeCode.disableLoginPrompt']);
+  if (!node) return 'absent';
+  const value = getNodeValue(node);
+  if (typeof value !== 'boolean') fail();
+  return value ? 'enabled' : 'disabled';
+}
 export function patchClaude(text, port) {
   const tree = jsonTree(text);
   const key = 'claudeCode.environmentVariables';
+  const loginPromptKey = 'claudeCode.disableLoginPrompt';
   const node = findNodeAtLocation(tree, [key]);
+  const loginPromptNode = findNodeAtLocation(tree, [loginPromptKey]);
   const entries = node ? getNodeValue(node) : [];
   if (!Array.isArray(entries)) fail();
+  if (loginPromptNode && typeof getNodeValue(loginPromptNode) !== 'boolean') fail();
   // Credentials already present are never inspected, displayed or overwritten.
   const names = new Set();
   for (const item of entries) {
@@ -51,6 +61,7 @@ export function patchClaude(text, port) {
     result = result.slice(0, at) + extra.map(v => JSON.stringify(v)).join(',') +
       (entries.length ? ',' : '') + result.slice(at);
   }
+  result = applyEdits(result, modify(result, [loginPromptKey], true, {}));
   jsonTree(result);
   return result;
 }

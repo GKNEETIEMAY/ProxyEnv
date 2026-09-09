@@ -1,6 +1,6 @@
 use crate::features::remote_bridge::{
     self as bridge, BridgeResult, CcDetection, ConfigPreview, PortAllocation,
-    RemoteNetworkObservation, RemoteTarget, Request, Summary,
+    RemoteNetworkObservation, RemoteTarget, Request, Summary, ToolVerificationResult,
 };
 use serde::Serialize;
 
@@ -219,6 +219,13 @@ pub async fn remote_bridge_config_restore_preview(
 ) -> CommandResult<ConfigPreview> {
     run("configurationRestorePreview", Some("cli"), move || {
         bridge::config_restore_preview(target_id, tool)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn remote_bridge_tool_verify(tool: String) -> CommandResult<ToolVerificationResult> {
+    run("toolVerification", Some("cli"), move || {
+        bridge::verify_tool(tool)
     })
     .await
 }

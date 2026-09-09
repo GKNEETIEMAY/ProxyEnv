@@ -11,7 +11,7 @@ This is development scope, not a published stable-release announcement.
 4. 在能力页分别查看服务器互联网、本机活动代理与 CC Switch AI 路由。三项检测彼此独立：SSH 成功不代表服务器能够联网，普通代理可用也不代表 CC Switch 可用。按需选择桥接本机代理、CC Switch，或同时选择两者。CC Switch 默认检查 `127.0.0.1:15721`，也可输入实际本地路由端口；结果会区分已确认的 CC Switch、身份未知的监听程序和未检测到监听。
 5. 预览本机和远端端点。建立连接前会再次检查远程端口；如发生端口竞争，页面会重新生成并要求再次确认。
 6. 代理桥接成功后，点击“启动代理终端”即可打开新的 PowerShell 窗口，由系统 OpenSSH 连接远端并自动注入代理环境。仅密码账户需要为这个独立终端再次认证；ProxyEnv 不缓存密码，Windows OpenSSH 也不支持 ControlMaster 连接复用。已经打开的 SSH、VS Code Remote 或 MobaXterm 终端可展开高级入口，复制环境变量后在当前 Shell 执行，从而避免新建登录。仅“测试桥接”会经代理请求 `https://www.gstatic.com/generate_204`。
-7. CC Switch 桥接成功后，状态页会直接显示 Codex / Claude Code 配置入口和启动命令；预览并应用专用 CLI 接入文件后，再在远端显式使用对应命令。
+7. CC Switch 桥接成功后，状态页会直接显示 Codex / Claude Code 配置入口和启动命令；预览并应用专用 CLI 接入文件后，Claude Code 还可由用户点击“验证 Claude 请求”发送一次固定的最小请求，再在远端显式使用对应命令。
 8. 断开桥接需确认。退出 ProxyEnv 会结束隧道；关闭窗口到托盘仍属同一运行会话。
 
 ## Current implementation / 当前实现
@@ -32,6 +32,7 @@ This is development scope, not a published stable-release announcement.
 | Remote listener | Checks remote TCP listeners before creation and validates actual loopback-only listeners after creation. A wildcard/unknown binding closes the new tunnel. |
 | Session | One combined target/session at a time. No automatic reconnect. The bridge SSH process uses the existing Windows Job Object lifecycle; authentication OpenSSH is owned by a short-lived ConPTY session. A user-launched proxy terminal is a separate visible OpenSSH process whose network route still depends on the active bridge. |
 | Config | CLI uses dedicated files. Opt-in VS Code extension adapters patch shared remote configuration with parser-based edits. Read/validate → preview → confirmation → remote backup → atomic replace → hash readback. Conflicts stop writes and restore. |
+| Tool adapters | Codex CLI and Claude Code CLI use a shared Rust/TypeScript `RemoteToolAdapter` contract for detection, inspection, compatibility, preview, apply, restore, launch and verification state. Page code iterates the registry; unknown IDs fail before SSH. VS Code extension internals remain a separate later migration. |
 | Diagnostics | Structured command errors expose only code, phase, safe target category and retryability. Cached summaries remain allowlisted: no usernames, home paths, keys, secrets, raw SSH stderr or upstream URLs. |
 
 ## CLI configuration compatibility
@@ -52,7 +53,9 @@ Claude Code `2.x` uses a dedicated JSON file with `env.ANTHROPIC_BASE_URL` and t
 claude --settings "$HOME/.claude/proxyenv-bridge.json"
 ```
 
-用户必须用显示的命令主动选择接入配置。已有 CLI 配置、环境变量或受管理策略可能具有更高优先级；文件写入成功不等于已验证模型调用。ProxyEnv 不发送 AI Prompt、不调用模型，也不复制真实 Provider 凭据。
+用户必须用显示的命令主动选择接入配置。已有 CLI 配置、环境变量或受管理策略可能具有更高优先级；文件写入成功不等于已验证模型调用。ProxyEnv 仅在用户点击“验证 Claude 请求”时发送固定的非敏感最小 Prompt；该操作可能消耗少量额度。验证会禁用工具、MCP 与会话持久化，模型与错误原文均不回传、不保存。ProxyEnv 不复制真实 Provider 凭据。
+
+两种 CLI 的检测、检查、兼容性判断、预览、应用、恢复、启动命令与验证状态均通过统一 `RemoteToolAdapter` 注册表提供。状态快照中的“已配置”只会进入“待验证”，不会直接显示为“接入完成”。M6 已为 Claude CLI 实现显式的真实请求验证：只有收到预期模型响应才显示“模型请求已验证”；仍需登录、路由不可用、超时和其它失败分别保留为非绿色状态。Codex CLI 仍保持“待验证”，不会伪装成已验收。
 
 ## Supported remote environment
 
@@ -86,7 +89,7 @@ The integration follows the [Remote - SSH configuration guide](https://code.visu
 | 扩展 | 受控修改 | 必须了解的影响 |
 | --- | --- | --- |
 | Codex | `~/.codex/config.toml` 的 `model_provider`，以及新建的 `model_providers.proxyenv_bridge`；端点 `http://127.0.0.1:<port>/v1`、Responses 协议 | 同账户其他使用默认配置的 Codex 会话也受影响；保留 model、权限、MCP 等未知字段及注释。已有同名 provider 或旧 profile 选择器会冲突。 |
-| Claude Code | `~/.vscode-server/data/Machine/settings.json` 中 `claudeCode.environmentVariables` 的两个新增项：`ANTHROPIC_BASE_URL`、公开占位值 `ANTHROPIC_AUTH_TOKEN=PROXY_MANAGED` | 只针对默认稳定版 VS Code Server 的 Remote Settings。已有路由/凭据项不覆盖；共享 Claude 用户设置或非交互 SSH 环境存在冲突路由时也停止。实际工作区与受管理策略仍需实机核验。 |
+| Claude Code | `~/.vscode-server/data/Machine/settings.json` 中 `claudeCode.environmentVariables` 的两个新增项：`ANTHROPIC_BASE_URL`、公开占位值 `ANTHROPIC_AUTH_TOKEN=PROXY_MANAGED`，以及 `claudeCode.disableLoginPrompt: true` | 只针对默认稳定版 VS Code Server 的 Remote Settings。已有路由/凭据项不覆盖；已有 `disableLoginPrompt: false` 会在预览中明确显示，确认后才修改。共享 Claude 用户设置或非交互 SSH 环境存在冲突路由时也停止。实际工作区与受管理策略仍需实机核验。 |
 
 “只选择扩展”表示只执行扩展的配置适配，并不保证共享 Codex 默认配置对其他 CLI 无影响。无需修改 `.env`、复制 `auth.json` 或任何真实 Provider Secret。PROXY_MANAGED 的可用性取决于实际 CC Switch 接入方式，不能作为通用网关认证。
 
@@ -120,7 +123,7 @@ ConPTY 输出先经过可跨分片工作的终端控制序列解析器；OpenSSH
 
 用户回答只作为一次 Tauri 调用中的临时值写入 PTY stdin：不进入 SSH 参数、配置文件或日志，提交后立即清空前后端明文缓冲。仅普通服务器密码在完整认证成功后可进入本次桥接缓存，内存中只长期保存 Windows 当前用户 DPAPI 密文，并绑定目标 SSH 配置指纹；切换目标、断开、认证拒绝或退出都会清除。私钥口令、OTP 和未知挑战不缓存。仅当 PTY 返回与本次回答逐字节一致的回显时才抑制该段内容，不再丢弃回答后的任意首行，因此后续 OTP Prompt 不会被误吞。交互会话使用随机 ID 与随机成功标记，三分钟未完成会被销毁。取消、提示超时、窗口退出或应用退出都会终止对应 OpenSSH 进程。
 
-当前交互路径覆盖连接检查和桥接建立。建桥完成仍不等于后续 CLI 配置或模型请求已验证；这些远端操作若服务器每次都要求密码，仍需后续受控认证编排，不能复用或缓存本次密码。
+当前交互路径覆盖连接检查和桥接建立。连接预检查、持续运行的反向转发进程和后续远端操作使用同一认证来源；密码目标不会在预检查成功后让真正的隧道退回 `BatchMode=yes`。建桥完成仍不等于后续 CLI 配置或模型请求已验证。普通服务器密码可在本次桥接内以 Windows DPAPI 保护的内存密文供后续配置、恢复和 Claude 验证复用；目标切换、断开或退出会清除。私钥口令、OTP 和未知交互回答仍不缓存，相关远端操作可能要求用户重新认证。
 
 M3 的实现验证包含控制序列、分片 Prompt、多轮提示和回显安全的自动化测试；在实际 Windows OpenSSH、服务器认证策略与目标账户上的端到端验收仍必须由真实环境完成，未完成实机验收前不得把 M3 标记为最终完成。
 
@@ -146,7 +149,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D w
 
 Browser checks use the existing development preview and mocked IPC: host selection, in-place capability setup, backend validation before connection, protected-write previews, apply/restore confirmation, disconnect cancellation, stale state, ESC/focus restoration, dark theme and 560px window layout. No browser mock is included in production source.
 
-Real Windows → Linux password/PAM authentication, ProxyJump authentication, server forwarding rejection, Windows shutdown cleanup, and actual Codex/Claude routing still require acceptance on a user-provided test host. Unit and source-boundary tests cover PTY ownership, response zeroization, terminal-control filtering and hardening flags, but do not claim a live-server authentication result. No real SSH target or model API was used during implementation.
+Real Windows → Linux password/PAM authentication, ProxyJump authentication, server forwarding rejection, Windows shutdown cleanup, and actual Codex/Claude routing still require acceptance on a user-provided test host. Unit and source-boundary tests cover PTY ownership, response zeroization, terminal-control filtering, hardening flags and Claude verification result classification, but do not claim a live-server or live-model result. No real SSH target or model API was used during implementation.
 
 `pnpm test:extensions` 同时检查远端 bundle 与源代码一致，并覆盖无损增量修改、重复键/凭据冲突、预览后第三方修改、恢复、原子替换故障回滚和硬链接拒绝。Windows 测试不证明 Linux 的权限/锁语义；生产入口仅允许非 root Linux。模拟 IPC 的浏览器回归覆盖范围选择、远端确认门槛、写入前预览、部分成功、恢复及键盘焦点。
 

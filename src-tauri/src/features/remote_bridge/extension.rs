@@ -42,6 +42,7 @@ pub struct Preview {
     pub previous_port: Option<u16>,
     pub original_exists: bool,
     pub restore: bool,
+    pub login_prompt_change: Option<String>,
 }
 pub(super) struct Pending {
     preview: Preview,
@@ -173,6 +174,13 @@ pub fn preview(selection: Selection) -> BridgeResult<Preview> {
                 .ok_or("remoteFailed")? as u16,
         )
     };
+    let login_prompt_change = match value["loginPromptChange"].as_str() {
+        Some(value) if ["add", "unchanged", "overrideFalse"].contains(&value) => {
+            Some(value.to_owned())
+        }
+        None if selection.tool != "claude" || selection.restore => None,
+        _ => return Err("remoteFailed".into()),
+    };
     let mut nonce = [0u8; 16];
     getrandom::fill(&mut nonce).map_err(|_| "stateUnavailable")?;
     let preview = Preview {
@@ -191,6 +199,7 @@ pub fn preview(selection: Selection) -> BridgeResult<Preview> {
         previous_port,
         original_exists: value["originalExists"].as_bool().ok_or("remoteFailed")?,
         restore: selection.restore,
+        login_prompt_change,
     };
     state.extension_pending = Some(Pending {
         preview: preview.clone(),

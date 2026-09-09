@@ -8,6 +8,7 @@ import CheckRow from "../../../shared/components/CheckRow.vue";
 import LastChecked from "../../../shared/components/LastChecked.vue";
 import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
 import RemoteToolDialog from "./RemoteToolDialog.vue";
+import { remoteToolAdapters, type RemoteToolAdapter, type RemoteToolId } from "../tool-adapters";
 import {
   remoteBackend,
   targetLabel,
@@ -16,6 +17,7 @@ import {
   type CcDetection,
   type PortAllocation,
   type RemoteTarget,
+  type RemoteToolVerification,
   type SshAuthOperation,
   type SshAuthSnapshot,
 } from "../state";
@@ -51,8 +53,11 @@ const authSubmitting = ref(false);
 const showAuthDiagnostic = ref(false);
 const authRetryContext = ref<{ operation: SshAuthOperation; request: BridgeRequest | null }>();
 let authPollTimer: ReturnType<typeof setTimeout> | undefined;
-const codexLaunch = "codex --profile proxyenv_bridge";
-const claudeLaunch = 'claude --settings "$HOME/.claude/proxyenv-bridge.json"';
+const remoteTools = computed(() => remoteToolAdapters.map((adapter) => ({
+  adapter,
+  inspection: adapter.inspect(props.summary),
+  launch: adapter.launch(props.summary),
+})));
 
 const selectedTarget = computed(() => targets.value.find((target) => target.id === targetId.value));
 const live = computed(() => ["connected", "stale", "unavailable", "connecting"].includes(props.summary.status) && !!props.summary.target);
@@ -113,6 +118,24 @@ const authPromptCopy = computed(() => ({
 })[authPromptType.value]);
 const authCanRespond = computed(() => authSession.value?.status === "waitingUser" && !!authPrompt.value);
 const authIsHostConfirmation = computed(() => authPromptType.value === "hostKeyConfirmation");
+
+function toolVerificationState(verification: RemoteToolVerification): CheckState {
+  if (verification === "verified") return "healthy";
+  if (["authenticationRequired", "routeUnavailable", "timedOut", "failed"].includes(verification)) return "warning";
+  return verification === "verifyPending" ? "warning" : "idle";
+}
+
+function toolVerificationLabel(verification: RemoteToolVerification): string {
+  return ({
+    notConfigured: props.copy.rbNotConfigured,
+    verifyPending: props.copy.rbToolVerifyPending,
+    verified: props.copy.rbToolVerified,
+    authenticationRequired: props.copy.rbToolAuthRequired,
+    routeUnavailable: props.copy.rbToolRouteUnavailable,
+    timedOut: props.copy.rbToolVerifyTimedOut,
+    failed: props.copy.rbToolVerifyFailed,
+  })[verification];
+}
 
 function bridgeCheckState(status: BridgeSummary["status"] | null, enabled = true): CheckState {
   if (!enabled) return "disabled";
@@ -414,14 +437,20 @@ function detectCc() {
   });
 }
 
-function configure(tool: string) {
+function configure(tool: RemoteToolId) {
   const target = props.summary.target ?? selectedTarget.value;
   if (target) toolDialog.value?.open(tool, target.id, false, targetLabel(target));
 }
 
-function restore(tool: string, id = targetId.value) {
+function restore(tool: RemoteToolId, id = targetId.value) {
   const target = targets.value.find((candidate) => candidate.id === id) ?? props.summary.target;
   toolDialog.value?.open(tool, id, true, targetLabel(target));
+}
+
+function verifyTool(adapter: RemoteToolAdapter) {
+  void perform(async () => {
+    await adapter.verify();
+  });
 }
 
 function copyValue(value: string) {
@@ -540,8 +569,7 @@ onBeforeUnmount(() => {
               <button class="primary-action" type="button" :disabled="!selectedTarget?.available" @click="checkTarget">{{ copy.rbCheck }}</button>
             </div>
             <div v-if="targetId" class="remote-actions remote-restore-actions">
-              <button class="secondary-action" type="button" @click="restore('codex')">{{ copy.rbRestoreCodex }}</button>
-              <button class="secondary-action" type="button" @click="restore('claude')">{{ copy.rbRestoreClaude }}</button>
+              <button v-for="adapter in remoteToolAdapters" :key="adapter.id" class="secondary-action" type="button" @click="restore(adapter.id)">{{ adapter.restoreLabel(copy) }}</button>
             </div>
           </template>
 
@@ -600,8 +628,7 @@ onBeforeUnmount(() => {
               <CheckRow v-if="summary.cc" :label="copy.rbLocalCcHealth" :state="bridgeCheckState(summary.ccStatus)" :state-label="summary.ccStatus ? copy.rbStates[summary.ccStatus] : copy.rbCheckIdle" :checked-at="ccCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.cc">
                 <template #detail><p class="check-row-detail"><code>{{ summary.cc.local.host }}:{{ summary.cc.local.port }}</code> → <code>127.0.0.1:{{ summary.cc.remotePort }}</code></p></template>
               </CheckRow>
-              <div v-if="summary.cc" class="remote-tool-status"><span>Codex</span><span>{{ summary.codexConfigured ? copy.rbExtPending : copy.rbNotConfigured }}</span></div>
-              <div v-if="summary.cc" class="remote-tool-status"><span>Claude Code</span><span>{{ summary.claudeConfigured ? copy.rbExtPending : copy.rbNotConfigured }}</span></div>
+              <div v-for="tool in summary.cc ? remoteTools : []" :key="tool.adapter.id" class="remote-tool-status"><span>{{ tool.adapter.displayName }}</span><StatusIndicator :state="toolVerificationState(tool.inspection.verification)" :label="toolVerificationLabel(tool.inspection.verification)" /></div>
           </section>
 
           <header class="remote-next-heading"><h3>{{ copy.rbNextSteps }}</h3></header>
@@ -621,10 +648,15 @@ onBeforeUnmount(() => {
 
           <section v-if="summary.cc" class="remote-next-section">
               <h3>{{ copy.rbCcUseTitle }}</h3>
-              <div class="remote-actions"><button class="primary-action" type="button" @click="configure('codex')">{{ copy.rbCodex }}</button><button class="secondary-action" type="button" @click="configure('claude')">{{ copy.rbClaude }}</button></div>
-              <div class="remote-command"><span>Codex</span><template v-if="summary.codexConfigured"><code>{{ codexLaunch }}</code><button type="button" :aria-label="copy.rbCopyLaunch" @click="copyValue(codexLaunch)">{{ copy.rbCopyLaunch }}</button></template><em v-else>{{ copy.rbConfigureBeforeLaunch }}</em></div>
-              <div class="remote-command"><span>Claude Code</span><template v-if="summary.claudeConfigured"><code>{{ claudeLaunch }}</code><button type="button" :aria-label="copy.rbCopyLaunch" @click="copyValue(claudeLaunch)">{{ copy.rbCopyLaunch }}</button></template><em v-else>{{ copy.rbConfigureBeforeLaunch }}</em></div>
-              <div class="remote-actions"><button class="secondary-action" type="button" @click="restore('codex', summary.target!.id)">{{ copy.rbRestoreCodex }}</button><button class="secondary-action" type="button" @click="restore('claude', summary.target!.id)">{{ copy.rbRestoreClaude }}</button></div>
+              <div class="remote-actions"><button v-for="(tool, index) in remoteTools" :key="tool.adapter.id" :class="index === 0 ? 'primary-action' : 'secondary-action'" type="button" @click="configure(tool.adapter.id)">{{ tool.adapter.configureLabel(copy) }}</button></div>
+              <div v-for="tool in remoteTools" :key="tool.adapter.id" class="remote-command"><span>{{ tool.adapter.displayName }}</span><template v-if="tool.launch"><code>{{ tool.launch }}</code><button type="button" :aria-label="copy.rbCopyLaunch" @click="copyValue(tool.launch)">{{ copy.rbCopyLaunch }}</button></template><em v-else>{{ copy.rbConfigureBeforeLaunch }}</em></div>
+              <template v-for="tool in remoteTools" :key="`${tool.adapter.id}-verify`">
+                <div v-if="tool.inspection.configured && tool.inspection.verificationSupported" class="remote-tool-verification">
+                  <p class="remote-hint">{{ copy.rbVerifyClaudeHint }}</p>
+                  <button class="secondary-action" type="button" :disabled="busy || summary.status !== 'connected'" @click="verifyTool(tool.adapter)">{{ tool.adapter.verifyLabel(copy) }}</button>
+                </div>
+              </template>
+              <div class="remote-actions"><button v-for="tool in remoteTools" :key="tool.adapter.id" class="secondary-action" type="button" @click="restore(tool.adapter.id, summary.target!.id)">{{ tool.adapter.restoreLabel(copy) }}</button></div>
           </section>
 
           <section v-if="summary.target?.canOpenVscode" class="remote-vscode">
@@ -777,6 +809,8 @@ onBeforeUnmount(() => {
 .remote-bridge-dialog pre { padding:12px; overflow-wrap:anywhere; white-space:pre-wrap; border:1px solid var(--line); border-radius:8px; background:var(--surface); font-size:11px; line-height:1.65; }
 .remote-command { display:grid; min-width:0; padding:10px 0; align-items:center; grid-template-columns:90px minmax(0,1fr) auto; gap:12px; border-top:1px solid var(--line); }.remote-command span { color:var(--muted); font-size:11px; }.remote-command code { min-width:0; overflow-wrap:anywhere; }.remote-command button { padding:6px 8px; border-radius:8px; color:var(--accent-strong); background:var(--accent-soft); cursor:pointer; font-size:10px; }
 .remote-command em { color:var(--muted); font-size:11px; font-style:normal; }
+.remote-tool-verification { display:flex; margin:8px 0 14px; align-items:center; justify-content:space-between; gap:16px; }
+.remote-tool-verification .remote-hint { max-width:68ch; margin:0; }
 .remote-error,.remote-danger { color:var(--danger); }.remote-error { font-size:12px; line-height:1.65; }.remote-feedback { min-height:18px; color:var(--muted); font-size:12px; }.remote-fields:disabled { opacity:.7; }
 .remote-disconnect-dialog { width:min(520px,calc(100vw - 40px)); }
 .remote-auth-dialog { width:min(540px,calc(100vw - 40px)); }
@@ -806,5 +840,6 @@ onBeforeUnmount(() => {
   .remote-workspace { padding:22px 20px; }
   .remote-tool-status { grid-template-columns:1fr; gap:4px; }
   .remote-command { grid-template-columns:1fr; gap:6px; }.remote-command button { justify-self:start; }
+  .remote-tool-verification { align-items:flex-start; flex-direction:column; }
 }
 </style>

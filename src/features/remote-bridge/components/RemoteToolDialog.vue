@@ -6,12 +6,13 @@ import { copyText } from '../../../shared/utils/clipboard';
 import type { CheckState } from '../../../shared/types';
 import StatusIndicator from '../../../shared/components/StatusIndicator.vue';
 import { remoteBackend, type ConfigPreview, type ExtensionInspection, type ExtensionPreview } from '../state';
+import { getRemoteToolAdapter, type RemoteToolId } from '../tool-adapters';
 
 const props = defineProps<{ copy: RemoteBridgeCopy; sessionAlias: string | null; sessionStatus: string }>();
 const emit = defineEmits<{ refresh: [] }>();
 const dialog = ref<HTMLDialogElement>();
 const heading = ref<HTMLElement>();
-const tool = ref('codex'), alias = ref('');
+const tool = ref<RemoteToolId>('codex'), alias = ref('');
 const targetName = ref('');
 const restoring = ref(false), cli = ref(true), extension = ref(false), locationConfirmed = ref(false), busy = ref(false);
 const phase = ref<'select' | 'preview' | 'result'>('select');
@@ -26,29 +27,28 @@ const operationSurface = ref<'cli' | 'extension'>('cli');
 let previousFocus: HTMLElement | null = null;
 let generation = 0;
 const capability = computed(() => inspection.value?.extensions.find(e => e.tool === tool.value));
-const path = computed(() => tool.value === 'codex' ? '~/.codex/config.toml' : '~/.vscode-server/data/Machine/settings.json');
+const adapter = computed(() => getRemoteToolAdapter(tool.value));
+const path = computed(() => adapter.value.extensionPath);
 const canPreview = computed(() => (cli.value || extension.value) && (!extension.value || inspection.value && locationConfirmed.value && (restoring.value || capability.value?.supported)));
 const outcome = (result: string) => result === 'success' ? (restoring.value ? props.copy.rbRestored : props.copy.rbExtApplied) : result === 'failed' ? props.copy.rbExtFailed : props.copy.rbExtWaiting;
 const resultState = (result: string): CheckState => result === 'success' ? 'healthy' : result === 'failed' ? 'failed' : 'idle';
 const extensionDetectionState = computed<CheckState>(() => !inspection.value ? 'idle' : capability.value?.supported ? 'healthy' : 'warning');
 const extensionConfigurationState = computed<CheckState>(() => capability.value?.configuration === 'configured' ? 'warning' : capability.value?.configuration === 'conflict' ? 'failed' : 'idle');
-const title = computed(() => `${tool.value === 'codex' ? 'Codex' : 'Claude Code'} · ${restoring.value ? props.copy.rbExtRestoreTitle : props.copy.rbExtTitle}`);
-const impact = computed(() => restoring.value ? props.copy.rbExtRestoreImpact : tool.value === 'codex' ? props.copy.rbExtCodexImpact : props.copy.rbExtClaudeImpact);
+const title = computed(() => `${adapter.value.displayName} · ${restoring.value ? props.copy.rbExtRestoreTitle : props.copy.rbExtTitle}`);
+const impact = computed(() => adapter.value.impact(props.copy, restoring.value));
 const errorText = computed(() => operationSurface.value === 'extension' && ['configConflict','unsafePath','noBackup','rollbackConflict','rollbackFailed','writeRolledBack','verifyFailed'].includes(bridgeErrorCode(error.value)) ? props.copy.rbExtError : bridgeError(error.value, props.copy));
 const after = computed(() => {
   const p = extensionPreview.value;
   if (!p) return '';
   if (p.restore) return p.originalExists ? props.copy.rbExtRestoreOpaque : props.copy.rbExtRestoreAbsent;
-  return tool.value === 'codex'
-    ? `model_provider = "proxyenv_bridge"\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv CC Switch"\nbase_url = "http://127.0.0.1:${p.port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false`
-    : JSON.stringify({ 'claudeCode.environmentVariables': [{ name: 'ANTHROPIC_BASE_URL', value: `http://127.0.0.1:${p.port}` }, { name: 'ANTHROPIC_AUTH_TOKEN', value: 'PROXY_MANAGED' }] }, null, 2);
+  return adapter.value.renderExtensionPreview(p.port);
 });
 async function perform(action: () => Promise<void>) {
   if (busy.value) return;
   busy.value = true; error.value = undefined;
   try { await action(); } catch(cause) { error.value = cause; } finally { busy.value = false; emit('refresh'); }
 }
-function open(selected: string, target: string, restore = false, label = '') {
+function open(selected: RemoteToolId, target: string, restore = false, label = '') {
   if (busy.value) return;
   generation++;
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -82,7 +82,7 @@ function review() {
     cliPreview.value = undefined; extensionPreview.value = undefined;
     if (cli.value) {
       operationSurface.value = 'cli';
-      const result = restoring.value ? await remoteBackend.configRestorePreview(alias.value, tool.value) : await remoteBackend.configPreview(tool.value);
+      const result = await adapter.value.preview(alias.value, restoring.value);
       if (current !== generation) return;
       cliPreview.value = result;
     }
@@ -103,8 +103,8 @@ function apply() {
     if (cliPreview.value) {
       operationSurface.value = 'cli';
       try {
-        if (restoring.value) await remoteBackend.configRestore(cliPreview.value.id);
-        else await remoteBackend.configApply(cliPreview.value.id);
+        if (restoring.value) await adapter.value.restore(cliPreview.value.id);
+        else await adapter.value.apply(cliPreview.value.id);
         cliResult.value = 'success';
       } catch(cause) { cliResult.value = 'failed'; throw cause; }
     }
@@ -147,7 +147,7 @@ defineExpose({ open, close });
         </template>
         <template v-else-if="phase === 'preview'">
           <section v-if="cliPreview" class="remote-capability"><h3>{{ copy.rbExtCli }}</h3><p><code>{{ cliPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><pre>{{ cliPreview.before || copy.rbAbsent }}</pre><h4>{{ copy.rbAfter }}</h4><pre>{{ cliPreview.after || copy.rbAbsent }}</pre><p v-if="cliPreview.onboardingRequired" class="notice notice-warning">{{ copy.rbClaudeOnboarding }}</p></section>
-          <section v-if="extensionPreview" class="remote-capability"><h3>{{ copy.rbExtGui }}</h3><p><code>{{ extensionPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><p>{{ copy.rbExtOpaque }}</p><p v-if="extensionPreview.previousPort"><code>127.0.0.1:{{ extensionPreview.previousPort }}</code></p><h4>{{ copy.rbAfter }}</h4><pre>{{ after }}</pre><p class="notice notice-warning">{{ impact }}</p></section>
+          <section v-if="extensionPreview" class="remote-capability"><h3>{{ copy.rbExtGui }}</h3><p><code>{{ extensionPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><p>{{ copy.rbExtOpaque }}</p><p v-if="extensionPreview.previousPort"><code>127.0.0.1:{{ extensionPreview.previousPort }}</code></p><p v-if="extensionPreview.loginPromptChange === 'overrideFalse'" class="notice notice-warning">{{ copy.rbExtLoginPromptConflict }}</p><h4>{{ copy.rbAfter }}</h4><pre>{{ after }}</pre><p class="notice notice-warning">{{ impact }}</p></section>
           <p v-if="restoring" class="remote-hint">{{ copy.rbExtRestoreScope }}</p>
         </template>
         <template v-else>

@@ -3,6 +3,7 @@ pub mod extension;
 mod mobaxterm;
 mod ssh;
 pub mod ssh_auth;
+pub mod tool_adapter;
 pub(crate) mod vscode;
 use super::proxy::{active, plan, ProxyEndpoint, ProxyProtocol, ProxyVariable};
 use serde::{Deserialize, Serialize};
@@ -116,6 +117,11 @@ pub struct Summary {
     pub environment: String,
     pub codex_configured: bool,
     pub claude_configured: bool,
+    #[serde(skip)]
+    pub(crate) codex_verification: tool_adapter::RemoteToolVerification,
+    #[serde(skip)]
+    pub(crate) claude_verification: tool_adapter::RemoteToolVerification,
+    pub tools: Vec<tool_adapter::RemoteToolState>,
     pub codex_extension: Option<String>,
     pub claude_extension: Option<String>,
     pub error: Option<String>,
@@ -142,7 +148,7 @@ pub struct Report {
 #[serde(rename_all = "camelCase")]
 pub struct ConfigPreview {
     pub id: String,
-    pub tool: String,
+    pub tool: tool_adapter::RemoteToolId,
     pub path: String,
     pub before: String,
     pub after: String,
@@ -151,6 +157,13 @@ pub struct ConfigPreview {
     pub alias: String,
     pub restore: bool,
     pub onboarding_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolVerificationResult {
+    pub tool: tool_adapter::RemoteToolId,
+    pub verification: tool_adapter::RemoteToolVerification,
 }
 struct Pending {
     preview: ConfigPreview,
@@ -294,6 +307,7 @@ fn refresh(state: &mut Store) {
             state.cc_status = Status::Disconnected;
             state.summary.proxy_status = state.summary.proxy.as_ref().map(|_| Status::Disconnected);
             state.summary.cc_status = state.summary.cc.as_ref().map(|_| Status::Disconnected);
+            invalidate_tool_verification(&mut state.summary);
             state.reachable = false;
             state.pending = None;
             state.extension_pending = None;
@@ -321,8 +335,36 @@ fn refresh(state: &mut Store) {
         let endpoints_available = proxy_available && cc_available;
         state.summary.status =
             observed_status(&state.summary, current.as_ref(), endpoints_available);
+        if state.summary.status != Status::Connected
+            || state.summary.cc_status != Some(Status::Connected)
+        {
+            invalidate_tool_verification(&mut state.summary);
+        }
     }
 }
+
+fn sync_tool_states(summary: &mut Summary) {
+    summary.tools = tool_adapter::adapters()
+        .iter()
+        .map(|adapter| adapter.inspect(summary))
+        .collect();
+}
+
+fn invalidate_tool_verification(summary: &mut Summary) {
+    for adapter in tool_adapter::adapters() {
+        if adapter.configured(summary) {
+            adapter.verify(summary, tool_adapter::RemoteToolVerification::VerifyPending);
+        }
+    }
+    sync_tool_states(summary);
+}
+
+fn exposed_summary(summary: &Summary) -> Summary {
+    let mut snapshot = summary.clone();
+    sync_tool_states(&mut snapshot);
+    snapshot
+}
+
 pub fn start_monitor() {
     std::thread::spawn(|| loop {
         std::thread::sleep(Duration::from_secs(2));
@@ -333,7 +375,7 @@ pub fn start_monitor() {
     });
 }
 pub fn summary() -> BridgeResult<Summary> {
-    Ok(lock()?.summary.clone())
+    Ok(exposed_summary(&lock()?.summary))
 }
 pub fn report() -> Report {
     // Report generation reads cached observations only: no SSH or socket probes.
@@ -485,14 +527,16 @@ pub fn preview(request: &Request) -> BridgeResult<Summary> {
         .map(remote_environment)
         .transpose()?
         .unwrap_or_default();
-    Ok(Summary {
+    let mut summary = Summary {
         target: Some(target),
         proxy,
         cc,
         environment,
         active_proxy_revision: request.proxy_port.map(|_| context.revision),
         ..Summary::default()
-    })
+    };
+    sync_tool_states(&mut summary);
+    Ok(summary)
 }
 
 pub(super) fn complete_interactive_check(auth: SshAuthState) {
@@ -588,7 +632,7 @@ pub(super) fn complete_interactive_connect(
     state.reachable = true;
     state.target_fingerprint = Some(fingerprint);
     state.ssh_auth = auth;
-    Ok(state.summary.clone())
+    Ok(exposed_summary(&state.summary))
 }
 
 pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
@@ -666,7 +710,7 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         state.summary.ssh_auth = state.ssh_auth;
         state.reachable = true;
         state.target_fingerprint = Some(fingerprint);
-        Ok(state.summary.clone())
+        Ok(exposed_summary(&state.summary))
     })();
     if let Err(code) = &result {
         state.summary.status = Status::Error;
@@ -687,8 +731,9 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     state.summary.cc_status = state.summary.cc.as_ref().map(|_| Status::Disconnected);
     state.proxy_status = Status::Disconnected;
     state.cc_status = Status::Disconnected;
+    invalidate_tool_verification(&mut state.summary);
     credential_cache::clear();
-    Ok(state.summary.clone())
+    Ok(exposed_summary(&state.summary))
 }
 pub fn clear_session_credential() {
     credential_cache::clear();
@@ -753,17 +798,8 @@ pub fn launch_proxy_terminal() -> BridgeResult<()> {
     let fingerprint = target_fingerprint.ok_or("sshConfigChanged")?;
     ssh::launch_managed_terminal(&target_id, &endpoint, &fingerprint)
 }
-fn overlay(tool: &str, port: u16) -> String {
-    if tool == "codex" {
-        format!("# ProxyEnv Remote Bridge\nmodel_provider = \"proxyenv_bridge\"\n\n[model_providers.proxyenv_bridge]\nname = \"ProxyEnv CC Switch\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n")
-    } else {
-        format!("{{\"env\":{{\"ANTHROPIC_BASE_URL\":\"http://127.0.0.1:{port}\",\"ANTHROPIC_AUTH_TOKEN\":\"PROXY_MANAGED\"}}}}\n")
-    }
-}
 pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
-    if !["codex", "claude"].contains(&tool.as_str()) {
-        return Err("invalidRequest".into());
-    }
+    let adapter = tool_adapter::by_name(&tool)?;
     let mut state = lock()?;
     refresh(&mut state);
     if state.child.is_none() || state.summary.cc.is_none() {
@@ -795,7 +831,7 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
         .remote_port;
     let value = ssh::remote(
         &target_id,
-        json!({"operation":"preview","tool":tool,"port":port}),
+        json!({"operation":"preview","tool":adapter.id().as_str(),"port":port}),
     )?;
     let hash = value["expectedHash"]
         .as_str()
@@ -809,7 +845,7 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
         .as_bool()
         .ok_or("remoteFailed")?;
     let before = match value["previousPort"].as_u64() {
-        Some(p) if (1024..=65535).contains(&p) => overlay(&tool, p as u16),
+        Some(p) if (1024..=65535).contains(&p) => adapter.preview(p as u16).content,
         None if value["previousPort"].is_null() => String::new(),
         _ => return Err("remoteFailed".into()),
     };
@@ -820,24 +856,18 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
         .to_owned();
     let mut nonce = [0u8; 16];
     getrandom::fill(&mut nonce).map_err(|_| "stateUnavailable")?;
+    if !adapter.detect(&version) {
+        return Err("cliUnsupported".into());
+    }
+    let plan = adapter.preview(port);
     let preview = ConfigPreview {
         id: hex::encode(nonce),
-        tool: tool.clone(),
-        path: if tool == "codex" {
-            "~/.codex/proxyenv_bridge.config.toml"
-        } else {
-            "~/.claude/proxyenv-bridge.json"
-        }
-        .into(),
+        tool: adapter.id(),
+        path: plan.path.into(),
         before,
-        after: overlay(&tool, port),
+        after: plan.content,
         version,
-        launch: if tool == "codex" {
-            "codex --profile proxyenv_bridge"
-        } else {
-            "claude --settings \"$HOME/.claude/proxyenv-bridge.json\""
-        }
-        .into(),
+        launch: plan.launch.into(),
         alias: target_id.clone(),
         restore: false,
         onboarding_required,
@@ -880,28 +910,23 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
     }
     ssh::remote(
         &pending.target_id,
-        json!({"operation":"apply","tool":pending.preview.tool,"port":pending.port,"expectedHash":pending.hash,"stateHash":pending.state_hash}),
+        json!({"operation":"apply","tool":pending.preview.tool.as_str(),"port":pending.port,"expectedHash":pending.hash,"stateHash":pending.state_hash}),
     )?;
-    if pending.preview.tool == "codex" {
-        state.summary.codex_configured = true;
-    } else {
-        state.summary.claude_configured = true;
-    }
+    tool_adapter::by_id(pending.preview.tool).apply(&mut state.summary);
+    sync_tool_states(&mut state.summary);
     Ok(())
 }
 pub fn config_restore_preview(target_id: String, tool: String) -> BridgeResult<ConfigPreview> {
-    if !["codex", "claude"].contains(&tool.as_str()) {
-        return Err("invalidRequest".into());
-    }
+    let adapter = tool_adapter::by_name(&tool)?;
     let target_fingerprint = ssh::fingerprint(&target_id)?;
     let mut state = lock()?;
     let value = ssh::remote(
         &target_id,
-        json!({"operation":"restore-preview","tool":tool}),
+        json!({"operation":"restore-preview","tool":adapter.id().as_str()}),
     )?;
     let content = |key: &str| -> BridgeResult<String> {
         match value[key].as_u64() {
-            Some(p) if (1024..=65535).contains(&p) => Ok(overlay(&tool, p as u16)),
+            Some(p) if (1024..=65535).contains(&p) => Ok(adapter.preview(p as u16).content),
             None if value[key].is_null() => Ok(String::new()),
             _ => Err("remoteFailed".into()),
         }
@@ -911,15 +936,10 @@ pub fn config_restore_preview(target_id: String, tool: String) -> BridgeResult<C
     let preview = ConfigPreview {
         id: hex::encode(nonce),
         alias: target_id.clone(),
-        tool: tool.clone(),
+        tool: adapter.id(),
         restore: true,
         onboarding_required: false,
-        path: if tool == "codex" {
-            "~/.codex/proxyenv_bridge.config.toml"
-        } else {
-            "~/.claude/proxyenv-bridge.json"
-        }
-        .into(),
+        path: adapter.config_path().into(),
         before: content("previousPort")?,
         after: content("originalPort")?,
         version: String::new(),
@@ -951,17 +971,84 @@ pub fn config_restore(id: String, confirmed: bool) -> BridgeResult<()> {
     }
     ssh::remote(
         &pending.target_id,
-        json!({"operation":"restore","tool":pending.preview.tool,"expectedHash":pending.hash,"backupHash":pending.backup_hash}),
+        json!({"operation":"restore","tool":pending.preview.tool.as_str(),"expectedHash":pending.hash,"backupHash":pending.backup_hash}),
     )?;
     if state.summary.target.as_ref().map(|target| &target.id) == Some(&pending.target_id) {
-        if pending.preview.tool == "codex" {
-            state.summary.codex_configured = false;
-        } else {
-            state.summary.claude_configured = false;
-        }
+        tool_adapter::by_id(pending.preview.tool).restore(&mut state.summary);
+        sync_tool_states(&mut state.summary);
     }
     state.pending = None;
     Ok(())
+}
+
+pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
+    let adapter = tool_adapter::by_name(&tool)?;
+    if !adapter.verification_supported() {
+        return Err("toolVerificationUnsupported".into());
+    }
+    let (target_id, target_fingerprint) = {
+        let mut state = lock()?;
+        refresh(&mut state);
+        if state.child.is_none()
+            || state.summary.status != Status::Connected
+            || state.summary.cc_status != Some(Status::Connected)
+        {
+            return Err("bridgeUnavailable".into());
+        }
+        if !adapter.configured(&state.summary) {
+            return Err("toolNotConfigured".into());
+        }
+        let target_id = state
+            .summary
+            .target
+            .as_ref()
+            .map(|target| target.id.clone())
+            .ok_or("invalidTarget")?;
+        let fingerprint = state.target_fingerprint.clone().ok_or("sshConfigChanged")?;
+        if ssh::fingerprint(&target_id)? != fingerprint {
+            return Err("sshConfigChanged".into());
+        }
+        adapter.verify(
+            &mut state.summary,
+            tool_adapter::RemoteToolVerification::VerifyPending,
+        );
+        sync_tool_states(&mut state.summary);
+        (target_id, fingerprint)
+    };
+
+    let value = ssh::remote(
+        &target_id,
+        json!({"operation":"tool-verify","tool":adapter.id().as_str()}),
+    )?;
+    let verification: tool_adapter::RemoteToolVerification =
+        serde_json::from_value(value.get("verification").cloned().ok_or("remoteFailed")?)
+            .map_err(|_| "remoteFailed")?;
+    if matches!(
+        verification,
+        tool_adapter::RemoteToolVerification::NotConfigured
+            | tool_adapter::RemoteToolVerification::VerifyPending
+    ) {
+        return Err("remoteFailed".into());
+    }
+
+    let mut state = lock()?;
+    refresh(&mut state);
+    if state.child.is_none()
+        || state.summary.status != Status::Connected
+        || state.summary.cc_status != Some(Status::Connected)
+        || state.summary.target.as_ref().map(|target| &target.id) != Some(&target_id)
+        || state.target_fingerprint.as_ref() != Some(&target_fingerprint)
+        || ssh::fingerprint(&target_id)? != target_fingerprint
+        || !adapter.configured(&state.summary)
+    {
+        return Err("bridgeUnavailable".into());
+    }
+    adapter.verify(&mut state.summary, verification);
+    sync_tool_states(&mut state.summary);
+    Ok(ToolVerificationResult {
+        tool: adapter.id(),
+        verification,
+    })
 }
 
 #[cfg(test)]
@@ -996,10 +1083,22 @@ mod tests {
     }
     #[test]
     fn dedicated_overlays_have_only_bridge_fields() {
-        let codex: toml::Value = toml::from_str(&overlay("codex", 25721)).unwrap();
+        let codex: toml::Value = toml::from_str(
+            &tool_adapter::by_name("codex")
+                .unwrap()
+                .preview(25721)
+                .content,
+        )
+        .unwrap();
         assert_eq!(codex["model_provider"].as_str(), Some("proxyenv_bridge"));
         assert_eq!(codex.as_table().unwrap().len(), 2);
-        let claude: serde_json::Value = serde_json::from_str(&overlay("claude", 25721)).unwrap();
+        let claude: serde_json::Value = serde_json::from_str(
+            &tool_adapter::by_name("claude")
+                .unwrap()
+                .preview(25721)
+                .content,
+        )
+        .unwrap();
         assert_eq!(claude["env"]["ANTHROPIC_AUTH_TOKEN"], "PROXY_MANAGED");
     }
     #[test]
