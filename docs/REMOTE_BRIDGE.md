@@ -10,7 +10,7 @@ This is development scope, not a published stable-release announcement.
 3. 检查 SSH 连接。ProxyEnv 先复用密钥、IdentityFile 或 ssh-agent 做非交互认证；仅当 OpenSSH 明确要求认证时，才显示应用内交互窗口承载密码或 Keyboard Interactive / PAM 提示。检查通过后会在 `20000–60000` 中生成两个互不相同且当时未占用的远程 Loopback 端口。
 4. 在能力页分别查看服务器互联网、本机活动代理与 CC Switch AI 路由。三项检测彼此独立：SSH 成功不代表服务器能够联网，普通代理可用也不代表 CC Switch 可用。按需选择桥接本机代理、CC Switch，或同时选择两者。CC Switch 默认检查 `127.0.0.1:15721`，也可输入实际本地路由端口；结果会区分已确认的 CC Switch、身份未知的监听程序和未检测到监听。
 5. 预览本机和远端端点。建立连接前会再次检查远程端口；如发生端口竞争，页面会重新生成并要求再次确认。
-6. 代理桥接成功后复制环境变量，在远端当前 Shell 主动执行。仅“测试桥接”会经代理请求 `https://www.gstatic.com/generate_204`。
+6. 代理桥接成功后，点击“启动代理终端”即可打开新的 PowerShell 窗口，由系统 OpenSSH 连接远端并自动注入代理环境。仅密码账户需要为这个独立终端再次认证；ProxyEnv 不缓存密码，Windows OpenSSH 也不支持 ControlMaster 连接复用。已经打开的 SSH、VS Code Remote 或 MobaXterm 终端可展开高级入口，复制环境变量后在当前 Shell 执行，从而避免新建登录。仅“测试桥接”会经代理请求 `https://www.gstatic.com/generate_204`。
 7. CC Switch 桥接成功后，状态页会直接显示 Codex / Claude Code 配置入口和启动命令；预览并应用专用 CLI 接入文件后，再在远端显式使用对应命令。
 8. 断开桥接需确认。退出 ProxyEnv 会结束隧道；关闭窗口到托盘仍属同一运行会话。
 
@@ -23,14 +23,14 @@ This is development scope, not a published stable-release announcement.
 | Status UI | Shared `StatusIndicator`, `CheckRow`, `HelpHint`, and `LastChecked` components provide one six-state vocabulary, accessible icon/text feedback, structured help, independent timestamps, and a unified recheck action. |
 | Network observations | Server direct internet, the shared local `ActiveProxyContext`, and CC Switch routing are evaluated independently. Direct server testing bypasses proxy variables; a missing remote `curl` becomes Unknown rather than a false success or failure. |
 | Active proxy | Reads `active::snapshot()` only. No bridge discovery or secondary selection. Captures revision, local endpoint and protocol; changes become Stale, loss becomes Unavailable. |
-| Protocol | HTTP → HTTP_PROXY/HTTPS_PROXY; SOCKS5 → ALL_PROXY with socks5h; Mixed → all three. Unknown is refused. Existing variable mapping is reused. |
+| Protocol | HTTP → HTTP_PROXY/HTTPS_PROXY; SOCKS5 → ALL_PROXY with socks5h; Mixed → all three. NO_PROXY always covers localhost loopback. The managed snippet clears stale values before applying the selected mapping; Unknown is refused. |
 | SSH target | Structured targets from `~/.ssh/config`, the default VS Code user `remote.SSH.configFile`, and bounded MobaXterm bookmark sources. IDs bind source, configuration identity, and alias/session name. OpenSSH resolves its own aliases; no private-key or credential contents are read. |
 | Port allocation | After SSH verification, distinct remote Loopback ports are selected from `20000–60000` and checked again immediately before connection. A race causes one regeneration and a return to review. |
 | CC Switch | Loopback listener ownership is classified as confirmed CC Switch, listening with unknown identity, or not detected. A listening port alone is not treated as service identity. |
 | SSH auth | `BatchMode=yes` remains the first path for IdentityFile / ssh-agent. Authentication failures may opt into a short-lived OpenSSH session hosted by Windows ConPTY with `BatchMode=no`, password and keyboard-interactive enabled. |
 | Forward | Explicit `127.0.0.1:remote:loopback:local`, ExitOnForwardFailure, strict host-key checks and bounded connection/keepalive timeouts. Interactive forwarding is not accepted until the remote listeners are verified as loopback-only. |
 | Remote listener | Checks remote TCP listeners before creation and validates actual loopback-only listeners after creation. A wildcard/unknown binding closes the new tunnel. |
-| Session | One combined target/session at a time. No automatic reconnect. Non-interactive SSH uses the existing Windows Job Object lifecycle; interactive OpenSSH is owned by a short-lived ConPTY session and is killed on cancel, expiry, disconnect or application shutdown. |
+| Session | One combined target/session at a time. No automatic reconnect. The bridge SSH process uses the existing Windows Job Object lifecycle; authentication OpenSSH is owned by a short-lived ConPTY session. A user-launched proxy terminal is a separate visible OpenSSH process whose network route still depends on the active bridge. |
 | Config | CLI uses dedicated files. Opt-in VS Code extension adapters patch shared remote configuration with parser-based edits. Read/validate → preview → confirmation → remote backup → atomic replace → hash readback. Conflicts stop writes and restore. |
 | Diagnostics | Structured command errors expose only code, phase, safe target category and retryability. Cached summaries remain allowlisted: no usernames, home paths, keys, secrets, raw SSH stderr or upstream URLs. |
 
@@ -104,7 +104,7 @@ Codex 扩展单独检查内置 `bin/linux-<architecture>/codex --version`，不�
 
 - Linux with a non-root SSH account, POSIX `sh`, `ss` (iproute2), `flock` (util-linux), and standard GNU/coreutils tools including `sha256sum`, `stat`, `sync -f`, `mktemp`, `cmp`, `sed`, `grep`, `cut`, `cp`, `mv`, `cat`, `unlink`.
 - `timeout` and a supported CLI already in the noninteractive SSH PATH are required for CLI configuration. `curl` is needed only for the explicit external network test.
-- Existing working key/agent authentication and verified host keys. Password entry and first-use host-key acceptance are done in the user's terminal.
+- Existing OpenSSH target configuration. The bridge check can complete password and keyboard-interactive authentication in ProxyEnv. A successfully verified plain server password may be reused only for the current bridge; it is DPAPI-protected for the current Windows user, kept as ciphertext in memory, and cleared on target switch, disconnect, rejection, or exit. Key passphrases, OTP, and unknown challenges are never cached. First-use host keys still require explicit fingerprint confirmation.
 - No existing LocalForward/RemoteForward/DynamicForward in the selected effective SSH configuration. These are rejected so the new connection opens only reviewed ports. Use a separate alias with no inherited forwards.
 - The remote home/config path and recovery files must not be symlinks, have another owner, or be group/world-writable. Only exact ProxyEnv-generated overlays may be read back or replaced; unknown contents fail closed.
 
@@ -118,7 +118,7 @@ Explicit aliases inside complex Include/Match configurations are not enumerated 
 
 ConPTY 输出先经过可跨分片工作的终端控制序列解析器；OpenSSH 发出光标位置查询（CSI 6n）时，ProxyEnv 会回复受控的 CSI 1;1R，控制字节不会进入 Prompt。连接检查使用由后端生成的短小固定远端命令，不再在认证后通过交互 PTY 注入完整 `remote.sh`，因此不会把大段脚本滞留在终端输入或回显缓冲。界面在登录后显示“认证通过，正在检查远端环境”，只有收到并解析远端结果后才显示最终成功并进入下一步；检查结果超时会明确失败，不会停留在假成功状态。若在真实提示等待时间内仍未收到可识别提示，会进入“未能读取认证提示”，停止认证进程并允许用户取消、重试或查看安全诊断计数；系统不会生成一个假的通用输入框。
 
-用户回答只作为一次 Tauri 调用中的临时值写入 PTY stdin：不进入 SSH 参数、配置文件或日志，提交后立即清空前后端缓冲。仅当 PTY 返回与本次回答逐字节一致的回显时才抑制该段内容，不再丢弃回答后的任意首行，因此后续 OTP Prompt 不会被误吞。ProxyEnv 不保存密码。交互会话使用随机 ID 与随机成功标记，三分钟未完成会被销毁。取消、提示超时、窗口退出或应用退出都会终止对应 OpenSSH 进程。
+用户回答只作为一次 Tauri 调用中的临时值写入 PTY stdin：不进入 SSH 参数、配置文件或日志，提交后立即清空前后端明文缓冲。仅普通服务器密码在完整认证成功后可进入本次桥接缓存，内存中只长期保存 Windows 当前用户 DPAPI 密文，并绑定目标 SSH 配置指纹；切换目标、断开、认证拒绝或退出都会清除。私钥口令、OTP 和未知挑战不缓存。仅当 PTY 返回与本次回答逐字节一致的回显时才抑制该段内容，不再丢弃回答后的任意首行，因此后续 OTP Prompt 不会被误吞。交互会话使用随机 ID 与随机成功标记，三分钟未完成会被销毁。取消、提示超时、窗口退出或应用退出都会终止对应 OpenSSH 进程。
 
 当前交互路径覆盖连接检查和桥接建立。建桥完成仍不等于后续 CLI 配置或模型请求已验证；这些远端操作若服务器每次都要求密码，仍需后续受控认证编排，不能复用或缓存本次密码。
 
