@@ -25,7 +25,7 @@ function fixture() {
   if(process.platform==="win32") mock("stat",'[ "$2" != %a ] || { printf 700; exit; }; /usr/bin/stat "$@"');
   mock("mv",'for target do :; done; if [ "${TEST_FAIL_REPLACE:-}" = 1 ] && [ ! -e "$HOME/.replace-failed" ]; then case "$target" in *.config.toml|*bridge.json) touch "$HOME/.replace-failed"; exit 1;; esac; fi; /usr/bin/mv "$@"');
   mock("codex",'printf "%s\\n" "${TEST_CODEX_VERSION:-codex-cli 0.134.0}"');
-  mock("claude",'printf "2.1.0 (Claude Code)\\n"');
+  mock("claude",'if [ "$1" = --version ]; then printf "2.1.0 (Claude Code)\\n"; exit; fi; case "${TEST_CLAUDE_VERIFY:-verified}" in verified) printf \'{"result":"PROXYENV_VERIFY_OK"}\\n\';; auth) printf \'login required secret-fixture\\n\' >&2; exit 1;; route) printf \'gateway connection refused secret-fixture\\n\' >&2; exit 1;; timeout) exit 124;; *) printf \'unexpected secret-fixture\\n\' >&2; exit 1;; esac');
   mock("curl",'[ "${TEST_CURL_RESULT:-ok}" = ok ]');
   const run=(operation,tool="codex",port=25721,expected="absent",env={},expectedState="absent")=>{
     let backupHash="absent";
@@ -58,6 +58,24 @@ for(const tool of ["codex","claude"]) test(`${tool}: preview, apply, stale previ
     assert.equal(f.run("apply",tool,25722,next.expectedHash,{},next.stateHash).configured,true);
     assert.equal(f.run("restore",tool).configured,false);assert.equal(existsSync(file),false);
     assert.equal(f.run("restore",tool).error,"noBackup");
+  } finally { f.cleanup(); }
+});
+test("Claude request verification returns only an allowlisted state",{skip:!available},()=>{
+  const f=fixture();try {
+    assert.equal(f.run("apply","claude").configured,true);
+    const cases = [
+      ["verified","verified"],
+      ["auth","authenticationRequired"],
+      ["route","routeUnavailable"],
+      ["timeout","timedOut"],
+      ["failed","failed"],
+    ];
+    for (const [fixtureState, expected] of cases) {
+      const result=f.run("tool-verify","claude",25721,"absent",{TEST_CLAUDE_VERIFY:fixtureState});
+      assert.deepEqual(result,{verification:expected});
+      assert.ok(!JSON.stringify(result).includes("secret-fixture"));
+    }
+    assert.equal(f.run("tool-verify","codex").error,"invalidRequest");
   } finally { f.cleanup(); }
 });
 test("server internet observation is independent from bridge port checks",{skip:!available},()=>{
@@ -122,6 +140,9 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
   assert.match(credentials,/CryptUnprotectData/);
   assert.match(credentials,/CRYPTPROTECT_UI_FORBIDDEN/);
   assert.match(credentials,/clear_if_matches/);
+  const tunnelBody=ssh.slice(ssh.indexOf("pub fn tunnel"),ssh.indexOf("pub(super) fn extension_remote"));
+  assert.match(tunnelBody,/remote_target_command\(&request\.target_id\)/);
+  assert.doesNotMatch(tunnelBody,/let \(mut cmd, destination\) = target_command/);
   assert.match(credentials,/prompt\.contains\("password"\)/);
   for(const forbiddenPrompt of ["passphrase","verification","one-time","otp"]) {
     assert.match(credentials,new RegExp(`prompt\\.contains\\(\\"${forbiddenPrompt}\\"\\)`));
@@ -215,8 +236,8 @@ test("all remote UI labels and error categories are localized",async()=>{
   for(const [locale,copy] of Object.entries(messages)) {
     assert.deepEqual(Object.keys(copy).sort(),Object.keys(messages.en).sort(),locale);
     for(const state of ["disconnected","connecting","connected","stale","unavailable","error"]) assert.ok(copy.rbStates[state]);
-    for(const key of ["rbAuthInteractionError","rbAuthCompleting","rbAuthCompletingTitle","rbAuthCompletingDescription","rbAuthRemoteCheckFailure","rbAuthRemoteCheckFailureTitle","rbAuthPromptUnavailableTitle","rbAuthPromptUnavailableDescription","rbAuthPromptUnavailableHint","rbAuthRetry","rbAuthOpenDiagnostic","rbAuthDiagnosticBytes","rbAuthDiagnosticPrintable","rbAuthDiagnosticCpr","rbAuthDiagnosticPrompt","rbAuthDiagnosticMarker","rbAuthDiagnosticResult","rbAuthDiagnosticClosed","rbAuthCompletionTimeout"]) assert.ok(copy[key],`${locale}:${key}`);
-    for(const code of ["sshAuth","sshAuthRejected","sshAuthPromptChanged","sshAuthCompletionTimeout","hostKeyChanged","ptyUnavailable","sshAuthSessionMissing","forwardDenied","unsafeBinding","configConflict","rootForbidden","portInUse","activeChanged","ccUnavailable","bridgeUnavailable","noCapability","alreadyConnected","stateUnavailable","processFailed","remoteFailed","networkFailed","targetUnsupported","portAllocationFailed","portRace","random-secret"]) assert.ok(bridgeError(code,copy) && !bridgeError(code,copy).includes("random-secret"));
+    for(const key of ["rbAuthInteractionError","rbAuthCompleting","rbAuthCompletingTitle","rbAuthCompletingDescription","rbAuthRemoteCheckFailure","rbAuthRemoteCheckFailureTitle","rbAuthPromptUnavailableTitle","rbAuthPromptUnavailableDescription","rbAuthPromptUnavailableHint","rbAuthRetry","rbAuthOpenDiagnostic","rbAuthDiagnosticBytes","rbAuthDiagnosticPrintable","rbAuthDiagnosticCpr","rbAuthDiagnosticPrompt","rbAuthDiagnosticMarker","rbAuthDiagnosticResult","rbAuthDiagnosticClosed","rbAuthCompletionTimeout","rbVerifyClaude","rbVerifyClaudeHint","rbToolVerifyPending","rbToolVerified","rbToolAuthRequired","rbToolRouteUnavailable","rbToolVerifyTimedOut","rbToolVerifyFailed"]) assert.ok(copy[key],`${locale}:${key}`);
+    for(const code of ["sshAuth","sshAuthRejected","sshAuthPromptChanged","sshAuthCompletionTimeout","hostKeyChanged","ptyUnavailable","sshAuthSessionMissing","forwardDenied","unsafeBinding","configConflict","rootForbidden","portInUse","activeChanged","ccUnavailable","bridgeUnavailable","toolNotConfigured","toolVerificationUnsupported","noCapability","alreadyConnected","stateUnavailable","processFailed","remoteFailed","networkFailed","targetUnsupported","portAllocationFailed","portRace","random-secret"]) assert.ok(bridgeError(code,copy) && !bridgeError(code,copy).includes("random-secret"));
     assert.equal(
       bridgeError({code:"ccUnavailable",phase:"localDetection",target:"ccSwitch",retryable:true},copy),
       copy.rbCcError,
@@ -224,11 +245,57 @@ test("all remote UI labels and error categories are localized",async()=>{
   }
 });
 
-test("CLI launch commands are hidden until their remote overlays are verified",()=>{
+test("CLI launch commands are hidden until their remote overlays are configured",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  assert.match(page,/v-if="summary\.codexConfigured"[\s\S]*?\{\{ codexLaunch \}\}/);
-  assert.match(page,/v-if="summary\.claudeConfigured"[\s\S]*?\{\{ claudeLaunch \}\}/);
+  const adapters=readFileSync("src/features/remote-bridge/tool-adapters.ts","utf8");
+  assert.match(page,/v-for="tool in remoteTools"/);
+  assert.match(page,/v-if="tool\.launch"/);
   assert.match(page,/v-else>\{\{ copy\.rbConfigureBeforeLaunch \}\}/);
+  assert.match(adapters,/launch: \(summary\) => configured\(summary\) \? definition\.launchCommand : ""/);
+});
+
+test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary",()=>{
+  const backend=readFileSync("src-tauri/src/features/remote_bridge/tool_adapter.rs","utf8");
+  const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const frontend=readFileSync("src/features/remote-bridge/tool-adapters.ts","utf8");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolDialog.vue","utf8");
+  for(const method of ["detect","inspect","preview","apply","restore","launch","verify","supported_route_modes","compatibility"]) {
+    assert.match(backend,new RegExp(`fn ${method}\\(`));
+  }
+  assert.match(backend,/impl RemoteToolAdapter for CodexCliAdapter/);
+  assert.match(backend,/impl RemoteToolAdapter for ClaudeCliAdapter/);
+  assert.match(backend,/RemoteToolVerification::VerifyPending/);
+  assert.match(bridge,/tool_adapter::by_name\(&tool\)/);
+  assert.doesNotMatch(bridge,/fn overlay\(/);
+  assert.match(frontend,/export interface RemoteToolAdapter/);
+  assert.match(frontend,/summary\.tools\?\.find/);
+  for(const source of [page,dialog]) assert.doesNotMatch(source,/tool(?:\.value)?\s*===\s*["'](?:codex|claude)["']/);
+});
+
+test("Claude verification is a fixed isolated request and never returns model output",()=>{
+  const shell=readFileSync("src-tauri/src/features/remote_bridge/remote.sh","utf8");
+  const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
+  const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(shell,/--settings "\$file"/);
+  assert.match(shell,/--setting-sources ""/);
+  assert.match(shell,/--strict-mcp-config/);
+  assert.match(shell,/--mcp-config '\{"mcpServers":\{\}\}'/);
+  assert.match(shell,/--tools ""/);
+  assert.match(shell,/--disallowedTools 'mcp__\*'/);
+  assert.match(shell,/--no-session-persistence/);
+  assert.match(shell,/Reply with exactly PROXYENV_VERIFY_OK/);
+  assert.match(shell,/printf '\{"verification":"%s"\}/);
+  assert.match(bridge,/pub fn verify_tool/);
+  assert.match(ssh,/remote_target_command/);
+  assert.match(ssh,/credential_cache::terminal_payload/);
+  assert.match(ssh,/if operation == "tool-verify" \{ 90 \} else \{ 25 \}/);
+  assert.match(commands,/fn remote_bridge_tool_verify/);
+  assert.match(runtime,/remote_bridge::remote_bridge_tool_verify/);
+  assert.match(page,/@click="verifyTool\(tool\.adapter\)"/);
 });
 
 test("remote target paths reuse the Windows extended-path display cleanup",async()=>{

@@ -14,6 +14,7 @@ use std::{
 enum CommandMode {
     Batch,
     Interactive,
+    CachedPassword,
     ManagedTerminal,
 }
 
@@ -53,6 +54,15 @@ fn command_with_mode(mode: CommandMode) -> Command {
     ]);
     if matches!(mode, CommandMode::Batch) {
         command.args(["-oStrictHostKeyChecking=yes", "-oBatchMode=yes"]);
+    } else if matches!(mode, CommandMode::CachedPassword) {
+        command.args([
+            "-oStrictHostKeyChecking=yes",
+            "-oBatchMode=no",
+            "-oPasswordAuthentication=yes",
+            "-oKbdInteractiveAuthentication=yes",
+            "-oNumberOfPasswordPrompts=1",
+            "-oPreferredAuthentications=publickey,keyboard-interactive,password",
+        ]);
     } else {
         command.args([
             "-oStrictHostKeyChecking=ask",
@@ -338,6 +348,29 @@ fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(C
 
 fn target_command(id: &str) -> BridgeResult<(Command, String)> {
     target_command_with_batch_mode(id, true)
+}
+
+#[cfg(windows)]
+fn remote_target_command(id: &str) -> BridgeResult<(Command, String)> {
+    let fingerprint = fingerprint(id)?;
+    let Some((password, entropy)) = super::credential_cache::terminal_payload(&fingerprint)? else {
+        return target_command(id);
+    };
+    let (mut command, destination) = target_command_with_mode(id, CommandMode::CachedPassword)?;
+    let askpass = std::env::current_exe().map_err(|_| "processFailed")?;
+    command
+        .env("PROXYENV_SSH_ASKPASS", "1")
+        .env("PROXYENV_SSH_PASSWORD", password)
+        .env("PROXYENV_SSH_PASSWORD_ENTROPY", entropy)
+        .env("SSH_ASKPASS", askpass)
+        .env("SSH_ASKPASS_REQUIRE", "force")
+        .env("DISPLAY", "proxyenv:0");
+    Ok((command, destination))
+}
+
+#[cfg(not(windows))]
+fn remote_target_command(id: &str) -> BridgeResult<(Command, String)> {
+    target_command(id)
 }
 
 pub(super) fn interactive_target_command(id: &str) -> BridgeResult<(Command, String)> {
@@ -757,6 +790,7 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
         "apply",
         "restore",
         "restore-preview",
+        "tool-verify",
     ]
     .contains(&operation)
     {
@@ -806,6 +840,7 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
         "apply" => "apply",
         "restore" => "restore",
         "restore-preview" => "restore-preview",
+        "tool-verify" => "tool-verify",
         _ => return Err("invalidRequest".into()),
     };
     Ok((source, operation))
@@ -848,26 +883,42 @@ pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<s
         "test" => value["tested"] == true,
         "apply" => value["configured"] == true,
         "restore" => value["configured"] == false,
+        "tool-verify" => matches!(
+            value["verification"].as_str(),
+            Some(
+                "verified" | "authenticationRequired" | "routeUnavailable" | "timedOut" | "failed"
+            )
+        ),
         _ => value.is_object(),
     };
     if !valid {
         return Err("remoteFailed".into());
+    }
+    if operation == "tool-verify" {
+        return Ok(serde_json::json!({
+            "verification": value["verification"].as_str().ok_or("remoteFailed")?
+        }));
     }
     Ok(value)
 }
 
 pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_json::Value> {
     let (source, operation) = remote_payload(&request)?;
-    let (mut cmd, destination) = target_command(alias)?;
+    let (mut cmd, destination) = remote_target_command(alias)?;
     cmd.arg("-oClearAllForwardings=yes")
         .arg(destination)
         .arg("sh -s");
-    let text = output(cmd, Some(source), 25)?;
+    let timeout_seconds = if operation == "tool-verify" { 90 } else { 25 };
+    let text = output(cmd, Some(source), timeout_seconds)?;
     parse_remote_output(operation, &text)
 }
 
 pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResult<OwnedChild> {
-    let (mut cmd, destination) = target_command(&request.target_id)?;
+    // The preflight and the persistent reverse-forward process must use the
+    // same session authentication source. Otherwise a password-only target
+    // can pass preflight through the protected bridge cache, then fail here
+    // when the tunnel silently falls back to BatchMode=yes.
+    let (mut cmd, destination) = remote_target_command(&request.target_id)?;
     cmd.args(["-N", "-oClearAllForwardings=no"]);
     for (remote, host, local) in endpoints {
         let host = if host.contains(':') {
@@ -892,7 +943,7 @@ pub(super) fn extension_remote(
     // JSON is data inside a quoted heredoc. No user-provided command or path is executed.
     let source = format!("{}\n\"$bridge_node\" - <<'PROXYENV_EXTENSION_JS'\nglobalThis.bridgeExtensionRequest = {};\n{}\nPROXYENV_EXTENSION_JS\n",
         include_str!("extension-launch.sh"), request, include_str!("extension-helper.cjs"));
-    let (mut cmd, destination) = target_command(alias)?;
+    let (mut cmd, destination) = remote_target_command(alias)?;
     cmd.arg("-oClearAllForwardings=yes")
         .arg(destination)
         .arg("sh -s");
@@ -977,6 +1028,54 @@ mod tests {
         assert!(!args
             .iter()
             .any(|argument| argument == "-oStrictHostKeyChecking=no"));
+    }
+    #[test]
+    fn cached_password_mode_keeps_host_key_strict_and_limits_password_prompts() {
+        let command = command_with_mode(CommandMode::CachedPassword);
+        let args: Vec<_> = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect();
+        for required in [
+            "-oStrictHostKeyChecking=yes",
+            "-oBatchMode=no",
+            "-oPasswordAuthentication=yes",
+            "-oKbdInteractiveAuthentication=yes",
+            "-oNumberOfPasswordPrompts=1",
+            "-oPreferredAuthentications=publickey,keyboard-interactive,password",
+        ] {
+            assert!(args.iter().any(|argument| argument == required));
+        }
+        assert!(!args
+            .iter()
+            .any(|argument| argument == "-oStrictHostKeyChecking=ask"));
+    }
+    #[test]
+    fn tool_verification_output_accepts_only_public_status_values() {
+        for verification in [
+            "verified",
+            "authenticationRequired",
+            "routeUnavailable",
+            "timedOut",
+            "failed",
+        ] {
+            let text = format!(r#"{{"verification":"{verification}"}}"#);
+            let value = parse_remote_output("tool-verify", &text).unwrap();
+            assert_eq!(value["verification"], verification);
+        }
+        for invalid in [
+            r#"{"verification":"verifyPending"}"#,
+            r#"{"verification":"secret remote output"}"#,
+            r#"{"message":"PROXYENV_VERIFY_OK"}"#,
+        ] {
+            assert!(parse_remote_output("tool-verify", invalid).is_err());
+        }
+        let sanitized = parse_remote_output(
+            "tool-verify",
+            r#"{"verification":"verified","remoteOutput":"secret"}"#,
+        )
+        .unwrap();
+        assert_eq!(sanitized, serde_json::json!({"verification":"verified"}));
     }
     #[test]
     fn managed_terminal_is_interactive_and_does_not_modify_shell_startup_files() {
