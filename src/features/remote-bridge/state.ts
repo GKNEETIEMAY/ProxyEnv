@@ -5,7 +5,7 @@ export type BridgeStatus = "disconnected" | "connecting" | "connected" | "stale"
 export type RemoteTargetSource = "openssh" | "vscode" | "mobaxterm";
 export type SshAuthMode = "nonInteractive" | "interactive";
 export type SshAuthMethod = "identityFile" | "agent" | "password" | "keyboardInteractive" | "unknown";
-export interface SshAuthState { mode: SshAuthMode; method: SshAuthMethod; authenticated: boolean; passwordStored: false }
+export interface SshAuthState { mode: SshAuthMode; method: SshAuthMethod; authenticated: boolean; passwordStored: boolean }
 export type SshAuthOperation = "check" | "connect";
 export type SshPromptType = "password" | "keyPassphrase" | "hostKeyConfirmation" | "verificationCode" | "keyboardInteractive" | "unknown";
 export type SshAuthSessionStatus = "starting" | "waitingPrompt" | "waitingUser" | "submitting" | "waitingServer" | "authenticated" | "succeeded" | "promptUnavailable" | "failed";
@@ -46,6 +46,8 @@ export const remoteBackend = {
   connect: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_connect", { request, confirmed:true }),
   disconnect: () => invoke<BridgeSummary>("remote_bridge_disconnect", { confirmed:true }),
   test: () => invoke<void>("remote_bridge_test"),
+  launchProxyTerminal: () => invoke<void>("remote_bridge_launch_proxy_terminal"),
+  clearSessionCredential: () => invoke<void>("remote_bridge_clear_session_credential"),
   configPreview: (tool: string) => invoke<ConfigPreview>("remote_bridge_config_preview", { tool }),
   configApply: (id: string) => invoke<void>("remote_bridge_config_apply", { id, confirmed:true }),
   configRestorePreview: (targetId:string, tool:string) => invoke<ConfigPreview>("remote_bridge_config_restore_preview", { targetId,tool }),

@@ -45,7 +45,7 @@ const ccCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
 let networkRefreshRevision = 0;
 const busy = ref(false);
 const error = ref<unknown>();
-const feedback = ref<"copied" | "tested" | "ports">();
+const feedback = ref<"copied" | "tested" | "ports" | "terminal">();
 const preview = ref<BridgeSummary>();
 const reviewedRequest = ref<BridgeRequest>();
 const vscodeOpened = ref(false);
@@ -68,7 +68,7 @@ const valid = computed(() => (proxy.value || cc.value)
   && (!proxy.value || proxyAvailable.value && portsReady.value)
   && (!cc.value || ccUsable.value && portsReady.value && ccLocalPort.value >= 1024 && ccLocalPort.value <= 65535));
 const errorText = computed(() => error.value ? bridgeError(error.value, props.copy) : "");
-const feedbackText = computed(() => feedback.value ? ({ copied: props.copy.rbCopied, tested: props.copy.rbTested, ports: props.copy.rbPortsGenerated })[feedback.value] : "");
+const feedbackText = computed(() => feedback.value ? ({ copied: props.copy.rbCopied, tested: props.copy.rbTested, ports: props.copy.rbPortsGenerated, terminal: props.copy.rbTerminalLaunched })[feedback.value] : "");
 const endpoints = computed(() => {
   const source = step.value === 3 ? preview.value : props.summary;
   return [
@@ -460,6 +460,13 @@ function copyValue(value: string) {
   });
 }
 
+function launchProxyTerminal() {
+  void perform(async () => {
+    await remoteBackend.launchProxyTerminal();
+    feedback.value = "terminal";
+  });
+}
+
 function confirmDisconnect() {
   confirmation.value?.close();
   void perform(async () => {
@@ -469,7 +476,10 @@ function confirmDisconnect() {
   });
 }
 
-watch(targetId, () => {
+watch(targetId, (nextTarget, previousTarget) => {
+  if (previousTarget && nextTarget !== previousTarget) {
+    void remoteBackend.clearSessionCredential().catch(() => undefined);
+  }
   networkRefreshRevision += 1;
   checked.value = false;
   proxyPort.value = 0;
@@ -648,10 +658,15 @@ onBeforeUnmount(() => {
 
             <section v-if="summary.proxy && live" class="remote-next-section">
               <h3>{{ copy.rbProxyUseTitle }}</h3>
-              <ol><li>{{ copy.rbStepTerminal }}</li><li>{{ copy.rbStepCopy }}</li><li>{{ copy.rbStepPaste }}</li><li>{{ copy.rbStepTest }}</li><li>{{ copy.rbStepRun }}</li></ol>
-              <pre>{{ summary.environment }}</pre>
-              <div class="remote-actions"><button class="primary-action" type="button" @click="copyValue(summary.environment)">{{ copy.rbCopy }}</button><button class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(async () => { await remoteBackend.test(); feedback = 'tested'; })">{{ copy.rbTest }}</button></div>
-              <p class="remote-hint">{{ copy.rbShellScope }}</p>
+              <p class="remote-terminal-lead">{{ copy.rbTerminalLaunchHint }}</p>
+              <div class="remote-actions"><button class="primary-action" type="button" :disabled="summary.status !== 'connected'" @click="launchProxyTerminal">{{ copy.rbLaunchProxyTerminal }}</button><button class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(async () => { await remoteBackend.test(); feedback = 'tested'; })">{{ copy.rbTest }}</button></div>
+              <p class="remote-hint">{{ copy.rbTerminalAuthHint }}</p>
+              <p class="remote-hint">{{ copy.rbManagedShellScope }}</p>
+              <details class="remote-advanced">
+                <summary>{{ copy.rbAdvancedCopy }}</summary>
+                <pre>{{ summary.environment }}</pre>
+                <button class="secondary-action" type="button" @click="copyValue(summary.environment)">{{ copy.rbCopy }}</button>
+              </details>
             </section>
 
             <section v-if="summary.cc && live" class="remote-next-section">
@@ -819,6 +834,12 @@ onBeforeUnmount(() => {
 .remote-tool-status { display:grid; min-height:36px; padding:7px 0; align-items:center; grid-template-columns:minmax(150px,.8fr) minmax(0,1fr); gap:16px; border-top:1px solid var(--line); font-size:11px; }
 .remote-tool-status span:first-child { color:var(--muted); }
 .remote-next-section ol { padding-left:22px; color:var(--muted); font-size:12px; line-height:1.8; }
+.remote-terminal-lead { max-width:68ch; margin:0; color:var(--ink); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
+.remote-advanced { margin-top:14px; }
+.remote-advanced summary { width:fit-content; color:var(--accent-strong); cursor:pointer; font-size:11px; font-weight:650; line-height:1.5; }
+.remote-advanced summary:focus-visible { outline:2px solid var(--focus); outline-offset:3px; border-radius:8px; }
+.remote-advanced[open] summary { margin-bottom:10px; }
+.remote-advanced .secondary-action { margin-top:8px; }
 .remote-next-section pre { padding:12px; overflow-wrap:anywhere; white-space:pre-wrap; border:1px solid var(--line); border-radius:8px; background:var(--surface-strong); font-size:11px; line-height:1.65; }
 .remote-bridge-dialog pre { padding:12px; overflow-wrap:anywhere; white-space:pre-wrap; border:1px solid var(--line); border-radius:8px; background:var(--surface); font-size:11px; line-height:1.65; }
 .remote-command { display:grid; min-width:0; padding:10px 0; align-items:center; grid-template-columns:90px minmax(0,1fr) auto; gap:12px; border-top:1px solid var(--line); }.remote-command span { color:var(--muted); font-size:11px; }.remote-command code { min-width:0; overflow-wrap:anywhere; }.remote-command button { padding:6px 8px; border-radius:8px; color:var(--accent-strong); background:var(--accent-soft); cursor:pointer; font-size:10px; }
