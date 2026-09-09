@@ -42,6 +42,7 @@ const defaultSettings: AppSettings = {
 
 const primaryView = ref<"local" | "remote">("local");
 const view = ref<"local" | "remote" | "assistant" | "settings">("local");
+const remoteViewMounted = ref(false);
 const settingsTab = ref<SettingsTab>("general");
 const loading = ref(true);
 const toggling = ref(false);
@@ -294,6 +295,7 @@ function openLocal() {
 }
 
 function openRemote() {
+  remoteViewMounted.value = true;
   primaryView.value = "remote";
   view.value = "remote";
 }
@@ -685,10 +687,9 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="view-stage">
-    <Transition name="view-fade" mode="in-out">
-    <div :key="view" class="view-outlet">
+    <div class="view-outlet">
+    <div v-show="view === 'local'" class="view-pane">
     <ProxyPage
-      v-if="view === 'local'"
       :copy="copy"
       :environment="environment"
       :candidates="candidates"
@@ -711,9 +712,10 @@ onBeforeUnmount(() => {
       @toggle-variable="toggleManagedVariable"
       @open-assistant="openAssistant"
     />
+    </div>
 
+    <div v-if="remoteViewMounted" v-show="view === 'remote'" class="view-pane">
     <RemoteBridgePage
-      v-else-if="view === 'remote'"
       :copy="copy"
       :active-proxy="activeProxyContext"
       :summary="remoteBridgeSummary"
@@ -721,9 +723,10 @@ onBeforeUnmount(() => {
       @refresh="refreshRemoteBridge"
       @connected="acceptRemoteBridgeSummary"
     />
+    </div>
 
     <ApplicationAssistantPage
-      v-else-if="view === 'assistant'"
+      v-if="view === 'assistant'"
       :copy="copy"
       :review-preview="reviewPreview"
       :active-proxy-context="activeProxyContext"
@@ -736,7 +739,7 @@ onBeforeUnmount(() => {
     />
 
     <SettingsPage
-      v-else-if="view === 'settings'"
+      v-if="view === 'settings'"
       v-model:settings="draftSettings"
       v-model:tab="settingsTab"
       :copy="copy"
@@ -756,7 +759,6 @@ onBeforeUnmount(() => {
       @open-release="openLatestRelease"
     />
     </div>
-    </Transition>
     </div>
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
   </div>

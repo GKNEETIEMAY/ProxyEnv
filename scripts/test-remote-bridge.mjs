@@ -77,10 +77,13 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   assert.match(page,/ccCheck/);
   assert.match(page,/emit\("connected", outcome\.summary\)/);
   assert.match(shell,/<div class="view-stage">/);
-  assert.match(shell,/<Transition name="view-fade" mode="in-out">/);
-  assert.match(shell,/<div :key="view" class="view-outlet">/);
-  assert.doesNotMatch(shell,/<Transition name="view-fade" mode="out-in">/);
+  assert.match(shell,/<div class="view-outlet">/);
+  assert.match(shell,/<div v-show="view === 'local'" class="view-pane">/);
+  assert.match(shell,/<div v-if="remoteViewMounted" v-show="view === 'remote'" class="view-pane">/);
+  assert.doesNotMatch(shell,/view-fade/);
   assert.match(shell,/@connected="acceptRemoteBridgeSummary"/);
+  assert.doesNotMatch(page,/remote-steps|reviewedRequest|authPromptCopy\.notice/);
+  assert.match(page,/remoteBackend\.preview\(selected\)\.then\(\(\) => remoteBackend\.connect\(selected\)\)/);
   for(const file of ["StatusIndicator.vue","CheckRow.vue","HelpHint.vue","LastChecked.vue"]) {
     assert.ok(existsSync(join("src/shared/components",file)),file);
   }

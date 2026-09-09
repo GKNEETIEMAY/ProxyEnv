@@ -26,8 +26,6 @@ const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
 const confirmation = ref<HTMLDialogElement>();
 const authDialog = ref<HTMLDialogElement>();
 const authInput = ref<HTMLInputElement>();
-const heading = ref<HTMLElement>();
-const step = ref(1);
 const targets = ref<RemoteTarget[]>([]);
 const targetId = ref("");
 const checked = ref(false);
@@ -46,8 +44,6 @@ let networkRefreshRevision = 0;
 const busy = ref(false);
 const error = ref<unknown>();
 const feedback = ref<"copied" | "tested" | "ports" | "terminal">();
-const preview = ref<BridgeSummary>();
-const reviewedRequest = ref<BridgeRequest>();
 const vscodeOpened = ref(false);
 const authSession = ref<SshAuthSnapshot>();
 const authResponse = ref("");
@@ -58,7 +54,6 @@ let authPollTimer: ReturnType<typeof setTimeout> | undefined;
 const codexLaunch = "codex --profile proxyenv_bridge";
 const claudeLaunch = 'claude --settings "$HOME/.claude/proxyenv-bridge.json"';
 
-const labels = computed(() => [props.copy.rbTarget, props.copy.rbCapabilities, props.copy.rbPreview, props.copy.rbStatus]);
 const selectedTarget = computed(() => targets.value.find((target) => target.id === targetId.value));
 const live = computed(() => ["connected", "stale", "unavailable", "connecting"].includes(props.summary.status) && !!props.summary.target);
 const proxyAvailable = computed(() => props.activeProxy.available && !!props.activeProxy.candidate && props.activeProxy.candidate.protocol !== "unknown");
@@ -69,14 +64,7 @@ const valid = computed(() => (proxy.value || cc.value)
   && (!cc.value || ccUsable.value && portsReady.value && ccLocalPort.value >= 1024 && ccLocalPort.value <= 65535));
 const errorText = computed(() => error.value ? bridgeError(error.value, props.copy) : "");
 const feedbackText = computed(() => feedback.value ? ({ copied: props.copy.rbCopied, tested: props.copy.rbTested, ports: props.copy.rbPortsGenerated, terminal: props.copy.rbTerminalLaunched })[feedback.value] : "");
-const endpoints = computed(() => {
-  const source = step.value === 3 ? preview.value : props.summary;
-  return [
-    { title: props.copy.rbProxyUseTitle, value: source?.proxy },
-    { title: props.copy.rbCcUseTitle, value: source?.cc },
-  ].filter((row) => row.value);
-});
-const activeTarget = computed(() => (step.value === 3 ? preview.value?.target : props.summary.target) ?? selectedTarget.value);
+const activeTarget = computed(() => props.summary.target ?? selectedTarget.value);
 const sourceLabel = (target: RemoteTarget) => ({ openssh: props.copy.rbSourceOpenSsh, vscode: props.copy.rbSourceVscode, mobaxterm: props.copy.rbSourceMoba })[target.source];
 const helpHeadings = computed(() => ({ check: props.copy.rbHelpCheck, success: props.copy.rbHelpSuccess, failure: props.copy.rbHelpFailure, next: props.copy.rbHelpNext }));
 const helpContent = computed(() => ({
@@ -116,12 +104,12 @@ const authStatusLabel = computed(() => {
   return props.copy.rbAuthWaitingPrompt;
 });
 const authPromptCopy = computed(() => ({
-  password: { title: props.copy.rbAuthPasswordTitle, description: props.copy.rbAuthPasswordDescription, label: props.copy.rbAuthPasswordLabel, action: props.copy.rbAuthConnect, notice: props.copy.rbAuthSecretNotice },
-  keyPassphrase: { title: props.copy.rbAuthPassphraseTitle, description: props.copy.rbAuthPassphraseDescription, label: props.copy.rbAuthPassphraseLabel, action: props.copy.rbAuthContinue, notice: props.copy.rbAuthPassphraseNotice },
-  verificationCode: { title: props.copy.rbAuthOtpTitle, description: props.copy.rbAuthOtpDescription, label: props.copy.rbAuthOtpLabel, action: props.copy.rbAuthVerify, notice: props.copy.rbAuthSecretNotice },
-  hostKeyConfirmation: { title: props.copy.rbAuthHostKeyTitle, description: props.copy.rbAuthHostKeyDescription, label: "", action: props.copy.rbAuthConfirmHost, notice: props.copy.rbAuthGenericNotice },
-  keyboardInteractive: { title: props.copy.rbAuthKeyboardTitle, description: props.copy.rbAuthKeyboardDescription, label: props.copy.rbAuthResponseLabel, action: props.copy.rbAuthSubmit, notice: props.copy.rbAuthSecretNotice },
-  unknown: { title: props.copy.rbAuthUnknownTitle, description: props.copy.rbAuthUnknownDescription, label: props.copy.rbAuthResponseLabel, action: props.copy.rbAuthSubmit, notice: props.copy.rbAuthGenericNotice },
+  password: { title: props.copy.rbAuthPasswordTitle, description: props.copy.rbAuthPasswordDescription, label: props.copy.rbAuthPasswordLabel, action: props.copy.rbAuthConnect },
+  keyPassphrase: { title: props.copy.rbAuthPassphraseTitle, description: props.copy.rbAuthPassphraseDescription, label: props.copy.rbAuthPassphraseLabel, action: props.copy.rbAuthContinue },
+  verificationCode: { title: props.copy.rbAuthOtpTitle, description: props.copy.rbAuthOtpDescription, label: props.copy.rbAuthOtpLabel, action: props.copy.rbAuthVerify },
+  hostKeyConfirmation: { title: props.copy.rbAuthHostKeyTitle, description: props.copy.rbAuthHostKeyDescription, label: "", action: props.copy.rbAuthConfirmHost },
+  keyboardInteractive: { title: props.copy.rbAuthKeyboardTitle, description: props.copy.rbAuthKeyboardDescription, label: props.copy.rbAuthResponseLabel, action: props.copy.rbAuthSubmit },
+  unknown: { title: props.copy.rbAuthUnknownTitle, description: props.copy.rbAuthUnknownDescription, label: props.copy.rbAuthResponseLabel, action: props.copy.rbAuthSubmit },
 })[authPromptType.value]);
 const authCanRespond = computed(() => authSession.value?.status === "waitingUser" && !!authPrompt.value);
 const authIsHostConfirmation = computed(() => authPromptType.value === "hostKeyConfirmation");
@@ -207,9 +195,9 @@ async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
     usePorts(outcome.ports);
     checked.value = true;
     sshCheck.value = { state: "healthy", checkedAt: Date.now() };
+    void refreshNetworkChecks();
   } else if (outcome.operation === "connect" && outcome.summary) {
     emit("connected", outcome.summary);
-    go(4);
   }
   emit("refresh");
 }
@@ -325,13 +313,6 @@ async function load() {
   else if (!next.some((target) => target.id === targetId.value && target.available)) targetId.value = next.find((target) => target.available)?.id ?? next[0]?.id ?? "";
 }
 
-function go(value: number) {
-  step.value = value;
-  error.value = undefined;
-  void nextTick(() => heading.value?.focus());
-  if (value === 2 || value === 4) void refreshNetworkChecks();
-}
-
 function usePorts(ports: PortAllocation) {
   proxyPort.value = ports.proxyPort;
   ccPort.value = ports.ccPort;
@@ -342,12 +323,12 @@ function checkTarget() {
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
-  reviewedRequest.value = undefined;
   sshCheck.value = { ...sshCheck.value, state: "checking" };
   if (props.reviewPreview) {
     usePorts({ proxyPort: 23841, ccPort: 31472 });
     checked.value = true;
     sshCheck.value = { state: "healthy", checkedAt: Date.now() };
+    void refreshNetworkChecks();
     return;
   }
   void perform(async () => {
@@ -356,6 +337,7 @@ function checkTarget() {
       usePorts(ports);
       checked.value = true;
       sshCheck.value = { state: "healthy", checkedAt: Date.now() };
+      await refreshNetworkChecks();
     } catch (cause) {
       if (bridgeErrorCode(cause) === "sshAuth") {
         await beginInteractiveAuth("check");
@@ -371,7 +353,6 @@ function refreshTargets() {
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
-  reviewedRequest.value = undefined;
   void perform(load);
 }
 
@@ -389,28 +370,18 @@ function request(): BridgeRequest {
   };
 }
 
-function review() {
-  void perform(async () => {
-    const selected = request();
-    preview.value = await remoteBackend.preview(selected);
-    reviewedRequest.value = selected;
-    go(3);
-  });
-}
-
 function connect() {
-  if (!reviewedRequest.value || busy.value) return;
+  if (!valid.value || busy.value) return;
   busy.value = true;
   error.value = undefined;
-  const selected = reviewedRequest.value;
-  void remoteBackend.connect(selected).then(() => {
-    go(4);
+  const selected = request();
+  void remoteBackend.preview(selected).then(() => remoteBackend.connect(selected)).then((summary) => {
+    emit("connected", summary);
+    void refreshNetworkChecks();
   }).catch(async (cause) => {
     if (bridgeErrorCode(cause) === "portInUse") {
       try {
         usePorts(await remoteBackend.allocatePorts(selected.targetId));
-        reviewedRequest.value = undefined;
-        go(2);
         error.value = "portRace";
       } catch (allocationError) {
         error.value = allocationError;
@@ -471,7 +442,7 @@ function confirmDisconnect() {
   confirmation.value?.close();
   void perform(async () => {
     await remoteBackend.disconnect();
-    go(1);
+    checked.value = false;
     await load();
   });
 }
@@ -484,7 +455,6 @@ watch(targetId, (nextTarget, previousTarget) => {
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
-  reviewedRequest.value = undefined;
   vscodeOpened.value = false;
   sshCheck.value = { state: "idle", checkedAt: null };
   serverInternetCheck.value = { state: "idle", checkedAt: null };
@@ -497,19 +467,11 @@ watch(ccLocalPort, () => {
 watch(proxyAvailable, updateLocalProxyCheck);
 watch(cc, (enabled) => {
   ccCheck.value = enabled ? { state: "idle", checkedAt: null } : { state: "disabled", checkedAt: Date.now() };
-  if (enabled && (step.value === 2 || step.value === 4)) void refreshNetworkChecks();
-});
-watch(() => props.activeProxy.revision, () => {
-  if (step.value === 3 && reviewedRequest.value?.proxyPort) {
-    reviewedRequest.value = undefined;
-    go(2);
-    error.value = "activeChanged";
-  }
+  if (enabled && (checked.value || live.value)) void refreshNetworkChecks();
 });
 watch(() => props.summary.target?.id, (id) => {
   if (id && live.value) {
     targetId.value = id;
-    step.value = 4;
     void refreshNetworkChecks();
   }
 });
@@ -517,8 +479,8 @@ watch(() => props.summary.target?.id, (id) => {
 onMounted(() => {
   proxy.value = proxyAvailable.value;
   updateLocalProxyCheck();
-  step.value = props.summary.target ? 4 : 1;
   void perform(load);
+  if (props.summary.target) void refreshNetworkChecks();
   const authReview = new URLSearchParams(window.location.search).get("impeccable-review");
   if (props.reviewPreview && ["remote-auth", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(authReview ?? "")) {
     const unavailable = authReview === "remote-auth-unavailable";
@@ -546,28 +508,17 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="page remote-bridge-page">
-    <header class="remote-page-intro">
-      <div><h1>{{ copy.rbTitle }}</h1><p>{{ copy.rbPageIntro }}</p></div>
-      <StatusIndicator :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
-    </header>
-
-    <ol class="remote-steps" :aria-label="copy.rbTitle">
-      <li v-for="(label, index) in labels" :key="label" :aria-current="step === index + 1 ? 'step' : undefined">
-        <button type="button" :disabled="index + 1 >= step || busy" @click="go(index + 1)"><span>{{ index + 1 }}</span>{{ label }}</button>
-      </li>
-    </ol>
-
     <section class="remote-workspace">
       <div class="remote-workspace-heading">
-        <h2 ref="heading" tabindex="-1">{{ labels[step - 1] }}</h2>
-        <div v-if="step === 2 || step === 4" class="remote-status-toolbar">
+        <h1>{{ live ? copy.rbStatus : checked ? copy.rbCapabilities : copy.rbTarget }}</h1>
+        <div v-if="checked || live" class="remote-status-toolbar">
           <LastChecked :label="copy.rbLastChecked" :checked-at="lastNetworkChecked" />
           <button class="secondary-action" type="button" :disabled="busy || networkChecking" @click="refreshNetworkChecks">{{ copy.rbRefreshStatus }}</button>
         </div>
       </div>
       <fieldset :disabled="busy" class="remote-fields">
-        <template v-if="step === 1">
-          <div v-if="targets.length" class="remote-target-list" role="radiogroup" :aria-label="copy.rbTarget">
+        <template v-if="!live">
+          <div v-if="!checked && targets.length" class="remote-target-list" role="radiogroup" :aria-label="copy.rbTarget">
             <label v-for="target in targets" :key="target.id" class="remote-target" :class="{ selected: targetId === target.id, unavailable: !target.available }" :title="!target.available ? bridgeError(target.unavailableReason, copy) : undefined">
               <input v-model="targetId" type="radio" name="remote-target" :value="target.id" :disabled="!target.available" />
               <span class="remote-target-mark" aria-hidden="true"></span>
@@ -579,64 +530,66 @@ onBeforeUnmount(() => {
               </span>
             </label>
           </div>
-          <p v-else class="remote-empty">{{ copy.rbEmpty }}</p>
-          <p v-if="selectedTarget && !selectedTarget.available" class="notice notice-warning">{{ copy.rbMobaUnsupported }}</p>
-          <p class="remote-hint">{{ copy.rbRequirements }}</p>
-          <div class="remote-actions">
-            <button class="secondary-action" type="button" @click="refreshTargets">{{ copy.rbRefresh }}</button>
-            <button class="primary-action" type="button" :disabled="!selectedTarget?.available" @click="checkTarget">{{ copy.rbCheck }}</button>
-          </div>
-          <p v-if="checked" class="remote-success" role="status">{{ copy.rbChecked }} · {{ copy.rbPortsGenerated }}</p>
-          <div v-if="targetId" class="remote-actions remote-restore-actions">
-            <button class="secondary-action" type="button" @click="restore('codex')">{{ copy.rbRestoreCodex }}</button>
-            <button class="secondary-action" type="button" @click="restore('claude')">{{ copy.rbRestoreClaude }}</button>
-          </div>
-        </template>
+          <p v-else-if="!checked" class="remote-empty">{{ copy.rbEmpty }}</p>
 
-        <template v-else-if="step === 2">
-          <section class="remote-check-group">
-            <header><h3>{{ copy.rbNetworkSection }}</h3><p>{{ copy.rbNetworkSectionHint }}</p></header>
-            <CheckRow :label="copy.rbServerInternet" :state="serverInternetCheck.state" :state-label="serverInternetLabel" :checked-at="serverInternetCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.internet">
-              <template #detail><p class="check-row-detail">{{ selectedTarget?.displayName }}</p></template>
-            </CheckRow>
-            <CheckRow :label="copy.rbProxy" :state="localProxyCheck.state" :state-label="localProxyLabel" :checked-at="localProxyCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.proxy">
-              <template #detail><p v-if="proxyAvailable" class="check-row-detail"><span>{{ activeProxy.candidate?.clientName }}</span> · <code>{{ activeProxy.candidate?.host }}:{{ activeProxy.candidate?.port }} · {{ activeProxy.candidate?.protocol }}</code></p><p v-else class="check-row-detail">{{ copy.rbNoProxy }}</p></template>
-              <template #actions><label class="remote-choice"><input v-model="proxy" type="checkbox" :disabled="!proxyAvailable" />{{ copy.rbUseProxyBridge }}</label></template>
-            </CheckRow>
-            <dl v-if="proxy" class="remote-port-pair"><dt>{{ copy.rbRemotePort }}</dt><dd><code>127.0.0.1:{{ proxyPort }}</code></dd></dl>
-          </section>
-          <section class="remote-check-group">
-            <header><h3>{{ copy.rbAiRouteSection }}</h3><p>{{ copy.rbAiRouteSectionHint }}</p></header>
-            <CheckRow :label="copy.rbCc" :state="ccCheck.state" :state-label="ccStateLabel" :checked-at="ccCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.cc">
-              <template #detail><p class="check-row-detail">{{ copy.rbCcHint }}</p></template>
-              <template #actions><label class="remote-choice"><input v-model="cc" type="checkbox" />{{ copy.rbUseCcBridge }}</label></template>
-            </CheckRow>
-            <template v-if="cc">
-              <label class="remote-port">{{ copy.rbLocalPort }}<input v-model.number="ccLocalPort" type="number" min="1024" max="65535" required /></label>
-              <div class="remote-actions"><button class="secondary-action" type="button" @click="detectCc">{{ copy.rbDetect }}</button></div>
-              <p v-if="ccDetection.state === 'notDetected'" class="remote-hint">{{ copy.rbCcOpenHint }}</p>
-              <dl class="remote-port-pair"><dt>{{ copy.rbRemotePort }}</dt><dd><code>127.0.0.1:{{ ccPort }}</code></dd></dl>
-            </template>
-          </section>
-          <div class="remote-port-footer"><p class="remote-hint">{{ copy.rbRemotePortAuto }}</p><button class="secondary-action" type="button" :disabled="!targetId" @click="regeneratePorts">{{ copy.rbRegeneratePorts }}</button></div>
+          <template v-if="!checked">
+            <p v-if="selectedTarget && !selectedTarget.available" class="notice notice-warning">{{ copy.rbMobaUnsupported }}</p>
+            <p class="remote-hint">{{ copy.rbRequirements }}</p>
+            <div class="remote-actions">
+              <button class="secondary-action" type="button" @click="refreshTargets">{{ copy.rbRefresh }}</button>
+              <button class="primary-action" type="button" :disabled="!selectedTarget?.available" @click="checkTarget">{{ copy.rbCheck }}</button>
+            </div>
+            <div v-if="targetId" class="remote-actions remote-restore-actions">
+              <button class="secondary-action" type="button" @click="restore('codex')">{{ copy.rbRestoreCodex }}</button>
+              <button class="secondary-action" type="button" @click="restore('claude')">{{ copy.rbRestoreClaude }}</button>
+            </div>
+          </template>
+
+          <template v-else>
+            <div v-if="selectedTarget" class="remote-selected-target remote-setup-target">
+              <div><strong>{{ selectedTarget.displayName }}</strong><span>{{ sourceLabel(selectedTarget) }}</span><code>{{ withoutWindowsExtendedPathPrefix(selectedTarget.configPath) }}</code></div>
+              <button class="secondary-action" type="button" @click="checked = false">{{ copy.rbTarget }}</button>
+            </div>
+
+            <section class="remote-check-group">
+              <header><h3>{{ copy.rbNetworkSection }}</h3><p>{{ copy.rbNetworkSectionHint }}</p></header>
+              <CheckRow :label="copy.rbServerInternet" :state="serverInternetCheck.state" :state-label="serverInternetLabel" :checked-at="serverInternetCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.internet">
+                <template #detail><p class="check-row-detail">{{ selectedTarget?.displayName }}</p></template>
+              </CheckRow>
+              <CheckRow :label="copy.rbProxy" :state="localProxyCheck.state" :state-label="localProxyLabel" :checked-at="localProxyCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.proxy">
+                <template #detail><p v-if="proxyAvailable" class="check-row-detail"><span>{{ activeProxy.candidate?.clientName }}</span> · <code>{{ activeProxy.candidate?.host }}:{{ activeProxy.candidate?.port }} · {{ activeProxy.candidate?.protocol }}</code></p><p v-else class="check-row-detail">{{ copy.rbNoProxy }}</p></template>
+                <template #actions><label class="remote-choice"><input v-model="proxy" type="checkbox" :disabled="!proxyAvailable" />{{ copy.rbUseProxyBridge }}</label></template>
+              </CheckRow>
+              <dl v-if="proxy" class="remote-port-pair"><dt>{{ copy.rbRemotePort }}</dt><dd><code>127.0.0.1:{{ proxyPort }}</code></dd></dl>
+            </section>
+            <section class="remote-check-group">
+              <header><h3>{{ copy.rbAiRouteSection }}</h3><p>{{ copy.rbAiRouteSectionHint }}</p></header>
+              <CheckRow :label="copy.rbCc" :state="ccCheck.state" :state-label="ccStateLabel" :checked-at="ccCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.cc">
+                <template #detail><p class="check-row-detail">{{ copy.rbCcHint }}</p></template>
+                <template #actions><label class="remote-choice"><input v-model="cc" type="checkbox" />{{ copy.rbUseCcBridge }}</label></template>
+              </CheckRow>
+              <template v-if="cc">
+                <label class="remote-port">{{ copy.rbLocalPort }}<input v-model.number="ccLocalPort" type="number" min="1024" max="65535" required /></label>
+                <div class="remote-actions"><button class="secondary-action" type="button" @click="detectCc">{{ copy.rbDetect }}</button></div>
+                <p v-if="ccDetection.state === 'notDetected'" class="remote-hint">{{ copy.rbCcOpenHint }}</p>
+                <dl class="remote-port-pair"><dt>{{ copy.rbRemotePort }}</dt><dd><code>127.0.0.1:{{ ccPort }}</code></dd></dl>
+              </template>
+            </section>
+            <div class="remote-port-footer"><p class="remote-hint">{{ copy.rbRemotePortAuto }}</p><button class="secondary-action" type="button" :disabled="!targetId" @click="regeneratePorts">{{ copy.rbRegeneratePorts }}</button></div>
+            <div class="confirmation-actions remote-connect-actions">
+              <button class="primary-action" type="button" :disabled="busy || !valid" @click="connect">{{ copy.rbConnect }}</button>
+            </div>
+          </template>
         </template>
 
         <template v-else>
           <div v-if="activeTarget" class="remote-selected-target">
             <div><strong>{{ activeTarget.displayName }}</strong><span>{{ sourceLabel(activeTarget) }}</span><code>{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></div>
-            <StatusIndicator v-if="step === 4" :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
+            <StatusIndicator :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
           </div>
-          <p v-if="step === 4 && summary.status === 'stale'" class="notice notice-warning">{{ copy.rbStaleHint }}</p>
-          <p v-if="step === 4 && summary.status === 'unavailable'" class="notice notice-warning">{{ copy.rbUnavailableHint }}</p>
-          <section v-for="row in endpoints" :key="row.title" class="remote-capability">
-            <h3>{{ row.title }}</h3>
-            <dl><dt>{{ copy.rbLocal }}</dt><dd><code>{{ row.value!.local.host }}:{{ row.value!.local.port }} · {{ row.value!.local.protocol }}</code></dd><dt>{{ copy.rbRemote }}</dt><dd><code>127.0.0.1:{{ row.value!.remotePort }}</code></dd></dl>
-          </section>
-          <p class="remote-hint">{{ copy.rbSafety }}</p>
-
-          <template v-if="step === 4">
-            <section v-if="live" class="remote-health">
-              <h3>{{ copy.rbStatus }}</h3>
+          <p v-if="summary.status === 'stale'" class="notice notice-warning">{{ copy.rbStaleHint }}</p>
+          <p v-if="summary.status === 'unavailable'" class="notice notice-warning">{{ copy.rbUnavailableHint }}</p>
+          <section class="remote-health">
               <CheckRow :label="copy.rbSshHealth" :state="sshRuntimeState" :state-label="sshRuntimeLabel" :checked-at="sshCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.ssh">
                 <template #detail><p class="check-row-detail">{{ summary.target?.displayName }}</p></template>
               </CheckRow>
@@ -649,14 +602,11 @@ onBeforeUnmount(() => {
               </CheckRow>
               <div v-if="summary.cc" class="remote-tool-status"><span>Codex</span><span>{{ summary.codexConfigured ? copy.rbExtPending : copy.rbNotConfigured }}</span></div>
               <div v-if="summary.cc" class="remote-tool-status"><span>Claude Code</span><span>{{ summary.claudeConfigured ? copy.rbExtPending : copy.rbNotConfigured }}</span></div>
-            </section>
+          </section>
 
-            <header v-if="live" class="remote-next-heading">
-              <strong>{{ copy.rbConnectedTitle }}</strong>
-              <h3>{{ copy.rbNextSteps }}</h3>
-            </header>
+          <header class="remote-next-heading"><h3>{{ copy.rbNextSteps }}</h3></header>
 
-            <section v-if="summary.proxy && live" class="remote-next-section">
+          <section v-if="summary.proxy" class="remote-next-section">
               <h3>{{ copy.rbProxyUseTitle }}</h3>
               <p class="remote-terminal-lead">{{ copy.rbTerminalLaunchHint }}</p>
               <div class="remote-actions"><button class="primary-action" type="button" :disabled="summary.status !== 'connected'" @click="launchProxyTerminal">{{ copy.rbLaunchProxyTerminal }}</button><button class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(async () => { await remoteBackend.test(); feedback = 'tested'; })">{{ copy.rbTest }}</button></div>
@@ -667,35 +617,27 @@ onBeforeUnmount(() => {
                 <pre>{{ summary.environment }}</pre>
                 <button class="secondary-action" type="button" @click="copyValue(summary.environment)">{{ copy.rbCopy }}</button>
               </details>
-            </section>
+          </section>
 
-            <section v-if="summary.cc && live" class="remote-next-section">
+          <section v-if="summary.cc" class="remote-next-section">
               <h3>{{ copy.rbCcUseTitle }}</h3>
               <div class="remote-actions"><button class="primary-action" type="button" @click="configure('codex')">{{ copy.rbCodex }}</button><button class="secondary-action" type="button" @click="configure('claude')">{{ copy.rbClaude }}</button></div>
               <div class="remote-command"><span>Codex</span><template v-if="summary.codexConfigured"><code>{{ codexLaunch }}</code><button type="button" :aria-label="copy.rbCopyLaunch" @click="copyValue(codexLaunch)">{{ copy.rbCopyLaunch }}</button></template><em v-else>{{ copy.rbConfigureBeforeLaunch }}</em></div>
               <div class="remote-command"><span>Claude Code</span><template v-if="summary.claudeConfigured"><code>{{ claudeLaunch }}</code><button type="button" :aria-label="copy.rbCopyLaunch" @click="copyValue(claudeLaunch)">{{ copy.rbCopyLaunch }}</button></template><em v-else>{{ copy.rbConfigureBeforeLaunch }}</em></div>
               <div class="remote-actions"><button class="secondary-action" type="button" @click="restore('codex', summary.target!.id)">{{ copy.rbRestoreCodex }}</button><button class="secondary-action" type="button" @click="restore('claude', summary.target!.id)">{{ copy.rbRestoreClaude }}</button></div>
-            </section>
+          </section>
 
-            <section v-if="summary.target?.canOpenVscode && live" class="remote-vscode">
+          <section v-if="summary.target?.canOpenVscode" class="remote-vscode">
               <p class="remote-hint">{{ copy.rbVscodeHint }}</p>
               <button class="secondary-action" type="button" @click="perform(async () => { await remoteBackend.openVscode(summary.target!.id); vscodeOpened = true; })">{{ copy.rbVscodeOpen }}</button>
               <p v-if="vscodeOpened" role="status">{{ copy.rbExtOpened }}</p>
-            </section>
-          </template>
+          </section>
+          <div class="confirmation-actions"><button class="secondary-action remote-danger" type="button" :disabled="busy" @click="confirmation?.showModal()">{{ copy.rbDisconnect }}</button></div>
         </template>
       </fieldset>
 
       <p v-if="errorText" class="remote-error" role="alert">{{ errorText }}</p>
       <p class="remote-feedback" role="status">{{ busy ? copy.rbBusy : feedbackText }}</p>
-      <div class="confirmation-actions">
-        <button v-if="step === 2 || step === 3" class="secondary-action" type="button" :disabled="busy" @click="go(step - 1)">{{ copy.rbBack }}</button>
-        <button v-if="step === 1" class="primary-action" type="button" :disabled="busy || !checked" @click="go(2)">{{ copy.rbNext }}</button>
-        <button v-if="step === 2" class="primary-action" type="button" :disabled="busy || !valid" @click="review">{{ copy.rbNext }}</button>
-        <button v-if="step === 3" class="primary-action" type="button" :disabled="busy || !reviewedRequest" @click="connect">{{ copy.rbConnect }}</button>
-        <button v-if="step === 4 && live" class="secondary-action remote-danger" type="button" :disabled="busy" @click="confirmation?.showModal()">{{ copy.rbDisconnect }}</button>
-        <button v-if="step === 4 && !live" class="primary-action" type="button" :disabled="busy" @click="go(1)">{{ copy.rbReconnect }}</button>
-      </div>
     </section>
   </main>
 
@@ -757,7 +699,6 @@ onBeforeUnmount(() => {
         <input ref="authInput" v-model="authResponse" :type="authPrompt?.secret ? 'password' : 'text'" autocomplete="off" maxlength="4096" :disabled="authSubmitting" />
       </label>
 
-      <p v-if="authCanRespond && !authIsHostConfirmation" class="notice notice-warning remote-auth-privacy">{{ authPromptCopy.notice }}</p>
       <p v-if="authSession?.error && !authPromptUnavailable" class="remote-error remote-auth-error" role="alert">{{ bridgeError(authSession.error, copy) }}</p>
       <div class="confirmation-actions">
         <button v-if="authSession?.status !== 'succeeded'" class="secondary-action" type="button" :disabled="authSubmitting" @click="cancelInteractiveAuth">{{ authSession?.status === 'failed' ? copy.rbClose : copy.rbAuthCancel }}</button>
@@ -774,20 +715,9 @@ onBeforeUnmount(() => {
 .remote-bridge-page { display:grid; gap:24px; }
 .confirmation-dialog.remote-bridge-dialog { width:min(640px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow-y:auto; }
 .remote-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-.remote-page-intro { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; }
-.remote-page-intro h1 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:clamp(24px,4vw,32px); font-weight:590; letter-spacing:-.03em; }
-.remote-page-intro p { max-width:62ch; margin:8px 0 0; color:var(--muted); font-size:12px; line-height:1.6; }
-.remote-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:0; margin:0; list-style:none; border-block:1px solid var(--line); }
-.remote-steps li { position:relative; min-width:0; }
-.remote-steps li:not(:last-child)::after { position:absolute; top:15px; right:0; width:1px; height:20px; content:""; background:var(--line); }
-.remote-steps button { display:flex; width:100%; min-height:50px; padding:8px 12px; align-items:center; gap:8px; color:var(--muted); background:none; text-align:left; cursor:pointer; }
-.remote-steps button:disabled { cursor:default; }
-.remote-steps [aria-current] button { color:var(--accent-strong); font-weight:650; }
-.remote-steps span { display:grid; width:23px; height:23px; flex:none; place-items:center; border:1px solid var(--line-strong); border-radius:50%; font-size:10px; }
-.remote-steps [aria-current] span { border-color:var(--accent); background:var(--accent-soft); }
 .remote-workspace { padding:26px 28px; border:1px solid var(--line); border-radius:16px; background:var(--surface); box-shadow:var(--shadow); }
 .remote-workspace-heading { display:flex; margin-bottom:18px; align-items:center; justify-content:space-between; gap:18px; }
-.remote-workspace-heading h2 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
+.remote-workspace-heading h1 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
 .remote-status-toolbar { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
 .remote-status-toolbar .secondary-action { min-height:30px; padding:6px 10px; font-size:10px; }
 .remote-fields { min-width:0; padding:0; margin:0; border:0; }
@@ -827,9 +757,12 @@ onBeforeUnmount(() => {
 .remote-check-group .remote-choice { color:var(--muted); font-size:10px; font-weight:600; white-space:nowrap; }
 .remote-selected-target { display:flex; padding-bottom:18px; align-items:flex-start; justify-content:space-between; gap:20px; border-bottom:1px solid var(--line); }
 .remote-selected-target > div { display:grid; min-width:0; gap:4px; }.remote-selected-target span,.remote-selected-target code { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+.remote-setup-target { padding:14px 0 18px; }
+.remote-setup-target .secondary-action { min-height:32px; padding:6px 10px; font-size:10px; }
+.remote-connect-actions { padding-top:18px; border-top:1px solid var(--line); }
 .remote-capability dl { display:grid; grid-template-columns:64px minmax(0,1fr); gap:8px; margin:0; font-size:12px; }.remote-capability dt { color:var(--muted); }.remote-capability dd { margin:0; overflow-wrap:anywhere; }
 .remote-health,.remote-next-section,.remote-vscode { padding:20px 0; border-top:1px solid var(--line); }
-.remote-next-heading { padding:26px 0 4px; border-top:1px solid var(--line); }.remote-next-heading strong { color:var(--success); font-size:12px; }.remote-next-heading h3 { margin:5px 0 0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
+.remote-next-heading { padding:26px 0 4px; border-top:1px solid var(--line); }.remote-next-heading h3 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
 .remote-health h3,.remote-next-section h3 { margin:0 0 14px; font-size:16px; }
 .remote-tool-status { display:grid; min-height:36px; padding:7px 0; align-items:center; grid-template-columns:minmax(150px,.8fr) minmax(0,1fr); gap:16px; border-top:1px solid var(--line); font-size:11px; }
 .remote-tool-status span:first-child { color:var(--muted); }
@@ -861,7 +794,6 @@ onBeforeUnmount(() => {
 .remote-auth-field { display:grid; gap:7px; color:var(--muted); font-size:11px; font-weight:650; }
 .remote-auth-field input { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--line-strong); border-radius:9px; color:var(--text); background:var(--surface-strong); outline:none; }
 .remote-auth-field input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
-.remote-auth-privacy { margin:14px 0 0; font-size:11px; line-height:1.6; }
 .remote-auth-error { margin:14px 0 0; }
 .remote-auth-diagnostic { padding:12px 14px; margin:16px 0; border:1px solid var(--line); border-radius:12px; background:var(--surface-strong); }
 .remote-auth-diagnostic dl { display:grid; margin:0; gap:7px; }
@@ -869,9 +801,8 @@ onBeforeUnmount(() => {
 .remote-auth-diagnostic dt { color:var(--muted); font-size:11px; }
 .remote-auth-diagnostic dd { margin:0; color:var(--text); font:600 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; }
 @media (max-width:680px) {
-  .remote-page-intro,.remote-port-footer,.remote-workspace-heading { align-items:flex-start; flex-direction:column; }
+  .remote-port-footer,.remote-workspace-heading { align-items:flex-start; flex-direction:column; }
   .remote-status-toolbar { width:100%; justify-content:space-between; }
-  .remote-steps { grid-template-columns:1fr 1fr; }.remote-steps li:nth-child(2)::after { display:none; }
   .remote-workspace { padding:22px 20px; }
   .remote-tool-status { grid-template-columns:1fr; gap:4px; }
   .remote-command { grid-template-columns:1fr; gap:6px; }.remote-command button { justify-self:start; }

@@ -107,9 +107,7 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .page { padding: 34px; }
 .view-stage { display: grid; }
 .view-outlet { min-width: 0; grid-area: 1 / 1; }
-.view-fade-enter-active { transition: opacity .2s cubic-bezier(.16, 1, .3, 1); }
-.view-fade-leave-active { transition: opacity .14s ease-in; }
-.view-fade-enter-from, .view-fade-leave-to { opacity: 0; }
+.view-pane { min-width: 0; }
 .home-page { display: grid; gap: 24px; }
 .proxy-stage { display: grid; overflow: hidden; grid-template-columns: minmax(0, 1fr) minmax(350px, 1fr); border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
 .proxy-identity { min-height: 244px; padding: 30px; border-right: 1px solid var(--line); }
