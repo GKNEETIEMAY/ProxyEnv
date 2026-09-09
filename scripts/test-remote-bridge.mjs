@@ -85,9 +85,10 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
     assert.ok(existsSync(join("src/shared/components",file)),file);
   }
 });
-test("interactive SSH auth is PTY-backed, explicit, and never persists responses",()=>{
+test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge passwords",()=>{
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
   const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh_auth.rs","utf8");
+  const credentials=readFileSync("src-tauri/src/features/remote_bridge/credential_cache.rs","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
@@ -111,7 +112,17 @@ test("interactive SSH auth is PTY-backed, explicit, and never persists responses
   assert.doesNotMatch(auth,/source_after_auth/);
   assert.match(auth,/authenticated && remote_result_ready/);
   assert.match(auth,/Zeroizing::new\(response\)/);
-  assert.match(auth,/password_stored: false/);
+  assert.match(auth,/credential_cache::protect/);
+  assert.match(auth,/credential_cache::reveal/);
+  assert.match(auth,/PromptType::Password \| PromptType::HostKeyConfirmation/);
+  assert.match(credentials,/CryptProtectData/);
+  assert.match(credentials,/CryptUnprotectData/);
+  assert.match(credentials,/CRYPTPROTECT_UI_FORBIDDEN/);
+  assert.match(credentials,/clear_if_matches/);
+  assert.match(credentials,/prompt\.contains\("password"\)/);
+  for(const forbiddenPrompt of ["passphrase","verification","one-time","otp"]) {
+    assert.match(credentials,new RegExp(`prompt\\.contains\\(\\"${forbiddenPrompt}\\"\\)`));
+  }
   assert.doesNotMatch(auth,/\.arg\(response\)/);
   const submitBody=auth.slice(auth.indexOf("pub fn submit"),auth.indexOf("pub fn confirm_host"));
   assert.match(submitBody,/matching_prompt\(session\.current_prompt\.as_ref\(\), prompt_id\)/);
@@ -130,6 +141,30 @@ test("interactive SSH auth is PTY-backed, explicit, and never persists responses
   assert.match(page,/retryInteractiveAuth/);
   assert.match(page,/authSession\.diagnostic\.cprRequests/);
   assert.doesNotMatch(page,/Authentication response|认证响应/);
+});
+test("managed proxy terminal is one-click, shell-scoped, and keeps manual export advanced",()=>{
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
+  const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
+  const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(ssh,/ManagedTerminal/);
+  assert.match(ssh,/CREATE_NEW_CONSOLE/);
+  assert.match(ssh,/CreateProcessW/);
+  assert.match(ssh,/STARTUPINFOW/);
+  assert.match(ssh,/WindowsPowerShell\/v1\.0\/powershell\.exe/);
+  assert.match(ssh,/-NoExit/);
+  assert.match(ssh,/PROXYENV_SSH_LAUNCH/);
+  assert.match(ssh,/SSH_ASKPASS_REQUIRE/);
+  assert.match(ssh,/exec \\\"\$\{\{SHELL:-\/bin\/sh\}\}\\\" -i/);
+  for(const name of ["HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","NO_PROXY"]) assert.match(bridge,new RegExp(name));
+  assert.match(commands,/fn remote_bridge_launch_proxy_terminal/);
+  assert.match(runtime,/remote_bridge::remote_bridge_launch_proxy_terminal/);
+  assert.match(state,/launchProxyTerminal: \(\) => invoke<void>\("remote_bridge_launch_proxy_terminal"\)/);
+  assert.match(page,/@click="launchProxyTerminal"/);
+  assert.match(page,/<details class="remote-advanced">/);
+  assert.match(page,/copyValue\(summary\.environment\)/);
 });
 test("Claude onboarding is completed without pre-trusting a project or discarding state",{skip:!available},()=>{
   const f=fixture();try {
