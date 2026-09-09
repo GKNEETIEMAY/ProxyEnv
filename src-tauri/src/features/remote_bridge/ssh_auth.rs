@@ -1,5 +1,6 @@
 use super::{
-    ssh, BridgeResult, PortAllocation, Request, SshAuthMethod, SshAuthMode, SshAuthState, Summary,
+    credential_cache, ssh, BridgeResult, PortAllocation, Request, SshAuthMethod, SshAuthMode,
+    SshAuthState, Summary,
 };
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
@@ -165,6 +166,10 @@ struct Session {
     prompt_consumed_at: usize,
     waiting_since: Instant,
     authenticated_at: Option<Instant>,
+    target_fingerprint: String,
+    password_candidate: Option<credential_cache::ProtectedPassword>,
+    password_cache_eligible: bool,
+    cached_password_attempted: bool,
 }
 
 static SESSIONS: OnceLock<Mutex<HashMap<String, Session>>> = OnceLock::new();
@@ -695,6 +700,7 @@ pub fn begin(
 ) -> BridgeResult<Snapshot> {
     cleanup();
     ssh::validate_target(&target_id)?;
+    let target_fingerprint = ssh::fingerprint(&target_id)?;
     let id = session_id()?;
     let marker = format!("{AUTH_MARKER_PREFIX}{id}__");
     let (mut command, destination) = ssh::interactive_target_command(&target_id)?;
@@ -748,7 +754,7 @@ pub fn begin(
             mode: SshAuthMode::Interactive,
             method: SshAuthMethod::Unknown,
             authenticated: false,
-            password_stored: false,
+            password_stored: credential_cache::contains(&target_fingerprint),
         },
         status: SessionStatus::Starting,
         error: None,
@@ -764,6 +770,10 @@ pub fn begin(
         prompt_consumed_at: 0,
         waiting_since: Instant::now(),
         authenticated_at: None,
+        target_fingerprint,
+        password_candidate: None,
+        password_cache_eligible: true,
+        cached_password_attempted: false,
     };
     if operation == Operation::Connect {
         super::mark_interactive_connecting()?;
@@ -839,13 +849,55 @@ pub fn state(session_id: &str) -> BridgeResult<Snapshot> {
                         let rejected = delta
                             .to_ascii_lowercase()
                             .contains("permission denied, please try again");
+                        if rejected && session.cached_password_attempted {
+                            credential_cache::clear_if_matches(&session.target_fingerprint);
+                            session.auth.password_stored = false;
+                            session.cached_password_attempted = false;
+                        }
+                        if !matches!(
+                            prompt.prompt_type,
+                            PromptType::Password | PromptType::HostKeyConfirmation
+                        ) {
+                            credential_cache::clear_if_matches(&session.target_fingerprint);
+                            session.auth.password_stored = false;
+                            session.password_cache_eligible = false;
+                            session.password_candidate = None;
+                        }
                         session.prompt_generation = session.prompt_generation.saturating_add(1);
                         prompt.id = format!("{}:{}", session.id, session.prompt_generation);
                         session.last_prompt = Some((prompt.prompt_type, prompt.message.clone()));
-                        session.current_prompt = Some(prompt);
-                        session.status = SessionStatus::WaitingUser;
-                        if rejected {
-                            session.error = Some("sshAuthRejected".into());
+                        let mut submitted_cached_password = false;
+                        if prompt.prompt_type == PromptType::Password
+                            && !rejected
+                            && !session.cached_password_attempted
+                        {
+                            match credential_cache::reveal(&session.target_fingerprint) {
+                                Ok(Some(mut password)) => {
+                                    session.cached_password_attempted = true;
+                                    session.auth.password_stored = true;
+                                    write_response(
+                                        session,
+                                        password.as_slice(),
+                                        SshAuthMethod::Password,
+                                        true,
+                                    )?;
+                                    password.clear();
+                                    submitted_cached_password = true;
+                                }
+                                Err(_) => {
+                                    credential_cache::clear_if_matches(&session.target_fingerprint);
+                                    session.auth.password_stored = false;
+                                }
+                                Ok(None) => {}
+                            }
+                        }
+                        if !submitted_cached_password {
+                            session.current_prompt = Some(prompt);
+                            session.status = SessionStatus::WaitingUser;
+                            if rejected {
+                                session.password_candidate = None;
+                                session.error = Some("sshAuthRejected".into());
+                            }
                         }
                     }
                 }
@@ -867,6 +919,17 @@ pub fn state(session_id: &str) -> BridgeResult<Snapshot> {
                 }
             }
         }
+    }
+    if session.status == SessionStatus::Failed
+        && session.cached_password_attempted
+        && matches!(
+            session.error.as_deref(),
+            Some("sshAuth" | "sshAuthRejected")
+        )
+    {
+        credential_cache::clear_if_matches(&session.target_fingerprint);
+        session.auth.password_stored = false;
+        session.cached_password_attempted = false;
     }
     let prompt_detected = session.current_prompt.is_some() || session.last_prompt.is_some();
     let prompt = (session.status == SessionStatus::WaitingUser)
@@ -932,6 +995,13 @@ pub fn submit(session_id: &str, prompt_id: &str, response: String) -> BridgeResu
             PromptType::Password | PromptType::KeyPassphrase => SshAuthMethod::Password,
             _ => SshAuthMethod::KeyboardInteractive,
         };
+        if prompt.prompt_type == PromptType::Password && session.password_cache_eligible {
+            session.password_candidate =
+                credential_cache::protect(response.as_bytes(), &session.target_fingerprint).ok();
+        } else if prompt.prompt_type != PromptType::HostKeyConfirmation {
+            session.password_cache_eligible = false;
+            session.password_candidate = None;
+        }
         write_response(session, response.as_bytes(), method, prompt.secret)?;
     }
     response.clear();
@@ -964,6 +1034,12 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
     let mut session = lock_sessions()?
         .remove(session_id)
         .ok_or("sshAuthSessionMissing")?;
+    if session.password_cache_eligible {
+        if let Some(password) = session.password_candidate.take() {
+            credential_cache::store(session.target_fingerprint.clone(), password)?;
+        }
+    }
+    session.auth.password_stored = credential_cache::contains(&session.target_fingerprint);
     match session.completion {
         Completion::Check { ports } => {
             super::complete_interactive_check(session.auth);
@@ -999,6 +1075,7 @@ pub fn cancel(session_id: &str) -> BridgeResult<()> {
     let session = lock_sessions()?
         .remove(session_id)
         .ok_or("sshAuthSessionMissing")?;
+    credential_cache::clear_if_matches(&session.target_fingerprint);
     if session.operation == Operation::Connect {
         super::cancel_interactive_connect();
     }
@@ -1010,8 +1087,17 @@ pub fn cleanup() {
         let cancelled_connect = sessions.values().any(|session| {
             session.operation == Operation::Connect && session.created_at.elapsed() >= SESSION_TTL
         });
+        let expired_cached_target = sessions
+            .values()
+            .find(|session| {
+                session.cached_password_attempted && session.created_at.elapsed() >= SESSION_TTL
+            })
+            .map(|session| session.target_fingerprint.clone());
         sessions.retain(|_, session| session.created_at.elapsed() < SESSION_TTL);
         drop(sessions);
+        if let Some(fingerprint) = expired_cached_target {
+            credential_cache::clear_if_matches(&fingerprint);
+        }
         if cancelled_connect {
             super::cancel_interactive_connect();
         }
@@ -1022,6 +1108,7 @@ pub fn shutdown() {
     if let Ok(mut sessions) = sessions().try_lock() {
         sessions.clear();
     }
+    credential_cache::clear();
     super::cancel_interactive_connect();
 }
 

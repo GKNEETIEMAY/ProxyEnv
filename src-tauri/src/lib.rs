@@ -11,6 +11,10 @@ use services::settings;
 use tauri::Emitter;
 use tauri_plugin_autostart::MacosLauncher;
 
+pub fn try_run_ssh_askpass() -> bool {
+    features::remote_bridge::credential_cache::try_run_askpass()
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -61,6 +65,8 @@ pub fn run() {
             commands::remote_bridge::remote_bridge_connect,
             commands::remote_bridge::remote_bridge_disconnect,
             commands::remote_bridge::remote_bridge_test,
+            commands::remote_bridge::remote_bridge_launch_proxy_terminal,
+            commands::remote_bridge::remote_bridge_clear_session_credential,
             commands::remote_bridge::remote_bridge_config_preview,
             commands::remote_bridge::remote_bridge_config_apply,
             commands::remote_bridge::remote_bridge_config_restore,

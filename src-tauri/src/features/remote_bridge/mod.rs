@@ -1,3 +1,4 @@
+pub(crate) mod credential_cache;
 pub mod extension;
 mod mobaxterm;
 mod ssh;
@@ -238,30 +239,34 @@ fn remote_environment(endpoint: &Endpoint) -> BridgeResult<String> {
         port: endpoint.remote_port,
         protocol: endpoint.local.protocol,
     };
-    Ok(plan::build_proxy_environment_plan(
-        &remote,
-        &[
-            ProxyVariable::Http,
-            ProxyVariable::Https,
-            ProxyVariable::All,
-        ],
-    )
-    .map_err(|_| "proxyUnavailable")?
-    .variables
-    .into_iter()
-    .filter_map(|entry| {
-        entry.value.map(|value| {
-            // Share the existing protocol/variable mapping; remote SOCKS DNS
-            // must also travel through the tunnel, as specified for the bridge.
-            format!(
-                "export {}={}",
-                entry.name.to_uppercase(),
-                value.replacen("socks5://", "socks5h://", 1)
-            )
+    let mut lines = vec!["unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY".to_owned()];
+    lines.extend(
+        plan::build_proxy_environment_plan(
+            &remote,
+            &[
+                ProxyVariable::Http,
+                ProxyVariable::Https,
+                ProxyVariable::All,
+            ],
+        )
+        .map_err(|_| "proxyUnavailable")?
+        .variables
+        .into_iter()
+        .filter_map(|entry| {
+            entry.value.map(|value| {
+                // Share the existing protocol/variable mapping; remote SOCKS DNS
+                // must also travel through the tunnel, as specified for the bridge.
+                format!(
+                    "export {}={}",
+                    entry.name.to_uppercase(),
+                    value.replacen("socks5://", "socks5h://", 1)
+                )
+            })
         })
-    })
-    .collect::<Vec<_>>()
-    .join("\n"))
+        .collect::<Vec<_>>(),
+    );
+    lines.push("export NO_PROXY=localhost,127.0.0.1,::1".to_owned());
+    Ok(lines.join("\n"))
 }
 fn observed_status(
     summary: &Summary,
@@ -682,7 +687,11 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     state.summary.cc_status = state.summary.cc.as_ref().map(|_| Status::Disconnected);
     state.proxy_status = Status::Disconnected;
     state.cc_status = Status::Disconnected;
+    credential_cache::clear();
     Ok(state.summary.clone())
+}
+pub fn clear_session_credential() {
+    credential_cache::clear();
 }
 pub fn shutdown() {
     // Never hold up application exit behind an SSH timeout. Windows closes all
@@ -690,6 +699,7 @@ pub fn shutdown() {
     if let Ok(mut state) = store().try_lock() {
         state.child = None;
     }
+    credential_cache::clear();
     ssh_auth::shutdown();
 }
 pub fn test() -> BridgeResult<()> {
@@ -713,6 +723,35 @@ pub fn test() -> BridgeResult<()> {
         json!({"operation":"test","port":endpoint.remote_port,"protocol":endpoint.local.protocol}),
     )?;
     Ok(())
+}
+pub fn launch_proxy_terminal() -> BridgeResult<()> {
+    let (target_id, endpoint, target_fingerprint) = {
+        let mut state = lock()?;
+        refresh(&mut state);
+        if state.summary.status != Status::Connected
+            || state.summary.proxy_status != Some(Status::Connected)
+        {
+            return Err("bridgeUnavailable".into());
+        }
+        let target_id = state
+            .summary
+            .target
+            .as_ref()
+            .map(|target| target.id.clone())
+            .ok_or("invalidTarget")?;
+        let endpoint = state
+            .summary
+            .proxy
+            .as_ref()
+            .cloned()
+            .ok_or("proxyUnavailable")?;
+        (target_id, endpoint, state.target_fingerprint.clone())
+    };
+    if Some(ssh::fingerprint(&target_id)?) != target_fingerprint {
+        return Err("sshConfigChanged".into());
+    }
+    let fingerprint = target_fingerprint.ok_or("sshConfigChanged")?;
+    ssh::launch_managed_terminal(&target_id, &endpoint, &fingerprint)
 }
 fn overlay(tool: &str, port: u16) -> String {
     if tool == "codex" {
@@ -940,18 +979,18 @@ mod tests {
         };
         assert_eq!(
             remote_environment(&endpoint(ProxyProtocol::Http)).unwrap(),
-            "export HTTP_PROXY=http://127.0.0.1:17897\nexport HTTPS_PROXY=http://127.0.0.1:17897"
+            "unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY\nexport HTTP_PROXY=http://127.0.0.1:17897\nexport HTTPS_PROXY=http://127.0.0.1:17897\nexport NO_PROXY=localhost,127.0.0.1,::1"
         );
         assert_eq!(
             remote_environment(&endpoint(ProxyProtocol::Socks5)).unwrap(),
-            "export ALL_PROXY=socks5h://127.0.0.1:17897"
+            "unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY\nexport ALL_PROXY=socks5h://127.0.0.1:17897\nexport NO_PROXY=localhost,127.0.0.1,::1"
         );
         assert_eq!(
             remote_environment(&endpoint(ProxyProtocol::Mixed))
                 .unwrap()
                 .lines()
                 .count(),
-            3
+            5
         );
         assert!(remote_environment(&endpoint(ProxyProtocol::Unknown)).is_err());
     }

@@ -1,6 +1,6 @@
 use super::{
-    mobaxterm, BridgeResult, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request,
-    SshAuthMethod,
+    mobaxterm, BridgeResult, Endpoint, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource,
+    Request, SshAuthMethod,
 };
 use std::{
     io::{Read, Write},
@@ -10,7 +10,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn command_with_batch_mode(batch_mode: bool) -> Command {
+#[derive(Clone, Copy)]
+enum CommandMode {
+    Batch,
+    Interactive,
+    ManagedTerminal,
+}
+
+fn command_with_mode(mode: CommandMode) -> Command {
     #[cfg(windows)]
     let mut command = Command::new(
         std::path::PathBuf::from(
@@ -23,10 +30,14 @@ fn command_with_batch_mode(batch_mode: bool) -> Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
+    command.arg(if matches!(mode, CommandMode::ManagedTerminal) {
+        "-tt"
+    } else {
+        "-T"
+    });
     command.args([
-        "-T",
         "-oConnectTimeout=8",
         "-oConnectionAttempts=1",
         "-oServerAliveInterval=5",
@@ -40,7 +51,7 @@ fn command_with_batch_mode(batch_mode: bool) -> Command {
         "-oExitOnForwardFailure=yes",
         "-oForkAfterAuthentication=no",
     ]);
-    if batch_mode {
+    if matches!(mode, CommandMode::Batch) {
         command.args(["-oStrictHostKeyChecking=yes", "-oBatchMode=yes"]);
     } else {
         command.args([
@@ -57,7 +68,7 @@ fn command_with_batch_mode(batch_mode: bool) -> Command {
 
 #[cfg(test)]
 pub fn command() -> Command {
-    command_with_batch_mode(true)
+    command_with_mode(CommandMode::Batch)
 }
 
 pub fn safe_name(value: &str) -> bool {
@@ -285,7 +296,7 @@ fn resolve(id: &str) -> BridgeResult<ResolvedTarget> {
         .ok_or_else(|| "invalidTarget".into())
 }
 
-fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(Command, String)> {
+fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Command, String)> {
     let target = resolve(id)?;
     if !target.public.available
         || target.public.compatibility != RemoteTargetCompatibility::Compatible
@@ -295,7 +306,7 @@ fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(C
             .unavailable_reason
             .unwrap_or_else(|| "targetUnsupported".into()));
     }
-    let mut cmd = command_with_batch_mode(batch_mode);
+    let mut cmd = command_with_mode(mode);
     let destination = match target.connection {
         Connection::Config { alias, config } => {
             if let Some(path) = config {
@@ -314,12 +325,224 @@ fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(C
     Ok((cmd, destination))
 }
 
+fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(Command, String)> {
+    target_command_with_mode(
+        id,
+        if batch_mode {
+            CommandMode::Batch
+        } else {
+            CommandMode::Interactive
+        },
+    )
+}
+
 fn target_command(id: &str) -> BridgeResult<(Command, String)> {
     target_command_with_batch_mode(id, true)
 }
 
 pub(super) fn interactive_target_command(id: &str) -> BridgeResult<(Command, String)> {
     target_command_with_batch_mode(id, false)
+}
+
+fn managed_terminal_remote_command(endpoint: &Endpoint) -> BridgeResult<String> {
+    let exports = super::remote_environment(endpoint)?
+        .lines()
+        .collect::<Vec<_>>()
+        .join("; ");
+    Ok(format!("{exports}; exec \"${{SHELL:-/bin/sh}}\" -i"))
+}
+
+#[cfg(windows)]
+fn powershell_terminal_command(
+    ssh_command: &Command,
+    credential: Option<(String, String)>,
+) -> BridgeResult<Command> {
+    let launch = serde_json::json!({
+        "program": ssh_command.get_program().to_string_lossy(),
+        "arguments": ssh_command
+            .get_args()
+            .map(|argument| argument.to_string_lossy())
+            .collect::<Vec<_>>(),
+    });
+    let payload = serde_json::to_string(&launch).map_err(|_| "stateUnavailable")?;
+    let powershell = std::path::PathBuf::from(
+        std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()),
+    )
+    .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    let mut terminal = Command::new(powershell);
+    terminal
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NoExit",
+            "-Command",
+            "$ErrorActionPreference='Stop'; $launch=ConvertFrom-Json -InputObject $env:PROXYENV_SSH_LAUNCH; Remove-Item Env:PROXYENV_SSH_LAUNCH -ErrorAction SilentlyContinue; $Host.UI.RawUI.WindowTitle='ProxyEnv Proxy Terminal'; [string[]]$sshArguments=$launch.arguments; & ([string]$launch.program) @sshArguments; Remove-Item Env:PROXYENV_SSH_PASSWORD,Env:PROXYENV_SSH_PASSWORD_ENTROPY,Env:PROXYENV_SSH_ASKPASS,Env:SSH_ASKPASS,Env:SSH_ASKPASS_REQUIRE,Env:DISPLAY -ErrorAction SilentlyContinue; if ($LASTEXITCODE -ne 0) { Write-Host ''; Write-Host ('OpenSSH exited with code {0}.' -f $LASTEXITCODE) -ForegroundColor Red }",
+        ])
+        .env("PROXYENV_SSH_LAUNCH", payload);
+    if let Some((password, entropy)) = credential {
+        let askpass = std::env::current_exe().map_err(|_| "processFailed")?;
+        terminal
+            .env("PROXYENV_SSH_ASKPASS", "1")
+            .env("PROXYENV_SSH_PASSWORD", password)
+            .env("PROXYENV_SSH_PASSWORD_ENTROPY", entropy)
+            .env("SSH_ASKPASS", askpass)
+            .env("SSH_ASKPASS_REQUIRE", "force")
+            .env("DISPLAY", "proxyenv:0");
+    } else {
+        for name in [
+            "PROXYENV_SSH_ASKPASS",
+            "PROXYENV_SSH_PASSWORD",
+            "PROXYENV_SSH_PASSWORD_ENTROPY",
+            "SSH_ASKPASS",
+            "SSH_ASKPASS_REQUIRE",
+            "DISPLAY",
+        ] {
+            terminal.env_remove(name);
+        }
+    }
+    Ok(terminal)
+}
+
+#[cfg(windows)]
+fn quote_windows_argument(argument: &std::ffi::OsStr) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+
+    let argument = argument.encode_wide().collect::<Vec<_>>();
+    let must_quote = argument.is_empty()
+        || argument
+            .iter()
+            .any(|character| matches!(*character, 0x20 | 0x09 | 0x22));
+    if !must_quote {
+        return argument;
+    }
+    let mut quoted = vec![b'"' as u16];
+    let mut backslashes = 0usize;
+    for character in argument {
+        if character == b'\\' as u16 {
+            backslashes += 1;
+        } else if character == b'"' as u16 {
+            quoted.extend(std::iter::repeat_n(b'\\' as u16, backslashes * 2 + 1));
+            quoted.push(character);
+            backslashes = 0;
+        } else {
+            quoted.extend(std::iter::repeat_n(b'\\' as u16, backslashes));
+            quoted.push(character);
+            backslashes = 0;
+        }
+    }
+    quoted.extend(std::iter::repeat_n(b'\\' as u16, backslashes * 2));
+    quoted.push(b'"' as u16);
+    quoted
+}
+
+#[cfg(windows)]
+fn command_line(command: &Command) -> Vec<u16> {
+    let mut line = quote_windows_argument(command.get_program());
+    for argument in command.get_args() {
+        line.push(b' ' as u16);
+        line.extend(quote_windows_argument(argument));
+    }
+    line.push(0);
+    line
+}
+
+#[cfg(windows)]
+fn environment_block(command: &Command) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+
+    let mut environment = std::env::vars_os().collect::<Vec<_>>();
+    for (name, value) in command.get_envs() {
+        environment.retain(|(existing, _)| {
+            !existing
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&name.to_string_lossy())
+        });
+        if let Some(value) = value {
+            environment.push((name.to_os_string(), value.to_os_string()));
+        }
+    }
+    environment.sort_by(|left, right| {
+        left.0
+            .to_string_lossy()
+            .to_lowercase()
+            .cmp(&right.0.to_string_lossy().to_lowercase())
+    });
+    let mut block = Vec::new();
+    for (name, value) in environment {
+        block.extend(name.encode_wide());
+        block.push(b'=' as u16);
+        block.extend(value.encode_wide());
+        block.push(0);
+    }
+    block.push(0);
+    block
+}
+
+#[cfg(windows)]
+fn spawn_new_console(command: &Command) -> BridgeResult<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{
+        core::{PCWSTR, PWSTR},
+        Win32::{
+            Foundation::CloseHandle,
+            System::Threading::{
+                CreateProcessW, CREATE_NEW_CONSOLE, CREATE_UNICODE_ENVIRONMENT,
+                PROCESS_INFORMATION, STARTUPINFOW,
+            },
+        },
+    };
+
+    let mut program = command.get_program().encode_wide().collect::<Vec<_>>();
+    program.push(0);
+    let mut command_line = command_line(command);
+    let environment = environment_block(command);
+    let startup = STARTUPINFOW {
+        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+        ..STARTUPINFOW::default()
+    };
+    let mut process = PROCESS_INFORMATION::default();
+    unsafe {
+        CreateProcessW(
+            PCWSTR(program.as_ptr()),
+            Some(PWSTR(command_line.as_mut_ptr())),
+            None,
+            None,
+            false,
+            CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT,
+            Some(environment.as_ptr().cast()),
+            PCWSTR::null(),
+            &startup,
+            &mut process,
+        )
+        .map_err(|_| "processFailed")?;
+        let _ = CloseHandle(process.hThread);
+        let _ = CloseHandle(process.hProcess);
+    }
+    Ok(())
+}
+
+pub fn launch_managed_terminal(
+    target_id: &str,
+    endpoint: &Endpoint,
+    fingerprint: &str,
+) -> BridgeResult<()> {
+    #[cfg(windows)]
+    {
+        let (mut command, destination) =
+            target_command_with_mode(target_id, CommandMode::ManagedTerminal)?;
+        command
+            .arg("-oClearAllForwardings=yes")
+            .arg(destination)
+            .arg(managed_terminal_remote_command(endpoint)?);
+        let credential = super::credential_cache::terminal_payload(fingerprint)?;
+        let terminal = powershell_terminal_command(&command, credential)?;
+        spawn_new_console(&terminal)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (target_id, endpoint, fingerprint);
+        Err("processFailed".into())
+    }
 }
 
 // Reuse OpenSSH's resolution for IdentityFile, ProxyJump and ssh-agent. Refuse
@@ -732,7 +955,7 @@ mod tests {
     }
     #[test]
     fn interactive_openssh_parameters_enable_prompts_without_weakening_hardening() {
-        let command = command_with_batch_mode(false);
+        let command = command_with_mode(CommandMode::Interactive);
         let args: Vec<_> = command
             .get_args()
             .map(|argument| argument.to_string_lossy().into_owned())
@@ -754,6 +977,110 @@ mod tests {
         assert!(!args
             .iter()
             .any(|argument| argument == "-oStrictHostKeyChecking=no"));
+    }
+    #[test]
+    fn managed_terminal_is_interactive_and_does_not_modify_shell_startup_files() {
+        use crate::features::proxy::{ProxyEndpoint, ProxyProtocol};
+
+        let command = command_with_mode(CommandMode::ManagedTerminal);
+        let args: Vec<_> = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect();
+        for required in [
+            "-tt",
+            "-oBatchMode=no",
+            "-oStrictHostKeyChecking=ask",
+            "-oForwardAgent=no",
+            "-oPermitLocalCommand=no",
+        ] {
+            assert!(args.iter().any(|argument| argument == required));
+        }
+        assert!(!args.iter().any(|argument| argument == "-T"));
+
+        let script = managed_terminal_remote_command(&Endpoint {
+            local: ProxyEndpoint {
+                host: "127.0.0.1".into(),
+                port: 7897,
+                protocol: ProxyProtocol::Mixed,
+            },
+            remote_port: 17897,
+        })
+        .unwrap();
+        for expected in [
+            "unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY",
+            "export HTTP_PROXY=http://127.0.0.1:17897",
+            "export HTTPS_PROXY=http://127.0.0.1:17897",
+            "export ALL_PROXY=socks5h://127.0.0.1:17897",
+            "export NO_PROXY=localhost,127.0.0.1,::1",
+            "exec \"${SHELL:-/bin/sh}\" -i",
+        ] {
+            assert!(script.contains(expected));
+        }
+        for forbidden in [".bashrc", ".profile", "/etc/environment", "sudo"] {
+            assert!(!script.contains(forbidden));
+        }
+    }
+    #[cfg(windows)]
+    #[test]
+    fn managed_terminal_uses_powershell_and_passes_ssh_arguments_as_data() {
+        let mut ssh = command_with_mode(CommandMode::ManagedTerminal);
+        ssh.args(["example", "printf 'safe'"]);
+        let terminal = powershell_terminal_command(
+            &ssh,
+            Some(("encrypted-value".into(), "target-entropy".into())),
+        )
+        .unwrap();
+        assert!(terminal
+            .get_program()
+            .to_string_lossy()
+            .ends_with("powershell.exe"));
+        let arguments = terminal
+            .get_args()
+            .map(|argument| argument.to_string_lossy())
+            .collect::<Vec<_>>();
+        for required in ["-NoProfile", "-NoExit", "-Command"] {
+            assert!(arguments.iter().any(|argument| argument == required));
+        }
+        let payload = terminal
+            .get_envs()
+            .find_map(|(name, value)| {
+                if name == "PROXYENV_SSH_LAUNCH" {
+                    value.map(|value| value.to_string_lossy().into_owned())
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let launch: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(
+            launch["arguments"].as_array().unwrap().last().unwrap(),
+            "printf 'safe'"
+        );
+        let environment = terminal
+            .get_envs()
+            .filter_map(|(name, value)| {
+                value.map(|value| {
+                    (
+                        name.to_string_lossy().into_owned(),
+                        value.to_string_lossy().into_owned(),
+                    )
+                })
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(environment["SSH_ASKPASS_REQUIRE"], "force");
+        assert_eq!(environment["PROXYENV_SSH_PASSWORD"], "encrypted-value");
+        assert!(!environment.values().any(|value| value == "plain-password"));
+    }
+    #[cfg(windows)]
+    #[test]
+    fn detached_console_arguments_follow_windows_quoting_rules() {
+        let quote =
+            |value: &str| String::from_utf16(&quote_windows_argument(value.as_ref())).unwrap();
+        assert_eq!(quote("plain"), "plain");
+        assert_eq!(quote("two words"), "\"two words\"");
+        assert_eq!(quote("a\"b"), "\"a\\\"b\"");
+        assert_eq!(quote("C:\\Program Files\\"), "\"C:\\Program Files\\\\\"");
     }
     #[test]
     fn target_ids_separate_sources_paths_and_aliases_without_exposing_paths() {

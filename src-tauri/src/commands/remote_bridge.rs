@@ -175,6 +175,23 @@ pub async fn remote_bridge_test() -> CommandResult<()> {
     run("connectivityTest", Some("proxy"), bridge::test).await
 }
 #[tauri::command]
+pub async fn remote_bridge_launch_proxy_terminal() -> CommandResult<()> {
+    run(
+        "managedTerminalLaunch",
+        Some("proxy"),
+        bridge::launch_proxy_terminal,
+    )
+    .await
+}
+#[tauri::command]
+pub async fn remote_bridge_clear_session_credential() -> CommandResult<()> {
+    run("credentialClear", Some("ssh"), || {
+        bridge::clear_session_credential();
+        Ok(())
+    })
+    .await
+}
+#[tauri::command]
 pub async fn remote_bridge_config_preview(tool: String) -> CommandResult<ConfigPreview> {
     run("configurationPreview", Some("cli"), move || {
         bridge::config_preview(tool)
