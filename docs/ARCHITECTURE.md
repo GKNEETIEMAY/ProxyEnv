@@ -163,9 +163,9 @@ The rule engine accepts only bundled, schema-versioned JSON. It rejects unknown 
 
 Next — v0.2.0 development / 开发中。
 
-Remote Bridge is a first-level product surface beside Local Environment. `AppShell.vue` owns the primary `local | remote` navigation context; the application assistant remains a Local Environment drill-down, while Settings returns to whichever primary surface opened it. `RemoteBridgePage.vue` owns the four-step workflow and uses dialogs only for reviewed Codex/Claude configuration, restore, and disconnect confirmation.
+Remote Bridge is a first-level product surface beside Local Environment. `AppShell.vue` owns the primary `local | remote` navigation context and keeps both primary surfaces mounted after first use, switching visibility without a cross-fade or keyed remount. The application assistant remains a Local Environment drill-down, while Settings returns to whichever primary surface opened it. `RemoteBridgePage.vue` owns one continuous setup/status workspace and uses dialogs only for OpenSSH interaction, reviewed Codex/Claude configuration, restore, and disconnect confirmation.
 
-远程桥接与本机环境并列为一级页面。页面按“目标 → 能力 → 确认 → 状态”推进；大页面不再塞进弹窗，弹窗仅用于配置写入、恢复和断开等需要确认的操作。
+远程桥接与本机环境并列为一级页面，两者首次打开后保持挂载，切换时不再交叉淡入淡出或按 `key` 重建。远程页在同一工作区内完成目标选择、SSH 检查、能力配置和连接；连接前仍调用后端预览与重校验，但不再展示独立且重复的“确认桥接配置”页面。连接后原位显示精简状态与后续操作。弹窗仅用于 OpenSSH 交互、配置写入、恢复和断开等独立任务。
 
 ### Independent remote checks / 独立远端检查
 
@@ -277,7 +277,7 @@ Frontend dependencies flow `App.vue → app → features → shared`. `AppShell.
 
 Proxy discovery keeps every endpoint candidate returned by the detector and groups candidates by PID or process identity for compact client navigation. Home renders the backend's active selection, including its unavailable last-known details, and exposes an explicit selector for all usable addresses. Client navigation also selects globally rather than maintaining a private viewed candidate. The automatic-detection label counts listening/total client processes rather than raw endpoints. Copy and manual fast-path validation use the active candidate; mismatch state comes from Rust. When no selection exists and TUN evidence is `Possible` or `Detected`, the UI can show a presentation-only suspected client. It never synthesizes an endpoint or replaces an unavailable selection.
 
-The Local Environment surface exposes proxy-client, Windows System Proxy, and proxy-environment layers plus one clear entry to the application assistant. The Remote Bridge surface is its first-level peer and owns remote target discovery, capability review, connection status, and next-step guidance. The assistant keeps selection, diagnosis, protected confirmation, and result in one guided surface. Advanced evidence is collapsed by default. Errors always state what happened, whether anything changed, and what to do next.
+The Local Environment surface exposes proxy-client, Windows System Proxy, and proxy-environment layers plus one clear entry to the application assistant. The Remote Bridge surface is its first-level peer and owns remote target discovery, in-place capability setup, connection status, and next-step guidance. It has no step rail or separate tunnel-review screen; backend preview remains the connection-time validation boundary. The assistant keeps selection, diagnosis, protected confirmation, and result in one guided surface. Advanced evidence is collapsed by default. Errors always state what happened, whether anything changed, and what to do next.
 
 The proxy console exposes four distinct observable layers:
 

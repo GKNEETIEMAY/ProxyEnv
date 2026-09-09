@@ -19,7 +19,7 @@ This is development scope, not a published stable-release announcement.
 | Area | Implementation |
 | --- | --- |
 | Stack | Existing Vue 3 + TypeScript + Tauri 2 + Rust and OpenSSH. Fixed POSIX Shell operations plus a bundled JavaScript configuration helper using an already-installed remote Node 20+. No Python, new frontend framework, SSH library, runtime installation or daemon. |
-| UI | Local Environment and Remote Bridge are peer first-level pages; Assistant remains a Local Environment drill-down and Settings remains global. Remote Bridge uses an independent four-step page and keeps dialogs for protected mutations; Chinese, English, Japanese and Korean. |
+| UI | Local Environment and Remote Bridge are peer first-level pages that remain mounted after first use and switch without cross-fades. Assistant remains a Local Environment drill-down and Settings remains global. Remote Bridge uses one continuous setup/status workspace without a step rail or separate tunnel-review page; dialogs remain for OpenSSH interaction and protected mutations. Chinese, English, Japanese and Korean are supported. |
 | Status UI | Shared `StatusIndicator`, `CheckRow`, `HelpHint`, and `LastChecked` components provide one six-state vocabulary, accessible icon/text feedback, structured help, independent timestamps, and a unified recheck action. |
 | Network observations | Server direct internet, the shared local `ActiveProxyContext`, and CC Switch routing are evaluated independently. Direct server testing bypasses proxy variables; a missing remote `curl` becomes Unknown rather than a false success or failure. |
 | Active proxy | Reads `active::snapshot()` only. No bridge discovery or secondary selection. Captures revision, local endpoint and protocol; changes become Stale, loss becomes Unavailable. |
@@ -144,7 +144,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D w
 
 `pnpm test:remote` uses Node's existing test runner and a POSIX shell. On Windows it finds Git Bash beside the installed Git executable; `PROXYENV_TEST_SHELL` can override the test shell. It exercises real temporary-file/hash/replace/restore behavior. SSH transport, `ss` output, CLI version output and `flock` are fixture adapters; Windows permissions are also adapted. These tests do not claim to test Linux locking or live SSH server policy.
 
-Browser checks use the existing development preview and mocked IPC: host selection, capabilities, review before mutation, apply/restore confirmation, disconnect cancellation, stale state, ESC/focus restoration, dark theme and 560px window layout. No browser mock is included in production source.
+Browser checks use the existing development preview and mocked IPC: host selection, in-place capability setup, backend validation before connection, protected-write previews, apply/restore confirmation, disconnect cancellation, stale state, ESC/focus restoration, dark theme and 560px window layout. No browser mock is included in production source.
 
 Real Windows → Linux password/PAM authentication, ProxyJump authentication, server forwarding rejection, Windows shutdown cleanup, and actual Codex/Claude routing still require acceptance on a user-provided test host. Unit and source-boundary tests cover PTY ownership, response zeroization, terminal-control filtering and hardening flags, but do not claim a live-server authentication result. No real SSH target or model API was used during implementation.
 
