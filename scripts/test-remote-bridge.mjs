@@ -184,11 +184,21 @@ test("managed proxy terminal is one-click, shell-scoped, and keeps manual export
   assert.match(ssh,/exec \\\"\$\{\{SHELL:-\/bin\/sh\}\}\\\" -i/);
   for(const name of ["HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","NO_PROXY"]) assert.match(bridge,new RegExp(name));
   assert.match(commands,/fn remote_bridge_launch_proxy_terminal/);
+  assert.match(commands,/fn remote_bridge_launch_manual_terminal/);
   assert.match(runtime,/remote_bridge::remote_bridge_launch_proxy_terminal/);
+  assert.match(runtime,/remote_bridge::remote_bridge_launch_manual_terminal/);
   assert.match(state,/launchProxyTerminal: \(\) => invoke<void>\("remote_bridge_launch_proxy_terminal"\)/);
+  assert.match(state,/launchManualTerminal: \(\) => invoke<void>\("remote_bridge_launch_manual_terminal"\)/);
   assert.match(page,/@click="launchProxyTerminal"/);
+  assert.match(page,/remoteBackend\.launchManualTerminal\(\)/);
   assert.match(page,/<details class="remote-advanced">/);
   assert.match(page,/copyValue\(summary\.environment\)/);
+  const advanced=page.slice(page.indexOf('<details class="remote-advanced">'),page.indexOf('</details>',page.indexOf('<details class="remote-advanced">')));
+  assert.match(advanced,/remoteBackend\.launchMobaxterm\(\)/);
+  assert.match(advanced,/remoteBackend\.openVscode\(summary\.target!\.id\)/);
+  assert.match(advanced,/copy\.rbExternalClientHint/);
+  assert.match(ssh,/fn launch_terminal/);
+  assert.match(ssh,/launch_terminal\(target_id, fingerprint, None\)/);
 });
 test("Claude onboarding is completed without pre-trusting a project or discarding state",{skip:!available},()=>{
   const f=fixture();try {
@@ -296,6 +306,41 @@ test("Claude verification is a fixed isolated request and never returns model ou
   assert.match(commands,/fn remote_bridge_tool_verify/);
   assert.match(runtime,/remote_bridge::remote_bridge_tool_verify/);
   assert.match(page,/@click="verifyTool\(tool\.adapter\)"/);
+});
+
+test("M7 keeps VS Code Server context and extension location conservative",()=>{
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const vscode=readFileSync("src-tauri/src/features/remote_bridge/vscode.rs","utf8");
+  const helper=readFileSync("scripts/remote-extension/main.mjs","utf8");
+  const backend=readFileSync("src-tauri/src/features/remote_bridge/extension.rs","utf8");
+  const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
+  const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolDialog.vue","utf8");
+  const messages=readFileSync("src/shared/i18n/remote-bridge.ts","utf8");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
+  const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
+  assert.match(helper,/\.vscode-server-insiders/);
+  assert.match(helper,/VSCODE_AGENT_FOLDER/);
+  assert.match(helper,/status = selected \? 'detected' : contexts\.length \? 'ambiguous' : 'unsupported'/);
+  assert.match(helper,/candidateCount: candidates\.length/);
+  assert.match(helper,/versions\.length === 1 \? versions\[0\] : ''/);
+  assert.doesNotMatch(helper,/const candidate = candidates\.length === 1/);
+  assert.match(backend,/pub struct VscodeRemoteContext/);
+  assert.match(state,/export type ExtensionLocationState = "locationUnknown" \| "activeUnknown" \| "remoteConfirmed"/);
+  assert.match(messages,/Developer: Show Running Extensions/);
+  assert.match(dialog,/locationConfirmed\.value = false;\s+inspection\.value = undefined/);
+  assert.match(page,/remoteBackend\.revealTargetConfig/);
+  assert.match(page,/remoteBackend\.openVscodeSettings/);
+  assert.match(commands,/remote_bridge_reveal_target_config/);
+  assert.match(runtime,/remote_bridge_open_vscode_settings/);
+  assert.match(ssh,/pub fn target_config_path/);
+  assert.match(vscode,/ssh::target_config_path/);
+  assert.match(vscode,/System::new_all/);
+  assert.match(vscode,/process\.exe\(\)/);
+  const targetSelection=page.slice(page.indexOf('<template v-if="!checked">'),page.indexOf('<template v-else>'));
+  assert.doesNotMatch(targetSelection,/launchSshTerminal/);
+  assert.doesNotMatch(targetSelection,/remoteBackend\.openVscode\(/);
+  assert.doesNotMatch(targetSelection,/remoteBackend\.launchMobaxterm\(/);
 });
 
 test("remote target paths reuse the Windows extended-path display cleanup",async()=>{

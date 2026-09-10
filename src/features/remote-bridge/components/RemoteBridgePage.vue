@@ -549,7 +549,7 @@ onBeforeUnmount(() => {
         <template v-if="!live">
           <div v-if="!checked && targets.length" class="remote-target-list" role="radiogroup" :aria-label="copy.rbTarget">
             <label v-for="target in targets" :key="target.id" class="remote-target" :class="{ selected: targetId === target.id, unavailable: !target.available }" :title="!target.available ? bridgeError(target.unavailableReason, copy) : undefined">
-              <input v-model="targetId" type="radio" name="remote-target" :value="target.id" :disabled="!target.available" />
+              <input v-model="targetId" type="radio" name="remote-target" :value="target.id" />
               <span class="remote-target-mark" aria-hidden="true"></span>
               <span class="remote-target-copy">
                 <strong>{{ target.displayName }}</strong>
@@ -566,6 +566,9 @@ onBeforeUnmount(() => {
             <p class="remote-hint">{{ copy.rbRequirements }}</p>
             <div class="remote-actions">
               <button class="secondary-action" type="button" @click="refreshTargets">{{ copy.rbRefresh }}</button>
+              <button v-if="selectedTarget && selectedTarget.source !== 'mobaxterm'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openTargetConfig(selectedTarget!.id))">{{ copy.rbOpenSshConfig }}</button>
+              <button v-if="selectedTarget" class="secondary-action" type="button" @click="perform(async () => remoteBackend.revealTargetConfig(selectedTarget!.id))">{{ copy.rbRevealConfig }}</button>
+              <button v-if="selectedTarget?.source === 'vscode'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openVscodeSettings())">{{ copy.rbOpenVscodeSettings }}</button>
               <button class="primary-action" type="button" :disabled="!selectedTarget?.available" @click="checkTarget">{{ copy.rbCheck }}</button>
             </div>
             <div v-if="targetId" class="remote-actions remote-restore-actions">
@@ -576,7 +579,12 @@ onBeforeUnmount(() => {
           <template v-else>
             <div v-if="selectedTarget" class="remote-selected-target remote-setup-target">
               <div><strong>{{ selectedTarget.displayName }}</strong><span>{{ sourceLabel(selectedTarget) }}</span><code>{{ withoutWindowsExtendedPathPrefix(selectedTarget.configPath) }}</code></div>
-              <button class="secondary-action" type="button" @click="checked = false">{{ copy.rbTarget }}</button>
+              <div class="remote-actions">
+                <button v-if="selectedTarget.source !== 'mobaxterm'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openTargetConfig(selectedTarget!.id))">{{ copy.rbOpenSshConfig }}</button>
+                <button class="secondary-action" type="button" @click="perform(async () => remoteBackend.revealTargetConfig(selectedTarget!.id))">{{ copy.rbRevealConfig }}</button>
+                <button v-if="selectedTarget.source === 'vscode'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openVscodeSettings())">{{ copy.rbOpenVscodeSettings }}</button>
+                <button class="secondary-action" type="button" @click="checked = false">{{ copy.rbTarget }}</button>
+              </div>
             </div>
 
             <section class="remote-check-group">
@@ -642,7 +650,14 @@ onBeforeUnmount(() => {
               <details class="remote-advanced">
                 <summary>{{ copy.rbAdvancedCopy }}</summary>
                 <pre>{{ summary.environment }}</pre>
-                <button class="secondary-action" type="button" @click="copyValue(summary.environment)">{{ copy.rbCopy }}</button>
+                <p class="remote-hint">{{ copy.rbExternalClientHint }}</p>
+                <div class="remote-actions">
+                  <button class="secondary-action" type="button" @click="copyValue(summary.environment)">{{ copy.rbCopy }}</button>
+                  <button class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(() => remoteBackend.launchManualTerminal())">{{ copy.rbLaunchManualTerminal }}</button>
+                  <button class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(() => remoteBackend.launchMobaxterm())">{{ copy.rbLaunchMobaxterm }}</button>
+                  <button v-if="summary.target?.canOpenVscode" class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(async () => { await remoteBackend.openVscode(summary.target!.id); vscodeOpened = true; })">{{ copy.rbVscodeOpen }}</button>
+                </div>
+                <p v-if="vscodeOpened" class="remote-success" role="status">{{ copy.rbExtOpened }}</p>
               </details>
           </section>
 
@@ -661,8 +676,11 @@ onBeforeUnmount(() => {
 
           <section v-if="summary.target?.canOpenVscode" class="remote-vscode">
               <p class="remote-hint">{{ copy.rbVscodeHint }}</p>
-              <button class="secondary-action" type="button" @click="perform(async () => { await remoteBackend.openVscode(summary.target!.id); vscodeOpened = true; })">{{ copy.rbVscodeOpen }}</button>
-              <p v-if="vscodeOpened" role="status">{{ copy.rbExtOpened }}</p>
+              <div class="remote-actions">
+              <button v-if="summary.target.source !== 'mobaxterm'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openTargetConfig(summary.target!.id))">{{ copy.rbOpenSshConfig }}</button>
+              <button class="secondary-action" type="button" @click="perform(async () => remoteBackend.revealTargetConfig(summary.target!.id))">{{ copy.rbRevealConfig }}</button>
+              <button v-if="summary.target.source === 'vscode'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openVscodeSettings())">{{ copy.rbOpenVscodeSettings }}</button>
+              </div>
           </section>
           <div class="confirmation-actions"><button class="secondary-action remote-danger" type="button" :disabled="busy" @click="confirmation?.showModal()">{{ copy.rbDisconnect }}</button></div>
         </template>
@@ -790,6 +808,8 @@ onBeforeUnmount(() => {
 .remote-selected-target { display:flex; padding-bottom:18px; align-items:flex-start; justify-content:space-between; gap:20px; border-bottom:1px solid var(--line); }
 .remote-selected-target > div { display:grid; min-width:0; gap:4px; }.remote-selected-target span,.remote-selected-target code { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
 .remote-setup-target { padding:14px 0 18px; }
+.remote-setup-target { flex-wrap:wrap; }
+.remote-setup-target > .remote-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:0; }
 .remote-setup-target .secondary-action { min-height:32px; padding:6px 10px; font-size:10px; }
 .remote-connect-actions { padding-top:18px; border-top:1px solid var(--line); }
 .remote-capability dl { display:grid; grid-template-columns:64px minmax(0,1fr); gap:8px; margin:0; font-size:12px; }.remote-capability dt { color:var(--muted); }.remote-capability dd { margin:0; overflow-wrap:anywhere; }

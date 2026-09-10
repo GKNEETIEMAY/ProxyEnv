@@ -184,6 +184,15 @@ pub async fn remote_bridge_launch_proxy_terminal() -> CommandResult<()> {
     .await
 }
 #[tauri::command]
+pub async fn remote_bridge_launch_manual_terminal() -> CommandResult<()> {
+    run(
+        "managedTerminalLaunch",
+        Some("proxy"),
+        bridge::launch_manual_terminal,
+    )
+    .await
+}
+#[tauri::command]
 pub async fn remote_bridge_clear_session_credential() -> CommandResult<()> {
     run("credentialClear", Some("ssh"), || {
         bridge::clear_session_credential();
@@ -235,6 +244,37 @@ pub async fn remote_bridge_open_vscode(target_id: String) -> CommandResult<()> {
         bridge::vscode::open(target_id)
     })
     .await
+}
+
+#[tauri::command]
+pub async fn remote_bridge_open_vscode_settings() -> CommandResult<()> {
+    run(
+        "openTarget",
+        Some("vscodeSettings"),
+        bridge::vscode::open_settings,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_bridge_reveal_target_config(target_id: String) -> CommandResult<()> {
+    run("openTarget", Some("targetConfig"), move || {
+        bridge::vscode::reveal_target_config(target_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_bridge_open_target_config(target_id: String) -> CommandResult<()> {
+    run("openTarget", Some("targetConfig"), move || {
+        bridge::vscode::open_target_config(target_id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_bridge_launch_mobaxterm() -> CommandResult<()> {
+    run("openTarget", Some("mobaxterm"), bridge::mobaxterm::launch).await
 }
 
 #[tauri::command]

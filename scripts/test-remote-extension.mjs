@@ -161,6 +161,7 @@ test('Linux permissions and symlink checks use the actual filesystem', {skip:pro
 test('Linux bundled helper inspects separate extension runtimes and completes preview/apply/restore', {skip:process.platform!=='linux' || process.getuid?.()===0}, () => {
   const f=fixture('codex');
   try {
+    for (const serverVersion of ['commit-a','commit-b']) fs.mkdirSync(path.join(f.root,'.vscode-server/bin',serverVersion),{recursive:true,mode:0o700});
     for(const [id,version] of [['openai.chatgpt','26.825.51511'],['anthropic.claude-code','2.1.252']]) {
       const folder=path.join(f.root,'.vscode-server/extensions',id+'-'+version);
       fs.mkdirSync(folder,{recursive:true,mode:0o700});
@@ -177,8 +178,14 @@ test('Linux bundled helper inspects separate extension runtimes and completes pr
       return JSON.parse(result.stdout);
     };
     const inspection=run({operation:'inspect'});
+    assert.equal(inspection.vscode.status,'detected');
+    assert.equal(inspection.vscode.edition,'stable');
+    assert.equal(inspection.vscode.serverRoot,'~/.vscode-server');
+    assert.deepEqual(inspection.vscode.serverVersions,['commit-a','commit-b']);
+    assert.equal(inspection.vscode.remoteSettingsPath,'~/.vscode-server/data/Machine/settings.json');
     assert.equal(inspection.extensions.length,2);
     assert.equal(inspection.extensions[0].runtimeVersion,'0.151.0-alpha.7.2');
+    assert.equal(inspection.extensions[0].location,'activeUnknown');
     for (const tool of ['codex','claude']) {
       const request={tool,port:25721,contextHash:inspection.contextHash};
       const preview=run({...request,operation:'preview'});assert.equal(preview.error,undefined);
@@ -194,5 +201,35 @@ test('Linux bundled helper inspects separate extension runtimes and completes pr
     assert.equal(removed.extensions[0].detected,false);
     const recovery={tool:'codex',port:25721,contextHash:removed.contextHash};
     assert.equal(run({...recovery,...run({...recovery,operation:'restore-preview'}),operation:'restore'}).configured,false);
+  } finally {f.cleanup();}
+});
+
+test('Linux bundled helper reports multiple server and extension contexts without guessing', {skip:process.platform!=='linux' || process.getuid?.()===0}, () => {
+  const f=fixture('claude');
+  try {
+    const install=(server,id,version)=>{
+      const folder=path.join(f.root,server,'extensions',`${id}-${version}`);
+      fs.mkdirSync(folder,{recursive:true,mode:0o700});
+      fs.writeFileSync(path.join(folder,'package.json'),JSON.stringify({publisher:id.split('.')[0],name:id.split('.')[1],version}),{mode:0o600});
+    };
+    install('.vscode-server','anthropic.claude-code','2.1.252');
+    install('.vscode-server','anthropic.claude-code','2.1.253');
+    const source=fs.readFileSync('src-tauri/src/features/remote_bridge/extension-helper.cjs','utf8');
+    const run=request=>JSON.parse(spawnSync(process.execPath,['-'],{input:`globalThis.bridgeExtensionRequest=${JSON.stringify(request)};\n${source}`,encoding:'utf8',timeout:10000,env:{HOME:f.root,PATH:'/usr/bin:/bin'}}).stdout);
+    let inspection=run({operation:'inspect'});
+    const claude=inspection.extensions.find(entry=>entry.tool==='claude');
+    assert.equal(claude.detected,true);
+    assert.equal(claude.supported,true);
+    assert.equal(claude.candidateCount,2);
+    assert.equal(claude.version,'');
+    assert.deepEqual(claude.versions,['2.1.252','2.1.253']);
+
+    fs.mkdirSync(path.join(f.root,'.vscode-server-insiders/extensions'),{recursive:true,mode:0o700});
+    inspection=run({operation:'inspect'});
+    assert.equal(inspection.vscode.status,'ambiguous');
+    assert.equal(inspection.vscode.candidateCount,2);
+    assert.equal(inspection.vscode.serverRoot,'');
+    const result=run({operation:'preview',tool:'claude',port:25721,contextHash:inspection.contextHash});
+    assert.equal(result.error,'extensionContextChanged');
   } finally {f.cleanup();}
 });

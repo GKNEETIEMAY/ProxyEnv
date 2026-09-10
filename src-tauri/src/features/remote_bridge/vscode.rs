@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
+use sysinfo::System;
 
 pub fn settings_path() -> Option<PathBuf> {
     dirs::config_dir().map(|p| p.join("Code/User/settings.json"))
@@ -124,6 +125,12 @@ pub fn custom_ssh_config() -> BridgeResult<Option<PathBuf>> {
 
 fn executable() -> Option<PathBuf> {
     let mut candidates = Vec::new();
+    let system = System::new_all();
+    candidates.extend(system.processes().values().filter_map(|process| {
+        is_vscode_process_name(process.name())
+            .then(|| process.exe().map(Path::to_path_buf))
+            .flatten()
+    }));
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         candidates.push(PathBuf::from(local).join("Programs/Microsoft VS Code/Code.exe"));
     }
@@ -142,6 +149,11 @@ fn executable() -> Option<PathBuf> {
     candidates
         .into_iter()
         .find(|path| path.is_absolute() && path.is_file())
+}
+
+fn is_vscode_process_name(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy();
+    name.eq_ignore_ascii_case("Code.exe") || name.eq_ignore_ascii_case("Code - Insiders.exe")
 }
 
 pub fn open(target: String) -> BridgeResult<()> {
@@ -173,6 +185,87 @@ fn launch(executable: &Path, alias: &str) -> BridgeResult<()> {
     Ok(())
 }
 
+pub fn open_settings() -> BridgeResult<()> {
+    let settings = settings_path()
+        .filter(|path| path.is_file())
+        .ok_or("vscodeConfigInvalid")?;
+    let executable = executable().ok_or("vscodeMissing")?;
+    let mut command = Command::new(executable);
+    command
+        .args(["--new-window"])
+        .arg(settings)
+        .env_remove("ELECTRON_RUN_AS_NODE")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command.spawn().map_err(|_| "vscodeMissing")?;
+    Ok(())
+}
+
+pub fn open_target_config(target: String) -> BridgeResult<()> {
+    let path = ssh::target_config_path(&target)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut command = if let Some(executable) = executable() {
+            let mut command = Command::new(executable);
+            command.arg("--new-window");
+            command
+        } else {
+            let notepad = PathBuf::from(
+                std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()),
+            )
+            .join("System32/notepad.exe");
+            if !notepad.is_file() {
+                return Err("processFailed".into());
+            }
+            Command::new(notepad)
+        };
+        command
+            .arg(path)
+            .env_remove("ELECTRON_RUN_AS_NODE")
+            .creation_flags(0x08000000)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| "processFailed")?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("processFailed".into())
+    }
+}
+
+pub fn reveal_target_config(target: String) -> BridgeResult<()> {
+    let path = ssh::target_config_path(&target)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        Command::new("explorer.exe")
+            .arg(format!("/select,{}", path.display()))
+            .creation_flags(0x08000000)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| "processFailed")?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("processFailed".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +281,15 @@ mod tests {
         assert_eq!(data["remote.SSH.configFile"], "C:\\dev\\ssh-config");
         assert_eq!(data["url"], "https://example.test/a/*b*/,");
         assert!(parse_settings("{/* unterminated").is_err());
+    }
+
+    #[test]
+    fn vscode_process_names_are_matched_without_requiring_a_default_install_path() {
+        assert!(is_vscode_process_name(std::ffi::OsStr::new("Code.exe")));
+        assert!(is_vscode_process_name(std::ffi::OsStr::new("code.exe")));
+        assert!(is_vscode_process_name(std::ffi::OsStr::new(
+            "Code - Insiders.exe"
+        )));
+        assert!(!is_vscode_process_name(std::ffi::OsStr::new("Cursor.exe")));
     }
 }

@@ -14,6 +14,8 @@ export interface RemoteToolAdapter {
   readonly id: RemoteToolId;
   readonly displayName: string;
   readonly extensionPath: string;
+  readonly usesVscodeRemoteSettings: boolean;
+  readonly restoreRequiresVscodeContext: boolean;
   detect(preview: ConfigPreview | undefined): boolean;
   inspect(summary: BridgeSummary): RemoteToolInspection;
   preview(targetId: string, restoring: boolean): Promise<ConfigPreview>;
@@ -34,6 +36,8 @@ interface AdapterDefinition {
   id: RemoteToolId;
   displayName: string;
   extensionPath: string;
+  usesVscodeRemoteSettings: boolean;
+  restoreRequiresVscodeContext: boolean;
   launchCommand: string;
   verificationSupported: boolean;
   configured(summary: BridgeSummary): boolean;
@@ -69,6 +73,8 @@ export const remoteToolAdapters: readonly RemoteToolAdapter[] = [
     id: "codex",
     displayName: "Codex CLI",
     extensionPath: "~/.codex/config.toml",
+    usesVscodeRemoteSettings: false,
+    restoreRequiresVscodeContext: false,
     launchCommand: "codex --profile proxyenv_bridge",
     verificationSupported: false,
     configured: (summary) => summary.codexConfigured,
@@ -81,7 +87,9 @@ export const remoteToolAdapters: readonly RemoteToolAdapter[] = [
   createAdapter({
     id: "claude",
     displayName: "Claude Code CLI",
-    extensionPath: "~/.vscode-server/data/Machine/settings.json",
+    extensionPath: "",
+    usesVscodeRemoteSettings: true,
+    restoreRequiresVscodeContext: true,
     launchCommand: 'claude --settings "$HOME/.claude/proxyenv-bridge.json"',
     verificationSupported: true,
     configured: (summary) => summary.claudeConfigured,

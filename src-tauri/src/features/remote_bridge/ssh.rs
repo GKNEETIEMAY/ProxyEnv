@@ -152,6 +152,7 @@ enum Connection {
 struct ResolvedTarget {
     public: RemoteTarget,
     connection: Connection,
+    config_path: PathBuf,
 }
 
 fn path_key(path: &Path) -> String {
@@ -207,6 +208,7 @@ fn config_targets(
                 alias,
                 config: (source == RemoteTargetSource::Vscode).then_some(canonical.clone()),
             },
+            config_path: canonical.clone(),
         })
         .collect())
 }
@@ -268,6 +270,7 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
                 result.push(ResolvedTarget {
                     public,
                     connection: Connection::Direct { host, user, port },
+                    config_path: path.clone(),
                 });
             } else {
                 result.push(ResolvedTarget {
@@ -277,6 +280,7 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
                         user: String::new(),
                         port: 0,
                     },
+                    config_path: path.clone(),
                 });
             }
         }
@@ -297,6 +301,14 @@ pub fn target(id: &str) -> BridgeResult<RemoteTarget> {
         .find(|target| target.public.id == id)
         .map(|target| target.public)
         .ok_or_else(|| "invalidTarget".into())
+}
+
+pub fn target_config_path(id: &str) -> BridgeResult<PathBuf> {
+    let path = resolve(id)?.config_path;
+    if !path.is_absolute() || !path.is_file() {
+        return Err("sshConfigMissing".into());
+    }
+    Ok(path)
 }
 
 fn resolve(id: &str) -> BridgeResult<ResolvedTarget> {
@@ -559,21 +571,37 @@ pub fn launch_managed_terminal(
     endpoint: &Endpoint,
     fingerprint: &str,
 ) -> BridgeResult<()> {
+    launch_terminal(
+        target_id,
+        fingerprint,
+        Some(managed_terminal_remote_command(endpoint)?),
+    )
+}
+
+pub fn launch_manual_terminal(target_id: &str, fingerprint: &str) -> BridgeResult<()> {
+    launch_terminal(target_id, fingerprint, None)
+}
+
+fn launch_terminal(
+    target_id: &str,
+    fingerprint: &str,
+    remote_command: Option<String>,
+) -> BridgeResult<()> {
     #[cfg(windows)]
     {
         let (mut command, destination) =
             target_command_with_mode(target_id, CommandMode::ManagedTerminal)?;
-        command
-            .arg("-oClearAllForwardings=yes")
-            .arg(destination)
-            .arg(managed_terminal_remote_command(endpoint)?);
+        command.arg("-oClearAllForwardings=yes").arg(destination);
+        if let Some(remote_command) = remote_command {
+            command.arg(remote_command);
+        }
         let credential = super::credential_cache::terminal_payload(fingerprint)?;
         let terminal = powershell_terminal_command(&command, credential)?;
         spawn_new_console(&terminal)
     }
     #[cfg(not(windows))]
     {
-        let _ = (target_id, endpoint, fingerprint);
+        let _ = (target_id, fingerprint, remote_command);
         Err("processFailed".into())
     }
 }

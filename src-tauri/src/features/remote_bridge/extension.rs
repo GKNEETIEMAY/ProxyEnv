@@ -10,14 +10,34 @@ pub struct Capability {
     pub detected: bool,
     pub supported: bool,
     pub version: String,
+    pub versions: Vec<String>,
     pub runtime_version: String,
+    pub runtime_versions: Vec<String>,
+    pub candidate_count: usize,
+    pub location: String,
     pub configuration: String,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VscodeRemoteContext {
+    pub status: String,
+    pub edition: String,
+    pub server_root: String,
+    pub server_version: String,
+    pub server_versions: Vec<String>,
+    pub data_path: String,
+    pub remote_settings_path: String,
+    pub extension_root: String,
+    pub evidence: String,
+    pub confidence: String,
+    pub candidate_count: usize,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Inspection {
     pub user: String,
     pub context_hash: String,
+    pub vscode: VscodeRemoteContext,
     pub extensions: Vec<Capability>,
 }
 #[derive(Deserialize)]
@@ -61,6 +81,20 @@ fn valid_version(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b))
 }
+fn valid_token(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 96
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+fn valid_display_path(value: &str) -> bool {
+    value.len() <= 256
+        && (value.is_empty()
+            || (value.starts_with("~/")
+                && !value.contains("..")
+                && !value.chars().any(char::is_control)))
+}
 fn checked_inspection(value: serde_json::Value) -> BridgeResult<Inspection> {
     let result: Inspection = serde_json::from_value(value).map_err(|_| "remoteFailed")?;
     if !valid_hash(&result.context_hash)
@@ -70,11 +104,66 @@ fn checked_inspection(value: serde_json::Value) -> BridgeResult<Inspection> {
     {
         return Err("remoteFailed".into());
     }
+    let vscode = &result.vscode;
+    if !["detected", "ambiguous", "unsupported"].contains(&vscode.status.as_str())
+        || !["stable", "insiders", "legacy", "custom", "unknown"].contains(&vscode.edition.as_str())
+        || ![
+            "defaultStableRoot",
+            "defaultInsidersRoot",
+            "legacyRoot",
+            "agentFolderEnvironment",
+            "multipleServerRoots",
+            "noServerRoot",
+        ]
+        .contains(&vscode.evidence.as_str())
+        || !["high", "medium", "low"].contains(&vscode.confidence.as_str())
+        || vscode.candidate_count > 4
+        || vscode.server_versions.len() > 16
+        || vscode
+            .server_versions
+            .iter()
+            .any(|entry| !valid_token(entry))
+        || !valid_display_path(&vscode.server_root)
+        || !valid_display_path(&vscode.data_path)
+        || !valid_display_path(&vscode.remote_settings_path)
+        || !valid_display_path(&vscode.extension_root)
+        || (!vscode.server_version.is_empty() && !valid_token(&vscode.server_version))
+        || (vscode.status == "detected"
+            && (vscode.candidate_count != 1
+                || vscode.server_root.is_empty()
+                || vscode.data_path.is_empty()
+                || vscode.remote_settings_path.is_empty()
+                || vscode.extension_root.is_empty()))
+        || (vscode.status != "detected"
+            && (!vscode.server_root.is_empty()
+                || !vscode.data_path.is_empty()
+                || !vscode.remote_settings_path.is_empty()
+                || !vscode.extension_root.is_empty()))
+    {
+        return Err("remoteFailed".into());
+    }
     for (entry, tool) in result.extensions.iter().zip(["codex", "claude"]) {
-        if !["notConfigured", "configured", "conflict"].contains(&entry.configuration.as_str())
+        if !["notConfigured", "configured", "conflict", "unknown"]
+            .contains(&entry.configuration.as_str())
             || entry.tool != tool
             || !valid_version(&entry.version)
             || !valid_version(&entry.runtime_version)
+            || entry.versions.len() > 16
+            || entry.runtime_versions.len() > 16
+            || entry.versions.iter().any(|value| !valid_version(value))
+            || entry
+                .runtime_versions
+                .iter()
+                .any(|value| !valid_version(value))
+            || entry.candidate_count > 16
+            || !["locationUnknown", "activeUnknown"].contains(&entry.location.as_str())
+            || entry.detected != (entry.candidate_count > 0)
+            || (entry.supported && !entry.detected)
+            || (!entry.version.is_empty()
+                && (entry.versions.len() != 1 || entry.versions[0] != entry.version))
+            || (!entry.runtime_version.is_empty()
+                && (entry.runtime_versions.len() != 1
+                    || entry.runtime_versions[0] != entry.runtime_version))
         {
             return Err("remoteFailed".into());
         }
@@ -98,7 +187,7 @@ pub fn inspect(alias: String) -> BridgeResult<Inspection> {
     Ok(inspection)
 }
 pub fn preview(selection: Selection) -> BridgeResult<Preview> {
-    if !selection.remote_confirmed {
+    if !selection.restore && !selection.remote_confirmed {
         return Err("extensionLocationRequired".into());
     }
     if !["codex", "claude"].contains(&selection.tool.as_str())
@@ -139,7 +228,10 @@ pub fn preview(selection: Selection) -> BridgeResult<Preview> {
         .iter()
         .find(|e| e.tool == selection.tool)
         .ok_or("extensionMissing")?;
-    if !selection.restore && !capability.supported {
+    if !selection.restore && !capability.detected {
+        return Err("extensionMissing".into());
+    }
+    if !selection.restore && (inspection.vscode.status != "detected" || !capability.supported) {
         return Err("extensionUnsupported".into());
     }
     let value = ssh::extension_remote(
@@ -181,18 +273,22 @@ pub fn preview(selection: Selection) -> BridgeResult<Preview> {
         None if selection.tool != "claude" || selection.restore => None,
         _ => return Err("remoteFailed".into()),
     };
+    let path = value["path"].as_str().ok_or("remoteFailed")?;
+    let expected_path = if selection.tool == "codex" {
+        "~/.codex/config.toml"
+    } else {
+        inspection.vscode.remote_settings_path.as_str()
+    };
+    if path != expected_path || !valid_display_path(path) {
+        return Err("remoteFailed".into());
+    }
     let mut nonce = [0u8; 16];
     getrandom::fill(&mut nonce).map_err(|_| "stateUnavailable")?;
     let preview = Preview {
         id: hex::encode(nonce),
         alias: selection.alias,
         tool: selection.tool.clone(),
-        path: if selection.tool == "codex" {
-            "~/.codex/config.toml"
-        } else {
-            "~/.vscode-server/data/Machine/settings.json"
-        }
-        .into(),
+        path: path.into(),
         version: capability.version.clone(),
         runtime_version: capability.runtime_version.clone(),
         port,
@@ -277,6 +373,37 @@ mod tests {
         .is_err());
         assert!(!valid_version("x\nsecret"));
         assert!(!valid_hash("a;id"));
+    }
+    #[test]
+    fn inspection_accepts_explicit_server_context_and_multiple_extension_versions() {
+        let inspection = checked_inspection(json!({
+            "user":"test",
+            "contextHash":"a".repeat(64),
+            "vscode":{
+                "status":"detected",
+                "edition":"stable",
+                "serverRoot":"~/.vscode-server",
+                "serverVersion":"",
+                "serverVersions":["commit-a","commit-b"],
+                "dataPath":"~/.vscode-server/data",
+                "remoteSettingsPath":"~/.vscode-server/data/Machine/settings.json",
+                "extensionRoot":"~/.vscode-server/extensions",
+                "evidence":"defaultStableRoot",
+                "confidence":"medium",
+                "candidateCount":1
+            },
+            "extensions":[
+                {"tool":"codex","detected":true,"supported":true,"version":"","versions":["26.825.1","26.825.2"],"runtimeVersion":"0.151.0","runtimeVersions":["0.151.0"],"candidateCount":2,"location":"activeUnknown","configuration":"notConfigured"},
+                {"tool":"claude","detected":false,"supported":false,"version":"","versions":[],"runtimeVersion":"","runtimeVersions":[],"candidateCount":0,"location":"locationUnknown","configuration":"notConfigured"}
+            ]
+        }))
+        .expect("valid inspection");
+        assert_eq!(inspection.vscode.status, "detected");
+        assert_eq!(inspection.extensions[0].candidate_count, 2);
+
+        let mut value = serde_json::to_value(inspection).unwrap();
+        value["vscode"]["remoteSettingsPath"] = json!("~/../private/settings.json");
+        assert!(checked_inspection(value).is_err());
     }
     #[test]
     fn location_confirmation_precedes_any_remote_operation() {

@@ -1,6 +1,6 @@
 pub(crate) mod credential_cache;
 pub mod extension;
-mod mobaxterm;
+pub(crate) mod mobaxterm;
 mod ssh;
 pub mod ssh_auth;
 pub mod tool_adapter;
@@ -769,7 +769,7 @@ pub fn test() -> BridgeResult<()> {
     )?;
     Ok(())
 }
-pub fn launch_proxy_terminal() -> BridgeResult<()> {
+fn proxy_terminal_context() -> BridgeResult<(String, Endpoint, String)> {
     let (target_id, endpoint, target_fingerprint) = {
         let mut state = lock()?;
         refresh(&mut state);
@@ -796,7 +796,15 @@ pub fn launch_proxy_terminal() -> BridgeResult<()> {
         return Err("sshConfigChanged".into());
     }
     let fingerprint = target_fingerprint.ok_or("sshConfigChanged")?;
+    Ok((target_id, endpoint, fingerprint))
+}
+pub fn launch_proxy_terminal() -> BridgeResult<()> {
+    let (target_id, endpoint, fingerprint) = proxy_terminal_context()?;
     ssh::launch_managed_terminal(&target_id, &endpoint, &fingerprint)
+}
+pub fn launch_manual_terminal() -> BridgeResult<()> {
+    let (target_id, _, fingerprint) = proxy_terminal_context()?;
+    ssh::launch_manual_terminal(&target_id, &fingerprint)
 }
 pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
     let adapter = tool_adapter::by_name(&tool)?;

@@ -25,8 +25,34 @@ export interface PortAllocation { proxyPort: number; ccPort: number }
 export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
 export interface RemoteNetworkObservation { serverInternet: "reachable" | "unreachable" | "unknown" }
 export interface ConfigPreview { id: string; tool: RemoteToolId; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean; onboardingRequired:boolean }
-export interface ExtensionCapability { tool: RemoteToolId; detected: boolean; supported: boolean; version: string; runtimeVersion: string; configuration: 'configured' | 'notConfigured' | 'conflict' }
-export interface ExtensionInspection { user: string; contextHash: string; extensions: ExtensionCapability[] }
+export type VscodeRemoteContextStatus = "detected" | "ambiguous" | "unsupported";
+export type ExtensionLocationState = "locationUnknown" | "activeUnknown" | "remoteConfirmed";
+export interface VscodeRemoteContext {
+  status: VscodeRemoteContextStatus;
+  edition: "stable" | "insiders" | "legacy" | "custom" | "unknown";
+  serverRoot: string;
+  serverVersion: string;
+  serverVersions: string[];
+  dataPath: string;
+  remoteSettingsPath: string;
+  extensionRoot: string;
+  evidence: "defaultStableRoot" | "defaultInsidersRoot" | "legacyRoot" | "agentFolderEnvironment" | "multipleServerRoots" | "noServerRoot";
+  confidence: "high" | "medium" | "low";
+  candidateCount: number;
+}
+export interface ExtensionCapability {
+  tool: RemoteToolId;
+  detected: boolean;
+  supported: boolean;
+  version: string;
+  versions: string[];
+  runtimeVersion: string;
+  runtimeVersions: string[];
+  candidateCount: number;
+  location: Exclude<ExtensionLocationState, "remoteConfirmed">;
+  configuration: "configured" | "notConfigured" | "conflict" | "unknown";
+}
+export interface ExtensionInspection { user: string; contextHash: string; vscode: VscodeRemoteContext; extensions: ExtensionCapability[] }
 export interface ExtensionPreview { id: string; alias: string; tool: RemoteToolId; path: string; version: string; runtimeVersion: string; port: number; previousPort: number | null; originalExists: boolean; restore: boolean; loginPromptChange: "add" | "unchanged" | "overrideFalse" | null }
 export const emptySummary = (): BridgeSummary => ({ status:"disconnected", target:null, proxy:null, cc:null, proxyStatus:null, ccStatus:null, activeProxyRevision:null, environment:"", codexConfigured:false, claudeConfigured:false, error:null, sshAuth:{mode:"nonInteractive",method:"unknown",authenticated:false,passwordStored:false} });
 export const targetLabel = (target:RemoteTarget|null|undefined) => target ? `${target.displayName} · ${target.sourceLabel}` : "";
@@ -51,6 +77,7 @@ export const remoteBackend = {
   disconnect: () => invoke<BridgeSummary>("remote_bridge_disconnect", { confirmed:true }),
   test: () => invoke<void>("remote_bridge_test"),
   launchProxyTerminal: () => invoke<void>("remote_bridge_launch_proxy_terminal"),
+  launchManualTerminal: () => invoke<void>("remote_bridge_launch_manual_terminal"),
   clearSessionCredential: () => invoke<void>("remote_bridge_clear_session_credential"),
   configPreview: (tool: RemoteToolId) => invoke<ConfigPreview>("remote_bridge_config_preview", { tool }),
   configApply: (id: string) => invoke<void>("remote_bridge_config_apply", { id, confirmed:true }),
@@ -58,6 +85,10 @@ export const remoteBackend = {
   configRestore: (id: string) => invoke<void>("remote_bridge_config_restore", { id, confirmed:true }),
   toolVerify: (tool: RemoteToolId) => invoke<ToolVerificationResult>("remote_bridge_tool_verify", { tool }),
   openVscode: (targetId:string) => invoke<void>("remote_bridge_open_vscode",{targetId}),
+  openVscodeSettings: () => invoke<void>("remote_bridge_open_vscode_settings"),
+  revealTargetConfig: (targetId:string) => invoke<void>("remote_bridge_reveal_target_config",{targetId}),
+  openTargetConfig: (targetId:string) => invoke<void>("remote_bridge_open_target_config",{targetId}),
+  launchMobaxterm: () => invoke<void>("remote_bridge_launch_mobaxterm"),
 };
 export function useRemoteBridge() {
   const summary = ref<BridgeSummary>(emptySummary());

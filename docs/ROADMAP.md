@@ -36,6 +36,7 @@ Implementation is on `v0.2.0dev`; the stable release remains v0.1.4 pending live
 - [x] Shared RemoteToolAdapter registry for Codex/Claude CLI metadata, compatibility, lifecycle operations, launch commands, and honest pending-verification state.
 - [x] User-triggered Claude CLI request verification with isolated settings/tools, redacted result categories, and verification invalidation when the route changes.
 - [x] Claude Code Remote - SSH preview/apply/restore support for `environmentVariables` plus explicitly reviewed `disableLoginPrompt`.
+- [x] Conservative VS Code Remote Context detection for Stable, Insiders and constrained custom roots, with explicit extension-location confirmation and non-guessing multi-version handling.
 - [x] Four-language Remote Bridge interface and redacted diagnostics.
 - [ ] Live Windows → Linux SSH, MobaXterm compatibility, CC Switch routing, Claude request verification, and Codex request acceptance on user-provided targets.
 - [ ] Opt-in Codex / Claude Code VS Code extension acceptance, separate from CLI scope, with user-confirmed remote execution location.

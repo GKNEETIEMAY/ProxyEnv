@@ -28,12 +28,31 @@ let previousFocus: HTMLElement | null = null;
 let generation = 0;
 const capability = computed(() => inspection.value?.extensions.find(e => e.tool === tool.value));
 const adapter = computed(() => getRemoteToolAdapter(tool.value));
-const path = computed(() => adapter.value.extensionPath);
-const canPreview = computed(() => (cli.value || extension.value) && (!extension.value || inspection.value && locationConfirmed.value && (restoring.value || capability.value?.supported)));
+const path = computed(() => adapter.value.usesVscodeRemoteSettings
+  ? inspection.value?.vscode.remoteSettingsPath || props.copy.rbVscodeRemoteSettings
+  : adapter.value.extensionPath);
+const extensionContextReady = computed(() => inspection.value?.vscode.status === 'detected');
+const canPreview = computed(() => (cli.value || extension.value) && (!extension.value || Boolean(
+  inspection.value
+  && (restoring.value ? !adapter.value.restoreRequiresVscodeContext || extensionContextReady.value : extensionContextReady.value && locationConfirmed.value && capability.value?.detected && capability.value.supported)
+)));
 const outcome = (result: string) => result === 'success' ? (restoring.value ? props.copy.rbRestored : props.copy.rbExtApplied) : result === 'failed' ? props.copy.rbExtFailed : props.copy.rbExtWaiting;
 const resultState = (result: string): CheckState => result === 'success' ? 'healthy' : result === 'failed' ? 'failed' : 'idle';
-const extensionDetectionState = computed<CheckState>(() => !inspection.value ? 'idle' : capability.value?.supported ? 'healthy' : 'warning');
+const contextState = computed<CheckState>(() => !inspection.value ? 'idle' : extensionContextReady.value ? 'healthy' : inspection.value.vscode.status === 'ambiguous' ? 'warning' : 'idle');
+const contextLabel = computed(() => !inspection.value ? props.copy.rbExtUnknown : ({ detected: props.copy.rbVscodeContextDetected, ambiguous: props.copy.rbVscodeContextAmbiguous, unsupported: props.copy.rbVscodeContextMissing })[inspection.value.vscode.status]);
+const extensionDetectionState = computed<CheckState>(() => !inspection.value || !capability.value?.detected ? 'idle' : capability.value.candidateCount > 1 || !capability.value.supported ? 'warning' : 'healthy');
+const extensionDetectionLabel = computed(() => {
+  if (!inspection.value) return props.copy.rbExtUnknown;
+  if (!capability.value?.detected) return props.copy.rbExtMissing;
+  if (capability.value.candidateCount > 1) return props.copy.rbExtMultipleVersions;
+  return capability.value.supported ? props.copy.rbExtDetected : props.copy.rbExtUnsupported;
+});
+const extensionLocationState = computed<CheckState>(() => locationConfirmed.value ? 'healthy' : capability.value?.detected ? 'warning' : 'idle');
+const extensionLocationLabel = computed(() => locationConfirmed.value ? props.copy.rbExtRemoteConfirmed : capability.value?.location === 'activeUnknown' ? props.copy.rbExtActiveUnknown : props.copy.rbExtLocationUnknown);
 const extensionConfigurationState = computed<CheckState>(() => capability.value?.configuration === 'configured' ? 'warning' : capability.value?.configuration === 'conflict' ? 'failed' : 'idle');
+const extensionConfigurationLabel = computed(() => capability.value?.configuration === 'configured' ? props.copy.rbExtPending : capability.value?.configuration === 'conflict' ? props.copy.rbConfigError : capability.value?.configuration === 'unknown' ? props.copy.rbExtConfigUnknown : props.copy.rbExtNotConfigured);
+const installedVersions = computed(() => capability.value?.versions.join(' · ') || '');
+const serverVersions = computed(() => inspection.value?.vscode.serverVersions.join(' · ') || '');
 const title = computed(() => `${adapter.value.displayName} · ${restoring.value ? props.copy.rbExtRestoreTitle : props.copy.rbExtTitle}`);
 const impact = computed(() => adapter.value.impact(props.copy, restoring.value));
 const errorText = computed(() => operationSurface.value === 'extension' && ['configConflict','unsafePath','noBackup','rollbackConflict','rollbackFailed','writeRolledBack','verifyFailed'].includes(bridgeErrorCode(error.value)) ? props.copy.rbExtError : bridgeError(error.value, props.copy));
@@ -117,6 +136,7 @@ function apply() {
 }
 watch([() => props.sessionAlias, () => props.sessionStatus], () => {
   locationConfirmed.value = false;
+  inspection.value = undefined;
   if (cliPreview.value && (props.sessionAlias !== alias.value || ['disconnected', 'error'].includes(props.sessionStatus))) cliPreview.value.launch = '';
   if (phase.value === 'preview' && !restoring.value) { generation++; phase.value = 'select'; cliPreview.value = undefined; extensionPreview.value = undefined; }
 });
@@ -136,12 +156,26 @@ defineExpose({ open, close });
           <label class="remote-choice"><input v-model="extension" type="checkbox">{{ copy.rbExtGui }}</label>
           <section v-if="extension" class="remote-capability">
             <p class="remote-hint">{{ copy.rbExtLocation }}</p>
-            <p><code>{{ path }}</code></p>
-            <button type="button" class="secondary-action" @click="inspect">{{ copy.rbExtInspect }}</button>
-            <StatusIndicator :state="extensionDetectionState" :label="!inspection ? copy.rbExtUnknown : capability?.supported ? copy.rbExtDetected : copy.rbExtUnsupported" />
-            <StatusIndicator v-if="capability" :state="extensionConfigurationState" :label="capability.configuration === 'configured' ? copy.rbExtPending : capability.configuration === 'conflict' ? copy.rbConfigError : copy.rbExtNotConfigured" />
-            <p v-if="inspection"><strong>{{ inspection.user }}</strong> · {{ capability?.version }}<span v-if="capability?.runtimeVersion"> · Codex {{ capability.runtimeVersion }}</span></p>
-            <label class="remote-choice"><input v-model="locationConfirmed" type="checkbox" :disabled="!inspection || (!restoring && !capability?.supported)">{{ copy.rbExtConfirmLocation }}</label>
+            <button type="button" class="secondary-action" @click="inspect">{{ inspection ? copy.rbExtReinspect : copy.rbExtInspect }}</button>
+            <div class="remote-context-status">
+              <StatusIndicator :state="contextState" :label="contextLabel" />
+              <StatusIndicator :state="extensionDetectionState" :label="extensionDetectionLabel" />
+              <StatusIndicator v-if="capability" :state="extensionLocationState" :label="extensionLocationLabel" />
+              <StatusIndicator v-if="capability" :state="extensionConfigurationState" :label="extensionConfigurationLabel" />
+            </div>
+            <dl v-if="inspection" class="remote-context-facts">
+              <div><dt>{{ copy.rbVscodeEdition }}</dt><dd>{{ inspection.vscode.edition === 'unknown' ? copy.rbExtUnknown : inspection.vscode.edition }}</dd></div>
+              <div v-if="inspection.vscode.serverRoot"><dt>{{ copy.rbVscodeServerRoot }}</dt><dd><code>{{ inspection.vscode.serverRoot }}</code></dd></div>
+              <div v-if="serverVersions"><dt>{{ copy.rbVscodeServerVersions }}</dt><dd><code>{{ serverVersions }}</code></dd></div>
+              <div v-if="inspection.vscode.remoteSettingsPath"><dt>{{ copy.rbVscodeRemoteSettings }}</dt><dd><code>{{ inspection.vscode.remoteSettingsPath }}</code></dd></div>
+              <div><dt>{{ copy.rbExtRemoteAccount }}</dt><dd><strong>{{ inspection.user }}</strong></dd></div>
+              <div v-if="installedVersions"><dt>{{ copy.rbExtInstalledVersions }}</dt><dd><code>{{ installedVersions }}</code><span v-if="capability?.runtimeVersions.length"> · Codex <code>{{ capability.runtimeVersions.join(' · ') }}</code></span></dd></div>
+            </dl>
+            <p v-if="inspection?.vscode.status === 'ambiguous'" class="notice notice-warning">{{ copy.rbVscodeContextAmbiguousHint }}</p>
+            <p v-else-if="inspection?.vscode.status === 'unsupported'" class="notice notice-warning">{{ copy.rbVscodeContextMissingHint }}</p>
+            <p v-if="capability && capability.candidateCount > 1" class="notice notice-warning">{{ copy.rbExtMultipleVersionsHint }}</p>
+            <label v-if="inspection && capability?.detected && extensionContextReady && !restoring" class="remote-choice"><input v-model="locationConfirmed" type="checkbox" :disabled="!capability.supported">{{ copy.rbExtConfirmLocation }}</label>
+            <p v-if="inspection && capability?.detected && !locationConfirmed && !restoring" class="remote-hint">{{ copy.rbExtConfirmationEvidence }}</p>
             <p class="notice notice-warning">{{ impact }}</p>
           </section>
         </template>
@@ -167,3 +201,32 @@ defineExpose({ open, close });
     </form>
   </dialog>
 </template>
+
+<style scoped>
+.remote-context-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 14px 0 10px;
+}
+.remote-context-facts {
+  margin: 0;
+  border-block: 1px solid var(--line);
+}
+.remote-context-facts > div {
+  display: grid;
+  grid-template-columns: minmax(118px, .42fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 0;
+}
+.remote-context-facts > div + div { border-top: 1px solid var(--line); }
+.remote-context-facts dt { color: var(--muted); }
+.remote-context-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .remote-context-facts > div { grid-template-columns: 1fr; gap: 3px; }
+}
+</style>

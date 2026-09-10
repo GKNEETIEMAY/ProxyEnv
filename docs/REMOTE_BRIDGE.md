@@ -69,7 +69,7 @@ MobaXterm discovery is deliberately bounded to an active process `-i` argument, 
 
 提供 Remote - SSH 的同机远程终端与 CLI 接入，以及可选的 Codex / Claude Code 图形化扩展配置适配。扩展适配的实现和本地测试已具备，真实模型链路尚待验收。主机列表同时读取 Windows VS Code 默认用户 `Code/User/settings.json` 的 `remote.SSH.configFile`（支持 JSONC 注释和尾逗号）；来源不同的同名别名使用不同结构化 ID，默认配置与本机 OpenSSH 重合时不重复展示。桥接的 OpenSSH 调用使用对应的 `-F` 配置文件。
 
-在桥接状态页点击“在 VS Code 中打开”，使用本机已安装的 VS Code 以 `--new-window --remote ssh-remote+<alias>` 打开目标。打开前比较 VS Code 与桥接使用的 SSH 配置文件，来源不同则停止，避免同名别名连到不同机器。OpenSSH 有效配置也记录哈希，在建立隧道前后及后续远端写入/联网测试前校验，变化后要求重新建立。
+目标选择页只提供配置查看与检查连接。桥接建立后继续复用既有“启动代理终端”流程，它统一处理 PowerShell、当前桥接、会话凭据与代理环境注入，不再次要求密码。高级区域集中提供不注入变量的手动终端、MobaXterm 与 VS Code 入口；用户在对应客户端连接同一远程环境后，再复制并执行所示 `export`。ProxyEnv 不向第三方客户端传递缓存的 SSH 密码。VS Code 来源可打开本机 VS Code Settings；MobaXterm 来源可打开配置位置。无法桥接的目标仍可选择并查看配置，但“检查连接”保持禁用。配置操作使用后台重新解析的真实路径，展示用的 `~` 路径不会作为文件参数。兼容目标可在后续阶段使用本机 VS Code 以 `--new-window --remote ssh-remote+<alias>` 打开。VS Code 可执行文件优先从当前运行进程识别，以兼容非默认安装目录。打开前比较 VS Code 与桥接使用的 SSH 配置文件，来源不同则停止，避免同名别名连到不同机器。OpenSSH 有效配置也记录哈希，在建立隧道前后及后续远端写入/联网测试前校验，变化后要求重新建立。
 
 Remote - SSH 与 ProxyEnv 各自管理 SSH 连接；关闭 VS Code 不会关闭 ProxyEnv 桥接，退出 ProxyEnv 会令依赖桥接的远程 CLI 失去连接。在 Remote - SSH 的远程终端粘贴环境变量后运行工具；CLI 的专用配置同样在该远程账户中生效。
 
@@ -80,7 +80,7 @@ The integration follows the [Remote - SSH configuration guide](https://code.visu
 先阅读[实现可行性审计](REMOTE_BRIDGE_EXTENSION_AUDIT.md)。2026-09-07 起，配置入口可分别选择 CLI、VS Code Extension 或两者；每次默认只选择 CLI。
 
 1. 在已连接且 CC Switch 可用的桥接状态页选择“配置 Codex”或“配置 Claude Code”。
-2. 勾选图形化扩展后，点击“检查远端扩展”。只读取默认 `~/.vscode-server/extensions` 的官方扩展元数据；不会安装、卸载或更新扩展。
+2. 勾选图形化扩展后，点击“检测 VS Code Remote”。ProxyEnv 会区分 Stable、Insiders、旧版目录以及受约束的 `VSCODE_AGENT_FOLDER` 证据；不会把默认 `~/.vscode-server` 当作所有安装都适用，也不会安装、卸载或更新扩展。
 3. 在目标 Remote - SSH 窗口运行 `Developer: Show Running Extensions`，确认扩展运行在界面所示远端账户，再核对实际配置路径。用户勾选确认后才可预览；这项状态是用户确认，不是自动进程证明。
 4. 逐文件预览修改与影响范围，确认后执行。CLI 和扩展是独立文件事务；若后续文件失败，界面保留先前成功结果，不宣称跨文件原子成功。
 5. 重载 VS Code 窗口并新建扩展会话。状态“已写入 · 待重载及模型验收”只表示配置文件经读回验证。
@@ -89,11 +89,11 @@ The integration follows the [Remote - SSH configuration guide](https://code.visu
 | 扩展 | 受控修改 | 必须了解的影响 |
 | --- | --- | --- |
 | Codex | `~/.codex/config.toml` 的 `model_provider`，以及新建的 `model_providers.proxyenv_bridge`；端点 `http://127.0.0.1:<port>/v1`、Responses 协议 | 同账户其他使用默认配置的 Codex 会话也受影响；保留 model、权限、MCP 等未知字段及注释。已有同名 provider 或旧 profile 选择器会冲突。 |
-| Claude Code | `~/.vscode-server/data/Machine/settings.json` 中 `claudeCode.environmentVariables` 的两个新增项：`ANTHROPIC_BASE_URL`、公开占位值 `ANTHROPIC_AUTH_TOKEN=PROXY_MANAGED`，以及 `claudeCode.disableLoginPrompt: true` | 只针对默认稳定版 VS Code Server 的 Remote Settings。已有路由/凭据项不覆盖；已有 `disableLoginPrompt: false` 会在预览中明确显示，确认后才修改。共享 Claude 用户设置或非交互 SSH 环境存在冲突路由时也停止。实际工作区与受管理策略仍需实机核验。 |
+| Claude Code | 已确认的 VS Code Server Context 对应 Remote Settings 中，增加 `claudeCode.environmentVariables` 的 `ANTHROPIC_BASE_URL`、公开占位值 `ANTHROPIC_AUTH_TOKEN=PROXY_MANAGED`，以及 `claudeCode.disableLoginPrompt: true` | 只有唯一 Server Context 时才生成精确路径。已有路由/凭据项不覆盖；已有 `disableLoginPrompt: false` 会在预览中明确显示，确认后才修改。共享 Claude 用户设置或非交互 SSH 环境存在冲突路由时也停止。实际工作区与受管理策略仍需实机核验。 |
 
 “只选择扩展”表示只执行扩展的配置适配，并不保证共享 Codex 默认配置对其他 CLI 无影响。无需修改 `.env`、复制 `auth.json` 或任何真实 Provider Secret。PROXY_MANAGED 的可用性取决于实际 CC Switch 接入方式，不能作为通用网关认证。
 
-扩展检测与适配要求：远端现有 Node 20+，安装在 `/usr/bin/node`、`/usr/local/bin/node`，或默认稳定版 VS Code Server 自带位置。使用固定脚本通过 SSH stdin 一次性运行，不新增远端运行时、不修改 VS Code Server、不创建后台服务。自定义 Server 目录、Insiders、多个并存安装版本、无法识别的扩展 runtime 均停止自动配置。可检查到安装不代表已确认激活位置。
+扩展检测与适配要求：远端现有 Node 20+，安装在 `/usr/bin/node`、`/usr/local/bin/node`，或受支持 VS Code Server 自带位置。使用固定脚本通过 SSH stdin 一次性运行，不新增远端运行时、不修改 VS Code Server、不创建后台服务。多个 Server 根目录会显示为 `ambiguous` 并停止写入；同一 Context 中保留多个扩展版本时会全部列出，ProxyEnv 不自动选择所谓“最高版本”。用户必须在 `Developer: Show Running Extensions` 中确认实际远端运行位置，重新检测或 Context 指纹变化会令确认失效。
 
 Codex 扩展单独检查内置 `bin/linux-<architecture>/codex --version`，不依赖 PATH 中是否另装 CLI；目前格式适配范围为 `0.x` 且 minor ≥134，允许记录预发布版本，具体版本组合仍需验收。Claude 扩展使用已安装的 `2.x` manifest 识别配置能力。该范围是配置适配门槛，不是对所有版本已完成兼容测试的声明。
 

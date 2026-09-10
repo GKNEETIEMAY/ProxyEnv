@@ -2,7 +2,9 @@
 set -eu
 unset NODE_OPTIONS NODE_PATH
 bridge_node=''
-for candidate in /usr/bin/node /usr/local/bin/node "$HOME"/.vscode-server/cli/servers/Stable-*/server/node "$HOME"/.vscode-server/bin/*/node; do
+bridge_agent_root="$HOME/.vscode-server"
+case "${VSCODE_AGENT_FOLDER:-}" in "$HOME"/*) bridge_agent_root="$VSCODE_AGENT_FOLDER";; esac
+for candidate in /usr/bin/node /usr/local/bin/node "$HOME"/.vscode-server/cli/servers/Stable-*/server/node "$HOME"/.vscode-server/bin/*/node "$HOME"/.vscode-server-insiders/cli/servers/Insiders-*/server/node "$HOME"/.vscode-server-insiders/bin/*/node "$HOME"/.vscode-remote/bin/*/node "$bridge_agent_root"/cli/servers/*/server/node "$bridge_agent_root"/bin/*/node; do
   [ -f "$candidate" ] && [ -x "$candidate" ] && [ ! -L "$candidate" ] || continue
   bridge_safe=yes
   bridge_parent="$candidate"

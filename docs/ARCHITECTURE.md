@@ -215,6 +215,10 @@ M6 closes the Claude CLI verification loop with an explicit user-triggered reque
 
 Claude Code's Remote - SSH adapter transaction also manages `claudeCode.disableLoginPrompt: true` beside `claudeCode.environmentVariables`. An existing `false` value is visible in the preview and changes only after the user confirms the exact transaction; restore returns the complete original file bytes. Reloading VS Code is still required, and a successful file readback is not presented as a successful extension model request.
 
+M7 replaces the former hard-coded `~/.vscode-server` assumption with an explicit `VscodeRemoteContext`. The remote helper reports Stable, Insiders, legacy, or constrained `VSCODE_AGENT_FOLDER` evidence as `detected`, `ambiguous`, or `unsupported`, and returns only home-relative display paths. A write requires one resolved Server Context plus the user's explicit confirmation in `Developer: Show Running Extensions`; file presence remains `activeUnknown`, never proof that the extension is running remotely. Multiple retained extension versions are listed and bound into `contextHash` without choosing the highest directory. Reinspection, target/session changes, server-root changes, server-version changes, or extension-version changes invalidate the confirmation and pending preview.
+
+M7 用显式 `VscodeRemoteContext` 替代固定 `~/.vscode-server` 假设。远端 helper 将 Stable、Insiders、旧版目录及受约束的 `VSCODE_AGENT_FOLDER` 证据分类为 `detected`、`ambiguous` 或 `unsupported`，只返回 HOME 相对展示路径。配置写入要求唯一 Server Context，并要求用户在 `Developer: Show Running Extensions` 中人工确认；文件存在只表示 `activeUnknown`，不证明扩展正在远端运行。多个残留扩展版本全部列出并绑定 `contextHash`，不会自动挑选最高版本。重新检测、目标或会话变化、Server 根目录/版本变化、扩展版本变化都会使确认与待执行预览失效。
+
 ## Local data and WebView boundary / 本地数据与 WebView 边界
 
 ### Safe diagnostic reports / 安全诊断报告

@@ -53,6 +53,48 @@ pub fn config_paths() -> Vec<PathBuf> {
         .collect()
 }
 
+#[cfg(windows)]
+pub fn launch() -> BridgeResult<()> {
+    use std::process::{Command, Stdio};
+
+    let system = System::new_all();
+    let mut candidates = system
+        .processes()
+        .values()
+        .filter(|process| {
+            process
+                .name()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .contains("mobaxterm")
+        })
+        .filter_map(|process| process.exe().map(Path::to_path_buf))
+        .collect::<Vec<_>>();
+    for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+        if let Some(root) = std::env::var_os(variable) {
+            let root = PathBuf::from(root);
+            candidates.push(root.join("Mobatek/MobaXterm/MobaXterm.exe"));
+            candidates.push(root.join("MobaXterm/MobaXterm.exe"));
+        }
+    }
+    let executable = candidates
+        .into_iter()
+        .find(|candidate| candidate.is_absolute() && candidate.is_file())
+        .ok_or("mobaSessionUnsupported")?;
+    Command::new(executable)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "processFailed")?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn launch() -> BridgeResult<()> {
+    Err("processFailed".into())
+}
+
 pub fn sessions(path: &Path) -> BridgeResult<Vec<Session>> {
     let metadata = std::fs::metadata(path).map_err(|_| "mobaConfigInvalid")?;
     if metadata.len() > 1024 * 1024 {
