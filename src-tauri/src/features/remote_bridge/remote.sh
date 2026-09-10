@@ -36,20 +36,21 @@ case "$operation" in
     printf '{"tested":true}\n'; exit 0;;
 esac
 umask 077
-safe() {
-  [ ! -L "$1" ] || fail unsafePath
+is_safe() {
+  [ ! -L "$1" ] || return 1
   if [ -e "$1" ]; then
-    [ "$(stat -c %u "$1")" = "$(id -u)" ] || fail unsafePath
+    [ "$(stat -c %u "$1")" = "$(id -u)" ] || return 1
     mode=$(stat -c %a "$1")
-    [ $((0$mode & 022)) -eq 0 ] || fail unsafePath
+    [ $((0$mode & 022)) -eq 0 ] || return 1
     if [ -f "$1" ]; then
-      [ "$(stat -c %h "$1")" = 1 ] || fail unsafePath
-      [ "$(stat -c %s "$1")" -le 32768 ] || fail unsafePath
+      [ "$(stat -c %h "$1")" = 1 ] || return 1
+      [ "$(stat -c %s "$1")" -le 32768 ] || return 1
     else
-      [ -d "$1" ] || fail unsafePath
+      [ -d "$1" ] || return 1
     fi
   fi
 }
+safe() { is_safe "$1" || fail unsafePath; }
 safe "$HOME"
 if [ "$tool" = codex ]; then
   [ -z "${CODEX_HOME:-}" ] || [ "$CODEX_HOME" = "$HOME/.codex" ] || fail customHome
@@ -166,17 +167,24 @@ fi
 if [ "$operation" = preview ]; then
   if [ "$tool" = claude ]; then
     state_file="$HOME/.claude.json"
-    safe "$state_file"
-    [ ! -e "$state_file" ] || [ -f "$state_file" ] || fail unsafePath
     state_preview=$(mktemp) || fail remoteFailed
     trap 'unlink "$state_preview" 2>/dev/null || :' EXIT
     if [ -f "$state_file" ]; then state_source="$state_file"; else state_source=/dev/null; fi
-    render_claude_onboarding "$state_source" >"$state_preview" || fail configConflict
-    state_hash=$(hash "$state_file")
-    if [ "$state_hash" = "$(hash "$state_preview")" ]; then onboarding=false; else onboarding=true; fi
-    printf '{"previousPort":%s,"expectedHash":"%s","stateHash":"%s","onboardingRequired":%s,"version":"%s"}\n' "$previous" "$(hash "$file")" "$state_hash" "$onboarding" "$version"
+    if { [ ! -e "$state_file" ] || [ -f "$state_file" ]; } && is_safe "$state_file" && render_claude_onboarding "$state_source" >"$state_preview"; then
+      state_hash=$(hash "$state_file")
+      onboarding_managed=true
+      if [ "$state_hash" = "$(hash "$state_preview")" ]; then onboarding=false; else onboarding=true; fi
+    else
+      # An unfamiliar Claude state must not block the independent routing
+      # overlay. Leave that file untouched and surface the skipped onboarding
+      # adjustment in the reviewed preview.
+      onboarding_managed=false
+      onboarding=false
+      state_hash=unmanaged
+    fi
+    printf '{"previousPort":%s,"expectedHash":"%s","stateHash":"%s","onboardingRequired":%s,"onboardingManaged":%s,"version":"%s"}\n' "$previous" "$(hash "$file")" "$state_hash" "$onboarding" "$onboarding_managed" "$version"
   else
-    printf '{"previousPort":%s,"expectedHash":"%s","stateHash":"absent","onboardingRequired":false,"version":"%s"}\n' "$previous" "$(hash "$file")" "$version"
+    printf '{"previousPort":%s,"expectedHash":"%s","stateHash":"absent","onboardingRequired":false,"onboardingManaged":false,"version":"%s"}\n' "$previous" "$(hash "$file")" "$version"
   fi
   exit 0
 fi
@@ -314,7 +322,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 if [ -f "$file" ]; then cp -p "$file" "$rollback" || fail remoteFailed; fi
-if [ "$operation" = apply ] && [ "$tool" = claude ]; then
+if [ "$operation" = apply ] && [ "$tool" = claude ] && [ "$expected_state" != unmanaged ]; then
   state_file="$HOME/.claude.json"
   safe "$state_file"
   [ ! -e "$state_file" ] || [ -f "$state_file" ] || fail unsafePath

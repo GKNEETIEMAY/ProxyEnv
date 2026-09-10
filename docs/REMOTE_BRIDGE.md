@@ -11,7 +11,7 @@ This is development scope, not a published stable-release announcement.
 4. 在能力页分别查看服务器互联网、本机活动代理与 CC Switch AI 路由。三项检测彼此独立：SSH 成功不代表服务器能够联网，普通代理可用也不代表 CC Switch 可用。按需选择桥接本机代理、CC Switch，或同时选择两者。CC Switch 默认检查 `127.0.0.1:15721`，也可输入实际本地路由端口；结果会区分已确认的 CC Switch、身份未知的监听程序和未检测到监听。
 5. 预览本机和远端端点。建立连接前会再次检查远程端口；如发生端口竞争，页面会重新生成并要求再次确认。
 6. 代理桥接成功后，点击“启动代理终端”即可打开新的 PowerShell 窗口，由系统 OpenSSH 连接远端并自动注入代理环境。仅密码账户需要为这个独立终端再次认证；ProxyEnv 不缓存密码，Windows OpenSSH 也不支持 ControlMaster 连接复用。已经打开的 SSH、VS Code Remote 或 MobaXterm 终端可展开高级入口，复制环境变量后在当前 Shell 执行，从而避免新建登录。仅“测试桥接”会经代理请求 `https://www.gstatic.com/generate_204`。
-7. CC Switch 桥接成功后，状态页会直接显示 Codex / Claude Code 配置入口和启动命令；预览并应用专用 CLI 接入文件后，Claude Code 还可由用户点击“验证 Claude 请求”发送一次固定的最小请求，再在远端显式使用对应命令。
+7. CC Switch 桥接成功本身不会创建 Codex / Claude Code 接入文件。点击对应配置入口，预览并确认写入；只有远端文件完成读回验证后，状态页才会显示启动命令。Claude Code 还可由用户点击“验证 Claude 请求”发送一次固定的最小请求，再在远端显式使用对应命令。
 8. 断开桥接需确认。退出 ProxyEnv 会结束隧道；关闭窗口到托盘仍属同一运行会话。
 
 ## Current implementation / 当前实现
@@ -46,7 +46,7 @@ codex --profile proxyenv_bridge
 
 The profile selects a dedicated `proxyenv_bridge` provider, a loopback `/v1` base URL and Responses wire protocol. It does not select a model or read `auth.json`. Provider fields follow the [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 
-Claude Code `2.x` uses a dedicated JSON file with `env.ANTHROPIC_BASE_URL` and the public `PROXY_MANAGED` placeholder. It does not change `settings.json` or read authentication files. To prevent the interactive CLI from ignoring gateway settings and returning to the three-way first-run login chooser, the same reviewed apply transaction minimally sets top-level `hasCompletedOnboarding: true` in `~/.claude.json`. Existing fields are retained, malformed or concurrently changed state fails closed, and no project trust entry is created: Claude Code still asks the user to trust the current folder before starting a conversation. A custom `CLAUDE_CONFIG_DIR` is refused. The settings mechanism follows [Claude Code settings](https://code.claude.com/docs/en/settings); routing behavior is described in [CC Switch routing](https://github.com/farion1231/cc-switch/blob/main/docs/user-manual/en/4-proxy/4.2-routing.md).
+Claude Code `2.x` uses a dedicated JSON file with `env.ANTHROPIC_BASE_URL` and the public `PROXY_MANAGED` placeholder. It does not change `settings.json` or read authentication files. To prevent the interactive CLI from ignoring gateway settings and returning to the three-way first-run login chooser, the same reviewed apply transaction minimally sets top-level `hasCompletedOnboarding: true` in `~/.claude.json` when that state can be parsed safely. Existing fields are retained and no project trust entry is created. An unfamiliar first-run state is left untouched and reported in preview without blocking the independent routing overlay; concurrent changes still fail closed. Claude Code may then show its own setup screen and will still ask the user to trust the current folder before starting a conversation. A custom `CLAUDE_CONFIG_DIR` is refused. The settings mechanism follows [Claude Code settings](https://code.claude.com/docs/en/settings); routing behavior is described in [CC Switch routing](https://github.com/farion1231/cc-switch/blob/main/docs/user-manual/en/4-proxy/4.2-routing.md).
 
 ```text
 ~/.claude/proxyenv-bridge.json

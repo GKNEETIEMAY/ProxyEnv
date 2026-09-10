@@ -157,6 +157,7 @@ pub struct ConfigPreview {
     pub alias: String,
     pub restore: bool,
     pub onboarding_required: bool,
+    pub onboarding_skipped: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -852,6 +853,7 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
     let onboarding_required = value["onboardingRequired"]
         .as_bool()
         .ok_or("remoteFailed")?;
+    let onboarding_managed = value["onboardingManaged"].as_bool().ok_or("remoteFailed")?;
     let before = match value["previousPort"].as_u64() {
         Some(p) if (1024..=65535).contains(&p) => adapter.preview(p as u16).content,
         None if value["previousPort"].is_null() => String::new(),
@@ -879,6 +881,8 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
         alias: target_id.clone(),
         restore: false,
         onboarding_required,
+        onboarding_skipped: adapter.id() == tool_adapter::RemoteToolId::Claude
+            && !onboarding_managed,
     };
     state.pending = Some(Pending {
         preview: preview.clone(),
@@ -920,6 +924,17 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
         &pending.target_id,
         json!({"operation":"apply","tool":pending.preview.tool.as_str(),"port":pending.port,"expectedHash":pending.hash,"stateHash":pending.state_hash}),
     )?;
+    let verified = ssh::remote(
+        &pending.target_id,
+        json!({"operation":"preview","tool":pending.preview.tool.as_str(),"port":pending.port}),
+    )?;
+    if verified["previousPort"].as_u64() != Some(u64::from(pending.port))
+        || (pending.preview.tool == tool_adapter::RemoteToolId::Claude
+            && !pending.preview.onboarding_skipped
+            && verified["onboardingRequired"] != false)
+    {
+        return Err("verifyFailed".into());
+    }
     tool_adapter::by_id(pending.preview.tool).apply(&mut state.summary);
     sync_tool_states(&mut state.summary);
     Ok(())
@@ -947,6 +962,7 @@ pub fn config_restore_preview(target_id: String, tool: String) -> BridgeResult<C
         tool: adapter.id(),
         restore: true,
         onboarding_required: false,
+        onboarding_skipped: false,
         path: adapter.config_path().into(),
         before: content("previousPort")?,
         after: content("originalPort")?,

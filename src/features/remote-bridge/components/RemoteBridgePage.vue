@@ -664,7 +664,7 @@ onBeforeUnmount(() => {
           <section v-if="summary.cc" class="remote-next-section">
               <h3>{{ copy.rbCcUseTitle }}</h3>
               <div class="remote-actions"><button v-for="(tool, index) in remoteTools" :key="tool.adapter.id" :class="index === 0 ? 'primary-action' : 'secondary-action'" type="button" @click="configure(tool.adapter.id)">{{ tool.adapter.configureLabel(copy) }}</button></div>
-              <div v-for="tool in remoteTools" :key="tool.adapter.id" class="remote-command"><span>{{ tool.adapter.displayName }}</span><template v-if="tool.launch"><code>{{ tool.launch }}</code><button type="button" :aria-label="copy.rbCopyLaunch" @click="copyValue(tool.launch)">{{ copy.rbCopyLaunch }}</button></template><em v-else>{{ copy.rbConfigureBeforeLaunch }}</em></div>
+              <div v-for="tool in remoteTools" :key="tool.adapter.id" class="remote-command"><span>{{ tool.adapter.displayName }}</span><template v-if="tool.launch"><code>{{ tool.launch }}</code><button type="button" :aria-label="copy.rbCopyLaunch" @click="copyValue(tool.launch)">{{ copy.rbCopyLaunch }}</button></template><em v-else>{{ copy.rbCliOverlayMissing }}</em></div>
               <template v-for="tool in remoteTools" :key="`${tool.adapter.id}-verify`">
                 <div v-if="tool.inspection.configured && tool.inspection.verificationSupported" class="remote-tool-verification">
                   <p class="remote-hint">{{ copy.rbVerifyClaudeHint }}</p>

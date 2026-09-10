@@ -51,7 +51,7 @@ for(const tool of ["codex","claude"]) test(`${tool}: preview, apply, stale previ
     const folder=join(f.home,tool==="codex"?".codex":".claude");
     const file=join(folder,tool==="codex"?"proxyenv_bridge.config.toml":"proxyenv-bridge.json");
     const preview=f.run("preview",tool);assert.equal(preview.expectedHash,"absent");assert.equal(existsSync(folder),false);
-    assert.equal(f.run("apply",tool).configured,true);
+    assert.equal(f.run("apply",tool).configured,true);assert.equal(existsSync(file),true);
     const applied=readFileSync(file,"utf8");assert.match(applied,/127\.0\.0\.1:25721/);
     assert.equal(f.run("apply",tool,25722).error,"configConflict");assert.equal(readFileSync(file,"utf8"),applied);
     const next=f.run("preview",tool);assert.equal(next.previousPort,25721);
@@ -217,11 +217,17 @@ test("Claude onboarding is completed without pre-trusting a project or discardin
     assert.equal(unchanged.onboardingRequired,false);
   } finally { f.cleanup(); }
 });
-test("Claude onboarding refuses malformed state without writing an overlay",{skip:!available},()=>{
+test("Claude onboarding incompatibility does not block the independent overlay",{skip:!available},()=>{
   const f=fixture();try {
-    writeFileSync(join(f.home,".claude.json"),'{"hasCompletedOnboarding":"not-a-boolean"}\n');
-    assert.equal(f.run("preview","claude").error,"configConflict");
-    assert.equal(existsSync(join(f.home,".claude/proxyenv-bridge.json")),false);
+    const stateFile=join(f.home,".claude.json");
+    const original='{"hasCompletedOnboarding":"not-a-boolean"}\n';
+    writeFileSync(stateFile,original);
+    const preview=f.run("preview","claude");
+    assert.equal(preview.onboardingManaged,false);
+    assert.equal(preview.onboardingRequired,false);
+    assert.equal(f.run("apply","claude",25721,preview.expectedHash,{},preview.stateHash).configured,true);
+    assert.equal(readFileSync(stateFile,"utf8"),original);
+    assert.match(readFileSync(join(f.home,".claude/proxyenv-bridge.json"),"utf8"),/127\.0\.0\.1:25721/);
   } finally { f.cleanup(); }
 });
 test("third-party edit and unknown config never leak or get overwritten",{skip:!available},()=>{
@@ -260,7 +266,9 @@ test("CLI launch commands are hidden until their remote overlays are configured"
   const adapters=readFileSync("src/features/remote-bridge/tool-adapters.ts","utf8");
   assert.match(page,/v-for="tool in remoteTools"/);
   assert.match(page,/v-if="tool\.launch"/);
-  assert.match(page,/v-else>\{\{ copy\.rbConfigureBeforeLaunch \}\}/);
+  assert.match(page,/v-else>\{\{ copy\.rbCliOverlayMissing \}\}/);
+  const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolDialog.vue","utf8");
+  assert.match(dialog,/copy\.rbCliOverlayReady/);
   assert.match(adapters,/launch: \(summary\) => configured\(summary\) \? definition\.launchCommand : ""/);
 });
 
@@ -277,6 +285,7 @@ test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary"
   assert.match(backend,/impl RemoteToolAdapter for ClaudeCliAdapter/);
   assert.match(backend,/RemoteToolVerification::VerifyPending/);
   assert.match(bridge,/tool_adapter::by_name\(&tool\)/);
+  assert.match(bridge,/verified\["previousPort"\]\.as_u64\(\) != Some\(u64::from\(pending\.port\)\)/);
   assert.doesNotMatch(bridge,/fn overlay\(/);
   assert.match(frontend,/export interface RemoteToolAdapter/);
   assert.match(frontend,/summary\.tools\?\.find/);

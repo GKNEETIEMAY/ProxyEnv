@@ -24,7 +24,7 @@ export interface BridgeRequest { targetId: string; proxyPort: number | null; ccP
 export interface PortAllocation { proxyPort: number; ccPort: number }
 export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
 export interface RemoteNetworkObservation { serverInternet: "reachable" | "unreachable" | "unknown" }
-export interface ConfigPreview { id: string; tool: RemoteToolId; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean; onboardingRequired:boolean }
+export interface ConfigPreview { id: string; tool: RemoteToolId; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean; onboardingRequired:boolean; onboardingSkipped:boolean }
 export type VscodeRemoteContextStatus = "detected" | "ambiguous" | "unsupported";
 export type ExtensionLocationState = "locationUnknown" | "activeUnknown" | "remoteConfirmed";
 export interface VscodeRemoteContext {

@@ -180,7 +180,7 @@ defineExpose({ open, close });
           </section>
         </template>
         <template v-else-if="phase === 'preview'">
-          <section v-if="cliPreview" class="remote-capability"><h3>{{ copy.rbExtCli }}</h3><p><code>{{ cliPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><pre>{{ cliPreview.before || copy.rbAbsent }}</pre><h4>{{ copy.rbAfter }}</h4><pre>{{ cliPreview.after || copy.rbAbsent }}</pre><p v-if="cliPreview.onboardingRequired" class="notice notice-warning">{{ copy.rbClaudeOnboarding }}</p></section>
+          <section v-if="cliPreview" class="remote-capability"><h3>{{ copy.rbExtCli }}</h3><p><code>{{ cliPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><pre>{{ cliPreview.before || copy.rbAbsent }}</pre><h4>{{ copy.rbAfter }}</h4><pre>{{ cliPreview.after || copy.rbAbsent }}</pre><p v-if="cliPreview.onboardingRequired" class="notice notice-warning">{{ copy.rbClaudeOnboarding }}</p><p v-else-if="cliPreview.onboardingSkipped" class="notice notice-warning">{{ copy.rbClaudeOnboardingSkipped }}</p></section>
           <section v-if="extensionPreview" class="remote-capability"><h3>{{ copy.rbExtGui }}</h3><p><code>{{ extensionPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><p>{{ copy.rbExtOpaque }}</p><p v-if="extensionPreview.previousPort"><code>127.0.0.1:{{ extensionPreview.previousPort }}</code></p><p v-if="extensionPreview.loginPromptChange === 'overrideFalse'" class="notice notice-warning">{{ copy.rbExtLoginPromptConflict }}</p><h4>{{ copy.rbAfter }}</h4><pre>{{ after }}</pre><p class="notice notice-warning">{{ impact }}</p></section>
           <p v-if="restoring" class="remote-hint">{{ copy.rbExtRestoreScope }}</p>
         </template>
@@ -189,7 +189,7 @@ defineExpose({ open, close });
           <StatusIndicator v-if="extensionPreview" :state="resultState(extensionResult)" :label="`${copy.rbExtGui} · ${outcome(extensionResult)}`" />
           <p v-if="error && (cliResult === 'success' || extensionResult === 'success')" class="notice notice-warning">{{ copy.rbExtPartial }}</p>
           <p v-if="extensionResult === 'success'" class="remote-hint">{{ restoring ? copy.rbExtRestored : copy.rbExtRestart }}</p>
-          <template v-if="cliResult === 'success' && cliPreview?.launch && !restoring"><pre>{{ cliPreview.launch }}</pre><button class="secondary-action" type="button" @click="perform(async () => { await copyText(cliPreview!.launch); copied = true; })">{{ copied ? copy.rbCopied : copy.rbCopyLaunch }}</button></template>
+          <template v-if="cliResult === 'success' && cliPreview?.launch && !restoring"><p class="remote-success">{{ copy.rbCliOverlayReady }}</p><p><code>{{ cliPreview.path }}</code></p><pre>{{ cliPreview.launch }}</pre><button class="secondary-action" type="button" @click="perform(async () => { await copyText(cliPreview!.launch); copied = true; })">{{ copied ? copy.rbCopied : copy.rbCopyLaunch }}</button></template>
         </template>
       </fieldset>
       <p v-if="error" role="alert" class="remote-error">{{ errorText }}<br v-if="operationSurface === 'extension'"><code v-if="operationSurface === 'extension'">{{ path }}</code></p>
