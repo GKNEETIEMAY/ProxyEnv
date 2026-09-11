@@ -11,7 +11,7 @@
 | 目标 | 当前代码 | 审计判断 |
 | --- | --- | --- |
 | Codex CLI | 独立 profile 文件和启动命令 | 保留；真实模型调用尚未验收 |
-| Claude Code CLI | 独立 `--settings` 文件 | 保留；真实模型调用尚未验收 |
+| Claude Code CLI | 用户级 `~/.claude/settings.json` 接管，原文件备份与冲突保护恢复 | 已替代独立 `--settings` 文件；普通 `claude` 可直接读取，真实模型调用仍待验收 |
 | Codex VS Code 扩展 | 无专用适配 | 用户级配置路线有依据；独立 profile 选择没有足够依据 |
 | Claude Code VS Code 扩展 | 无专用适配 | 网关入口有明确依据；不能仅依赖共享 settings 的子进程环境 |
 | Remote - SSH | 读取 SSH 配置、发起打开窗口 | 不证明连接已完成，也不证明某个扩展正在远端运行 |
@@ -42,7 +42,7 @@ Codex 0.134.0 起，CLI profile 使用独立文件；旧的顶层 `profile` 选�
 
 候选最小改动：在确认的远端设置作用域，仅增量维护数组中 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN` 两项；端点不加 `/v1`。保留其他数组项、未知字段和注释。公开占位值 `PROXY_MANAGED` 仅在实际 CC Switch 路由确实接受时使用，它不是通用网关凭据。已有真实凭据项不读取展示、不静默替换；遇到冲突停止。不要自动设置跳过权限、隐藏 onboarding 或强制注销。
 
-共享 `~/.claude/settings.json` 作为替代或额外修改必须单列影响范围，不默认一起写入。项目、受管理配置及其他环境来源可能影响最终值，需要验证有效 endpoint 和认证来源，不导出凭据。[Claude 配置层级](https://code.claude.com/docs/en/settings)
+CLI 接入已统一采用共享用户配置：Codex 管理 `~/.codex/config.toml` 中的 provider 选择与 ProxyEnv 专用 provider 表，Claude 管理 `~/.claude/settings.json` 中的路由/认证占位字段。预览只显示托管字段，远端先保存完整原文件，再合并路由字段并读回校验。桥接端口变化时只更新 ProxyEnv 托管字段；后续写入的其它受支持字段会保留，并在字段级停用时继续保留。托管字段被改动、结构异常或恢复证据不一致时仍失败关闭。Codex 的 `auth.json` 不修改；项目、受管理配置及进程环境来源仍可能覆盖用户级设置，需要验证有效 endpoint 和认证来源，不导出凭据。[Claude 配置层级](https://code.claude.com/docs/en/settings)
 
 ## 3. 本机版本证据与未确认项
 

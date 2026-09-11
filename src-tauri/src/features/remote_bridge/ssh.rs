@@ -815,6 +815,7 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
         "internet",
         "test",
         "preview",
+        "status",
         "apply",
         "restore",
         "restore-preview",
@@ -847,8 +848,8 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
     }
     let expected = request["expectedHash"].as_str().unwrap_or("absent");
     let expected_backup = request["backupHash"].as_str().unwrap_or("absent");
-    let expected_state = request["stateHash"].as_str().unwrap_or("absent");
-    for hash in [expected, expected_backup, expected_state] {
+    let repair_permissions = request["repairPermissions"].as_bool().unwrap_or(false);
+    for hash in [expected, expected_backup] {
         if hash != "absent" && !(hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())) {
             return Err("invalidRequest".into());
         }
@@ -858,13 +859,14 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
     } else {
         "http"
     };
-    let source = format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nexpected_state='{expected_state}'\nscheme='{scheme}'\n{}", ports.join(" "), include_str!("remote.sh"));
+    let source = format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nrepair_permissions={repair_permissions}\nscheme='{scheme}'\n{}", ports.join(" "), include_str!("remote.sh"));
     let operation = match operation {
         "check" => "check",
         "verify" => "verify",
         "internet" => "internet",
         "test" => "test",
         "preview" => "preview",
+        "status" => "status",
         "apply" => "apply",
         "restore" => "restore",
         "restore-preview" => "restore-preview",
@@ -886,6 +888,8 @@ pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<s
             "portInUse",
             "unsafePath",
             "configConflict",
+            "routeOutdated",
+            "cliMissing",
             "cliUnsupported",
             "customHome",
             "invalidRequest",
@@ -896,6 +900,7 @@ pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<s
             "writeRolledBack",
             "networkFailed",
             "dependencyMissing",
+            "jsonEditorMissing",
             "remoteFailed",
             "rootForbidden",
         ];
@@ -910,6 +915,13 @@ pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<s
         "check" | "verify" => value["verified"] == true,
         "test" => value["tested"] == true,
         "apply" => value["configured"] == true,
+        "status" => {
+            value["configured"].is_boolean()
+                && (value["previousPort"].is_null()
+                    || value["previousPort"]
+                        .as_u64()
+                        .is_some_and(|port| (1024..=65535).contains(&port)))
+        }
         "restore" => value["configured"] == false,
         "tool-verify" => matches!(
             value["verification"].as_str(),

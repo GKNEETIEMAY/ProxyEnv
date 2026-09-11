@@ -36,7 +36,7 @@ const canPreview = computed(() => (cli.value || extension.value) && (!extension.
   inspection.value
   && (restoring.value ? !adapter.value.restoreRequiresVscodeContext || extensionContextReady.value : extensionContextReady.value && locationConfirmed.value && capability.value?.detected && capability.value.supported)
 )));
-const outcome = (result: string) => result === 'success' ? (restoring.value ? props.copy.rbRestored : props.copy.rbExtApplied) : result === 'failed' ? props.copy.rbExtFailed : props.copy.rbExtWaiting;
+const outcome = (result: string) => result === 'success' ? (restoring.value ? props.copy.rbRestored : cliPreview.value?.permissionHardening ? props.copy.rbPermissionsHardened : cliPreview.value?.routeUpdate ? props.copy.rbRouteUpdated : props.copy.rbExtApplied) : result === 'failed' ? props.copy.rbExtFailed : props.copy.rbExtWaiting;
 const resultState = (result: string): CheckState => result === 'success' ? 'healthy' : result === 'failed' ? 'failed' : 'idle';
 const contextState = computed<CheckState>(() => !inspection.value ? 'idle' : extensionContextReady.value ? 'healthy' : inspection.value.vscode.status === 'ambiguous' ? 'warning' : 'idle');
 const contextLabel = computed(() => !inspection.value ? props.copy.rbExtUnknown : ({ detected: props.copy.rbVscodeContextDetected, ambiguous: props.copy.rbVscodeContextAmbiguous, unsupported: props.copy.rbVscodeContextMissing })[inspection.value.vscode.status]);
@@ -53,7 +53,7 @@ const extensionConfigurationState = computed<CheckState>(() => capability.value?
 const extensionConfigurationLabel = computed(() => capability.value?.configuration === 'configured' ? props.copy.rbExtPending : capability.value?.configuration === 'conflict' ? props.copy.rbConfigError : capability.value?.configuration === 'unknown' ? props.copy.rbExtConfigUnknown : props.copy.rbExtNotConfigured);
 const installedVersions = computed(() => capability.value?.versions.join(' · ') || '');
 const serverVersions = computed(() => inspection.value?.vscode.serverVersions.join(' · ') || '');
-const title = computed(() => `${adapter.value.displayName} · ${restoring.value ? props.copy.rbExtRestoreTitle : props.copy.rbExtTitle}`);
+const title = computed(() => `${adapter.value.displayName} · ${phase.value === 'select' ? props.copy.rbExtTitle : restoring.value ? props.copy.rbExtRestoreTitle : props.copy.rbExtEnableTitle}`);
 const impact = computed(() => adapter.value.impact(props.copy, restoring.value));
 const errorText = computed(() => operationSurface.value === 'extension' && ['configConflict','unsafePath','noBackup','rollbackConflict','rollbackFailed','writeRolledBack','verifyFailed'].includes(bridgeErrorCode(error.value)) ? props.copy.rbExtError : bridgeError(error.value, props.copy));
 const after = computed(() => {
@@ -67,7 +67,7 @@ async function perform(action: () => Promise<void>) {
   busy.value = true; error.value = undefined;
   try { await action(); } catch(cause) { error.value = cause; } finally { busy.value = false; emit('refresh'); }
 }
-function open(selected: RemoteToolId, target: string, restore = false, label = '') {
+function open(selected: RemoteToolId, target: string, restore = false, label = '', directCli = false) {
   if (busy.value) return;
   generation++;
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -76,6 +76,7 @@ function open(selected: RemoteToolId, target: string, restore = false, label = '
   phase.value = 'select'; cliPreview.value = undefined; extensionPreview.value = undefined;
   cliResult.value = 'waiting'; extensionResult.value = 'waiting'; error.value = undefined; copied.value = false;
   dialog.value?.showModal();
+  if (directCli) void nextTick(review);
 }
 function close() { generation++; dialog.value?.close(); previousFocus?.focus(); }
 function escape(event: KeyboardEvent) {
@@ -152,7 +153,7 @@ defineExpose({ open, close });
       <fieldset class="remote-fields" :disabled="busy">
         <template v-if="phase === 'select'">
           <label class="remote-choice"><input v-model="cli" type="checkbox">{{ copy.rbExtCli }}</label>
-          <p v-if="cli" class="remote-hint">{{ restoring ? copy.rbExtRestoreImpact : copy.rbConfigHint }}</p>
+          <p v-if="cli" class="remote-hint">{{ restoring ? copy.rbExtRestoreImpact : adapter.configHint(copy) }}</p>
           <label class="remote-choice"><input v-model="extension" type="checkbox">{{ copy.rbExtGui }}</label>
           <section v-if="extension" class="remote-capability">
             <p class="remote-hint">{{ copy.rbExtLocation }}</p>
@@ -180,7 +181,7 @@ defineExpose({ open, close });
           </section>
         </template>
         <template v-else-if="phase === 'preview'">
-          <section v-if="cliPreview" class="remote-capability"><h3>{{ copy.rbExtCli }}</h3><p><code>{{ cliPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><pre>{{ cliPreview.before || copy.rbAbsent }}</pre><h4>{{ copy.rbAfter }}</h4><pre>{{ cliPreview.after || copy.rbAbsent }}</pre><p v-if="cliPreview.onboardingRequired" class="notice notice-warning">{{ copy.rbClaudeOnboarding }}</p><p v-else-if="cliPreview.onboardingSkipped" class="notice notice-warning">{{ copy.rbClaudeOnboardingSkipped }}</p></section>
+          <section v-if="cliPreview" class="remote-capability"><h3>{{ copy.rbExtCli }}</h3><p><code>{{ cliPreview.path }}</code></p><p v-if="cliPreview.permissionHardening" class="notice notice-warning">{{ copy.rbPermissionHardeningHint }}</p><p v-if="cliPreview.routeUpdate" class="notice notice-warning">{{ copy.rbRouteUpdateHint }}</p><h4>{{ copy.rbBefore }}</h4><pre>{{ cliPreview.before || (cliPreview.existingConfig ? copy.rbExistingConfigProtected : copy.rbAbsent) }}</pre><h4>{{ copy.rbAfter }}</h4><pre>{{ cliPreview.after || (cliPreview.existingConfig ? copy.rbExistingConfigProtected : copy.rbAbsent) }}</pre><p class="notice notice-warning">{{ restoring ? copy.rbRestoreHint : copy.rbConfigBackupHint }}</p></section>
           <section v-if="extensionPreview" class="remote-capability"><h3>{{ copy.rbExtGui }}</h3><p><code>{{ extensionPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><p>{{ copy.rbExtOpaque }}</p><p v-if="extensionPreview.previousPort"><code>127.0.0.1:{{ extensionPreview.previousPort }}</code></p><p v-if="extensionPreview.loginPromptChange === 'overrideFalse'" class="notice notice-warning">{{ copy.rbExtLoginPromptConflict }}</p><h4>{{ copy.rbAfter }}</h4><pre>{{ after }}</pre><p class="notice notice-warning">{{ impact }}</p></section>
           <p v-if="restoring" class="remote-hint">{{ copy.rbExtRestoreScope }}</p>
         </template>

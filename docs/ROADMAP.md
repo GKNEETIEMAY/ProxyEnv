@@ -32,7 +32,7 @@ Implementation is on `v0.2.0dev`; the stable release remains v0.1.4 pending live
 - [x] Automatically allocated remote loopback ports with a second occupancy check before connection.
 - [x] CC Switch route detection that distinguishes confirmed ownership, an unknown listener, and no listener.
 - [x] Structured bridge errors, a bridge-health panel, and capability-specific next-step guidance.
-- [x] Dedicated Codex/Claude CLI overlays with reviewed writes, remote backups, and conflict-safe restore.
+- [x] Dedicated Codex profile plus Claude standard user-settings takeover with reviewed writes, exact remote backups, write-failure rollback, and conflict-safe restore.
 - [x] Shared RemoteToolAdapter registry for Codex/Claude CLI metadata, compatibility, lifecycle operations, launch commands, and honest pending-verification state.
 - [x] User-triggered Claude CLI request verification with isolated settings/tools, redacted result categories, and verification invalidation when the route changes.
 - [x] Claude Code Remote - SSH preview/apply/restore support for `environmentVariables` plus explicitly reviewed `disableLoginPrompt`.

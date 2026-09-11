@@ -134,16 +134,16 @@ impl RemoteToolAdapter for CodexCliAdapter {
     }
 
     fn config_path(&self) -> &'static str {
-        "~/.codex/proxyenv_bridge.config.toml"
+        "~/.codex/config.toml"
     }
 
     fn launch(&self) -> &'static str {
-        "codex --profile proxyenv_bridge"
+        "codex"
     }
 
     fn render(&self, port: u16) -> String {
         format!(
-            "# ProxyEnv Remote Bridge\nmodel_provider = \"proxyenv_bridge\"\n\n[model_providers.proxyenv_bridge]\nname = \"ProxyEnv CC Switch\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n"
+            "model_provider = \"proxyenv_bridge\"\n\n[model_providers.proxyenv_bridge]\nname = \"ProxyEnv CC Switch\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n"
         )
     }
 
@@ -193,11 +193,11 @@ impl RemoteToolAdapter for ClaudeCliAdapter {
     }
 
     fn config_path(&self) -> &'static str {
-        "~/.claude/proxyenv-bridge.json"
+        "~/.claude/settings.json"
     }
 
     fn launch(&self) -> &'static str {
-        "claude --settings \"$HOME/.claude/proxyenv-bridge.json\""
+        "claude"
     }
 
     fn render(&self, port: u16) -> String {
@@ -289,13 +289,25 @@ mod tests {
     }
 
     #[test]
-    fn adapters_own_version_compatibility_and_overlay_content() {
+    fn adapters_own_version_compatibility_and_configuration_content() {
         assert!(CODEX.detect("0.134.0"));
         assert!(!CODEX.detect("0.133.9"));
         assert!(CLAUDE.detect("2.1.0"));
         assert!(!CLAUDE.detect("1.9.9"));
         assert!(CODEX.preview(25721).content.contains("model_provider"));
+        assert!(CODEX
+            .preview(25721)
+            .content
+            .contains("requires_openai_auth = false"));
+        assert!(!CODEX
+            .preview(25721)
+            .content
+            .contains("requires_openai_auth = true"));
         assert!(CLAUDE.preview(25721).content.contains("ANTHROPIC_BASE_URL"));
+        assert_eq!(CODEX.config_path(), "~/.codex/config.toml");
+        assert_eq!(CODEX.launch(), "codex");
+        assert_eq!(CLAUDE.config_path(), "~/.claude/settings.json");
+        assert_eq!(CLAUDE.launch(), "claude");
     }
 
     #[test]

@@ -7,55 +7,57 @@ This is development scope, not a published stable-release announcement.
 
 1. 在“本机环境”选择可用的活动代理，再切换到一级页面“远程桥接”。
 2. 从本机 OpenSSH、VS Code Remote 或 MobaXterm 发现结果中选择一个结构化远程目标。新主机仍需先在自己的终端确认主机指纹。
-3. 检查 SSH 连接。ProxyEnv 先复用密钥、IdentityFile 或 ssh-agent 做非交互认证；仅当 OpenSSH 明确要求认证时，才显示应用内交互窗口承载密码或 Keyboard Interactive / PAM 提示。检查通过后会在 `20000–60000` 中生成两个互不相同且当时未占用的远程 Loopback 端口。
+3. 检查 SSH 连接。ProxyEnv 先复用密钥、IdentityFile 或 ssh-agent 做非交互认证；仅当 OpenSSH 明确要求认证时，才显示应用内交互窗口承载密码或 Keyboard Interactive / PAM 提示。检查通过后优先复用普通代理端口 `17897` 与 AI 路由端口 `15721`。在高校实验室等共享服务器上发生占用时，会按 SSH 目标选择可重复的备用端口，而不是每次随机变化。
 4. 在能力页分别查看服务器互联网、本机活动代理与 CC Switch AI 路由。三项检测彼此独立：SSH 成功不代表服务器能够联网，普通代理可用也不代表 CC Switch 可用。按需选择桥接本机代理、CC Switch，或同时选择两者。CC Switch 默认检查 `127.0.0.1:15721`，也可输入实际本地路由端口；结果会区分已确认的 CC Switch、身份未知的监听程序和未检测到监听。
-5. 预览本机和远端端点。建立连接前会再次检查远程端口；如发生端口竞争，页面会重新生成并要求再次确认。
-6. 代理桥接成功后，点击“启动代理终端”即可打开新的 PowerShell 窗口，由系统 OpenSSH 连接远端并自动注入代理环境。仅密码账户需要为这个独立终端再次认证；ProxyEnv 不缓存密码，Windows OpenSSH 也不支持 ControlMaster 连接复用。已经打开的 SSH、VS Code Remote 或 MobaXterm 终端可展开高级入口，复制环境变量后在当前 Shell 执行，从而避免新建登录。仅“测试桥接”会经代理请求 `https://www.gstatic.com/generate_204`。
-7. CC Switch 桥接成功本身不会创建 Codex / Claude Code 接入文件。点击对应配置入口，预览并确认写入；只有远端文件完成读回验证后，状态页才会显示启动命令。Claude Code 还可由用户点击“验证 Claude 请求”发送一次固定的最小请求，再在远端显式使用对应命令。
+5. 预览本机和远端端点。建立连接前会再次检查远程端口；如发生端口竞争，页面会选择备用端口并要求再次确认。
+6. 代理桥接成功后，点击“启动代理终端”即可打开新的 PowerShell 窗口，由系统 OpenSSH 连接远端并自动注入代理环境。符合条件的普通服务器密码只在本次桥接中以 Windows 当前用户 DPAPI 密文缓存，切换目标、断开或退出即清除；私钥口令、OTP 和未知挑战不缓存。已经打开的 SSH、VS Code Remote 或 MobaXterm 终端可展开高级入口，复制环境变量后在当前 Shell 执行。仅“测试桥接”会经代理请求 `https://www.gstatic.com/generate_204`。
+7. CC Switch 桥接成功本身不会修改 Codex / Claude Code 配置。每个 CLI 只显示一个启用/停用开关；打开时预览并确认受备份保护的写入，关闭时预览并恢复托管字段。后续使用同一稳定端口重连时会自动识别开关状态，不需要重复配置。启用后可直接运行 `codex` 或 `claude`。
 8. 断开桥接需确认。退出 ProxyEnv 会结束隧道；关闭窗口到托盘仍属同一运行会话。
 
 ## Current implementation / 当前实现
 
 | Area | Implementation |
 | --- | --- |
-| Stack | Existing Vue 3 + TypeScript + Tauri 2 + Rust and OpenSSH. Fixed POSIX Shell operations plus a bundled JavaScript configuration helper using an already-installed remote Node 20+. No Python, new frontend framework, SSH library, runtime installation or daemon. |
+| Stack | Existing Vue 3 + TypeScript + Tauri 2 + Rust and OpenSSH. Fixed POSIX Shell operations; Codex TOML and Claude JSON shared-settings merges use an existing Python 2.7 or Python 3 interpreter, while VS Code extension configuration uses an existing remote Node 20+. ProxyEnv installs no runtime, SSH library or daemon. |
 | UI | Local Environment and Remote Bridge are peer first-level pages that remain mounted after first use and switch without cross-fades. Assistant remains a Local Environment drill-down and Settings remains global. Remote Bridge uses one continuous setup/status workspace without a step rail or separate tunnel-review page; dialogs remain for OpenSSH interaction and protected mutations. Chinese, English, Japanese and Korean are supported. |
 | Status UI | Shared `StatusIndicator`, `CheckRow`, `HelpHint`, and `LastChecked` components provide one six-state vocabulary, accessible icon/text feedback, structured help, independent timestamps, and a unified recheck action. |
 | Network observations | Server direct internet, the shared local `ActiveProxyContext`, and CC Switch routing are evaluated independently. Direct server testing bypasses proxy variables; a missing remote `curl` becomes Unknown rather than a false success or failure. |
 | Active proxy | Reads `active::snapshot()` only. No bridge discovery or secondary selection. Captures revision, local endpoint and protocol; changes become Stale, loss becomes Unavailable. |
 | Protocol | HTTP → HTTP_PROXY/HTTPS_PROXY; SOCKS5 → ALL_PROXY with socks5h; Mixed → all three. NO_PROXY always covers localhost loopback. The managed snippet clears stale values before applying the selected mapping; Unknown is refused. |
 | SSH target | Structured targets from `~/.ssh/config`, the default VS Code user `remote.SSH.configFile`, and bounded MobaXterm bookmark sources. IDs bind source, configuration identity, and alias/session name. OpenSSH resolves its own aliases; no private-key or credential contents are read. |
-| Port allocation | After SSH verification, distinct remote Loopback ports are selected from `20000–60000` and checked again immediately before connection. A race causes one regeneration and a return to review. |
+| Port allocation | The proxy prefers stable remote Loopback port `17897`; AI routing prefers `15721`. If either is occupied, a deterministic fallback derived from the SSH target is reused. Every selected port is checked again immediately before connection. |
 | CC Switch | Loopback listener ownership is classified as confirmed CC Switch, listening with unknown identity, or not detected. A listening port alone is not treated as service identity. |
 | SSH auth | `BatchMode=yes` remains the first path for IdentityFile / ssh-agent. Authentication failures may opt into a short-lived OpenSSH session hosted by Windows ConPTY with `BatchMode=no`, password and keyboard-interactive enabled. |
 | Forward | Explicit `127.0.0.1:remote:loopback:local`, ExitOnForwardFailure, strict host-key checks and bounded connection/keepalive timeouts. Interactive forwarding is not accepted until the remote listeners are verified as loopback-only. |
 | Remote listener | Checks remote TCP listeners before creation and validates actual loopback-only listeners after creation. A wildcard/unknown binding closes the new tunnel. |
 | Session | One combined target/session at a time. No automatic reconnect. The bridge SSH process uses the existing Windows Job Object lifecycle; authentication OpenSSH is owned by a short-lived ConPTY session. A user-launched proxy terminal is a separate visible OpenSSH process whose network route still depends on the active bridge. |
-| Config | CLI uses dedicated files. Opt-in VS Code extension adapters patch shared remote configuration with parser-based edits. Read/validate → preview → confirmation → remote backup → atomic replace → hash readback. Conflicts stop writes and restore. |
+| Config | Codex CLI and Claude CLI use their standard user configuration so plain `codex` and `claude` inherit the bridge route. Parser-based managed-field edits preserve unrelated settings. Read/validate → preview → confirmation → exact remote backup → atomic replace → hash readback. Reconnect inspects existing ProxyEnv markers and restores each switch state when the configured port matches. Ambiguous, duplicate or conflicting managed semantics fail closed. |
 | Tool adapters | Codex CLI and Claude Code CLI use a shared Rust/TypeScript `RemoteToolAdapter` contract for detection, inspection, compatibility, preview, apply, restore, launch and verification state. Page code iterates the registry; unknown IDs fail before SSH. VS Code extension internals remain a separate later migration. |
 | Diagnostics | Structured command errors expose only code, phase, safe target category and retryability. Cached summaries remain allowlisted: no usernames, home paths, keys, secrets, raw SSH stderr or upstream URLs. |
 
 ## CLI configuration compatibility
 
-Codex CLI `0.134.0` and later in the `0.x` series uses a separate profile file. The backend checks the remote `codex --version` and refuses earlier/unknown formats instead of guessing. A custom `CODEX_HOME` is refused in this MVP. Profile layering and the version transition were checked against the [official configuration documentation](https://learn.chatgpt.com/docs/config-file/config-advanced).
+Codex CLI `0.134.0` and later in the `0.x` series uses its standard user configuration. The backend checks the remote `codex --version` and refuses earlier/unknown formats instead of guessing. A custom `CODEX_HOME` is refused in this MVP. Configuration layering and the version transition were checked against the [official configuration documentation](https://learn.chatgpt.com/docs/config-file/config-advanced).
 
 ```text
-~/.codex/proxyenv_bridge.config.toml
-codex --profile proxyenv_bridge
+~/.codex/config.toml
+codex
 ```
 
-The profile selects a dedicated `proxyenv_bridge` provider, a loopback `/v1` base URL and Responses wire protocol. It does not select a model or read `auth.json`. Provider fields follow the [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+The switch selects a dedicated `proxyenv_bridge` provider in the shared file, with a loopback `/v1` base URL, Responses wire protocol and `requires_openai_auth = false`. Authentication for the upstream model remains the responsibility of the local CC Switch route, so remote Codex does not ask the user to sign in with ChatGPT or enter another API key. ProxyEnv preserves unrelated model, permission, MCP and comment content and does not modify `auth.json`. Other default Codex sessions under the same remote account therefore use the selected bridge while the switch is enabled. Provider fields follow the [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference). A configuration produced by the earlier development build with `requires_openai_auth = true` is recognized as a ProxyEnv-owned legacy route, shown as disabled, and safely rewritten after the user previews and enables it again.
 
-Claude Code `2.x` uses a dedicated JSON file with `env.ANTHROPIC_BASE_URL` and the public `PROXY_MANAGED` placeholder. It does not change `settings.json` or read authentication files. To prevent the interactive CLI from ignoring gateway settings and returning to the three-way first-run login chooser, the same reviewed apply transaction minimally sets top-level `hasCompletedOnboarding: true` in `~/.claude.json` when that state can be parsed safely. Existing fields are retained and no project trust entry is created. An unfamiliar first-run state is left untouched and reported in preview without blocking the independent routing overlay; concurrent changes still fail closed. Claude Code may then show its own setup screen and will still ask the user to trust the current folder before starting a conversation. A custom `CLAUDE_CONFIG_DIR` is refused. The settings mechanism follows [Claude Code settings](https://code.claude.com/docs/en/settings); routing behavior is described in [CC Switch routing](https://github.com/farion1231/cc-switch/blob/main/docs/user-manual/en/4-proxy/4.2-routing.md).
+Claude Code `2.x` uses its standard user file `~/.claude/settings.json`. ProxyEnv preserves the root object, unknown fields and unrelated `env` entries, then sets `ANTHROPIC_BASE_URL` and a single public `ANTHROPIC_AUTH_TOKEN=PROXY_MANAGED` placeholder. Conflicting Anthropic/OpenAI/OpenRouter authentication environment keys are removed only from the managed replacement after the exact original bytes have been backed up. This avoids Claude Code's dual-authentication warning without copying a real Provider credential. ProxyEnv does not modify `~/.claude.json`, pre-complete onboarding or grant project trust. A custom `CLAUDE_CONFIG_DIR` is refused. Safe TOML/JSON merge accepts an existing Python 2.7 or Python 3 interpreter; if neither exists, CLI configuration is refused with a specific dependency message. The settings mechanism follows [Claude Code settings](https://code.claude.com/docs/en/settings); the takeover-field policy is aligned with [CC Switch's implementation](https://github.com/farion1231/cc-switch/blob/main/src-tauri/src/services/proxy.rs).
 
 ```text
-~/.claude/proxyenv-bridge.json
-claude --settings "$HOME/.claude/proxyenv-bridge.json"
+~/.claude/settings.json
+claude
 ```
 
-用户必须用显示的命令主动选择接入配置。已有 CLI 配置、环境变量或受管理策略可能具有更高优先级；文件写入成功不等于已验证模型调用。ProxyEnv 仅在用户点击“验证 Claude 请求”时发送固定的非敏感最小 Prompt；该操作可能消耗少量额度。验证会禁用工具、MCP 与会话持久化，模型与错误原文均不回传、不保存。ProxyEnv 不复制真实 Provider 凭据。
+Claude 用户配置完成后，普通 `claude` 启动会读取该用户级路由。项目、本地、命令行、进程环境变量或受管理策略仍可能按 Claude 的优先级覆盖它；文件写入成功不等于已验证模型调用。ProxyEnv 仅在用户点击“验证 Claude 请求”时使用临时最小配置发送固定的非敏感 Prompt；该操作可能消耗少量额度。验证会禁用工具、MCP 与会话持久化，模型与错误原文均不回传、不保存。
 
-两种 CLI 的检测、检查、兼容性判断、预览、应用、恢复、启动命令与验证状态均通过统一 `RemoteToolAdapter` 注册表提供。状态快照中的“已配置”只会进入“待验证”，不会直接显示为“接入完成”。M6 已为 Claude CLI 实现显式的真实请求验证：只有收到预期模型响应才显示“模型请求已验证”；仍需登录、路由不可用、超时和其它失败分别保留为非绿色状态。Codex CLI 仍保持“待验证”，不会伪装成已验收。
+两种 CLI 的检测、检查、兼容性判断、预览、启用、停用、启动命令与验证状态均通过统一 `RemoteToolAdapter` 注册表提供。重新连接时会读取远端 ProxyEnv 状态标记并核对当前稳定端口；匹配时恢复“已启用”界面状态，不要求用户再次修改配置。状态快照中的“已配置”只会进入“待验证”，不会直接显示为“接入完成”。M6 已为 Claude CLI 实现显式的真实请求验证：只有收到预期模型响应才显示“模型请求已验证”；仍需登录、路由不可用、超时和其它失败分别保留为非绿色状态。Codex CLI 仍保持“待验证”，不会伪装成已验收。
+
+CC Switch AI 路由与普通网络代理是两项独立能力：用户可以只桥接 AI 路由，不必同时桥接 `HTTP_PROXY` / `ALL_PROXY`。但远端的 `127.0.0.1:<AI 端口>` 来自 SSH Reverse Forward，因此真正从服务器使用 AI 路由时，ProxyEnv 的该 SSH 桥接仍必须保持连接。断开不会删除已启用的 CLI 配置，只会使对应远端 Loopback 入口暂时不可达。
 
 ## Supported remote environment
 
@@ -105,11 +107,11 @@ Codex 扩展单独检查内置 `bin/linux-<architecture>/codex --version`，不�
 
 ### Remote prerequisites
 
-- Linux with a non-root SSH account, POSIX `sh`, `ss` (iproute2), `flock` (util-linux), and standard GNU/coreutils tools including `sha256sum`, `stat`, `sync -f`, `mktemp`, `cmp`, `sed`, `grep`, `cut`, `cp`, `mv`, `cat`, `unlink`.
-- `timeout` and a supported CLI already in the noninteractive SSH PATH are required for CLI configuration. `curl` is needed only for the explicit external network test.
+- Linux with a non-root SSH account, POSIX `sh`, `ss` (iproute2), `flock` (util-linux), and standard GNU/coreutils tools including `sha256sum`, `stat`, `sync -f`, `mktemp`, `grep`, `cut`, `cp`, `mv`, `cat`, `unlink`.
+- `timeout`, Python 2.7 or Python 3, and a supported CLI are required for CLI configuration. ProxyEnv checks the noninteractive SSH `PATH` plus bounded user-level locations for native, npm, NVM, pnpm, Volta, Bun, asdf, mise and legacy Claude installs; it never sources interactive shell profiles. A CLI directory may be group-writable only when it belongs to the account's same-named primary group (for example `lxl:lxl`); world-writable and shared-group directories are skipped. `curl` is needed only for the explicit external network test.
 - Existing OpenSSH target configuration. The bridge check can complete password and keyboard-interactive authentication in ProxyEnv. A successfully verified plain server password may be reused only for the current bridge; it is DPAPI-protected for the current Windows user, kept as ciphertext in memory, and cleared on target switch, disconnect, rejection, or exit. Key passphrases, OTP, and unknown challenges are never cached. First-use host keys still require explicit fingerprint confirmation.
 - No existing LocalForward/RemoteForward/DynamicForward in the selected effective SSH configuration. These are rejected so the new connection opens only reviewed ports. Use a separate alias with no inherited forwards.
-- The remote home/config path and recovery files must not be symlinks, have another owner, or be group/world-writable. Only exact ProxyEnv-generated overlays may be read back or replaced; unknown contents fail closed.
+- The remote home must not be writable by another account. CLI configuration directories and files must belong to the SSH user and must not be symlinks, hard-linked files, oversized files, or world-writable. User-private-group permissions such as `lxl:lxl` with directory `775` / file `664` are accepted. For a university or laboratory shared primary group, preview explicitly discloses permission hardening; confirmation changes only the selected CLI configuration directory to `700` and settings file to `600` before writing. Other home-directory permissions are not changed. Codex accepts supported shared TOML while preserving unrelated fields and comments; ambiguous managed tables, duplicate managed keys and malformed managed values fail closed. Claude accepts only a valid JSON object with an object-valued `env`; duplicate keys, malformed JSON and unknown file types fail closed.
 
 Explicit aliases inside complex Include/Match configurations are not enumerated in this MVP. Remote Windows/macOS, custom CLI home directories, older Codex profiles, service identity attestation, AI request verification, permanent tunnels and automatic reconnect are outside this implementation.
 
@@ -129,9 +131,9 @@ M3 的实现验证包含控制序列、分片 Prompt、多轮提示和回显安�
 
 ## Recovery and conflict behavior
 
-Backups stay beside the dedicated remote file (`.proxyenv-original`, if an original existed), with an applied-hash marker (`.proxyenv-applied`) and an advisory lock (`.proxyenv-lock`). The original backup is retained across subsequent changes. No full user configuration or secrets are copied locally.
+Backups stay beside each managed remote file (`.proxyenv-original`, if an original existed), with an applied-state marker (`.proxyenv-applied`) and an advisory lock (`.proxyenv-lock`). The first exact original backup is retained across subsequent ProxyEnv port updates. A write or readback failure restores the pre-write generation. For both shared configurations, later changes outside ProxyEnv-owned route fields are preserved during a port refresh and field-level disable. Unknown managed fields, duplicate fields or route changes still conflict. No full user configuration or secrets are copied locally.
 
-恢复入口在连接前的主机选择页及桥接状态页都可使用，因此重启 ProxyEnv 后也能从相同别名恢复。预览与应用之间、应用与恢复之间出现文件变动时均停止覆盖。备份变化也会使恢复预览失效。
+启用/停用开关位于桥接状态页。重启并重新连接相同别名后，ProxyEnv 会恢复已识别的开关状态。预览与应用之间发生变化时仍会停止当前事务并要求重新预览。Codex 与 Claude 都只恢复 ProxyEnv 托管字段，保留其余受支持字段的后续修改；托管路由/认证字段、文件结构或备份异常时停止操作。
 
 Writes use same-directory temporary files, flush, atomic rename and readback. Normal write failures attempt to restore the pre-operation file and marker, then verify the hash. If a third party changes the destination during the transaction, the operation retains recovery evidence and refuses to overwrite that change. A hard interruption can leave recovery markers/temp files; inconsistent evidence is refused and requires inspection on the remote host. Advisory locks cannot stop unrelated editors that ignore them.
 

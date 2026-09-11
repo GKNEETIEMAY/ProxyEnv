@@ -24,7 +24,7 @@ export interface BridgeRequest { targetId: string; proxyPort: number | null; ccP
 export interface PortAllocation { proxyPort: number; ccPort: number }
 export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
 export interface RemoteNetworkObservation { serverInternet: "reachable" | "unreachable" | "unknown" }
-export interface ConfigPreview { id: string; tool: RemoteToolId; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean; onboardingRequired:boolean; onboardingSkipped:boolean }
+export interface ConfigPreview { id: string; tool: RemoteToolId; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean; existingConfig:boolean; routeUpdate:boolean; permissionHardening:boolean }
 export type VscodeRemoteContextStatus = "detected" | "ambiguous" | "unsupported";
 export type ExtensionLocationState = "locationUnknown" | "activeUnknown" | "remoteConfirmed";
 export interface VscodeRemoteContext {
@@ -70,7 +70,7 @@ export const remoteBackend = {
   sshAuthConfirmHost: (sessionId: string, promptId: string) => invoke<SshAuthSnapshot>("ssh_auth_confirm_host", { sessionId, promptId }),
   sshAuthFinish: (sessionId: string) => invoke<SshAuthOutcome>("ssh_auth_finish", { sessionId }),
   sshAuthCancel: (sessionId: string) => invoke<void>("ssh_auth_cancel", { sessionId }),
-  allocatePorts: (targetId: string) => invoke<PortAllocation>("remote_bridge_allocate_ports", { targetId }),
+  allocatePorts: (targetId: string, preferDefaults = true) => invoke<PortAllocation>("remote_bridge_allocate_ports", { targetId, preferDefaults }),
   detectCc: (localPort: number) => invoke<CcDetection>("remote_bridge_detect_cc", { localPort }),
   preview: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_preview", { request }),
   connect: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_connect", { request, confirmed:true }),

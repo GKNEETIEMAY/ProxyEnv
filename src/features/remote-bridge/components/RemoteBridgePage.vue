@@ -63,7 +63,7 @@ const selectedTarget = computed(() => targets.value.find((target) => target.id =
 const live = computed(() => ["connected", "stale", "unavailable", "connecting"].includes(props.summary.status) && !!props.summary.target);
 const proxyAvailable = computed(() => props.activeProxy.available && !!props.activeProxy.candidate && props.activeProxy.candidate.protocol !== "unknown");
 const ccUsable = computed(() => ccDetection.value.state !== "notDetected");
-const portsReady = computed(() => proxyPort.value >= 20000 && ccPort.value >= 20000 && proxyPort.value !== ccPort.value);
+const portsReady = computed(() => proxyPort.value >= 1024 && ccPort.value >= 1024 && proxyPort.value !== ccPort.value);
 const valid = computed(() => (proxy.value || cc.value)
   && (!proxy.value || proxyAvailable.value && portsReady.value)
   && (!cc.value || ccUsable.value && portsReady.value && ccLocalPort.value >= 1024 && ccLocalPort.value <= 65535));
@@ -380,7 +380,7 @@ function refreshTargets() {
 }
 
 function regeneratePorts() {
-  void perform(async () => usePorts(await remoteBackend.allocatePorts(targetId.value)));
+  void perform(async () => usePorts(await remoteBackend.allocatePorts(targetId.value, false)));
 }
 
 function request(): BridgeRequest {
@@ -439,12 +439,17 @@ function detectCc() {
 
 function configure(tool: RemoteToolId) {
   const target = props.summary.target ?? selectedTarget.value;
-  if (target) toolDialog.value?.open(tool, target.id, false, targetLabel(target));
+  if (target) toolDialog.value?.open(tool, target.id, false, targetLabel(target), true);
 }
 
 function restore(tool: RemoteToolId, id = targetId.value) {
   const target = targets.value.find((candidate) => candidate.id === id) ?? props.summary.target;
-  toolDialog.value?.open(tool, id, true, targetLabel(target));
+  toolDialog.value?.open(tool, id, true, targetLabel(target), true);
+}
+
+function toggleTool(tool: RemoteToolId, configured: boolean) {
+  if (configured) restore(tool, props.summary.target?.id ?? targetId.value);
+  else configure(tool);
 }
 
 function verifyTool(adapter: RemoteToolAdapter) {
@@ -571,9 +576,6 @@ onBeforeUnmount(() => {
               <button v-if="selectedTarget?.source === 'vscode'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openVscodeSettings())">{{ copy.rbOpenVscodeSettings }}</button>
               <button class="primary-action" type="button" :disabled="!selectedTarget?.available" @click="checkTarget">{{ copy.rbCheck }}</button>
             </div>
-            <div v-if="targetId" class="remote-actions remote-restore-actions">
-              <button v-for="adapter in remoteToolAdapters" :key="adapter.id" class="secondary-action" type="button" @click="restore(adapter.id)">{{ adapter.restoreLabel(copy) }}</button>
-            </div>
           </template>
 
           <template v-else>
@@ -636,7 +638,6 @@ onBeforeUnmount(() => {
               <CheckRow v-if="summary.cc" :label="copy.rbLocalCcHealth" :state="bridgeCheckState(summary.ccStatus)" :state-label="summary.ccStatus ? copy.rbStates[summary.ccStatus] : copy.rbCheckIdle" :checked-at="ccCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.cc">
                 <template #detail><p class="check-row-detail"><code>{{ summary.cc.local.host }}:{{ summary.cc.local.port }}</code> → <code>127.0.0.1:{{ summary.cc.remotePort }}</code></p></template>
               </CheckRow>
-              <div v-for="tool in summary.cc ? remoteTools : []" :key="tool.adapter.id" class="remote-tool-status"><span>{{ tool.adapter.displayName }}</span><StatusIndicator :state="toolVerificationState(tool.inspection.verification)" :label="toolVerificationLabel(tool.inspection.verification)" /></div>
           </section>
 
           <header class="remote-next-heading"><h3>{{ copy.rbNextSteps }}</h3></header>
@@ -663,7 +664,15 @@ onBeforeUnmount(() => {
 
           <section v-if="summary.cc" class="remote-next-section">
               <h3>{{ copy.rbCcUseTitle }}</h3>
-              <div class="remote-actions"><button v-for="(tool, index) in remoteTools" :key="tool.adapter.id" :class="index === 0 ? 'primary-action' : 'secondary-action'" type="button" @click="configure(tool.adapter.id)">{{ tool.adapter.configureLabel(copy) }}</button></div>
+              <div class="remote-tool-access-list">
+                <label v-for="tool in remoteTools" :key="tool.adapter.id" class="remote-tool-access">
+                  <span class="remote-tool-access-copy"><strong>{{ tool.adapter.displayName }}</strong><small>{{ toolVerificationLabel(tool.inspection.verification) }}</small></span>
+                  <span class="remote-tool-access-control">
+                    <span>{{ tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled }}</span>
+                    <input class="switch-input" type="checkbox" role="switch" :checked="tool.inspection.configured" :aria-label="`${tool.adapter.displayName} · ${tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled}`" @click.prevent="toggleTool(tool.adapter.id, tool.inspection.configured)" />
+                  </span>
+                </label>
+              </div>
               <div v-for="tool in remoteTools" :key="tool.adapter.id" class="remote-command"><span>{{ tool.adapter.displayName }}</span><template v-if="tool.launch"><code>{{ tool.launch }}</code><button type="button" :aria-label="copy.rbCopyLaunch" @click="copyValue(tool.launch)">{{ copy.rbCopyLaunch }}</button></template><em v-else>{{ copy.rbCliOverlayMissing }}</em></div>
               <template v-for="tool in remoteTools" :key="`${tool.adapter.id}-verify`">
                 <div v-if="tool.inspection.configured && tool.inspection.verificationSupported" class="remote-tool-verification">
@@ -671,7 +680,6 @@ onBeforeUnmount(() => {
                   <button class="secondary-action" type="button" :disabled="busy || summary.status !== 'connected'" @click="verifyTool(tool.adapter)">{{ tool.adapter.verifyLabel(copy) }}</button>
                 </div>
               </template>
-              <div class="remote-actions"><button v-for="tool in remoteTools" :key="tool.adapter.id" class="secondary-action" type="button" @click="restore(tool.adapter.id, summary.target!.id)">{{ tool.adapter.restoreLabel(copy) }}</button></div>
           </section>
 
           <section v-if="summary.target?.canOpenVscode" class="remote-vscode">
@@ -787,7 +795,6 @@ onBeforeUnmount(() => {
 .remote-hint { color:var(--muted); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
 .remote-success { color:var(--success); font-size:12px; }
 .remote-actions { display:flex; margin-top:12px; flex-wrap:wrap; gap:8px; }
-.remote-restore-actions { padding-top:12px; border-top:1px solid var(--line); }
 .remote-capability { padding:18px 0; border-bottom:1px solid var(--line); }
 .remote-capability h3 { margin:0 0 12px; font-size:16px; }
 .remote-choice { display:flex; align-items:center; gap:10px; font-weight:650; }
@@ -816,8 +823,14 @@ onBeforeUnmount(() => {
 .remote-health,.remote-next-section,.remote-vscode { padding:20px 0; border-top:1px solid var(--line); }
 .remote-next-heading { padding:26px 0 4px; border-top:1px solid var(--line); }.remote-next-heading h3 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
 .remote-health h3,.remote-next-section h3 { margin:0 0 14px; font-size:16px; }
-.remote-tool-status { display:grid; min-height:36px; padding:7px 0; align-items:center; grid-template-columns:minmax(150px,.8fr) minmax(0,1fr); gap:16px; border-top:1px solid var(--line); font-size:11px; }
-.remote-tool-status span:first-child { color:var(--muted); }
+.remote-tool-access-list { display:grid; border-block:1px solid var(--line); }
+.remote-tool-access { display:flex; min-height:58px; padding:10px 0; align-items:center; justify-content:space-between; gap:20px; cursor:pointer; }
+.remote-tool-access + .remote-tool-access { border-top:1px solid var(--line); }
+.remote-tool-access-copy { display:grid; min-width:0; gap:3px; }
+.remote-tool-access-copy strong { font-size:12px; }
+.remote-tool-access-copy small { color:var(--muted); font-size:10px; }
+.remote-tool-access-control { display:flex; flex:none; align-items:center; gap:10px; color:var(--muted); font-size:10px; font-weight:650; }
+.remote-tool-access .switch-input { margin:0; }
 .remote-next-section ol { padding-left:22px; color:var(--muted); font-size:12px; line-height:1.8; }
 .remote-terminal-lead { max-width:68ch; margin:0; color:var(--ink); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
 .remote-advanced { margin-top:14px; }
@@ -858,7 +871,7 @@ onBeforeUnmount(() => {
   .remote-port-footer,.remote-workspace-heading { align-items:flex-start; flex-direction:column; }
   .remote-status-toolbar { width:100%; justify-content:space-between; }
   .remote-workspace { padding:22px 20px; }
-  .remote-tool-status { grid-template-columns:1fr; gap:4px; }
+  .remote-tool-access { align-items:flex-start; }
   .remote-command { grid-template-columns:1fr; gap:6px; }.remote-command button { justify-self:start; }
   .remote-tool-verification { align-items:flex-start; flex-direction:column; }
 }

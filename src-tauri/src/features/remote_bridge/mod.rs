@@ -16,6 +16,9 @@ use std::{
 
 pub type BridgeResult<T> = std::result::Result<T, String>;
 
+pub const DEFAULT_PROXY_REMOTE_PORT: u16 = 17_897;
+pub const DEFAULT_CC_REMOTE_PORT: u16 = 15_721;
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum RemoteTargetSource {
@@ -156,8 +159,9 @@ pub struct ConfigPreview {
     pub launch: String,
     pub alias: String,
     pub restore: bool,
-    pub onboarding_required: bool,
-    pub onboarding_skipped: bool,
+    pub existing_config: bool,
+    pub route_update: bool,
+    pub permission_hardening: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -173,7 +177,6 @@ struct Pending {
     port: u16,
     backup_hash: Option<String>,
     target_fingerprint: String,
-    state_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -351,6 +354,34 @@ fn sync_tool_states(summary: &mut Summary) {
         .collect();
 }
 
+fn refresh_tool_configuration(summary: &mut Summary) {
+    let Some(target_id) = summary.target.as_ref().map(|target| target.id.clone()) else {
+        return;
+    };
+    let Some(route_port) = summary.cc.as_ref().map(|endpoint| endpoint.remote_port) else {
+        for adapter in tool_adapter::adapters() {
+            adapter.restore(summary);
+        }
+        sync_tool_states(summary);
+        return;
+    };
+    for adapter in tool_adapter::adapters() {
+        let configured = ssh::remote(
+            &target_id,
+            json!({"operation":"status","tool":adapter.id().as_str(),"port":route_port}),
+        )
+        .ok()
+        .and_then(|value| value["configured"].as_bool())
+        .unwrap_or(false);
+        if configured {
+            adapter.apply(summary);
+        } else {
+            adapter.restore(summary);
+        }
+    }
+    sync_tool_states(summary);
+}
+
 fn invalidate_tool_verification(summary: &mut Summary) {
     for adapter in tool_adapter::adapters() {
         if adapter.configured(summary) {
@@ -416,7 +447,7 @@ pub fn check(target_id: String) -> BridgeResult<PortAllocation> {
     };
     state.summary.ssh_auth = state.ssh_auth;
     drop(state);
-    allocate_ports(target_id)
+    allocate_ports(target_id, true)
 }
 pub fn check_remote_network(target_id: String) -> BridgeResult<RemoteNetworkObservation> {
     ssh::validate_target(&target_id)?;
@@ -429,26 +460,51 @@ pub fn check_remote_network(target_id: String) -> BridgeResult<RemoteNetworkObse
     };
     Ok(RemoteNetworkObservation { server_internet })
 }
-pub fn allocate_ports(target_id: String) -> BridgeResult<PortAllocation> {
+fn derived_ports(seed: &str, round: u8) -> PortAllocation {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("{seed}\n{round}"));
+    let map = |offset: usize| {
+        20_000 + (u16::from_le_bytes([digest[offset], digest[offset + 1]]) % 40_001)
+    };
+    let proxy_port = map(0);
+    let mut cc_port = map(2);
+    if proxy_port == cc_port {
+        cc_port = if cc_port == 60_000 {
+            20_000
+        } else {
+            cc_port + 1
+        };
+    }
+    PortAllocation {
+        proxy_port,
+        cc_port,
+    }
+}
+
+pub fn allocate_ports(target_id: String, prefer_defaults: bool) -> BridgeResult<PortAllocation> {
     ssh::validate_target(&target_id)?;
-    for _ in 0..24 {
-        let mut bytes = [0u8; 4];
-        getrandom::fill(&mut bytes).map_err(|_| "stateUnavailable")?;
-        let proxy_port = 20_000 + (u16::from_le_bytes([bytes[0], bytes[1]]) % 40_001);
-        let cc_port = 20_000 + (u16::from_le_bytes([bytes[2], bytes[3]]) % 40_001);
-        if proxy_port == cc_port {
-            continue;
+    let fingerprint = ssh::fingerprint(&target_id)?;
+    let mut candidates = Vec::with_capacity(25);
+    if prefer_defaults {
+        candidates.push(PortAllocation {
+            proxy_port: DEFAULT_PROXY_REMOTE_PORT,
+            cc_port: DEFAULT_CC_REMOTE_PORT,
+        });
+    }
+    for round in 0..24 {
+        let candidate = derived_ports(&fingerprint, round);
+        if !candidates.iter().any(|existing| {
+            existing.proxy_port == candidate.proxy_port && existing.cc_port == candidate.cc_port
+        }) {
+            candidates.push(candidate);
         }
+    }
+    for candidate in candidates {
         match ssh::remote(
             &target_id,
-            json!({"operation":"check","ports":[proxy_port,cc_port]}),
+            json!({"operation":"check","ports":[candidate.proxy_port,candidate.cc_port]}),
         ) {
-            Ok(_) => {
-                return Ok(PortAllocation {
-                    proxy_port,
-                    cc_port,
-                })
-            }
+            Ok(_) => return Ok(candidate),
             Err(code) if code == "portInUse" => continue,
             Err(code) => return Err(code),
         }
@@ -622,6 +678,7 @@ pub(super) fn complete_interactive_connect(
     summary.proxy_status = summary.proxy.as_ref().map(|_| Status::Connected);
     summary.cc_status = summary.cc.as_ref().map(|_| Status::Connected);
     summary.ssh_auth = auth;
+    refresh_tool_configuration(&mut summary);
     let mut state = lock()?;
     if state.child.is_some() {
         return Err("alreadyConnected".into());
@@ -698,6 +755,7 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         next.status = Status::Connected;
         next.proxy_status = next.proxy.as_ref().map(|_| Status::Connected);
         next.cc_status = next.cc.as_ref().map(|_| Status::Connected);
+        refresh_tool_configuration(&mut next);
         state.summary = next;
         state.proxy_status = Status::Connected;
         state.cc_status = Status::Connected;
@@ -846,14 +904,11 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
         .as_str()
         .ok_or("remoteFailed")?
         .to_string();
-    let state_hash = value["stateHash"]
-        .as_str()
-        .ok_or("remoteFailed")?
-        .to_string();
-    let onboarding_required = value["onboardingRequired"]
+    let existing_config = value["configExists"].as_bool().ok_or("remoteFailed")?;
+    let permission_hardening = value["permissionHardening"]
         .as_bool()
         .ok_or("remoteFailed")?;
-    let onboarding_managed = value["onboardingManaged"].as_bool().ok_or("remoteFailed")?;
+    let previous_port = value["previousPort"].as_u64();
     let before = match value["previousPort"].as_u64() {
         Some(p) if (1024..=65535).contains(&p) => adapter.preview(p as u16).content,
         None if value["previousPort"].is_null() => String::new(),
@@ -880,9 +935,9 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
         launch: plan.launch.into(),
         alias: target_id.clone(),
         restore: false,
-        onboarding_required,
-        onboarding_skipped: adapter.id() == tool_adapter::RemoteToolId::Claude
-            && !onboarding_managed,
+        existing_config,
+        route_update: previous_port.is_some_and(|previous| previous != u64::from(port)),
+        permission_hardening,
     };
     state.pending = Some(Pending {
         preview: preview.clone(),
@@ -891,7 +946,6 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
         port,
         backup_hash: None,
         target_fingerprint,
-        state_hash,
     });
     Ok(preview)
 }
@@ -920,20 +974,45 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
     {
         return Err("ccUnavailable".into());
     }
-    ssh::remote(
+    let applied = ssh::remote(
         &pending.target_id,
-        json!({"operation":"apply","tool":pending.preview.tool.as_str(),"port":pending.port,"expectedHash":pending.hash,"stateHash":pending.state_hash}),
+        json!({"operation":"apply","tool":pending.preview.tool.as_str(),"port":pending.port,"expectedHash":pending.hash,"repairPermissions":pending.preview.permission_hardening}),
     )?;
-    let verified = ssh::remote(
+    let applied_hash = applied["appliedHash"].as_str().ok_or("remoteFailed")?;
+    let backup_hash = applied["backupHash"].as_str().ok_or("remoteFailed")?;
+    let rollback = || {
+        ssh::remote(
+            &pending.target_id,
+            json!({
+                "operation":"restore",
+                "tool":pending.preview.tool.as_str(),
+                "expectedHash":applied_hash,
+                "backupHash":backup_hash,
+                "repairPermissions":pending.preview.permission_hardening
+            }),
+        )
+    };
+    let verified = match ssh::remote(
         &pending.target_id,
         json!({"operation":"preview","tool":pending.preview.tool.as_str(),"port":pending.port}),
-    )?;
-    if verified["previousPort"].as_u64() != Some(u64::from(pending.port))
-        || (pending.preview.tool == tool_adapter::RemoteToolId::Claude
-            && !pending.preview.onboarding_skipped
-            && verified["onboardingRequired"] != false)
-    {
-        return Err("verifyFailed".into());
+    ) {
+        Ok(value) => value,
+        Err(_) => {
+            return Err(if rollback().is_ok() {
+                "writeRolledBack"
+            } else {
+                "rollbackFailed"
+            }
+            .into());
+        }
+    };
+    if verified["previousPort"].as_u64() != Some(u64::from(pending.port)) {
+        return Err(if rollback().is_ok() {
+            "writeRolledBack"
+        } else {
+            "rollbackFailed"
+        }
+        .into());
     }
     tool_adapter::by_id(pending.preview.tool).apply(&mut state.summary);
     sync_tool_states(&mut state.summary);
@@ -961,8 +1040,11 @@ pub fn config_restore_preview(target_id: String, tool: String) -> BridgeResult<C
         alias: target_id.clone(),
         tool: adapter.id(),
         restore: true,
-        onboarding_required: false,
-        onboarding_skipped: false,
+        existing_config: value["originalExists"].as_bool().ok_or("remoteFailed")?,
+        route_update: false,
+        permission_hardening: value["permissionHardening"]
+            .as_bool()
+            .ok_or("remoteFailed")?,
         path: adapter.config_path().into(),
         before: content("previousPort")?,
         after: content("originalPort")?,
@@ -976,7 +1058,6 @@ pub fn config_restore_preview(target_id: String, tool: String) -> BridgeResult<C
         hash: value["expectedHash"].as_str().ok_or("remoteFailed")?.into(),
         backup_hash: Some(value["backupHash"].as_str().ok_or("remoteFailed")?.into()),
         target_fingerprint,
-        state_hash: "absent".into(),
     });
     Ok(preview)
 }
@@ -995,7 +1076,7 @@ pub fn config_restore(id: String, confirmed: bool) -> BridgeResult<()> {
     }
     ssh::remote(
         &pending.target_id,
-        json!({"operation":"restore","tool":pending.preview.tool.as_str(),"expectedHash":pending.hash,"backupHash":pending.backup_hash}),
+        json!({"operation":"restore","tool":pending.preview.tool.as_str(),"expectedHash":pending.hash,"backupHash":pending.backup_hash,"repairPermissions":pending.preview.permission_hardening}),
     )?;
     if state.summary.target.as_ref().map(|target| &target.id) == Some(&pending.target_id) {
         tool_adapter::by_id(pending.preview.tool).restore(&mut state.summary);
@@ -1010,7 +1091,7 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
     if !adapter.verification_supported() {
         return Err("toolVerificationUnsupported".into());
     }
-    let (target_id, target_fingerprint) = {
+    let (target_id, target_fingerprint, route_port) = {
         let mut state = lock()?;
         refresh(&mut state);
         if state.child.is_none()
@@ -1029,6 +1110,12 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
             .map(|target| target.id.clone())
             .ok_or("invalidTarget")?;
         let fingerprint = state.target_fingerprint.clone().ok_or("sshConfigChanged")?;
+        let route_port = state
+            .summary
+            .cc
+            .as_ref()
+            .map(|endpoint| endpoint.remote_port)
+            .ok_or("bridgeUnavailable")?;
         if ssh::fingerprint(&target_id)? != fingerprint {
             return Err("sshConfigChanged".into());
         }
@@ -1037,12 +1124,12 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
             tool_adapter::RemoteToolVerification::VerifyPending,
         );
         sync_tool_states(&mut state.summary);
-        (target_id, fingerprint)
+        (target_id, fingerprint, route_port)
     };
 
     let value = ssh::remote(
         &target_id,
-        json!({"operation":"tool-verify","tool":adapter.id().as_str()}),
+        json!({"operation":"tool-verify","tool":adapter.id().as_str(),"port":route_port}),
     )?;
     let verification: tool_adapter::RemoteToolVerification =
         serde_json::from_value(value.get("verification").cloned().ok_or("remoteFailed")?)
@@ -1130,6 +1217,19 @@ mod tests {
         assert!(port(1023).is_err());
         assert!(port(1024).is_ok());
         assert!(port(65535).is_ok());
+    }
+    #[test]
+    fn stable_remote_port_policy_has_fixed_defaults_and_repeatable_fallbacks() {
+        assert_eq!(DEFAULT_PROXY_REMOTE_PORT, 17_897);
+        assert_eq!(DEFAULT_CC_REMOTE_PORT, 15_721);
+
+        let first = derived_ports("same-ssh-target", 0);
+        let repeated = derived_ports("same-ssh-target", 0);
+        assert_eq!(first.proxy_port, repeated.proxy_port);
+        assert_eq!(first.cc_port, repeated.cc_port);
+        assert_ne!(first.proxy_port, first.cc_port);
+        assert!((20_000..=60_000).contains(&first.proxy_port));
+        assert!((20_000..=60_000).contains(&first.cc_port));
     }
     #[test]
     fn revision_changes_never_retarget_an_existing_tunnel() {

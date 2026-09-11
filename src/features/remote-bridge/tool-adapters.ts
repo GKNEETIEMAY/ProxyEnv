@@ -25,9 +25,8 @@ export interface RemoteToolAdapter {
   verify(): Promise<ToolVerificationResult>;
   supportedRouteModes(): readonly RemoteToolRouteMode[];
   compatibility(preview: ConfigPreview | undefined): RemoteToolCompatibility;
-  configureLabel(copy: RemoteBridgeCopy): string;
   verifyLabel(copy: RemoteBridgeCopy): string;
-  restoreLabel(copy: RemoteBridgeCopy): string;
+  configHint(copy: RemoteBridgeCopy): string;
   impact(copy: RemoteBridgeCopy, restoring: boolean): string;
   renderExtensionPreview(port: number): string;
 }
@@ -41,9 +40,8 @@ interface AdapterDefinition {
   launchCommand: string;
   verificationSupported: boolean;
   configured(summary: BridgeSummary): boolean;
-  configureLabel(copy: RemoteBridgeCopy): string;
   verifyLabel(copy: RemoteBridgeCopy): string;
-  restoreLabel(copy: RemoteBridgeCopy): string;
+  configHint(copy: RemoteBridgeCopy): string;
   impact(copy: RemoteBridgeCopy, restoring: boolean): string;
   renderExtensionPreview(port: number): string;
 }
@@ -75,12 +73,11 @@ export const remoteToolAdapters: readonly RemoteToolAdapter[] = [
     extensionPath: "~/.codex/config.toml",
     usesVscodeRemoteSettings: false,
     restoreRequiresVscodeContext: false,
-    launchCommand: "codex --profile proxyenv_bridge",
+    launchCommand: "codex",
     verificationSupported: false,
     configured: (summary) => summary.codexConfigured,
-    configureLabel: (copy) => copy.rbCodex,
     verifyLabel: (copy) => copy.rbVerifyClaude,
-    restoreLabel: (copy) => copy.rbRestoreCodex,
+    configHint: (copy) => copy.rbExtCodexImpact,
     impact: (copy, restoring) => restoring ? copy.rbExtRestoreImpact : copy.rbExtCodexImpact,
     renderExtensionPreview: (port) => `model_provider = "proxyenv_bridge"\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv CC Switch"\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false`,
   }),
@@ -90,12 +87,11 @@ export const remoteToolAdapters: readonly RemoteToolAdapter[] = [
     extensionPath: "",
     usesVscodeRemoteSettings: true,
     restoreRequiresVscodeContext: true,
-    launchCommand: 'claude --settings "$HOME/.claude/proxyenv-bridge.json"',
+    launchCommand: "claude",
     verificationSupported: true,
     configured: (summary) => summary.claudeConfigured,
-    configureLabel: (copy) => copy.rbClaude,
     verifyLabel: (copy) => copy.rbVerifyClaude,
-    restoreLabel: (copy) => copy.rbRestoreClaude,
+    configHint: (copy) => copy.rbClaudeConfigHint,
     impact: (copy, restoring) => restoring ? copy.rbExtRestoreImpact : copy.rbExtClaudeImpact,
     renderExtensionPreview: (port) => JSON.stringify({
       "claudeCode.environmentVariables": [

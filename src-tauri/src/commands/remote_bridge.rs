@@ -35,6 +35,7 @@ fn command_error(
             | "ptyUnavailable"
             | "sshAuthPending"
             | "remoteFailed"
+            | "routeOutdated"
             | "stateUnavailable"
     );
     BridgeCommandError {
@@ -139,9 +140,12 @@ pub async fn ssh_auth_cancel(session_id: String) -> CommandResult<()> {
     .await
 }
 #[tauri::command]
-pub async fn remote_bridge_allocate_ports(target_id: String) -> CommandResult<PortAllocation> {
+pub async fn remote_bridge_allocate_ports(
+    target_id: String,
+    prefer_defaults: Option<bool>,
+) -> CommandResult<PortAllocation> {
     run("portAllocation", Some("remoteLoopback"), move || {
-        bridge::allocate_ports(target_id)
+        bridge::allocate_ports(target_id, prefer_defaults.unwrap_or(true))
     })
     .await
 }

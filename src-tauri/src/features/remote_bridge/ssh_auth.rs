@@ -137,9 +137,7 @@ impl ssh::ManagedSsh for PtyProcess {
 }
 
 enum Completion {
-    Check {
-        ports: PortAllocation,
-    },
+    Check,
     Connect {
         request: Request,
         summary: Box<Summary>,
@@ -186,24 +184,6 @@ fn session_id() -> BridgeResult<String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| "stateUnavailable")?;
     Ok(hex::encode(bytes))
-}
-
-fn random_ports() -> BridgeResult<PortAllocation> {
-    let mut bytes = [0u8; 4];
-    getrandom::fill(&mut bytes).map_err(|_| "stateUnavailable")?;
-    let proxy_port = 20_000 + (u16::from_le_bytes([bytes[0], bytes[1]]) % 40_001);
-    let mut cc_port = 20_000 + (u16::from_le_bytes([bytes[2], bytes[3]]) % 40_001);
-    if proxy_port == cc_port {
-        cc_port = if cc_port == 60_000 {
-            20_000
-        } else {
-            cc_port + 1
-        };
-    }
-    Ok(PortAllocation {
-        proxy_port,
-        cc_port,
-    })
 }
 
 fn command_builder(command: &std::process::Command) -> CommandBuilder {
@@ -689,7 +669,7 @@ fn interactive_check_remote_command(ports: &[u16], marker: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     format!(
-        "sh -c 'set -eu; printf \"\\n{marker}\\n\"; fail() {{ printf \"{{\\\"error\\\":\\\"%s\\\"}}\\n\" \"$1\"; exit 0; }}; [ \"$(uname -s)\" = Linux ] || fail remoteUnsupported; [ \"$(id -u)\" != 0 ] || fail rootForbidden; for utility in ss awk sha256sum mktemp flock sync cmp stat sed grep cut cp mv cat unlink; do command -v \"$utility\" >/dev/null 2>&1 || fail dependencyMissing; done; for number in {ports}; do entries=\"$(ss -H -ltn \"sport = :$number\")\" || fail remoteUnsupported; [ -z \"$entries\" ] || fail portInUse; done; printf \"{{\\\"verified\\\":true}}\\n\"'"
+        "sh -c 'set -eu; printf \"\\n{marker}\\n\"; fail() {{ printf \"{{\\\"error\\\":\\\"%s\\\"}}\\n\" \"$1\"; exit 0; }}; [ \"$(uname -s)\" = Linux ] || fail remoteUnsupported; [ \"$(id -u)\" != 0 ] || fail rootForbidden; for utility in ss awk sha256sum mktemp flock sync stat grep cut cp mv cat unlink; do command -v \"$utility\" >/dev/null 2>&1 || fail dependencyMissing; done; for number in {ports}; do entries=\"$(ss -H -ltn \"sport = :$number\")\" || fail remoteUnsupported; [ -z \"$entries\" ] || fail portInUse; done; printf \"{{\\\"verified\\\":true}}\\n\"'"
     )
 }
 
@@ -707,10 +687,9 @@ pub fn begin(
     let (remote_command, completion) = match operation {
         Operation::Check => {
             command.arg("-oClearAllForwardings=yes");
-            let ports = random_ports()?;
             (
-                interactive_check_remote_command(&[ports.proxy_port, ports.cc_port], &marker),
-                Completion::Check { ports },
+                interactive_check_remote_command(&[], &marker),
+                Completion::Check,
             )
         }
         Operation::Connect => {
@@ -810,12 +789,12 @@ pub fn state(session_id: &str) -> BridgeResult<Snapshot> {
     if session.status == SessionStatus::PromptUnavailable {
         // Preserve the actionable diagnostic state after terminating the stuck PTY.
     } else {
-        let completion_timed_out = matches!(session.completion, Completion::Check { .. })
+        let completion_timed_out = matches!(session.completion, Completion::Check)
             && session
                 .authenticated_at
                 .is_some_and(|started| started.elapsed() >= COMPLETION_WAIT_TIMEOUT);
         match (&session.completion, exit, output_closed) {
-            (Completion::Check { .. }, _, _) if authenticated && remote_result_ready => {
+            (Completion::Check, _, _) if authenticated && remote_result_ready => {
                 match parse_json_result(&session.output, "check") {
                     Ok(()) => session.status = SessionStatus::Succeeded,
                     Err(code) => {
@@ -1041,8 +1020,9 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
     }
     session.auth.password_stored = credential_cache::contains(&session.target_fingerprint);
     match session.completion {
-        Completion::Check { ports } => {
+        Completion::Check => {
             super::complete_interactive_check(session.auth);
+            let ports = super::allocate_ports(session.target_id, true)?;
             Ok(Outcome {
                 operation: Operation::Check,
                 ports: Some(ports),
