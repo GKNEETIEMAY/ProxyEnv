@@ -25,6 +25,13 @@ pub enum RemoteToolRouteMode {
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum RemoteToolRequestPolicy {
+    Passthrough,
+    LocalEffectiveModel,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum RemoteToolCompatibility {
     Compatible,
     Unsupported,
@@ -52,6 +59,7 @@ pub struct RemoteToolState {
     pub verification: RemoteToolVerification,
     pub verification_supported: bool,
     pub supported_route_modes: &'static [RemoteToolRouteMode],
+    pub request_policy: RemoteToolRequestPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +75,7 @@ pub trait RemoteToolAdapter: Sync {
     fn config_path(&self) -> &'static str;
     fn launch(&self) -> &'static str;
     fn render(&self, port: u16) -> String;
+    fn request_policy(&self) -> RemoteToolRequestPolicy;
     fn configured(&self, summary: &Summary) -> bool;
     fn set_configured(&self, summary: &mut Summary, configured: bool);
     fn verification(&self, summary: &Summary) -> RemoteToolVerification;
@@ -89,6 +98,7 @@ pub trait RemoteToolAdapter: Sync {
             verification: self.verification(summary),
             verification_supported: self.verification_supported(),
             supported_route_modes: self.supported_route_modes(),
+            request_policy: self.request_policy(),
         }
     }
 
@@ -143,8 +153,12 @@ impl RemoteToolAdapter for CodexCliAdapter {
 
     fn render(&self, port: u16) -> String {
         format!(
-            "model_provider = \"proxyenv_bridge\"\n\n[model_providers.proxyenv_bridge]\nname = \"ProxyEnv CC Switch\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n"
+            "model_provider = \"proxyenv_bridge\"\nmodel = \"proxyenv-bridge\"\nmodel_catalog_json = \".proxyenv-bridge-model-catalog.json\"\n\n[model_providers.proxyenv_bridge]\nname = \"ProxyEnv Local Bridge\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\n"
         )
+    }
+
+    fn request_policy(&self) -> RemoteToolRequestPolicy {
+        RemoteToolRequestPolicy::LocalEffectiveModel
     }
 
     fn configured(&self, summary: &Summary) -> bool {
@@ -204,6 +218,10 @@ impl RemoteToolAdapter for ClaudeCliAdapter {
         format!(
             "{{\"env\":{{\"ANTHROPIC_BASE_URL\":\"http://127.0.0.1:{port}\",\"ANTHROPIC_AUTH_TOKEN\":\"PROXY_MANAGED\"}}}}\n"
         )
+    }
+
+    fn request_policy(&self) -> RemoteToolRequestPolicy {
+        RemoteToolRequestPolicy::Passthrough
     }
 
     fn configured(&self, summary: &Summary) -> bool {
@@ -286,6 +304,14 @@ mod tests {
             assert!(!adapter.config_path().is_empty());
             assert!(!adapter.launch().is_empty());
         }
+        assert_eq!(
+            CODEX.request_policy(),
+            RemoteToolRequestPolicy::LocalEffectiveModel
+        );
+        assert_eq!(
+            CLAUDE.request_policy(),
+            RemoteToolRequestPolicy::Passthrough
+        );
     }
 
     #[test]
@@ -299,6 +325,18 @@ mod tests {
             .preview(25721)
             .content
             .contains("requires_openai_auth = false"));
+        assert!(CODEX
+            .preview(25721)
+            .content
+            .contains("model = \"proxyenv-bridge\""));
+        assert!(CODEX
+            .preview(25721)
+            .content
+            .contains("model_catalog_json = \".proxyenv-bridge-model-catalog.json\""));
+        assert!(CODEX
+            .preview(25721)
+            .content
+            .contains("supports_websockets = false"));
         assert!(!CODEX
             .preview(25721)
             .content
@@ -338,7 +376,8 @@ mod tests {
         assert_eq!(value["verification"], "verifyPending");
         assert_eq!(value["verificationSupported"], false);
         assert_eq!(value["supportedRouteModes"][0], "ccSwitch");
-        assert_eq!(value.as_object().map(serde_json::Map::len), Some(6));
+        assert_eq!(value["requestPolicy"], "localEffectiveModel");
+        assert_eq!(value.as_object().map(serde_json::Map::len), Some(7));
     }
 
     #[test]

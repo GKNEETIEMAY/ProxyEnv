@@ -64,6 +64,22 @@ pub async fn remote_bridge_targets() -> CommandResult<Vec<RemoteTarget>> {
 pub async fn remote_bridge_summary() -> CommandResult<Summary> {
     run("stateRead", None, bridge::summary).await
 }
+
+#[tauri::command]
+pub async fn remote_bridge_model_settings(
+) -> CommandResult<bridge::settings::RemoteBridgeSettingsView> {
+    run("modelSettingsRead", Some("codex"), bridge::model_settings).await
+}
+
+#[tauri::command]
+pub async fn remote_bridge_save_model_settings(
+    settings: bridge::settings::RemoteBridgeSettings,
+) -> CommandResult<bridge::settings::RemoteBridgeSettingsView> {
+    run("modelSettingsWrite", Some("codex"), move || {
+        bridge::save_model_settings(settings)
+    })
+    .await
+}
 #[tauri::command]
 pub async fn remote_bridge_check(target_id: String) -> CommandResult<PortAllocation> {
     run("connectionCheck", Some("ssh"), move || {

@@ -142,6 +142,7 @@ enum Completion {
         request: Request,
         summary: Box<Summary>,
         fingerprint: String,
+        relay: Option<super::codex_relay::CodexRelay>,
     },
 }
 
@@ -720,6 +721,7 @@ pub fn begin(
                     request,
                     summary: Box::new(plan.summary),
                     fingerprint: plan.fingerprint,
+                    relay: plan.relay,
                 },
             )
         }
@@ -1033,6 +1035,7 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
             request,
             summary,
             fingerprint,
+            relay,
         } => {
             let process = session.process.take().ok_or("processFailed")?;
             let summary = super::complete_interactive_connect(
@@ -1041,6 +1044,7 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
                 fingerprint,
                 process,
                 session.auth,
+                relay,
             )?;
             Ok(Outcome {
                 operation: Operation::Connect,

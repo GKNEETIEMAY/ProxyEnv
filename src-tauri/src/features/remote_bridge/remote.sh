@@ -133,6 +133,7 @@ if [ "$tool" = codex ]; then
   [ -z "${CODEX_HOME:-}" ] || [ "$CODEX_HOME" = "$HOME/.codex" ] || fail customHome
   directory="$HOME/.codex"
   file="$directory/config.toml"
+  codex_catalog="$directory/.proxyenv-bridge-model-catalog.json"
 else
   [ -z "${CLAUDE_CONFIG_DIR:-}" ] || fail customHome
   directory="$HOME/.claude"
@@ -149,12 +150,17 @@ fi
 [ ! -e "$file" ] || [ -f "$file" ] || fail unsafePath
 render() {
   if [ "$tool" = codex ]; then
-    printf 'model_provider = "proxyenv_bridge"\n\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv CC Switch"\nbase_url = "http://127.0.0.1:%s/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n' "$1"
+    printf 'model_provider = "proxyenv_bridge"\nmodel = "proxyenv-bridge"\nmodel_catalog_json = ".proxyenv-bridge-model-catalog.json"\n\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv Local Bridge"\nbase_url = "http://127.0.0.1:%s/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n' "$1"
   else
     printf '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:%s","ANTHROPIC_AUTH_TOKEN":"PROXY_MANAGED"}}\n' "$1"
   fi
 }
 hash() { if [ -f "$1" ]; then sha256sum "$1" | awk '{print $1}'; else printf absent; fi; }
+codex_catalog_json() {
+  printf '%s\n' '{"models":[{"additional_speed_tiers":[],"availability_nux":null,"base_instructions":"You are Codex, a coding agent. You and the user share the same workspace and collaborate to achieve their goals.","context_window":131072,"default_reasoning_level":"medium","default_reasoning_summary":"none","description":"Follows the local Codex or CC Switch model through ProxyEnv.","display_name":"ProxyEnv Bridge","effective_context_window_percent":95,"experimental_supported_tools":[],"input_modalities":["text","image"],"max_context_window":131072,"priority":1000,"service_tiers":[],"shell_type":"shell_command","slug":"proxyenv-bridge","support_verbosity":false,"supported_in_api":true,"supported_reasoning_levels":[{"description":"Fast responses with lighter reasoning","effort":"low"},{"description":"Balanced reasoning for normal tasks","effort":"medium"},{"description":"Greater reasoning depth for complex problems","effort":"high"}],"supports_image_detail_original":false,"supports_parallel_tool_calls":false,"supports_reasoning_summaries":true,"supports_search_tool":false,"truncation_policy":{"limit":10000,"mode":"bytes"},"upgrade":null,"visibility":"list"}]}'
+}
+codex_catalog_hash() { codex_catalog_json | sha256sum | awk '{print $1}'; }
+codex_catalog_matches() { [ -f "$codex_catalog" ] && [ "$(hash "$codex_catalog")" = "$(codex_catalog_hash)" ]; }
 claude_json() {
   action="$1"
   source_file="$2"
@@ -273,6 +279,8 @@ import re
 import sys
 
 PROVIDER = "proxyenv_bridge"
+MODEL = "proxyenv-bridge"
+CATALOG = ".proxyenv-bridge-model-catalog.json"
 TABLE = "model_providers.proxyenv_bridge"
 try:
     STRING_TYPES = (basestring,)
@@ -335,8 +343,8 @@ def scalar(raw):
 
 def parse(lines):
     section = None
-    top_index = None
-    top_value = None
+    top_indexes = {}
+    top_values = {}
     provider_start = None
     provider_end = None
     provider_values = {}
@@ -364,48 +372,58 @@ def parse(lines):
             continue
         key, raw = assignment.groups()
         if section is None:
-            if key == "model_provider":
-                if top_index is not None:
+            if key in ("model_provider", "model", "model_catalog_json"):
+                if key in top_indexes:
                     fail()
-                top_index = index
-                top_value = scalar(raw)
-                if not isinstance(top_value, STRING_TYPES):
+                top_indexes[key] = index
+                top_values[key] = scalar(raw)
+                if not isinstance(top_values[key], STRING_TYPES):
                     fail()
             elif key == "model_providers" or key.startswith(TABLE):
                 fail()
         elif section == TABLE:
-            if key not in ("name", "base_url", "wire_api", "requires_openai_auth") or key in provider_values:
+            if key not in ("name", "base_url", "wire_api", "requires_openai_auth", "supports_websockets") or key in provider_values:
                 provider_unknown = True
             else:
                 provider_values[key] = scalar(raw)
     if provider_start is not None and provider_end is None:
         provider_end = len(lines)
     route = None
-    if not provider_unknown and provider_start is not None and set(provider_values) == set(("name", "base_url", "wire_api", "requires_openai_auth")):
+    provider_keys = set(provider_values)
+    supported_provider = provider_keys in (
+        set(("name", "base_url", "wire_api", "requires_openai_auth")),
+        set(("name", "base_url", "wire_api", "requires_openai_auth", "supports_websockets")),
+    )
+    if not provider_unknown and provider_start is not None and supported_provider:
         match = re.match(r"^http://127\.0\.0\.1:([0-9]{4,5})/v1$", provider_values.get("base_url", ""))
-        if (top_value == PROVIDER and provider_values.get("name") == "ProxyEnv CC Switch"
+        if (top_values.get("model_provider") == PROVIDER and provider_values.get("name") in ("ProxyEnv CC Switch", "ProxyEnv Local Bridge")
                 and provider_values.get("wire_api") == "responses"
-                and isinstance(provider_values.get("requires_openai_auth"), bool) and match):
+                and isinstance(provider_values.get("requires_openai_auth"), bool)
+                and provider_values.get("supports_websockets") in (None, False) and match):
             candidate = int(match.group(1))
             if 1024 <= candidate <= 65535:
                 route = candidate
     return {
-        "top_index": top_index,
-        "top_value": top_value,
+        "top_indexes": top_indexes,
+        "top_values": top_values,
         "provider_start": provider_start,
         "provider_end": provider_end,
         "provider_present": provider_start is not None,
         "route": route,
+        "managed_model": (top_values.get("model") == MODEL
+                          and top_values.get("model_catalog_json") == CATALOG
+                          and provider_values.get("supports_websockets") is False),
         "requires_openai_auth": provider_values.get("requires_openai_auth"),
     }
 
 def canonical(port):
     return [
         "[model_providers.proxyenv_bridge]\n",
-        "name = \"ProxyEnv CC Switch\"\n",
+        "name = \"ProxyEnv Local Bridge\"\n",
         "base_url = \"http://127.0.0.1:{0}/v1\"\n".format(port),
         "wire_api = \"responses\"\n",
         "requires_openai_auth = false\n",
+        "supports_websockets = false\n",
     ]
 
 def emit(lines):
@@ -415,9 +433,13 @@ def emit(lines):
     else:
         sys.stdout.write(text)
 
-def without_managed(lines, parsed, top_line):
+def top_line(lines, parsed, key):
+    index = parsed["top_indexes"].get(key)
+    return lines[index] if index is not None else None
+
+def rewrite(lines, parsed, replacements):
     result = []
-    inserted = False
+    inserted = set()
     first_table = None
     for index, line in enumerate(lines):
         body = line_body(line)
@@ -425,17 +447,25 @@ def without_managed(lines, parsed, top_line):
             first_table = index
         if parsed["provider_start"] is not None and parsed["provider_start"] <= index < parsed["provider_end"]:
             continue
-        if index == parsed["top_index"]:
-            if top_line is not None:
-                result.append(top_line)
-            inserted = True
+        replaced = False
+        for key, replacement in replacements.items():
+            if index == parsed["top_indexes"].get(key):
+                if replacement is not None:
+                    result.append(replacement)
+                inserted.add(key)
+                replaced = True
+                break
+        if replaced:
             continue
-        if top_line is not None and parsed["top_index"] is None and not inserted and index == first_table:
-            result.append(top_line)
-            inserted = True
+        if index == first_table:
+            for key, replacement in replacements.items():
+                if replacement is not None and key not in inserted and key not in parsed["top_indexes"]:
+                    result.append(replacement)
+                    inserted.add(key)
         result.append(line)
-    if top_line is not None and not inserted:
-        result.append(top_line)
+    for key, replacement in replacements.items():
+        if replacement is not None and key not in inserted and key not in parsed["top_indexes"]:
+            result.append(replacement)
     return result
 
 action, path, argument = sys.argv[1:]
@@ -446,6 +476,8 @@ if action == "inspect":
 elif action == "auth-required":
     value = parsed["requires_openai_auth"]
     print("true" if value is True else "false" if value is False else "null")
+elif action == "managed-model":
+    print("true" if parsed["managed_model"] else "false")
 elif action == "render":
     try:
         port = int(argument)
@@ -455,7 +487,12 @@ elif action == "render":
         fail()
     if parsed["provider_present"] and parsed["route"] is None:
         fail()
-    result = without_managed(lines, parsed, 'model_provider = "proxyenv_bridge"\n')
+    replacements = {
+        "model_provider": 'model_provider = "proxyenv_bridge"\n',
+        "model": 'model = "proxyenv-bridge"\n',
+        "model_catalog_json": 'model_catalog_json = ".proxyenv-bridge-model-catalog.json"\n',
+    }
+    result = rewrite(lines, parsed, replacements)
     while result and not result[-1].strip():
         result.pop()
     if result:
@@ -469,8 +506,12 @@ elif action == "restore":
     backup = parse(backup_lines)
     if backup["provider_present"]:
         fail()
-    original_top = backup_lines[backup["top_index"]] if backup["top_index"] is not None else None
-    result = without_managed(lines, parsed, original_top)
+    replacements = {
+        "model_provider": top_line(backup_lines, backup, "model_provider"),
+        "model": top_line(backup_lines, backup, "model"),
+        "model_catalog_json": top_line(backup_lines, backup, "model_catalog_json"),
+    }
+    result = rewrite(lines, parsed, replacements)
     while result and not result[-1].strip():
         result.pop()
     if result:
@@ -484,6 +525,7 @@ PY
 }
 validate() {
   codex_auth_required=null
+  codex_managed_model=false
   if [ -f "$1" ]; then
     if [ "$tool" = claude ]; then
       previous=$(claude_json inspect "$1") || fail configConflict
@@ -491,6 +533,7 @@ validate() {
     else
       previous=$(codex_toml inspect "$1") || fail configConflict
       codex_auth_required=$(codex_toml auth-required "$1") || fail configConflict
+      codex_managed_model=$(codex_toml managed-model "$1") || fail configConflict
       [ "$previous" = null ] || { [ "$previous" -ge 1024 ] && [ "$previous" -le 65535 ]; } || fail configConflict
     fi
   else
@@ -506,6 +549,7 @@ managed_drift=false
 if [ -f "$marker" ]; then
   if [ "$(marker_hash)" != "$(hash "$file")" ]; then
     [ "$previous" != null ] || fail configConflict
+    if [ "$tool" = codex ]; then [ "$codex_managed_model" = true ] || fail configConflict; fi
     managed_drift=true
   fi
   [ "$(marker_mode)" != merge ] || managed_drift=true
@@ -513,7 +557,7 @@ fi
 if [ "$operation" = status ]; then
   configured=false
   if [ -f "$marker" ] && [ "$previous" != null ] && [ "$previous" = "$port" ]; then
-    if [ "$tool" != codex ] || [ "$codex_auth_required" = false ]; then configured=true; fi
+    if [ "$tool" != codex ] || { safe_user_content "$codex_catalog"; codex_catalog_matches && [ "$codex_auth_required" = false ] && [ "$codex_managed_model" = true ]; }; then configured=true; fi
   fi
   printf '{"configured":%s,"previousPort":%s}\n' "$configured" "$previous"
   exit 0
@@ -588,6 +632,10 @@ fi
 [ -d "$directory" ] || mkdir -m 700 "$directory" || fail unsafePath
 backup="$file.proxyenv-original"
 lock="$file.proxyenv-lock"
+if [ "$tool" = codex ]; then
+  safe_user_content "$codex_catalog"
+  [ ! -e "$codex_catalog" ] || [ -f "$codex_catalog" ] || fail unsafePath
+fi
 if [ "$permission_hardening" = true ]; then
   [ "$repair_permissions" = true ] || fail configConflict
   [ "$(hash "$file")" = "$expected" ] || fail configConflict
@@ -612,6 +660,7 @@ if [ -f "$marker" ]; then had_marker=true; old_marker=$(cat "$marker"); fi
 if [ "$operation" = apply ]; then
   [ "$current" = "$expected" ] || fail configConflict
   if [ -f "$marker" ]; then
+    if [ "$tool" = codex ] && [ -f "$codex_catalog" ]; then codex_catalog_matches || fail configConflict; fi
     if [ "$(marker_hash)" != "$current" ]; then
       [ "$previous" != null ] || fail configConflict
       managed_drift=true
@@ -620,10 +669,12 @@ if [ "$operation" = apply ]; then
     validate "$backup"
   else
     [ ! -e "$backup" ] || fail configConflict
+    if [ "$tool" = codex ]; then [ ! -e "$codex_catalog" ] || fail configConflict; fi
     if [ -f "$file" ]; then create_backup=true; fi
   fi
 elif [ "$operation" = restore ]; then
   [ -f "$marker" ] || fail noBackup
+  if [ "$tool" = codex ] && [ -f "$codex_catalog" ]; then codex_catalog_matches || fail configConflict; fi
   [ "$current" = "$expected" ] || fail configConflict
   if [ "$(marker_hash)" != "$current" ]; then
     [ "$previous" != null ] || fail configConflict
@@ -640,6 +691,8 @@ rollback=$(mktemp "$directory/.proxyenv-rollback.XXXXXX") || fail remoteFailed
 transaction=false
 committed=false
 created_backup=false
+created_catalog=false
+catalog_temporary=''
 next="$current"
 restore_to_absent=false
 cleanup() {
@@ -666,8 +719,12 @@ cleanup() {
   if [ "$transaction" = false ] && [ "$created_backup" = true ]; then
     unlink "$backup" 2>/dev/null || :
   fi
+  if [ "$committed" = false ] && [ "$created_catalog" = true ]; then
+    unlink "$codex_catalog" 2>/dev/null || :
+  fi
   unlink "$temporary" 2>/dev/null || :
   unlink "$rollback" 2>/dev/null || :
+  [ -z "$catalog_temporary" ] || unlink "$catalog_temporary" 2>/dev/null || :
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
@@ -701,6 +758,14 @@ if [ "$create_backup" = true ]; then
   created_backup=true
   sync -f "$backup" || fail remoteFailed
 fi
+if [ "$operation" = apply ] && [ "$tool" = codex ] && [ ! -f "$codex_catalog" ]; then
+  catalog_temporary=$(mktemp "$directory/.proxyenv-catalog.XXXXXX") || fail remoteFailed
+  codex_catalog_json >"$catalog_temporary" || fail remoteFailed
+  sync -f "$catalog_temporary" || fail remoteFailed
+  mv -f "$catalog_temporary" "$codex_catalog" || fail remoteFailed
+  created_catalog=true
+  codex_catalog_matches || fail verifyFailed
+fi
 sync -f "$temporary" || fail remoteFailed
 next=$(hash "$temporary")
 safe_user_content "$file"
@@ -729,6 +794,10 @@ fi
 validate "$file"
 if [ "$operation" = apply ]; then
   [ "$previous" = "$port" ] || fail rollbackConflict
+  if [ "$tool" = codex ]; then codex_catalog_matches || fail rollbackConflict; fi
+fi
+if [ "$operation" = restore ] && [ "$tool" = codex ] && [ -f "$codex_catalog" ]; then
+  unlink "$codex_catalog" || fail remoteFailed
 fi
 committed=true
 if [ "$operation" = restore ]; then

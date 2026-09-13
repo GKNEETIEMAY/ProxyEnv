@@ -1,6 +1,9 @@
+mod codex_relay;
 pub(crate) mod credential_cache;
 pub mod extension;
+mod local_model;
 pub(crate) mod mobaxterm;
+pub(crate) mod settings;
 mod ssh;
 pub mod ssh_auth;
 pub mod tool_adapter;
@@ -218,6 +221,7 @@ pub struct RemoteNetworkObservation {
 struct Store {
     summary: Summary,
     child: Option<Box<dyn ssh::ManagedSsh>>,
+    relay: Option<codex_relay::CodexRelay>,
     pending: Option<Pending>,
     extension_pending: Option<extension::Pending>,
     cc_detected: bool,
@@ -306,6 +310,7 @@ fn refresh(state: &mut Store) {
     if let Some(child) = state.child.as_mut() {
         if !matches!(child.is_running(), Ok(true)) {
             state.child = None;
+            state.relay = None;
             state.summary.status = Status::Disconnected;
             state.proxy_status = Status::Disconnected;
             state.cc_status = Status::Disconnected;
@@ -327,7 +332,12 @@ fn refresh(state: &mut Store) {
             .summary
             .cc
             .as_ref()
-            .is_none_or(|e| listening(&e.local));
+            .is_none_or(|e| listening(&e.local))
+            && state
+                .summary
+                .cc
+                .as_ref()
+                .is_none_or(|_| state.relay.as_ref().is_some_and(|relay| relay.is_running()));
         state.proxy_status = observed_status(&state.summary, current.as_ref(), proxy_available);
         state.cc_status = if cc_available {
             Status::Connected
@@ -354,6 +364,18 @@ fn sync_tool_states(summary: &mut Summary) {
         .collect();
 }
 
+fn remote_request(
+    operation: &str,
+    adapter: &dyn tool_adapter::RemoteToolAdapter,
+    port: u16,
+) -> serde_json::Value {
+    json!({
+        "operation": operation,
+        "tool": adapter.id().as_str(),
+        "port": port,
+    })
+}
+
 fn refresh_tool_configuration(summary: &mut Summary) {
     let Some(target_id) = summary.target.as_ref().map(|target| target.id.clone()) else {
         return;
@@ -366,13 +388,10 @@ fn refresh_tool_configuration(summary: &mut Summary) {
         return;
     };
     for adapter in tool_adapter::adapters() {
-        let configured = ssh::remote(
-            &target_id,
-            json!({"operation":"status","tool":adapter.id().as_str(),"port":route_port}),
-        )
-        .ok()
-        .and_then(|value| value["configured"].as_bool())
-        .unwrap_or(false);
+        let configured = ssh::remote(&target_id, remote_request("status", *adapter, route_port))
+            .ok()
+            .and_then(|value| value["configured"].as_bool())
+            .unwrap_or(false);
         if configured {
             adapter.apply(summary);
         } else {
@@ -408,6 +427,16 @@ pub fn start_monitor() {
 }
 pub fn summary() -> BridgeResult<Summary> {
     Ok(exposed_summary(&lock()?.summary))
+}
+
+pub fn model_settings() -> BridgeResult<settings::RemoteBridgeSettingsView> {
+    settings::current_view()
+}
+
+pub fn save_model_settings(
+    settings: settings::RemoteBridgeSettings,
+) -> BridgeResult<settings::RemoteBridgeSettingsView> {
+    settings::save(settings)
 }
 pub fn report() -> Report {
     // Report generation reads cached observations only: no SSH or socket probes.
@@ -608,6 +637,37 @@ pub(super) struct InteractiveConnectPlan {
     pub summary: Summary,
     pub fingerprint: String,
     pub endpoints: Vec<(u16, String, u16)>,
+    pub relay: Option<codex_relay::CodexRelay>,
+}
+
+fn relay_for(summary: &Summary) -> BridgeResult<Option<codex_relay::CodexRelay>> {
+    summary
+        .cc
+        .as_ref()
+        .map(|endpoint| codex_relay::CodexRelay::start(endpoint.local.clone()))
+        .transpose()
+}
+
+fn forwarding_endpoints(
+    summary: &Summary,
+    relay: Option<&codex_relay::CodexRelay>,
+) -> BridgeResult<Vec<(u16, String, u16)>> {
+    let mut endpoints = summary
+        .proxy
+        .iter()
+        .map(|endpoint| {
+            (
+                endpoint.remote_port,
+                endpoint.local.host.clone(),
+                endpoint.local.port,
+            )
+        })
+        .collect::<Vec<_>>();
+    if let Some(endpoint) = summary.cc.as_ref() {
+        let relay = relay.ok_or("relayUnavailable")?;
+        endpoints.push((endpoint.remote_port, "127.0.0.1".into(), relay.port()));
+    }
+    Ok(endpoints)
 }
 
 pub(super) fn prepare_interactive_connect(
@@ -621,22 +681,13 @@ pub(super) fn prepare_interactive_connect(
     }
     let fingerprint = ssh::fingerprint(&request.target_id)?;
     let summary = preview(request)?;
-    let endpoints = summary
-        .proxy
-        .iter()
-        .chain(summary.cc.iter())
-        .map(|endpoint| {
-            (
-                endpoint.remote_port,
-                endpoint.local.host.clone(),
-                endpoint.local.port,
-            )
-        })
-        .collect();
+    let relay = relay_for(&summary)?;
+    let endpoints = forwarding_endpoints(&summary, relay.as_ref())?;
     Ok(InteractiveConnectPlan {
         summary,
         fingerprint,
         endpoints,
+        relay,
     })
 }
 
@@ -667,6 +718,7 @@ pub(super) fn complete_interactive_connect(
     fingerprint: String,
     process: ssh_auth::PtyProcess,
     auth: SshAuthState,
+    relay: Option<codex_relay::CodexRelay>,
 ) -> BridgeResult<Summary> {
     if ssh::fingerprint(&request.target_id)? != fingerprint {
         return Err("sshConfigChanged".into());
@@ -687,6 +739,7 @@ pub(super) fn complete_interactive_connect(
     state.proxy_status = Status::Connected;
     state.cc_status = Status::Connected;
     state.child = Some(Box::new(process));
+    state.relay = relay;
     state.reachable = true;
     state.target_fingerprint = Some(fingerprint);
     state.ssh_auth = auth;
@@ -707,12 +760,8 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         let fingerprint = ssh::fingerprint(&request.target_id)?;
         let mut next = preview(&request)?;
         state.summary.status = Status::Connecting;
-        let endpoints: Vec<_> = next
-            .proxy
-            .iter()
-            .chain(next.cc.iter())
-            .map(|e| (e.remote_port, e.local.host.clone(), e.local.port))
-            .collect();
+        let relay = relay_for(&next)?;
+        let endpoints = forwarding_endpoints(&next, relay.as_ref())?;
         let ports: Vec<_> = endpoints.iter().map(|e| e.0).collect();
         ssh::remote(
             &request.target_id,
@@ -760,6 +809,7 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         state.proxy_status = Status::Connected;
         state.cc_status = Status::Connected;
         state.child = Some(Box::new(child));
+        state.relay = relay;
         state.ssh_auth = SshAuthState {
             mode: SshAuthMode::NonInteractive,
             method: ssh::non_interactive_auth_method(&request.target_id),
@@ -783,6 +833,7 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     }
     let mut state = lock()?;
     state.child = None;
+    state.relay = None;
     state.pending = None;
     state.extension_pending = None;
     state.summary.status = Status::Disconnected;
@@ -802,6 +853,7 @@ pub fn shutdown() {
     // outstanding kill-on-close jobs even when an operation owns the mutex.
     if let Ok(mut state) = store().try_lock() {
         state.child = None;
+        state.relay = None;
     }
     credential_cache::clear();
     ssh_auth::shutdown();
@@ -896,10 +948,7 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
         .as_ref()
         .ok_or("ccUnavailable")?
         .remote_port;
-    let value = ssh::remote(
-        &target_id,
-        json!({"operation":"preview","tool":adapter.id().as_str(),"port":port}),
-    )?;
+    let value = ssh::remote(&target_id, remote_request("preview", adapter, port))?;
     let hash = value["expectedHash"]
         .as_str()
         .ok_or("remoteFailed")?
@@ -974,9 +1023,16 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
     {
         return Err("ccUnavailable".into());
     }
+    let adapter = tool_adapter::by_id(pending.preview.tool);
     let applied = ssh::remote(
         &pending.target_id,
-        json!({"operation":"apply","tool":pending.preview.tool.as_str(),"port":pending.port,"expectedHash":pending.hash,"repairPermissions":pending.preview.permission_hardening}),
+        json!({
+            "operation":"apply",
+            "tool":pending.preview.tool.as_str(),
+            "port":pending.port,
+            "expectedHash":pending.hash,
+            "repairPermissions":pending.preview.permission_hardening
+        }),
     )?;
     let applied_hash = applied["appliedHash"].as_str().ok_or("remoteFailed")?;
     let backup_hash = applied["backupHash"].as_str().ok_or("remoteFailed")?;
@@ -994,7 +1050,7 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
     };
     let verified = match ssh::remote(
         &pending.target_id,
-        json!({"operation":"preview","tool":pending.preview.tool.as_str(),"port":pending.port}),
+        remote_request("preview", adapter, pending.port),
     ) {
         Ok(value) => value,
         Err(_) => {
@@ -1076,7 +1132,13 @@ pub fn config_restore(id: String, confirmed: bool) -> BridgeResult<()> {
     }
     ssh::remote(
         &pending.target_id,
-        json!({"operation":"restore","tool":pending.preview.tool.as_str(),"expectedHash":pending.hash,"backupHash":pending.backup_hash,"repairPermissions":pending.preview.permission_hardening}),
+        json!({
+            "operation":"restore",
+            "tool":pending.preview.tool.as_str(),
+            "expectedHash":pending.hash,
+            "backupHash":pending.backup_hash,
+            "repairPermissions":pending.preview.permission_hardening
+        }),
     )?;
     if state.summary.target.as_ref().map(|target| &target.id) == Some(&pending.target_id) {
         tool_adapter::by_id(pending.preview.tool).restore(&mut state.summary);
@@ -1202,7 +1264,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(codex["model_provider"].as_str(), Some("proxyenv_bridge"));
-        assert_eq!(codex.as_table().unwrap().len(), 2);
+        assert_eq!(codex["model"].as_str(), Some("proxyenv-bridge"));
+        assert_eq!(
+            codex["model_catalog_json"].as_str(),
+            Some(".proxyenv-bridge-model-catalog.json")
+        );
+        assert_eq!(codex.as_table().unwrap().len(), 4);
         let claude: serde_json::Value = serde_json::from_str(
             &tool_adapter::by_name("claude")
                 .unwrap()
