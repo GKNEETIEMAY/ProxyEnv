@@ -79,7 +79,7 @@ export const remoteToolAdapters: readonly RemoteToolAdapter[] = [
     verifyLabel: (copy) => copy.rbVerifyClaude,
     configHint: (copy) => copy.rbExtCodexImpact,
     impact: (copy, restoring) => restoring ? copy.rbExtRestoreImpact : copy.rbExtCodexImpact,
-    renderExtensionPreview: (port) => `model_provider = "proxyenv_bridge"\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv CC Switch"\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false`,
+    renderExtensionPreview: (port) => `model_provider = "proxyenv_bridge"\nmodel = "proxyenv-bridge"\nmodel_catalog_json = ".proxyenv-bridge-model-catalog.json"\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv Local Bridge"\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false`,
   }),
   createAdapter({
     id: "claude",

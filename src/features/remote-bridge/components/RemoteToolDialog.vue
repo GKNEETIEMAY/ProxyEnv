@@ -5,7 +5,7 @@ import { bridgeError, bridgeErrorCode } from '../../../shared/i18n/remote-bridge
 import { copyText } from '../../../shared/utils/clipboard';
 import type { CheckState } from '../../../shared/types';
 import StatusIndicator from '../../../shared/components/StatusIndicator.vue';
-import { remoteBackend, type ConfigPreview, type ExtensionInspection, type ExtensionPreview } from '../state';
+import { remoteBackend, type CompatibilityRule, type ConfigPreview, type ExtensionInspection, type ExtensionPreview, type RemoteBridgeModelSettings } from '../state';
 import { getRemoteToolAdapter, type RemoteToolId } from '../tool-adapters';
 
 const props = defineProps<{ copy: RemoteBridgeCopy; sessionAlias: string | null; sessionStatus: string }>();
@@ -24,6 +24,10 @@ const cliResult = ref<'success' | 'failed' | 'waiting'>('waiting');
 const extensionResult = ref<'success' | 'failed' | 'waiting'>('waiting');
 const copied = ref(false);
 const operationSurface = ref<'cli' | 'extension'>('cli');
+const modelSettings = ref<RemoteBridgeModelSettings>();
+const modelSettingsBusy = ref(false);
+const modelSettingsError = ref(false);
+const ruleDraft = ref({ incomingModel:'', localDisplayModel:'', canonicalModel:'' });
 let previousFocus: HTMLElement | null = null;
 let generation = 0;
 const capability = computed(() => inspection.value?.extensions.find(e => e.tool === tool.value));
@@ -62,6 +66,39 @@ const after = computed(() => {
   if (p.restore) return p.originalExists ? props.copy.rbExtRestoreOpaque : props.copy.rbExtRestoreAbsent;
   return adapter.value.renderExtensionPreview(p.port);
 });
+const modelStateLabel = computed(() => ({ resolved:props.copy.rbModelResolved, ambiguous:props.copy.rbModelAmbiguous, unsupported:props.copy.rbModelUnsupported, invalid:props.copy.rbModelInvalid })[modelSettings.value?.localModelState || 'unsupported']);
+const ruleStateLabel = (state:string) => ({ valid:props.copy.rbModelRuleValid, stale:props.copy.rbModelRuleStale, ambiguous:props.copy.rbModelRuleAmbiguous, invalid:props.copy.rbModelRuleInvalid })[state as 'valid'|'stale'|'ambiguous'|'invalid'];
+const editableRules = (): CompatibilityRule[] => (modelSettings.value?.compatibilityRules || []).map(({ validationState:_, ...rule }) => rule);
+async function loadModelSettings() {
+  if (tool.value !== 'codex' || restoring.value) return;
+  modelSettingsBusy.value = true; modelSettingsError.value = false;
+  try { modelSettings.value = await remoteBackend.modelSettings(); }
+  catch { modelSettingsError.value = true; }
+  finally { modelSettingsBusy.value = false; }
+}
+async function saveModelSettings(followLocalCodexModel:boolean, compatibilityRules:CompatibilityRule[]) {
+  if (modelSettingsBusy.value) return;
+  modelSettingsBusy.value = true; modelSettingsError.value = false;
+  try { modelSettings.value = await remoteBackend.saveModelSettings({ followLocalCodexModel, compatibilityRules }); }
+  catch { modelSettingsError.value = true; }
+  finally { modelSettingsBusy.value = false; }
+}
+function toggleModelFollow(event:Event) {
+  const checked = (event.target as HTMLInputElement).checked;
+  void saveModelSettings(checked, editableRules());
+}
+function addRule() {
+  const incomingModel=ruleDraft.value.incomingModel.trim(), localDisplayModel=ruleDraft.value.localDisplayModel.trim(), canonicalModel=ruleDraft.value.canonicalModel.trim();
+  if (!incomingModel || !localDisplayModel || !canonicalModel || !modelSettings.value) return;
+  const now=new Date().toISOString();
+  const rule:CompatibilityRule={id:crypto.randomUUID(),incomingModel,localDisplayModel,canonicalModel,enabled:true,createdAt:now,updatedAt:now};
+  ruleDraft.value={incomingModel:'',localDisplayModel:'',canonicalModel:''};
+  void saveModelSettings(modelSettings.value.followLocalCodexModel,[...editableRules(),rule]);
+}
+function removeRule(id:string) {
+  if (!modelSettings.value) return;
+  void saveModelSettings(modelSettings.value.followLocalCodexModel,editableRules().filter(rule => rule.id !== id));
+}
 async function perform(action: () => Promise<void>) {
   if (busy.value) return;
   busy.value = true; error.value = undefined;
@@ -75,7 +112,9 @@ function open(selected: RemoteToolId, target: string, restore = false, label = '
   cli.value = true; extension.value = false; inspection.value = undefined; locationConfirmed.value = false;
   phase.value = 'select'; cliPreview.value = undefined; extensionPreview.value = undefined;
   cliResult.value = 'waiting'; extensionResult.value = 'waiting'; error.value = undefined; copied.value = false;
+  modelSettings.value = undefined; modelSettingsError.value = false;
   dialog.value?.showModal();
+  void loadModelSettings();
   if (directCli) void nextTick(review);
 }
 function close() { generation++; dialog.value?.close(); previousFocus?.focus(); }
@@ -154,6 +193,19 @@ defineExpose({ open, close });
         <template v-if="phase === 'select'">
           <label class="remote-choice"><input v-model="cli" type="checkbox">{{ copy.rbExtCli }}</label>
           <p v-if="cli" class="remote-hint">{{ restoring ? copy.rbExtRestoreImpact : adapter.configHint(copy) }}</p>
+          <section v-if="tool === 'codex' && !restoring" class="model-routing" :aria-busy="modelSettingsBusy">
+            <div class="model-routing-heading"><h3>{{ copy.rbModelTitle }}</h3><span v-if="modelSettings" class="model-status">{{ modelStateLabel }}</span></div>
+            <label class="remote-choice"><input type="checkbox" :checked="modelSettings?.followLocalCodexModel ?? true" :disabled="modelSettingsBusy || !modelSettings" @change="toggleModelFollow">{{ copy.rbModelFollow }}</label>
+            <p class="remote-hint">{{ copy.rbModelFollowHint }}</p>
+            <dl v-if="modelSettings" class="model-current"><dt>{{ copy.rbModelCurrent }}</dt><dd><strong>{{ modelSettings.displayModel || copy.rbModelUnsupported }}</strong><code v-if="modelSettings.canonicalModel">{{ modelSettings.canonicalModel }}</code></dd></dl>
+            <details v-if="modelSettings" class="model-rules"><summary>{{ copy.rbModelRules }} <span>({{ modelSettings.compatibilityRules.length }})</span></summary>
+              <p class="remote-hint">{{ copy.rbModelRulesHint }}</p>
+              <div v-for="rule in modelSettings.compatibilityRules" :key="rule.id" class="model-rule"><div><strong>{{ rule.incomingModel }}</strong><span>→ {{ rule.canonicalModel }}</span><small>{{ ruleStateLabel(rule.validationState) }}</small></div><button type="button" class="text-action" :disabled="modelSettingsBusy" @click="removeRule(rule.id)">{{ copy.rbModelRemove }}</button></div>
+              <p v-if="!modelSettings.compatibilityRules.length" class="remote-hint">{{ copy.rbModelNoRules }}</p>
+              <div class="model-rule-editor"><label>{{ copy.rbModelIncoming }}<input v-model="ruleDraft.incomingModel" maxlength="256"></label><label>{{ copy.rbModelDisplay }}<input v-model="ruleDraft.localDisplayModel" maxlength="512"></label><label>{{ copy.rbModelCanonical }}<input v-model="ruleDraft.canonicalModel" maxlength="256"></label><button type="button" class="secondary-action" :disabled="modelSettingsBusy" @click="addRule">{{ copy.rbModelAdd }}</button></div>
+            </details>
+            <p v-if="modelSettingsError" role="alert" class="remote-error">{{ copy.rbModelSaveError }}</p>
+          </section>
           <label class="remote-choice"><input v-model="extension" type="checkbox">{{ copy.rbExtGui }}</label>
           <section v-if="extension" class="remote-capability">
             <p class="remote-hint">{{ copy.rbExtLocation }}</p>
@@ -227,6 +279,21 @@ defineExpose({ open, close });
   margin: 0;
   overflow-wrap: anywhere;
 }
+.model-routing { margin: 14px 0 18px; padding: 14px 0; border-block: 1px solid var(--line); }
+.model-routing-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.model-routing-heading h3 { margin:0; }
+.model-status { color:var(--muted); font-size:.82rem; }
+.model-current { display:grid; grid-template-columns:minmax(120px,.42fr) 1fr; gap:12px; margin:12px 0; }
+.model-current dt { color:var(--muted); }
+.model-current dd { display:flex; flex-wrap:wrap; gap:6px 12px; margin:0; }
+.model-rules summary { cursor:pointer; font-weight:650; }
+.model-rule { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--line); }
+.model-rule > div { display:flex; flex-wrap:wrap; gap:5px 10px; min-width:0; }
+.model-rule small { color:var(--muted); }
+.text-action { border:0; background:none; color:var(--accent); cursor:pointer; }
+.model-rule-editor { display:grid; gap:9px; margin-top:12px; }
+.model-rule-editor label { display:grid; gap:5px; color:var(--muted); font-size:.84rem; }
+.model-rule-editor input { width:100%; box-sizing:border-box; }
 @media (max-width: 560px) {
   .remote-context-facts > div { grid-template-columns: 1fr; gap: 3px; }
 }

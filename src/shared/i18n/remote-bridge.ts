@@ -16,7 +16,7 @@ const extensionEn = {
   rbVscodeContextAmbiguousHint: 'More than one VS Code Server root was found. ProxyEnv will not guess which Remote window owns the settings, so extension writes remain disabled.',
   rbVscodeContextMissingHint: 'No supported VS Code Server root was found. Connect this target with Remote - SSH, then inspect again.',
   rbVscodeEdition: 'Edition', rbVscodeServerRoot: 'Server root', rbVscodeServerVersions: 'Server versions', rbVscodeRemoteSettings: 'Remote Settings', rbExtRemoteAccount: 'Remote account', rbExtInstalledVersions: 'Installed versions',
-  rbExtCodexImpact: 'Changes model_provider in the shared remote Codex config. Other Codex sessions using defaults will also use the bridge. Model, permissions and MCP settings are preserved.',
+  rbExtCodexImpact: 'Backs up and changes model_provider, model and model_catalog_json in the shared remote Codex config. ProxyEnv creates a private static bridge capability profile so Codex can build standard streaming and tool requests without guessing model metadata. Disabling restores the original values and removes only the ProxyEnv-owned profile; existing catalogs, permissions and MCP settings are untouched.',
   rbExtClaudeImpact: 'Adds the gateway endpoint and public PROXY_MANAGED placeholder to remote claudeCode.environmentVariables, and sets claudeCode.disableLoginPrompt to true. An existing false value is shown in this preview and changes only after confirmation. Existing routing or credential entries cause a conflict. No real key is copied.',
   rbExtPending: 'Written · reload and model verification required', rbExtNotConfigured: 'Not configured', rbExtReview: 'Preview selected files',
   rbExtLoginPromptConflict: 'The existing Remote Settings explicitly keeps the Claude login prompt enabled. Confirming this preview changes claudeCode.disableLoginPrompt from false to true; restore will recover the original value.',
@@ -29,6 +29,7 @@ const extensionEn = {
   rbRouteUpdateHint: 'The bridge port changed. ProxyEnv will update only its managed route fields and preserve unrelated CLI settings.', rbRouteUpdated: 'Route updated to the current bridge port',
   rbRouteOutdatedError: 'The saved route points to an earlier bridge port. Preview and apply this CLI configuration again, then verify the request. Unrelated settings will be preserved.',
   rbPermissionHardeningHint: 'This account uses a writable shared group. On confirmation, ProxyEnv will make only the CLI configuration directory private (700) and its settings file private (600) before writing. Other home-directory permissions are not changed.', rbPermissionsHardened: 'Configuration applied · permissions protected',
+  rbModelTitle:'Codex model routing',rbModelFollow:'Follow the local Codex model',rbModelFollowHint:'Codex requests use the effective model from this computer. The remote CLI uses a managed neutral route model and a ProxyEnv-owned capability profile; disabling restores the original model, provider and catalog selection. Local CC Switch changes are resolved again for every request.',rbModelCurrent:'Current local model',rbModelResolved:'Resolved',rbModelAmbiguous:'Ambiguous',rbModelUnsupported:'Not resolved',rbModelInvalid:'Local profile invalid',rbModelRules:'Compatibility fallbacks',rbModelRulesHint:'Used only when automatic resolution cannot map an incoming model. Automatic local resolution always wins.',rbModelIncoming:'Incoming model',rbModelDisplay:'Local display name',rbModelCanonical:'Canonical model',rbModelAdd:'Add fallback',rbModelRemove:'Remove',rbModelNoRules:'No compatibility fallbacks.',rbModelRuleValid:'Valid',rbModelRuleStale:'Stale',rbModelRuleAmbiguous:'Ambiguous',rbModelRuleInvalid:'Invalid',rbModelSaveError:'Could not save local model routing settings.',
 };
 type ExtensionLabels = { [K in keyof typeof extensionEn]: string };
 const extensionZh: ExtensionLabels = {
@@ -49,7 +50,7 @@ const extensionZh: ExtensionLabels = {
   rbVscodeContextAmbiguousHint:'检测到多个 VS Code Server 根目录。ProxyEnv 不会猜测哪个 Remote 窗口拥有该设置，因此暂不允许写入扩展配置。',
   rbVscodeContextMissingHint:'未发现受支持的 VS Code Server 根目录。请先使用 Remote - SSH 连接该目标，然后重新检测。',
   rbVscodeEdition:'版本通道',rbVscodeServerRoot:'Server 根目录',rbVscodeServerVersions:'Server 版本',rbVscodeRemoteSettings:'远端设置',rbExtRemoteAccount:'远端账户',rbExtInstalledVersions:'已安装版本',
-  rbExtCodexImpact:'将修改远端共享 Codex 配置的 model_provider。同账户其他使用默认配置的 Codex 会话也会走桥接；保留模型、权限和 MCP 配置。',
+  rbExtCodexImpact:'先备份并修改远端共享 Codex 配置中的 model_provider、model 与 model_catalog_json。ProxyEnv 会创建一个私有、固定的桥接能力档案，让 Codex 无需猜测模型元数据即可构造标准流式及工具请求。停用时恢复原值，并且只删除 ProxyEnv 自己创建的档案；用户已有目录文件、权限及 MCP 设置不会被改动。',
   rbExtClaudeImpact:'向远端 claudeCode.environmentVariables 增加网关地址及公开占位值 PROXY_MANAGED，并把 claudeCode.disableLoginPrompt 设为 true。已有 false 会在预览中明确展示，仅在确认后修改；已有路由或凭据项会触发冲突，不复制真实密钥。',
   rbExtPending:'已写入 · 待重载及模型验收',rbExtNotConfigured:'未配置',rbExtReview:'预览所选文件',
   rbExtLoginPromptConflict:'远端设置已明确保留 Claude 登录提示。确认本次预览会把 claudeCode.disableLoginPrompt 从 false 改为 true；恢复操作会还原原始值。',
@@ -62,6 +63,7 @@ const extensionZh: ExtensionLabels = {
   rbRouteUpdateHint:'桥接端口已变化。ProxyEnv 只更新自己管理的路由字段，并保留 CLI 的其它设置。',rbRouteUpdated:'路由已同步到当前桥接端口',
   rbRouteOutdatedError:'已保存的路由仍指向上一次桥接端口。请重新预览并应用此 CLI 配置，再验证请求；其它设置会保留。',
   rbPermissionHardeningHint:'检测到高校实验室等共享用户组的可写权限。确认后，ProxyEnv 只会在写入前将此 CLI 配置目录设为私有（700）、设置文件设为私有（600），不会修改其它主目录权限。',rbPermissionsHardened:'配置已应用 · 权限已保护',
+  rbModelTitle:'Codex 模型路由',rbModelFollow:'跟随本机 Codex 模型',rbModelFollowHint:'Codex 请求使用这台电脑当前生效的模型。远端 CLI 使用受管的中性路由模型和 ProxyEnv 自有能力档案构造标准桥接请求；停用时恢复原模型、Provider 与目录选择。本机 CC Switch 切换后，每次请求都会重新解析。',rbModelCurrent:'当前本机模型',rbModelResolved:'已解析',rbModelAmbiguous:'存在歧义',rbModelUnsupported:'无法解析',rbModelInvalid:'本机配置无效',rbModelRules:'兼容映射',rbModelRulesHint:'仅在自动解析无法匹配传入模型时使用；本机自动解析始终优先。',rbModelIncoming:'传入模型',rbModelDisplay:'本机显示名称',rbModelCanonical:'规范模型',rbModelAdd:'添加映射',rbModelRemove:'移除',rbModelNoRules:'暂无兼容映射。',rbModelRuleValid:'有效',rbModelRuleStale:'已失效',rbModelRuleAmbiguous:'存在歧义',rbModelRuleInvalid:'无效',rbModelSaveError:'无法保存本机模型路由设置。',
 };
 const extensionJa: ExtensionLabels = {
   rbExtEnableTitle:'リモートアクセスを有効化',
@@ -81,7 +83,7 @@ const extensionJa: ExtensionLabels = {
   rbVscodeContextAmbiguousHint:'複数の VS Code Server ルートが見つかりました。対象 Remote ウィンドウを推測しないため、拡張設定への書き込みは無効です。',
   rbVscodeContextMissingHint:'対応する VS Code Server ルートがありません。Remote - SSH で接続してから再検出してください。',
   rbVscodeEdition:'エディション',rbVscodeServerRoot:'Server ルート',rbVscodeServerVersions:'Server バージョン',rbVscodeRemoteSettings:'リモート設定',rbExtRemoteAccount:'リモートアカウント',rbExtInstalledVersions:'導入済みバージョン',
-  rbExtCodexImpact:'共有 Codex 設定の model_provider を変更します。同じアカウントで既定値を使う他のセッションにも影響します。モデル・権限・MCP 設定は保持します。',
+  rbExtCodexImpact:'リモート共有 Codex 設定の model_provider、model、model_catalog_json をバックアップして変更します。Codex がモデル情報を推測せず標準のストリーミング／ツール要求を構築できるよう、ProxyEnv 専用の固定機能プロファイルを作成します。無効化時は元の値を復元し、ProxyEnv 所有のプロファイルだけを削除します。既存カタログ、権限、MCP 設定は変更しません。',
   rbExtClaudeImpact:'リモートの claudeCode.environmentVariables に接続先と公開値 PROXY_MANAGED を追加し、claudeCode.disableLoginPrompt を true にします。既存の false は確認画面に表示し、承認後だけ変更します。既存の経路・認証項目があれば停止し、実際のキーはコピーしません。',
   rbExtPending:'書き込み済み・再読込とモデル検証が必要',rbExtNotConfigured:'未設定',rbExtReview:'選択したファイルを確認',
   rbExtLoginPromptConflict:'既存の Remote Settings は Claude のログイン表示を明示的に有効にしています。この確認を承認すると claudeCode.disableLoginPrompt を false から true に変更し、復元時は元の値に戻します。',
@@ -94,6 +96,7 @@ const extensionJa: ExtensionLabels = {
   rbRouteUpdateHint:'ブリッジポートが変更されました。ProxyEnv が管理する経路フィールドだけを更新し、CLI の他の設定は保持します。',rbRouteUpdated:'現在のブリッジポートに経路を更新しました',
   rbRouteOutdatedError:'保存済みの経路は以前のブリッジポートを参照しています。この CLI 設定を再度確認して適用してから検証してください。その他の設定は保持されます。',
   rbPermissionHardeningHint:'書き込み可能な共有グループを使用するアカウントです。確認後、ProxyEnv は書き込み前にこの CLI 設定ディレクトリだけを非公開（700）、設定ファイルを非公開（600）にします。他のホーム権限は変更しません。',rbPermissionsHardened:'設定適用済み・権限保護済み',
+  rbModelTitle:'Codex モデル経路',rbModelFollow:'ローカル Codex モデルに追従',rbModelFollowHint:'このコンピューターで有効なモデルを使用します。リモート CLI は管理対象の中立的な経路モデルと ProxyEnv 所有の機能プロファイルで標準要求を構築し、無効化時に元のモデル、Provider、カタログ選択を復元します。ローカル CC Switch の変更は要求ごとに再解決します。',rbModelCurrent:'現在のローカルモデル',rbModelResolved:'解決済み',rbModelAmbiguous:'曖昧',rbModelUnsupported:'解決不可',rbModelInvalid:'ローカル設定が無効',rbModelRules:'互換フォールバック',rbModelRulesHint:'自動解決で受信モデルを対応付けられない場合のみ使用します。自動解決が常に優先です。',rbModelIncoming:'受信モデル',rbModelDisplay:'ローカル表示名',rbModelCanonical:'正規モデル',rbModelAdd:'フォールバックを追加',rbModelRemove:'削除',rbModelNoRules:'互換フォールバックはありません。',rbModelRuleValid:'有効',rbModelRuleStale:'期限切れ',rbModelRuleAmbiguous:'曖昧',rbModelRuleInvalid:'無効',rbModelSaveError:'ローカルモデル経路設定を保存できません。',
 };
 const extensionKo: ExtensionLabels = {
   rbExtEnableTitle:'원격 연결 사용',
@@ -113,7 +116,7 @@ const extensionKo: ExtensionLabels = {
   rbVscodeContextAmbiguousHint:'여러 VS Code Server 루트가 감지되었습니다. 어떤 Remote 창의 설정인지 추측하지 않으므로 확장 설정 쓰기가 비활성화됩니다.',
   rbVscodeContextMissingHint:'지원되는 VS Code Server 루트를 찾지 못했습니다. Remote - SSH로 연결한 뒤 다시 검사하세요.',
   rbVscodeEdition:'에디션',rbVscodeServerRoot:'Server 루트',rbVscodeServerVersions:'Server 버전',rbVscodeRemoteSettings:'원격 설정',rbExtRemoteAccount:'원격 계정',rbExtInstalledVersions:'설치 버전',
-  rbExtCodexImpact:'공유 Codex 설정의 model_provider를 변경합니다. 같은 계정에서 기본 설정을 쓰는 다른 세션에도 영향을 줍니다. 모델, 권한, MCP 설정은 보존합니다.',
+  rbExtCodexImpact:'원격 공유 Codex 설정의 model_provider, model, model_catalog_json을 백업한 뒤 변경합니다. Codex가 모델 메타데이터를 추측하지 않고 표준 스트리밍 및 도구 요청을 만들 수 있도록 ProxyEnv 전용 고정 기능 프로필을 생성합니다. 비활성화하면 원래 값을 복원하고 ProxyEnv 소유 프로필만 삭제하며 기존 카탈로그, 권한, MCP 설정은 건드리지 않습니다.',
   rbExtClaudeImpact:'원격 claudeCode.environmentVariables에 게이트웨이 주소와 공개 값 PROXY_MANAGED를 추가하고 claudeCode.disableLoginPrompt를 true로 설정합니다. 기존 false 값은 미리 보기에 표시하며 확인 후에만 변경합니다. 기존 라우팅이나 인증 항목이 있으면 중단하고 실제 키는 복사하지 않습니다.',
   rbExtPending:'기록됨 · 다시 로드 및 모델 검증 필요',rbExtNotConfigured:'미설정',rbExtReview:'선택한 파일 미리 보기',
   rbExtLoginPromptConflict:'기존 Remote Settings가 Claude 로그인 화면을 명시적으로 유지하고 있습니다. 이 미리 보기를 확인하면 claudeCode.disableLoginPrompt가 false에서 true로 바뀌며 복원 시 원래 값으로 돌아갑니다.',
@@ -126,6 +129,7 @@ const extensionKo: ExtensionLabels = {
   rbRouteUpdateHint:'브리지 포트가 변경되었습니다. ProxyEnv가 관리하는 경로 필드만 업데이트하고 CLI의 다른 설정은 보존합니다.',rbRouteUpdated:'현재 브리지 포트로 경로 업데이트됨',
   rbRouteOutdatedError:'저장된 경로가 이전 브리지 포트를 가리킵니다. 이 CLI 설정을 다시 미리 보고 적용한 뒤 요청을 검증하세요. 다른 설정은 보존됩니다.',
   rbPermissionHardeningHint:'쓰기 가능한 공유 그룹을 사용하는 계정입니다. 확인하면 ProxyEnv는 쓰기 전에 이 CLI 설정 디렉터리만 비공개(700), 설정 파일을 비공개(600)로 변경합니다. 다른 홈 디렉터리 권한은 변경하지 않습니다.',rbPermissionsHardened:'설정 적용됨 · 권한 보호됨',
+  rbModelTitle:'Codex 모델 라우팅',rbModelFollow:'로컬 Codex 모델 따르기',rbModelFollowHint:'이 컴퓨터에서 적용 중인 모델을 사용합니다. 원격 CLI는 관리되는 중립 라우팅 모델과 ProxyEnv 소유 기능 프로필로 표준 브리지 요청을 만들며, 비활성화하면 원래 모델, Provider, 카탈로그 선택을 복원합니다. 로컬 CC Switch 변경은 요청할 때마다 다시 해석합니다.',rbModelCurrent:'현재 로컬 모델',rbModelResolved:'확인됨',rbModelAmbiguous:'모호함',rbModelUnsupported:'확인할 수 없음',rbModelInvalid:'로컬 설정 오류',rbModelRules:'호환 대체 규칙',rbModelRulesHint:'자동 해석이 수신 모델을 연결하지 못할 때만 사용합니다. 자동 해석이 항상 우선합니다.',rbModelIncoming:'수신 모델',rbModelDisplay:'로컬 표시 이름',rbModelCanonical:'표준 모델',rbModelAdd:'대체 규칙 추가',rbModelRemove:'삭제',rbModelNoRules:'호환 대체 규칙이 없습니다.',rbModelRuleValid:'유효',rbModelRuleStale:'오래됨',rbModelRuleAmbiguous:'모호함',rbModelRuleInvalid:'무효',rbModelSaveError:'로컬 모델 라우팅 설정을 저장할 수 없습니다.',
 };
 const flowEn = {
   navLocal: "Local environment", navRemote: "Remote bridge", rbPageIntro: "Choose an SSH environment, bridge only the capabilities you need, then follow the verified next steps.",
