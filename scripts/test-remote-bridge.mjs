@@ -96,7 +96,7 @@ test("Codex accepts managed shared settings after harmless formatting changes",{
   const f=fixture();try {
     const file=join(f.home,".codex/config.toml");
     assert.equal(f.run("apply").configured,true);
-    writeFileSync(file,'model_provider="proxyenv_bridge"\r\n\r\n[model_providers.proxyenv_bridge]\r\nwire_api = "responses"\r\nbase_url="http://127.0.0.1:25721/v1"\r\nrequires_openai_auth=false\r\nname="ProxyEnv CC Switch"');
+    writeFileSync(file,'model_provider="proxyenv_bridge"\r\nmodel="proxyenv-bridge"\r\nmodel_catalog_json=".proxyenv-bridge-model-catalog.json"\r\n\r\n[model_providers.proxyenv_bridge]\r\nwire_api = "responses"\r\nbase_url="http://127.0.0.1:25721/v1"\r\nrequires_openai_auth=false\r\nsupports_websockets=false\r\nname="ProxyEnv CC Switch"');
     const preview=f.run("preview");
     assert.equal(preview.previousPort,25721);
     assert.equal(f.run("apply","codex",25721,preview.expectedHash).configured,true);
@@ -108,7 +108,7 @@ test("Codex takeover preserves shared settings across enable, route update and d
   const f=fixture();try {
     const file=join(f.home,".codex/config.toml");
     mkdirSync(dirname(file),{recursive:true});
-    const original='# user preference\nmodel_provider = "openai"\nmodel = "gpt-5"\n\n[mcp_servers.demo]\ncommand = "demo"\n';
+    const original='# user preference\nmodel_provider = "openai"\nmodel = "gpt-5"\nmodel_catalog_json = "models/catalog.json"\n\n[mcp_servers.demo]\ncommand = "demo"\n';
     writeFileSync(file,original);
     const preview=f.run("preview");
     assert.equal(preview.previousPort,null);
@@ -116,25 +116,80 @@ test("Codex takeover preserves shared settings across enable, route update and d
     const enabled=readFileSync(file,"utf8");
     assert.match(enabled,/model_provider = "proxyenv_bridge"/);
     assert.match(enabled,/requires_openai_auth = false/);
+    assert.match(enabled,/supports_websockets = false/);
     assert.doesNotMatch(enabled,/requires_openai_auth = true/);
     assert.match(enabled,/\[mcp_servers\.demo\]/);
-    assert.match(enabled,/model = "gpt-5"/);
+    assert.match(enabled,/model = "proxyenv-bridge"/);
+    assert.match(enabled,/model_catalog_json = "\.proxyenv-bridge-model-catalog\.json"/);
+    const managedCatalog=join(f.home,".codex/.proxyenv-bridge-model-catalog.json");
+    assert.equal(JSON.parse(readFileSync(managedCatalog,"utf8")).models[0].slug,"proxyenv-bridge");
 
-    writeFileSync(file,enabled.replace('model = "gpt-5"','model = "gpt-5.1"')+'\n[user_notice]\nvalue = "added later"\n');
+    writeFileSync(file,enabled+'\n[user_notice]\nvalue = "added later"\n');
     const update=f.run("preview","codex",25722);
     assert.equal(update.previousPort,25721);
     assert.equal(f.run("apply","codex",25722,update.expectedHash).configured,true);
     const updated=readFileSync(file,"utf8");
     assert.match(updated,/127\.0\.0\.1:25722\/v1/);
-    assert.match(updated,/model = "gpt-5\.1"/);
+    assert.match(updated,/model = "proxyenv-bridge"/);
+    assert.match(updated,/model_catalog_json = "\.proxyenv-bridge-model-catalog\.json"/);
     assert.match(updated,/\[user_notice\]/);
 
     assert.equal(f.run("restore","codex",25722).configured,false);
     const restored=readFileSync(file,"utf8");
     assert.match(restored,/model_provider = "openai"/);
     assert.doesNotMatch(restored,/model_providers\.proxyenv_bridge/);
-    assert.match(restored,/model = "gpt-5\.1"/);
+    assert.match(restored,/model = "gpt-5"/);
+    assert.match(restored,/model_catalog_json = "models\/catalog\.json"/);
     assert.match(restored,/\[user_notice\]/);
+    assert.equal(existsSync(managedCatalog),false);
+  } finally { f.cleanup(); }
+});
+test("Codex refuses to take over an existing reserved bridge catalog",{skip:!available || !python},()=>{
+  const f=fixture();try {
+    const catalog=join(f.home,".codex/.proxyenv-bridge-model-catalog.json");
+    mkdirSync(dirname(catalog),{recursive:true});
+    writeFileSync(catalog,'{"models":[]}\n');
+    const preview=f.run("preview");
+    assert.equal(f.run("apply","codex",25721,preview.expectedHash).error,"configConflict");
+    assert.equal(readFileSync(catalog,"utf8"),'{"models":[]}\n');
+  } finally { f.cleanup(); }
+});
+test("Codex refuses to overwrite a user change to the managed bridge model",{skip:!available || !python},()=>{
+  const f=fixture();try {
+    const file=join(f.home,".codex/config.toml");
+    assert.equal(f.run("apply").configured,true);
+    const enabled=readFileSync(file,"utf8");
+    writeFileSync(file,enabled.replace('model = "proxyenv-bridge"','model = "user-changed"'));
+    assert.equal(f.run("preview").error,"configConflict");
+  } finally { f.cleanup(); }
+});
+test("legacy two-field markers remain restorable",{skip:!available || !python},()=>{
+  const f=fixture();try {
+    assert.equal(f.run("apply").configured,true);
+    const marker=join(f.home,".codex/config.toml.proxyenv-applied");
+    writeFileSync(marker,readFileSync(marker,"utf8").trim().split(/\s+/).slice(0,2).join(" "));
+    assert.equal(f.run("restore").configured,false);
+    assert.equal(existsSync(join(f.home,".codex/config.toml")),false);
+  } finally { f.cleanup(); }
+});
+test("Codex upgrades a previous neutral route with bridge metadata",{skip:!available || !python},()=>{
+  const f=fixture();try {
+    assert.equal(f.run("apply").configured,true);
+    const file=join(f.home,".codex/config.toml");
+    const catalog=join(f.home,".codex/.proxyenv-bridge-model-catalog.json");
+    const marker=`${file}.proxyenv-applied`;
+    const legacy=readFileSync(file,"utf8").replace('model_catalog_json = ".proxyenv-bridge-model-catalog.json"\n','');
+    writeFileSync(file,legacy);
+    rmSync(catalog);
+    const markerMode=readFileSync(marker,"utf8").trim().split(/\s+/)[1] || "exact";
+    writeFileSync(marker,`${createHash("sha256").update(legacy).digest("hex")} ${markerMode}\n`);
+
+    assert.deepEqual(f.run("status"),{configured:false,previousPort:25721});
+    const preview=f.run("preview");
+    assert.equal(f.run("apply","codex",25721,preview.expectedHash).configured,true);
+    assert.match(readFileSync(file,"utf8"),/model_catalog_json = "\.proxyenv-bridge-model-catalog\.json"/);
+    assert.equal(JSON.parse(readFileSync(catalog,"utf8")).models[0].slug,"proxyenv-bridge");
+    assert.equal(f.run("restore").configured,false);
   } finally { f.cleanup(); }
 });
 test("Codex migrates the previous ProxyEnv auth-required route without losing user settings",{skip:!available || !python},()=>{
@@ -488,7 +543,7 @@ test("remote bridge reuses stable ports and restores enabled tool state after re
   assert.match(bridge,/DEFAULT_PROXY_REMOTE_PORT: u16 = 17_897/);
   assert.match(bridge,/DEFAULT_CC_REMOTE_PORT: u16 = 15_721/);
   assert.match(bridge,/derived_ports\(&fingerprint, round\)/);
-  assert.match(bridge,/"operation":"status"/);
+  assert.match(bridge,/remote_request\("status", \*adapter, route_port\)/);
   assert.match(bridge,/refresh_tool_configuration\(&mut summary\)/);
   assert.match(bridge,/refresh_tool_configuration\(&mut next\)/);
   assert.match(auth,/super::allocate_ports\(session\.target_id, true\)/);
@@ -502,7 +557,7 @@ test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary"
   const frontend=readFileSync("src/features/remote-bridge/tool-adapters.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolDialog.vue","utf8");
-  for(const method of ["detect","inspect","preview","apply","restore","launch","verify","supported_route_modes","compatibility"]) {
+  for(const method of ["detect","inspect","preview","apply","restore","launch","verify","supported_route_modes","compatibility","request_policy"]) {
     assert.match(backend,new RegExp(`fn ${method}\\(`));
   }
   assert.match(backend,/impl RemoteToolAdapter for CodexCliAdapter/);
@@ -519,7 +574,10 @@ test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary"
   assert.doesNotMatch(bridge,/fn overlay\(/);
   assert.match(frontend,/export interface RemoteToolAdapter/);
   assert.match(frontend,/summary\.tools\?\.find/);
-  for(const source of [page,dialog]) assert.doesNotMatch(source,/tool(?:\.value)?\s*===\s*["'](?:codex|claude)["']/);
+  assert.doesNotMatch(page,/tool(?:\.value)?\s*===\s*["'](?:codex|claude)["']/);
+  assert.match(dialog,/tool === 'codex'/);
+  assert.match(dialog,/remoteBackend\.modelSettings\(\)/);
+  assert.match(dialog,/remoteBackend\.saveModelSettings/);
 });
 
 test("Claude verification is a fixed isolated request and never returns model output",()=>{
