@@ -11,6 +11,9 @@ test('Codex preserves comments, unknown settings, secrets and quoted selector fo
   const text = '# user comment\r\n"model_provider" = \'openai\' # keep\r\nmodel="custom"\r\n[mcp_servers.x]\r\ncommand="test"\r\n[model_providers.other]\r\nhttp_headers={Authorization="secret-fixture"}\r\n';
   const result = patch(text, 'codex', 25721);
   assert.ok(result.startsWith(text.replace("'openai'", '"proxyenv_bridge"')));
+  assert.match(result, /supports_websockets = false/);
+  assert.match(result, /model="custom"/);
+  assert.doesNotMatch(result, /model="proxyenv-bridge"/);
   assert.match(result, /base_url = "http:\/\/127.0.0.1:25721\/v1"/);
 });
 test('Codex never reuses existing provider names, legacy selectors or invalid TOML', () => {
