@@ -16,6 +16,10 @@ export interface RemoteToolAdapter {
   readonly extensionPath: string;
   readonly usesVscodeRemoteSettings: boolean;
   readonly restoreRequiresVscodeContext: boolean;
+  readonly supportsProfileSync: boolean;
+  readonly supportsExtensionConfiguration: boolean;
+  readonly extensionUsesSharedProfile: boolean;
+  readonly directToggle: boolean;
   detect(preview: ConfigPreview | undefined): boolean;
   inspect(summary: BridgeSummary): RemoteToolInspection;
   preview(targetId: string, restoring: boolean): Promise<ConfigPreview>;
@@ -37,6 +41,10 @@ interface AdapterDefinition {
   extensionPath: string;
   usesVscodeRemoteSettings: boolean;
   restoreRequiresVscodeContext: boolean;
+  supportsProfileSync: boolean;
+  supportsExtensionConfiguration: boolean;
+  extensionUsesSharedProfile: boolean;
+  directToggle: boolean;
   launchCommand: string;
   verificationSupported: boolean;
   configured(summary: BridgeSummary): boolean;
@@ -73,20 +81,28 @@ export const remoteToolAdapters: readonly RemoteToolAdapter[] = [
     extensionPath: "~/.codex/config.toml",
     usesVscodeRemoteSettings: false,
     restoreRequiresVscodeContext: false,
+    supportsProfileSync: true,
+    supportsExtensionConfiguration: true,
+    extensionUsesSharedProfile: true,
+    directToggle: true,
     launchCommand: "codex",
     verificationSupported: false,
     configured: (summary) => summary.codexConfigured,
     verifyLabel: (copy) => copy.rbVerifyClaude,
-    configHint: (copy) => copy.rbExtCodexImpact,
-    impact: (copy, restoring) => restoring ? copy.rbExtRestoreImpact : copy.rbExtCodexImpact,
-    renderExtensionPreview: (port) => `model_provider = "proxyenv_bridge"\nmodel = "proxyenv-bridge"\nmodel_catalog_json = ".proxyenv-bridge-model-catalog.json"\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv Local Bridge"\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false`,
+    configHint: (copy) => copy.rbExtCodexRouteImpact,
+    impact: (copy, restoring) => restoring ? copy.rbExtRestoreImpact : copy.rbExtCodexRouteImpact,
+    renderExtensionPreview: (port) => `model_provider = "proxyenv_bridge"\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv Local Bridge"\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false`,
   }),
   createAdapter({
     id: "claude",
     displayName: "Claude Code CLI",
-    extensionPath: "",
-    usesVscodeRemoteSettings: true,
-    restoreRequiresVscodeContext: true,
+    extensionPath: "~/.claude/settings.json",
+    usesVscodeRemoteSettings: false,
+    restoreRequiresVscodeContext: false,
+    supportsProfileSync: true,
+    supportsExtensionConfiguration: true,
+    extensionUsesSharedProfile: true,
+    directToggle: true,
     launchCommand: "claude",
     verificationSupported: true,
     configured: (summary) => summary.claudeConfigured,

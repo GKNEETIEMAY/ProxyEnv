@@ -74,7 +74,7 @@ export function patchCodex(text, port) {
     n.key.keys.length === 1 && (n.key.keys[0].name ?? n.key.keys[0].value) === 'model_provider');
   const provider = 'model_provider = "proxyenv_bridge"\n';
   let result = node ? text.slice(0, node.value.range[0]) + '"proxyenv_bridge"' + text.slice(node.value.range[1]) : provider + text;
-  result += `\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv CC Switch"\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n`;
+  result += `\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv CC Switch"\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n`;
   // Reject incompatible inline/dotted table shapes instead of guessing how to rewrite them.
   const verified = getStaticTOMLValue(parseTOML(result, { tomlVersion: '1.0.0' }));
   if (verified.model_provider !== 'proxyenv_bridge' || verified.model_providers?.proxyenv_bridge?.base_url !== `http://127.0.0.1:${port}/v1`) fail();

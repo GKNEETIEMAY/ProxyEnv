@@ -1,4 +1,4 @@
-use super::{local_model, BridgeResult};
+use super::BridgeResult;
 use crate::features::proxy::ProxyEndpoint;
 use reqwest::{
     blocking::Client,
@@ -22,8 +22,6 @@ const MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CHUNK_FRAMING_BYTES: usize = 1024 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
-type Resolver = dyn Fn(&str) -> local_model::ModelResolution + Send + Sync + 'static;
-
 pub struct CodexRelay {
     port: u16,
     stop: Arc<AtomicBool>,
@@ -32,10 +30,10 @@ pub struct CodexRelay {
 
 impl CodexRelay {
     pub fn start(upstream: ProxyEndpoint) -> BridgeResult<Self> {
-        Self::start_with_resolver(upstream, Arc::new(super::settings::resolve))
+        Self::start_inner(upstream)
     }
 
-    fn start_with_resolver(upstream: ProxyEndpoint, resolver: Arc<Resolver>) -> BridgeResult<Self> {
+    fn start_inner(upstream: ProxyEndpoint) -> BridgeResult<Self> {
         let upstream_ip = upstream
             .host
             .parse::<IpAddr>()
@@ -61,10 +59,9 @@ impl CodexRelay {
                     match listener.accept() {
                         Ok((stream, _)) => {
                             let endpoint = upstream.clone();
-                            let resolver = Arc::clone(&resolver);
                             let _ = thread::Builder::new()
                                 .name("proxyenv-codex-request".into())
-                                .spawn(move || handle(stream, endpoint, resolver));
+                                .spawn(move || handle(stream, endpoint));
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(20));
@@ -110,20 +107,16 @@ struct Request {
     body: Vec<u8>,
 }
 
-fn handle(mut downstream: TcpStream, upstream: ProxyEndpoint, resolver: Arc<Resolver>) {
+fn handle(mut downstream: TcpStream, upstream: ProxyEndpoint) {
     let _ = downstream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = downstream.set_write_timeout(Some(IO_TIMEOUT));
     let result = downstream
         .set_nonblocking(false)
         .map_err(|_| "relayUnavailable")
         .and_then(|_| read_request(&mut downstream))
-        .and_then(|request| forward(&mut downstream, upstream, request, resolver));
+        .and_then(|request| forward(&mut downstream, upstream, request));
     if let Err(code) = result {
         let (status, message) = match code {
-            "unsupportedContentEncoding" => (415, "compressed request bodies are not supported"),
-            "localModelAmbiguous" => (422, "the local Codex model is ambiguous"),
-            "localProfileInvalid" => (422, "the local Codex profile is invalid"),
-            "localModelUnresolved" => (422, "the local Codex model could not be resolved"),
             "relayUnavailable" => (502, "the local CC Switch route is unavailable"),
             _ => (400, "the request could not be relayed safely"),
         };
@@ -363,32 +356,6 @@ fn read_chunk_bytes(
     Ok(())
 }
 
-fn is_responses_path(path: &str) -> bool {
-    matches!(path.split('?').next(), Some("/responses" | "/v1/responses"))
-}
-
-fn canonicalize_body(body: &[u8], resolver: &Resolver) -> Result<Vec<u8>, &'static str> {
-    let mut request: serde_json::Value =
-        serde_json::from_slice(body).map_err(|_| "invalidRequest")?;
-    let incoming = request
-        .as_object()
-        .and_then(|object| object.get("model"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|model| !model.is_empty() && model.len() <= 256)
-        .ok_or("invalidRequest")?;
-    let canonical = match resolver(incoming) {
-        local_model::ModelResolution::Resolved(model) => model.canonical_model,
-        local_model::ModelResolution::Ambiguous => return Err("localModelAmbiguous"),
-        local_model::ModelResolution::Unsupported => return Err("localModelUnresolved"),
-        local_model::ModelResolution::Invalid => return Err("localProfileInvalid"),
-    };
-    request
-        .as_object_mut()
-        .expect("validated JSON object")
-        .insert("model".into(), serde_json::Value::String(canonical));
-    serde_json::to_vec(&request).map_err(|_| "invalidRequest")
-}
-
 fn hop_by_hop(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -410,19 +377,8 @@ fn forward(
     downstream: &mut TcpStream,
     upstream: ProxyEndpoint,
     request: Request,
-    resolver: Arc<Resolver>,
 ) -> Result<(), &'static str> {
-    let compressed = request.headers.iter().any(|(name, value)| {
-        name.eq_ignore_ascii_case("content-encoding") && !value.eq_ignore_ascii_case("identity")
-    });
-    let body = if is_responses_path(&request.path) {
-        if compressed {
-            return Err("unsupportedContentEncoding");
-        }
-        canonicalize_body(&request.body, resolver.as_ref())?
-    } else {
-        request.body
-    };
+    let body = request.body;
     let url = format!("http://{}:{}{}", upstream.host, upstream.port, request.path);
     let client = Client::builder()
         .connect_timeout(Duration::from_secs(5))
@@ -473,17 +429,7 @@ fn forward(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use local_model::{EffectiveModel, ResolutionSource};
     use std::{sync::mpsc, time::Instant};
-
-    fn resolved(model: &str) -> local_model::ModelResolution {
-        local_model::ModelResolution::Resolved(EffectiveModel {
-            display_model: Some(model.into()),
-            canonical_model: model.into(),
-            source: ResolutionSource::LocalEffectiveProfile,
-            semantic_hash: "test".into(),
-        })
-    }
 
     fn upstream(
         response_parts: Vec<(&'static [u8], Duration)>,
@@ -539,14 +485,12 @@ mod tests {
     }
 
     #[test]
-    fn responses_request_rewrites_only_model_and_ignores_stale_incoming_value() {
+    fn responses_request_body_is_forwarded_without_semantic_changes() {
         let (upstream, received) = upstream(vec![(
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}",
             Duration::ZERO,
         )]);
-        let relay =
-            CodexRelay::start_with_resolver(upstream, Arc::new(|_| resolved("deepseek-v4-pro")))
-                .unwrap();
+        let relay = CodexRelay::start(upstream).unwrap();
         let body = r#"{"model":"stale-model","input":[1],"tools":[{"type":"x"}],"reasoning":{"effort":"high"},"stream":true}"#;
         let mut stream = send(relay.port(), "/v1/responses", body);
         let mut response = String::new();
@@ -557,7 +501,7 @@ mod tests {
         );
         let forwarded: serde_json::Value =
             serde_json::from_slice(&received.recv().unwrap()).unwrap();
-        assert_eq!(forwarded["model"], "deepseek-v4-pro");
+        assert_eq!(forwarded["model"], "stale-model");
         assert_eq!(forwarded["input"], json!([1]));
         assert_eq!(forwarded["tools"], json!([{"type":"x"}]));
         assert_eq!(forwarded["reasoning"], json!({"effort":"high"}));
@@ -570,9 +514,7 @@ mod tests {
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}",
             Duration::ZERO,
         )]);
-        let relay =
-            CodexRelay::start_with_resolver(upstream, Arc::new(|_| resolved("canonical-model")))
-                .unwrap();
+        let relay = CodexRelay::start(upstream).unwrap();
         let body = r#"{"model":"remote-model","input":"hello"}"#;
         let mut stream = send(
             relay.port(),
@@ -584,7 +526,7 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200"));
         let forwarded: serde_json::Value =
             serde_json::from_slice(&received.recv().unwrap()).unwrap();
-        assert_eq!(forwarded["model"], "canonical-model");
+        assert_eq!(forwarded["model"], "remote-model");
         assert_eq!(forwarded["input"], "hello");
     }
 
@@ -597,14 +539,12 @@ mod tests {
     }
 
     #[test]
-    fn chunked_responses_request_is_decoded_and_canonicalized() {
+    fn chunked_responses_request_is_decoded_without_semantic_changes() {
         let (upstream, received) = upstream(vec![(
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}",
             Duration::ZERO,
         )]);
-        let relay =
-            CodexRelay::start_with_resolver(upstream, Arc::new(|_| resolved("canonical-model")))
-                .unwrap();
+        let relay = CodexRelay::start(upstream).unwrap();
         let mut stream = send_chunked(
             relay.port(),
             "/v1/responses",
@@ -615,7 +555,7 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200"));
         let forwarded: serde_json::Value =
             serde_json::from_slice(&received.recv().unwrap()).unwrap();
-        assert_eq!(forwarded["model"], "canonical-model");
+        assert_eq!(forwarded["model"], "old");
         assert_eq!(forwarded["input"], "hello");
         assert_eq!(forwarded["stream"], true);
     }
@@ -626,9 +566,7 @@ mod tests {
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}",
             Duration::ZERO,
         )]);
-        let relay =
-            CodexRelay::start_with_resolver(upstream, Arc::new(|_| resolved("canonical-model")))
-                .unwrap();
+        let relay = CodexRelay::start(upstream).unwrap();
         let body = r#"{"model":"old"}"#;
         let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, relay.port())).unwrap();
         write!(
@@ -651,7 +589,7 @@ mod tests {
         );
         let forwarded: serde_json::Value =
             serde_json::from_slice(&received.recv().unwrap()).unwrap();
-        assert_eq!(forwarded["model"], "canonical-model");
+        assert_eq!(forwarded["model"], "old");
     }
 
     #[test]
@@ -660,11 +598,7 @@ mod tests {
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}",
             Duration::ZERO,
         )]);
-        let relay = CodexRelay::start_with_resolver(
-            upstream,
-            Arc::new(|_| local_model::ModelResolution::Invalid),
-        )
-        .unwrap();
+        let relay = CodexRelay::start(upstream).unwrap();
         let body = r#"{"model":"claude-sonnet","messages":[]}"#;
         let mut stream = send(relay.port(), "/v1/messages", body);
         let mut response = String::new();
@@ -679,9 +613,7 @@ mod tests {
             b"HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nX-Request-Id: fixed-test\r\nContent-Length: 26\r\n\r\n{\"error\":\"quota exceeded\"}",
             Duration::ZERO,
         )]);
-        let relay =
-            CodexRelay::start_with_resolver(upstream, Arc::new(|_| resolved("canonical-model")))
-                .unwrap();
+        let relay = CodexRelay::start(upstream).unwrap();
         let mut stream = send(relay.port(), "/responses", r#"{"model":"old"}"#);
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
@@ -691,25 +623,17 @@ mod tests {
     }
 
     #[test]
-    fn unresolved_model_fails_without_contacting_upstream() {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let upstream = ProxyEndpoint {
-            host: "127.0.0.1".into(),
-            port: listener.local_addr().unwrap().port(),
-            protocol: crate::features::proxy::ProxyProtocol::Http,
-        };
-        let relay = CodexRelay::start_with_resolver(
-            upstream,
-            Arc::new(|_| local_model::ModelResolution::Unsupported),
-        )
-        .unwrap();
+    fn model_resolver_is_not_consulted_at_runtime() {
+        let (upstream, received) = upstream(vec![(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}",
+            Duration::ZERO,
+        )]);
+        let relay = CodexRelay::start(upstream).unwrap();
         let mut stream = send(relay.port(), "/responses", r#"{"model":"unknown"}"#);
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
-        assert!(response.contains("localModelUnresolved"));
-        thread::sleep(Duration::from_millis(40));
-        assert!(listener.accept().is_err());
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert_eq!(received.recv().unwrap(), br#"{"model":"unknown"}"#);
     }
 
     #[test]
@@ -721,8 +645,7 @@ mod tests {
             ),
             (b"data: second\n\n", Duration::ZERO),
         ]);
-        let relay =
-            CodexRelay::start_with_resolver(upstream, Arc::new(|_| resolved("model"))).unwrap();
+        let relay = CodexRelay::start(upstream).unwrap();
         let mut stream = send(relay.port(), "/responses", r#"{"model":"old"}"#);
         stream
             .set_read_timeout(Some(Duration::from_millis(40)))

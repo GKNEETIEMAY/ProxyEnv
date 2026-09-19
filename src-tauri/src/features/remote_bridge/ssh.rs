@@ -859,7 +859,32 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
     } else {
         "http"
     };
-    let source = format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nrepair_permissions={repair_permissions}\nscheme='{scheme}'\n{}", ports.join(" "), include_str!("remote.sh"));
+    let profile_model = request["profileModelBase64"].as_str().unwrap_or("");
+    let profile_catalog = request["profileCatalogBase64"].as_str().unwrap_or("");
+    let profile_settings = request["profileSettingsBase64"].as_str().unwrap_or("");
+    let profile_hash = request["profileHash"].as_str().unwrap_or("");
+    let valid_base64 = |value: &str, limit: usize| {
+        value.len() <= limit
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+    };
+    if !valid_base64(profile_model, 512)
+        || !valid_base64(profile_catalog, 11 * 1024 * 1024)
+        || !valid_base64(profile_settings, 256 * 1024)
+        || (!profile_hash.is_empty()
+            && !(profile_hash.len() == 64
+                && profile_hash.bytes().all(|byte| byte.is_ascii_hexdigit())))
+        || (tool == "codex"
+            && matches!(operation, "preview" | "apply")
+            && (profile_model.is_empty() || profile_catalog.is_empty() || profile_hash.is_empty()))
+        || (tool == "claude"
+            && matches!(operation, "preview" | "apply")
+            && (profile_settings.is_empty() || profile_hash.is_empty()))
+    {
+        return Err("invalidRequest".into());
+    }
+    let source = format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nrepair_permissions={repair_permissions}\nscheme='{scheme}'\nprofile_model_b64='{profile_model}'\nprofile_catalog_b64='{profile_catalog}'\nprofile_settings_b64='{profile_settings}'\nprofile_hash='{profile_hash}'\n{}", ports.join(" "), include_str!("remote.sh"));
     let operation = match operation {
         "check" => "check",
         "verify" => "verify",
@@ -888,6 +913,17 @@ pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<s
             "portInUse",
             "unsafePath",
             "configConflict",
+            "legacyModelSelectionRequired",
+            "localCodexProfileInvalid",
+            "localClaudeProfileInvalid",
+            "localCatalogMissing",
+            "localCatalogUnsafe",
+            "remoteProfileConflict",
+            "remoteProfileOutOfSync",
+            "remoteCatalogWriteFailed",
+            "remoteConfigWriteFailed",
+            "profileVerifyFailed",
+            "codexRestartRequired",
             "routeOutdated",
             "cliMissing",
             "cliUnsupported",
@@ -921,6 +957,16 @@ pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<s
                     || value["previousPort"]
                         .as_u64()
                         .is_some_and(|port| (1024..=65535).contains(&port)))
+                && (value["remoteModel"].is_null()
+                    || value["remoteModel"].as_str().is_some_and(|model| {
+                        !model.is_empty()
+                            && model.len() <= 256
+                            && !model.chars().any(char::is_control)
+                    }))
+                && value["profileHash"].as_str().is_some_and(|hash| {
+                    hash.is_empty()
+                        || (hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                })
         }
         "restore" => value["configured"] == false,
         "tool-verify" => matches!(

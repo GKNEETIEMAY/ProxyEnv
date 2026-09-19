@@ -172,7 +172,7 @@ fn checked_inspection(value: serde_json::Value) -> BridgeResult<Inspection> {
 }
 pub fn inspect(alias: String) -> BridgeResult<Inspection> {
     let fingerprint = ssh::fingerprint(&alias)?;
-    let inspection = checked_inspection(ssh::extension_remote(
+    let mut inspection = checked_inspection(ssh::extension_remote(
         &alias,
         &json!({"operation":"inspect"}),
     )?)?;
@@ -181,12 +181,25 @@ pub fn inspect(alias: String) -> BridgeResult<Inspection> {
     }
     let mut state = lock()?;
     if state.summary.target.as_ref().map(|target| &target.id) == Some(&alias) {
+        if state.summary.codex_configured
+            && inspection.extensions[0].detected
+            && inspection.extensions[0].configuration == "notConfigured"
+        {
+            // Remote Codex CLI and the VS Code extension read the same user
+            // profile. M7.5 owns that file once through the CLI transaction.
+            inspection.extensions[0].configuration = "configured".into();
+        }
         state.summary.codex_extension = Some(inspection.extensions[0].configuration.clone());
         state.summary.claude_extension = Some(inspection.extensions[1].configuration.clone());
     }
     Ok(inspection)
 }
 pub fn preview(selection: Selection) -> BridgeResult<Preview> {
+    // Codex extension profile synchronization belongs to M9. M7.5 only owns
+    // the remote CLI profile; legacy extension state may still be restored.
+    if selection.tool == "codex" && !selection.restore {
+        return Err("extensionUnsupported".into());
+    }
     if !selection.restore && !selection.remote_confirmed {
         return Err("extensionLocationRequired".into());
     }

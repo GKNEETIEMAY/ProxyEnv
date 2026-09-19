@@ -18,6 +18,7 @@ import {
   type PortAllocation,
   type RemoteTarget,
   type RemoteToolVerification,
+  type ProfileSyncState,
   type SshAuthOperation,
   type SshAuthSnapshot,
 } from "../state";
@@ -135,6 +136,20 @@ function toolVerificationLabel(verification: RemoteToolVerification): string {
     timedOut: props.copy.rbToolVerifyTimedOut,
     failed: props.copy.rbToolVerifyFailed,
   })[verification];
+}
+
+function claudeProfileLabel(state: ProfileSyncState | undefined): string {
+  return ({
+    disabled: props.copy.rbProfileDisabled,
+    notStarted: props.copy.rbProfileNotStarted,
+    synced: props.copy.rbProfileSynced,
+    localChanged: props.copy.rbProfileLocalChanged,
+    remoteChanged: props.copy.rbProfileRemoteChanged,
+    conflict: props.copy.rbProfileConflict,
+    invalidLocalProfile: props.copy.rbProfileInvalid,
+    remoteUnavailable: props.copy.rbProfileUnavailable,
+    restartRequired: props.copy.rbExtPending,
+  })[state ?? "notStarted"];
 }
 
 function bridgeCheckState(status: BridgeSummary["status"] | null, enabled = true): CheckState {
@@ -447,9 +462,19 @@ function restore(tool: RemoteToolId, id = targetId.value) {
   toolDialog.value?.open(tool, id, true, targetLabel(target), true);
 }
 
-function toggleTool(tool: RemoteToolId, configured: boolean) {
-  if (configured) restore(tool, props.summary.target?.id ?? targetId.value);
-  else configure(tool);
+function toggleTool(adapter: RemoteToolAdapter, configured: boolean) {
+  const target = props.summary.target ?? selectedTarget.value;
+  if (!target) return;
+  if (!adapter.directToggle) {
+    if (configured) restore(adapter.id, target.id);
+    else configure(adapter.id);
+    return;
+  }
+  void perform(async () => {
+    const preview = await adapter.preview(target.id, configured);
+    if (configured) await adapter.restore(preview.id);
+    else await adapter.apply(preview.id);
+  });
 }
 
 function verifyTool(adapter: RemoteToolAdapter) {
@@ -666,10 +691,10 @@ onBeforeUnmount(() => {
               <h3>{{ copy.rbCcUseTitle }}</h3>
               <div class="remote-tool-access-list">
                 <label v-for="tool in remoteTools" :key="tool.adapter.id" class="remote-tool-access">
-                  <span class="remote-tool-access-copy"><strong>{{ tool.adapter.displayName }}</strong><small>{{ toolVerificationLabel(tool.inspection.verification) }}</small></span>
+                  <span class="remote-tool-access-copy"><strong>{{ tool.adapter.displayName }}</strong><small>{{ toolVerificationLabel(tool.inspection.verification) }}</small><small v-if="tool.adapter.id === 'claude' && tool.inspection.configured">{{ claudeProfileLabel(summary.claudeProfileState) }}</small></span>
                   <span class="remote-tool-access-control">
                     <span>{{ tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled }}</span>
-                    <input class="switch-input" type="checkbox" role="switch" :checked="tool.inspection.configured" :aria-label="`${tool.adapter.displayName} · ${tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled}`" @click.prevent="toggleTool(tool.adapter.id, tool.inspection.configured)" />
+                    <input class="switch-input" type="checkbox" role="switch" :checked="tool.inspection.configured" :disabled="busy" :aria-label="`${tool.adapter.displayName} · ${tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled}`" @click.prevent="toggleTool(tool.adapter, tool.inspection.configured)" />
                   </span>
                 </label>
               </div>

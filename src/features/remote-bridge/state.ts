@@ -17,14 +17,11 @@ export interface SshAuthOutcome { operation: SshAuthOperation; ports: PortAlloca
 export interface RemoteTarget { id: string; displayName: string; source: RemoteTargetSource; sourceLabel: string; configPath: string; sshAlias: string | null; host: string | null; user: string | null; port: number | null; identityFile: string | null; available: boolean; compatibility: "compatible" | "unsupported"; unavailableReason: string | null; canOpenVscode: boolean }
 export interface BridgeEndpoint { local: ProxyEndpoint; remotePort: number }
 export type RemoteToolVerification = "notConfigured" | "verifyPending" | "verified" | "authenticationRequired" | "routeUnavailable" | "timedOut" | "failed";
-export interface RemoteToolState { id: RemoteToolId; displayName: string; configured: boolean; verification: RemoteToolVerification; verificationSupported: boolean; supportedRouteModes: "ccSwitch"[]; requestPolicy: "passthrough" | "localEffectiveModel" }
-export type ModelResolutionState = "resolved" | "ambiguous" | "unsupported" | "invalid";
-export type CompatibilityValidationState = "valid" | "stale" | "ambiguous" | "invalid";
-export interface CompatibilityRule { id:string; incomingModel:string; localDisplayModel:string; canonicalModel:string; enabled:boolean; createdAt:string; updatedAt:string }
-export interface CompatibilityRuleStatus extends CompatibilityRule { validationState:CompatibilityValidationState }
-export interface RemoteBridgeModelSettings { followLocalCodexModel:boolean; compatibilityRules:CompatibilityRuleStatus[]; localModelState:ModelResolutionState; displayModel:string|null; canonicalModel:string|null }
+export interface RemoteToolState { id: RemoteToolId; displayName: string; configured: boolean; verification: RemoteToolVerification; verificationSupported: boolean; supportedRouteModes: "ccSwitch"[]; requestPolicy: "passthrough"; configProjection: "routeOnly" | "routeAndClientProfile" }
+export type ProfileSyncState = "disabled" | "notStarted" | "synced" | "localChanged" | "remoteChanged" | "conflict" | "invalidLocalProfile" | "remoteUnavailable" | "restartRequired";
+export interface RemoteBridgeModelSettings { followLocalCodexProfile:boolean; profileState:ProfileSyncState; model:string|null; profileHash:string|null }
 export interface ToolVerificationResult { tool: RemoteToolId; verification: RemoteToolVerification }
-export interface BridgeSummary { status: BridgeStatus; target: RemoteTarget | null; proxy: BridgeEndpoint | null; cc: BridgeEndpoint | null; proxyStatus: BridgeStatus | null; ccStatus: BridgeStatus | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; tools?: RemoteToolState[]; codexExtension?: string | null; claudeExtension?: string | null; error: string | null; sshAuth: SshAuthState }
+export interface BridgeSummary { status: BridgeStatus; target: RemoteTarget | null; proxy: BridgeEndpoint | null; cc: BridgeEndpoint | null; proxyStatus: BridgeStatus | null; ccStatus: BridgeStatus | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; claudeProfileState?: ProfileSyncState; tools?: RemoteToolState[]; codexExtension?: string | null; claudeExtension?: string | null; error: string | null; sshAuth: SshAuthState }
 export interface BridgeRequest { targetId: string; proxyPort: number | null; ccPort: number | null; ccLocalPort: number; expectedRevision: number }
 export interface PortAllocation { proxyPort: number; ccPort: number }
 export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
@@ -63,7 +60,7 @@ export const emptySummary = (): BridgeSummary => ({ status:"disconnected", targe
 export const targetLabel = (target:RemoteTarget|null|undefined) => target ? `${target.displayName} · ${target.sourceLabel}` : "";
 export const remoteBackend = {
   modelSettings: () => invoke<RemoteBridgeModelSettings>("remote_bridge_model_settings"),
-  saveModelSettings: (settings: { followLocalCodexModel:boolean; compatibilityRules:CompatibilityRule[] }) => invoke<RemoteBridgeModelSettings>("remote_bridge_save_model_settings", { settings }),
+  saveModelSettings: (settings: { followLocalCodexProfile:boolean }) => invoke<RemoteBridgeModelSettings>("remote_bridge_save_model_settings", { settings }),
   extensionInspect: (targetId: string) => invoke<ExtensionInspection>("remote_bridge_extension_inspect", { targetId }),
   extensionPreview: (selection: { alias: string; tool: RemoteToolId; contextHash: string; remoteConfirmed: boolean; restore: boolean }) => invoke<ExtensionPreview>("remote_bridge_extension_preview", { selection }),
   extensionApply: (id: string) => invoke<void>("remote_bridge_extension_apply", { id, confirmed: true }),

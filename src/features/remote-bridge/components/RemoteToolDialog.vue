@@ -5,7 +5,7 @@ import { bridgeError, bridgeErrorCode } from '../../../shared/i18n/remote-bridge
 import { copyText } from '../../../shared/utils/clipboard';
 import type { CheckState } from '../../../shared/types';
 import StatusIndicator from '../../../shared/components/StatusIndicator.vue';
-import { remoteBackend, type CompatibilityRule, type ConfigPreview, type ExtensionInspection, type ExtensionPreview, type RemoteBridgeModelSettings } from '../state';
+import { remoteBackend, type ConfigPreview, type ExtensionInspection, type ExtensionPreview, type RemoteBridgeModelSettings } from '../state';
 import { getRemoteToolAdapter, type RemoteToolId } from '../tool-adapters';
 
 const props = defineProps<{ copy: RemoteBridgeCopy; sessionAlias: string | null; sessionStatus: string }>();
@@ -27,11 +27,13 @@ const operationSurface = ref<'cli' | 'extension'>('cli');
 const modelSettings = ref<RemoteBridgeModelSettings>();
 const modelSettingsBusy = ref(false);
 const modelSettingsError = ref(false);
-const ruleDraft = ref({ incomingModel:'', localDisplayModel:'', canonicalModel:'' });
 let previousFocus: HTMLElement | null = null;
 let generation = 0;
 const capability = computed(() => inspection.value?.extensions.find(e => e.tool === tool.value));
 const adapter = computed(() => getRemoteToolAdapter(tool.value));
+const sharedExtensionProfile = computed(() => adapter.value.extensionUsesSharedProfile && extension.value && !restoring.value);
+const profileSurfaceSelected = computed(() => cli.value || sharedExtensionProfile.value);
+const cliPreviewLabel = computed(() => sharedExtensionProfile.value ? props.copy.rbProfileTitle : props.copy.rbExtCli);
 const path = computed(() => adapter.value.usesVscodeRemoteSettings
   ? inspection.value?.vscode.remoteSettingsPath || props.copy.rbVscodeRemoteSettings
   : adapter.value.extensionPath);
@@ -66,38 +68,34 @@ const after = computed(() => {
   if (p.restore) return p.originalExists ? props.copy.rbExtRestoreOpaque : props.copy.rbExtRestoreAbsent;
   return adapter.value.renderExtensionPreview(p.port);
 });
-const modelStateLabel = computed(() => ({ resolved:props.copy.rbModelResolved, ambiguous:props.copy.rbModelAmbiguous, unsupported:props.copy.rbModelUnsupported, invalid:props.copy.rbModelInvalid })[modelSettings.value?.localModelState || 'unsupported']);
-const ruleStateLabel = (state:string) => ({ valid:props.copy.rbModelRuleValid, stale:props.copy.rbModelRuleStale, ambiguous:props.copy.rbModelRuleAmbiguous, invalid:props.copy.rbModelRuleInvalid })[state as 'valid'|'stale'|'ambiguous'|'invalid'];
-const editableRules = (): CompatibilityRule[] => (modelSettings.value?.compatibilityRules || []).map(({ validationState:_, ...rule }) => rule);
+const profileStateLabel = computed(() => ({
+  disabled: props.copy.rbProfileDisabled,
+  notStarted: props.copy.rbProfileNotStarted,
+  synced: props.copy.rbProfileSynced,
+  localChanged: props.copy.rbProfileLocalChanged,
+  remoteChanged: props.copy.rbProfileRemoteChanged,
+  conflict: props.copy.rbProfileConflict,
+  invalidLocalProfile: props.copy.rbProfileInvalid,
+  remoteUnavailable: props.copy.rbProfileUnavailable,
+  restartRequired: props.copy.rbProfileRestartRequired,
+})[modelSettings.value?.profileState || 'notStarted']);
 async function loadModelSettings() {
-  if (tool.value !== 'codex' || restoring.value) return;
+  if (!adapter.value.supportsProfileSync || restoring.value) return;
   modelSettingsBusy.value = true; modelSettingsError.value = false;
   try { modelSettings.value = await remoteBackend.modelSettings(); }
   catch { modelSettingsError.value = true; }
   finally { modelSettingsBusy.value = false; }
 }
-async function saveModelSettings(followLocalCodexModel:boolean, compatibilityRules:CompatibilityRule[]) {
+async function saveModelSettings(followLocalCodexProfile:boolean) {
   if (modelSettingsBusy.value) return;
   modelSettingsBusy.value = true; modelSettingsError.value = false;
-  try { modelSettings.value = await remoteBackend.saveModelSettings({ followLocalCodexModel, compatibilityRules }); }
+  try { modelSettings.value = await remoteBackend.saveModelSettings({ followLocalCodexProfile }); }
   catch { modelSettingsError.value = true; }
   finally { modelSettingsBusy.value = false; }
 }
 function toggleModelFollow(event:Event) {
   const checked = (event.target as HTMLInputElement).checked;
-  void saveModelSettings(checked, editableRules());
-}
-function addRule() {
-  const incomingModel=ruleDraft.value.incomingModel.trim(), localDisplayModel=ruleDraft.value.localDisplayModel.trim(), canonicalModel=ruleDraft.value.canonicalModel.trim();
-  if (!incomingModel || !localDisplayModel || !canonicalModel || !modelSettings.value) return;
-  const now=new Date().toISOString();
-  const rule:CompatibilityRule={id:crypto.randomUUID(),incomingModel,localDisplayModel,canonicalModel,enabled:true,createdAt:now,updatedAt:now};
-  ruleDraft.value={incomingModel:'',localDisplayModel:'',canonicalModel:''};
-  void saveModelSettings(modelSettings.value.followLocalCodexModel,[...editableRules(),rule]);
-}
-function removeRule(id:string) {
-  if (!modelSettings.value) return;
-  void saveModelSettings(modelSettings.value.followLocalCodexModel,editableRules().filter(rule => rule.id !== id));
+  void saveModelSettings(checked);
 }
 async function perform(action: () => Promise<void>) {
   if (busy.value) return;
@@ -139,13 +137,13 @@ function review() {
   const current = generation;
   void perform(async () => {
     cliPreview.value = undefined; extensionPreview.value = undefined;
-    if (cli.value) {
+    if (profileSurfaceSelected.value) {
       operationSurface.value = 'cli';
       const result = await adapter.value.preview(alias.value, restoring.value);
       if (current !== generation) return;
       cliPreview.value = result;
     }
-    if (extension.value && inspection.value) {
+    if (extension.value && inspection.value && !sharedExtensionProfile.value) {
       operationSurface.value = 'extension';
       const result = await remoteBackend.extensionPreview({ alias: alias.value, tool: tool.value, contextHash: inspection.value.contextHash, remoteConfirmed: locationConfirmed.value, restore: restoring.value });
       if (current !== generation) return;
@@ -165,6 +163,10 @@ function apply() {
         if (restoring.value) await adapter.value.restore(cliPreview.value.id);
         else await adapter.value.apply(cliPreview.value.id);
         cliResult.value = 'success';
+        if (sharedExtensionProfile.value) {
+          extensionResult.value = 'success';
+          try { inspection.value = await remoteBackend.extensionInspect(alias.value); } catch { /* Applied profile remains authoritative. */ }
+        }
       } catch(cause) { cliResult.value = 'failed'; throw cause; }
     }
     if (extensionPreview.value) {
@@ -193,20 +195,15 @@ defineExpose({ open, close });
         <template v-if="phase === 'select'">
           <label class="remote-choice"><input v-model="cli" type="checkbox">{{ copy.rbExtCli }}</label>
           <p v-if="cli" class="remote-hint">{{ restoring ? copy.rbExtRestoreImpact : adapter.configHint(copy) }}</p>
-          <section v-if="tool === 'codex' && !restoring" class="model-routing" :aria-busy="modelSettingsBusy">
-            <div class="model-routing-heading"><h3>{{ copy.rbModelTitle }}</h3><span v-if="modelSettings" class="model-status">{{ modelStateLabel }}</span></div>
-            <label class="remote-choice"><input type="checkbox" :checked="modelSettings?.followLocalCodexModel ?? true" :disabled="modelSettingsBusy || !modelSettings" @change="toggleModelFollow">{{ copy.rbModelFollow }}</label>
-            <p class="remote-hint">{{ copy.rbModelFollowHint }}</p>
-            <dl v-if="modelSettings" class="model-current"><dt>{{ copy.rbModelCurrent }}</dt><dd><strong>{{ modelSettings.displayModel || copy.rbModelUnsupported }}</strong><code v-if="modelSettings.canonicalModel">{{ modelSettings.canonicalModel }}</code></dd></dl>
-            <details v-if="modelSettings" class="model-rules"><summary>{{ copy.rbModelRules }} <span>({{ modelSettings.compatibilityRules.length }})</span></summary>
-              <p class="remote-hint">{{ copy.rbModelRulesHint }}</p>
-              <div v-for="rule in modelSettings.compatibilityRules" :key="rule.id" class="model-rule"><div><strong>{{ rule.incomingModel }}</strong><span>→ {{ rule.canonicalModel }}</span><small>{{ ruleStateLabel(rule.validationState) }}</small></div><button type="button" class="text-action" :disabled="modelSettingsBusy" @click="removeRule(rule.id)">{{ copy.rbModelRemove }}</button></div>
-              <p v-if="!modelSettings.compatibilityRules.length" class="remote-hint">{{ copy.rbModelNoRules }}</p>
-              <div class="model-rule-editor"><label>{{ copy.rbModelIncoming }}<input v-model="ruleDraft.incomingModel" maxlength="256"></label><label>{{ copy.rbModelDisplay }}<input v-model="ruleDraft.localDisplayModel" maxlength="512"></label><label>{{ copy.rbModelCanonical }}<input v-model="ruleDraft.canonicalModel" maxlength="256"></label><button type="button" class="secondary-action" :disabled="modelSettingsBusy" @click="addRule">{{ copy.rbModelAdd }}</button></div>
-            </details>
+          <section v-if="adapter.supportsProfileSync && !restoring" class="model-routing" :aria-busy="modelSettingsBusy">
+            <div class="model-routing-heading"><h3>{{ copy.rbProfileTitle }}</h3><span v-if="modelSettings" class="model-status">{{ profileStateLabel }}</span></div>
+            <label class="remote-choice"><input type="checkbox" :checked="modelSettings?.followLocalCodexProfile ?? true" :disabled="modelSettingsBusy || !modelSettings" @change="toggleModelFollow">{{ copy.rbProfileFollow }}</label>
+            <p class="remote-hint">{{ copy.rbProfileHint }}</p>
+            <dl v-if="modelSettings" class="model-current"><dt>{{ copy.rbProfileModel }}</dt><dd><strong>{{ modelSettings.model || copy.rbProfileInvalid }}</strong></dd></dl>
+            <p class="remote-hint">{{ copy.rbProfilePrivacy }}</p>
             <p v-if="modelSettingsError" role="alert" class="remote-error">{{ copy.rbModelSaveError }}</p>
           </section>
-          <label class="remote-choice"><input v-model="extension" type="checkbox">{{ copy.rbExtGui }}</label>
+          <label v-if="adapter.supportsExtensionConfiguration || restoring" class="remote-choice"><input v-model="extension" type="checkbox">{{ copy.rbExtGui }}</label>
           <section v-if="extension" class="remote-capability">
             <p class="remote-hint">{{ copy.rbExtLocation }}</p>
             <button type="button" class="secondary-action" @click="inspect">{{ inspection ? copy.rbExtReinspect : copy.rbExtInspect }}</button>
@@ -233,13 +230,13 @@ defineExpose({ open, close });
           </section>
         </template>
         <template v-else-if="phase === 'preview'">
-          <section v-if="cliPreview" class="remote-capability"><h3>{{ copy.rbExtCli }}</h3><p><code>{{ cliPreview.path }}</code></p><p v-if="cliPreview.permissionHardening" class="notice notice-warning">{{ copy.rbPermissionHardeningHint }}</p><p v-if="cliPreview.routeUpdate" class="notice notice-warning">{{ copy.rbRouteUpdateHint }}</p><h4>{{ copy.rbBefore }}</h4><pre>{{ cliPreview.before || (cliPreview.existingConfig ? copy.rbExistingConfigProtected : copy.rbAbsent) }}</pre><h4>{{ copy.rbAfter }}</h4><pre>{{ cliPreview.after || (cliPreview.existingConfig ? copy.rbExistingConfigProtected : copy.rbAbsent) }}</pre><p class="notice notice-warning">{{ restoring ? copy.rbRestoreHint : copy.rbConfigBackupHint }}</p></section>
+          <section v-if="cliPreview" class="remote-capability"><h3>{{ cliPreviewLabel }}</h3><p><code>{{ cliPreview.path }}</code></p><p v-if="cliPreview.permissionHardening" class="notice notice-warning">{{ copy.rbPermissionHardeningHint }}</p><p v-if="cliPreview.routeUpdate" class="notice notice-warning">{{ copy.rbRouteUpdateHint }}</p><h4>{{ copy.rbBefore }}</h4><pre>{{ cliPreview.before || (cliPreview.existingConfig ? copy.rbExistingConfigProtected : copy.rbAbsent) }}</pre><h4>{{ copy.rbAfter }}</h4><pre>{{ cliPreview.after || (cliPreview.existingConfig ? copy.rbExistingConfigProtected : copy.rbAbsent) }}</pre><p class="notice notice-warning">{{ restoring ? copy.rbRestoreHint : copy.rbConfigBackupHint }}</p></section>
           <section v-if="extensionPreview" class="remote-capability"><h3>{{ copy.rbExtGui }}</h3><p><code>{{ extensionPreview.path }}</code></p><h4>{{ copy.rbBefore }}</h4><p>{{ copy.rbExtOpaque }}</p><p v-if="extensionPreview.previousPort"><code>127.0.0.1:{{ extensionPreview.previousPort }}</code></p><p v-if="extensionPreview.loginPromptChange === 'overrideFalse'" class="notice notice-warning">{{ copy.rbExtLoginPromptConflict }}</p><h4>{{ copy.rbAfter }}</h4><pre>{{ after }}</pre><p class="notice notice-warning">{{ impact }}</p></section>
           <p v-if="restoring" class="remote-hint">{{ copy.rbExtRestoreScope }}</p>
         </template>
         <template v-else>
-          <StatusIndicator v-if="cliPreview" :state="resultState(cliResult)" :label="`${copy.rbExtCli} · ${outcome(cliResult)}`" />
-          <StatusIndicator v-if="extensionPreview" :state="resultState(extensionResult)" :label="`${copy.rbExtGui} · ${outcome(extensionResult)}`" />
+          <StatusIndicator v-if="cliPreview" :state="resultState(cliResult)" :label="`${cliPreviewLabel} · ${outcome(cliResult)}`" />
+          <StatusIndicator v-if="extensionPreview || sharedExtensionProfile" :state="resultState(extensionResult)" :label="`${copy.rbExtGui} · ${outcome(extensionResult)}`" />
           <p v-if="error && (cliResult === 'success' || extensionResult === 'success')" class="notice notice-warning">{{ copy.rbExtPartial }}</p>
           <p v-if="extensionResult === 'success'" class="remote-hint">{{ restoring ? copy.rbExtRestored : copy.rbExtRestart }}</p>
           <template v-if="cliResult === 'success' && cliPreview?.launch && !restoring"><p class="remote-success">{{ copy.rbCliOverlayReady }}</p><p><code>{{ cliPreview.path }}</code></p><pre>{{ cliPreview.launch }}</pre><button class="secondary-action" type="button" @click="perform(async () => { await copyText(cliPreview!.launch); copied = true; })">{{ copied ? copy.rbCopied : copy.rbCopyLaunch }}</button></template>
@@ -286,14 +283,6 @@ defineExpose({ open, close });
 .model-current { display:grid; grid-template-columns:minmax(120px,.42fr) 1fr; gap:12px; margin:12px 0; }
 .model-current dt { color:var(--muted); }
 .model-current dd { display:flex; flex-wrap:wrap; gap:6px 12px; margin:0; }
-.model-rules summary { cursor:pointer; font-weight:650; }
-.model-rule { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--line); }
-.model-rule > div { display:flex; flex-wrap:wrap; gap:5px 10px; min-width:0; }
-.model-rule small { color:var(--muted); }
-.text-action { border:0; background:none; color:var(--accent); cursor:pointer; }
-.model-rule-editor { display:grid; gap:9px; margin-top:12px; }
-.model-rule-editor label { display:grid; gap:5px; color:var(--muted); font-size:.84rem; }
-.model-rule-editor input { width:100%; box-sizing:border-box; }
 @media (max-width: 560px) {
   .remote-context-facts > div { grid-template-columns: 1fr; gap: 3px; }
 }

@@ -71,6 +71,22 @@ is_safe_user_content() {
   fi
 }
 safe_user_content() { is_safe_user_content "$1" || fail unsafePath; }
+is_safe_profile_catalog() {
+  [ ! -L "$1" ] || return 1
+  if [ -e "$1" ]; then
+    [ -f "$1" ] || return 1
+    [ "$(stat -c %u "$1")" = "$(id -u)" ] || return 1
+    [ "$(stat -c %h "$1")" = 1 ] || return 1
+    [ "$(stat -c %s "$1")" -le 8388608 ] || return 1
+    mode=$(stat -c %a "$1")
+    [ $((0$mode & 002)) -eq 0 ] || return 1
+    if [ $((0$mode & 020)) -ne 0 ]; then
+      [ "$(stat -c %g "$1")" = "$(id -g)" ] || return 1
+      [ "$(id -gn)" = "$(id -un)" ] || return 1
+    fi
+  fi
+}
+safe_profile_catalog() { is_safe_profile_catalog "$1" || fail unsafePath; }
 is_repairable_user_content() {
   [ ! -L "$1" ] || return 1
   if [ -e "$1" ]; then
@@ -134,6 +150,7 @@ if [ "$tool" = codex ]; then
   directory="$HOME/.codex"
   file="$directory/config.toml"
   codex_catalog="$directory/.proxyenv-bridge-model-catalog.json"
+  profile_catalog="$directory/proxyenv-codex-model-catalog.json"
 else
   [ -z "${CLAUDE_CONFIG_DIR:-}" ] || fail customHome
   directory="$HOME/.claude"
@@ -150,7 +167,7 @@ fi
 [ ! -e "$file" ] || [ -f "$file" ] || fail unsafePath
 render() {
   if [ "$tool" = codex ]; then
-    printf 'model_provider = "proxyenv_bridge"\nmodel = "proxyenv-bridge"\nmodel_catalog_json = ".proxyenv-bridge-model-catalog.json"\n\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv Local Bridge"\nbase_url = "http://127.0.0.1:%s/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n' "$1"
+    printf 'model_provider = "proxyenv_bridge"\n\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv Local Bridge"\nbase_url = "http://127.0.0.1:%s/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n' "$1"
   else
     printf '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:%s","ANTHROPIC_AUTH_TOKEN":"PROXY_MANAGED"}}\n' "$1"
   fi
@@ -165,8 +182,10 @@ claude_json() {
   action="$1"
   source_file="$2"
   argument="${3:-0}"
-  "$config_python" - "$action" "$source_file" "$argument" <<'PY'
+  profile_file="${4:-}"
+  "$config_python" - "$action" "$source_file" "$argument" "$profile_file" <<'PY'
 import json
+import hashlib
 import io
 import os
 import re
@@ -180,7 +199,29 @@ def object_without_duplicates(pairs):
         result[key] = value
     return result
 
-action, path, argument = sys.argv[1:]
+action, path, argument, profile_path = sys.argv[1:]
+MODEL_KEYS = ("model", "availableModels", "modelOverrides", "effortLevel", "alwaysThinkingEnabled")
+
+def model_env_key(key):
+    return (key in ("ANTHROPIC_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL", "ANTHROPIC_CUSTOM_MODEL_OPTION")
+            or any(key == "ANTHROPIC_DEFAULT_{0}_{1}".format(tier, field)
+                   for tier in ("OPUS", "SONNET", "HAIKU", "FABLE")
+                   for field in ("MODEL", "MODEL_NAME")))
+
+def load_profile():
+    if not profile_path:
+        return {}
+    try:
+        with io.open(profile_path, "r", encoding="utf-8") as source:
+            profile = json.load(source, object_pairs_hook=object_without_duplicates)
+        if not isinstance(profile, dict) or any(key not in MODEL_KEYS + ("env",) for key in profile):
+            raise ValueError("invalid profile")
+        profile_env = profile.get("env", {})
+        if not isinstance(profile_env, dict) or any(not model_env_key(key) for key in profile_env):
+            raise ValueError("invalid profile env")
+        return profile
+    except (IOError, OSError, UnicodeError, ValueError, TypeError):
+        sys.exit(42)
 try:
     if os.path.exists(path):
         with io.open(path, "r", encoding="utf-8") as source:
@@ -195,7 +236,17 @@ try:
 except (IOError, OSError, UnicodeError, ValueError):
     sys.exit(42)
 
-if action == "inspect":
+if action == "profile-hash":
+    projected = {}
+    for key in MODEL_KEYS:
+        if key in config:
+            projected[key] = config[key]
+    projected_env = dict((key, value) for key, value in env.items() if model_env_key(key))
+    if projected_env:
+        projected["env"] = projected_env
+    payload = json.dumps(projected, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    print(hashlib.sha256(payload).hexdigest())
+elif action == "inspect":
     base_url = env.get("ANTHROPIC_BASE_URL")
     auth_token = env.get("ANTHROPIC_AUTH_TOKEN")
     other_auth = any(key in env for key in (
@@ -211,7 +262,17 @@ elif action == "render":
     route_port = int(argument)
     if not 1024 <= route_port <= 65535:
         sys.exit(42)
+    profile = load_profile()
+    for key in MODEL_KEYS:
+        config.pop(key, None)
+    for key in MODEL_KEYS:
+        if key in profile:
+            config[key] = profile[key]
     env = dict(env)
+    for key in list(env):
+        if model_env_key(key):
+            env.pop(key, None)
+    env.update(profile.get("env", {}))
     env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:{0}".format(route_port)
     for key in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"):
         env.pop(key, None)
@@ -249,6 +310,7 @@ elif action == "restore":
         "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY",
         "OPENROUTER_API_KEY", "OPENAI_API_KEY"
     )
+    managed_keys = managed_keys + tuple(key for key in set(list(env) + list(original_env)) if model_env_key(key))
     for key in managed_keys:
         if key in original_env:
             env[key] = original_env[key]
@@ -258,6 +320,11 @@ elif action == "restore":
         config["env"] = env
     else:
         config.pop("env", None)
+    for key in MODEL_KEYS:
+        if key in original:
+            config[key] = original[key]
+        else:
+            config.pop(key, None)
     if not original_exists and not config:
         sys.exit(0)
     json.dump(config, sys.stdout, ensure_ascii=True, indent=2)
@@ -270,7 +337,8 @@ codex_toml() {
   action="$1"
   source_file="$2"
   argument="${3:-0}"
-  "$config_python" - "$action" "$source_file" "$argument" <<'PY'
+  profile_model="${4:-}"
+  "$config_python" - "$action" "$source_file" "$argument" "$profile_model" <<'PY'
 from __future__ import print_function
 import io
 import json
@@ -279,8 +347,8 @@ import re
 import sys
 
 PROVIDER = "proxyenv_bridge"
-MODEL = "proxyenv-bridge"
-CATALOG = ".proxyenv-bridge-model-catalog.json"
+LEGACY_MODEL = "proxyenv-bridge"
+LEGACY_CATALOG = ".proxyenv-bridge-model-catalog.json"
 TABLE = "model_providers.proxyenv_bridge"
 try:
     STRING_TYPES = (basestring,)
@@ -410,9 +478,9 @@ def parse(lines):
         "provider_end": provider_end,
         "provider_present": provider_start is not None,
         "route": route,
-        "managed_model": (top_values.get("model") == MODEL
-                          and top_values.get("model_catalog_json") == CATALOG
-                          and provider_values.get("supports_websockets") is False),
+        "legacy_model": (top_values.get("model") == LEGACY_MODEL
+                         and top_values.get("model_catalog_json") == LEGACY_CATALOG),
+        "profile_catalog": top_values.get("model_catalog_json") == "proxyenv-codex-model-catalog.json",
         "requires_openai_auth": provider_values.get("requires_openai_auth"),
     }
 
@@ -468,7 +536,7 @@ def rewrite(lines, parsed, replacements):
             result.append(replacement)
     return result
 
-action, path, argument = sys.argv[1:]
+action, path, argument, profile_model = sys.argv[1:]
 lines = read_lines(path)
 parsed = parse(lines)
 if action == "inspect":
@@ -476,8 +544,14 @@ if action == "inspect":
 elif action == "auth-required":
     value = parsed["requires_openai_auth"]
     print("true" if value is True else "false" if value is False else "null")
-elif action == "managed-model":
-    print("true" if parsed["managed_model"] else "false")
+elif action == "legacy-model":
+    print("true" if parsed["legacy_model"] else "false")
+elif action == "current-model":
+    value = parsed["top_values"].get("model")
+    if isinstance(value, STRING_TYPES) and 0 < len(value) <= 256 and not any(ord(char) < 32 or ord(char) == 127 for char in value):
+        print(json.dumps(value))
+    else:
+        print("null")
 elif action == "render":
     try:
         port = int(argument)
@@ -487,11 +561,19 @@ elif action == "render":
         fail()
     if parsed["provider_present"] and parsed["route"] is None:
         fail()
+    if not profile_model or len(profile_model) > 256 or any(ord(char) < 32 or ord(char) == 127 for char in profile_model):
+        fail()
     replacements = {
         "model_provider": 'model_provider = "proxyenv_bridge"\n',
-        "model": 'model = "proxyenv-bridge"\n',
-        "model_catalog_json": 'model_catalog_json = ".proxyenv-bridge-model-catalog.json"\n',
+        "model": 'model = {0}\n'.format(json.dumps(profile_model)),
+        "model_catalog_json": 'model_catalog_json = "proxyenv-codex-model-catalog.json"\n',
     }
+    if parsed["legacy_model"]:
+        backup_lines = read_lines(path + ".proxyenv-original")
+        backup = parse(backup_lines)
+        original_model = top_line(backup_lines, backup, "model")
+        if original_model is None or backup["top_values"].get("model") == LEGACY_MODEL:
+            sys.exit(43)
     result = rewrite(lines, parsed, replacements)
     while result and not result[-1].strip():
         result.pop()
@@ -525,15 +607,19 @@ PY
 }
 validate() {
   codex_auth_required=null
-  codex_managed_model=false
+  codex_legacy_model=false
+  codex_remote_model=null
+  claude_remote_profile_hash=''
   if [ -f "$1" ]; then
     if [ "$tool" = claude ]; then
       previous=$(claude_json inspect "$1") || fail configConflict
+      claude_remote_profile_hash=$(claude_json profile-hash "$1") || fail configConflict
       [ "$previous" = null ] || { [ "$previous" -ge 1024 ] && [ "$previous" -le 65535 ]; } || fail configConflict
     else
       previous=$(codex_toml inspect "$1") || fail configConflict
       codex_auth_required=$(codex_toml auth-required "$1") || fail configConflict
-      codex_managed_model=$(codex_toml managed-model "$1") || fail configConflict
+      codex_legacy_model=$(codex_toml legacy-model "$1") || fail configConflict
+      codex_remote_model=$(codex_toml current-model "$1") || fail configConflict
       [ "$previous" = null ] || { [ "$previous" -ge 1024 ] && [ "$previous" -le 65535 ]; } || fail configConflict
     fi
   else
@@ -541,25 +627,65 @@ validate() {
   fi
 }
 validate "$file"
+profile_model=''
+profile_catalog_temp=''
+profile_settings_temp=''
+if [ "$tool" = codex ] && { [ "$operation" = preview ] || [ "$operation" = apply ]; }; then
+  command -v base64 >/dev/null 2>&1 || fail dependencyMissing
+  profile_model=$(printf '%s' "$profile_model_b64" | base64 -d 2>/dev/null) || fail localCodexProfileInvalid
+  [ -n "$profile_model" ] || fail localCodexProfileInvalid
+  profile_catalog_temp=$(mktemp) || fail remoteFailed
+  printf '%s' "$profile_catalog_b64" | base64 -d >"$profile_catalog_temp" 2>/dev/null || fail localCatalogUnsafe
+  computed_profile_hash=$("$config_python" -c 'from __future__ import print_function
+import hashlib, io, json, sys
+model=sys.argv[1]
+try:
+ data=io.open(sys.argv[2], "rb").read()
+ root=json.loads(data.decode("utf-8"))
+ models=root.get("models") if isinstance(root, dict) else None
+ valid=isinstance(models, list) and any(isinstance(item, dict) and (item.get("slug") == model or item.get("model") == model or item.get("id") == model) for item in models)
+ if not valid: raise ValueError()
+ print(hashlib.sha256(model.encode("utf-8") + b"\0" + data).hexdigest())
+except Exception:
+ sys.exit(42)' "$profile_model" "$profile_catalog_temp") || fail localCatalogUnsafe
+  [ "$computed_profile_hash" = "$profile_hash" ] || fail localCodexProfileInvalid
+fi
+if [ "$tool" = claude ] && { [ "$operation" = preview ] || [ "$operation" = apply ]; }; then
+  command -v base64 >/dev/null 2>&1 || fail dependencyMissing
+  profile_settings_temp=$(mktemp) || fail remoteFailed
+  printf '%s' "$profile_settings_b64" | base64 -d >"$profile_settings_temp" 2>/dev/null || fail localClaudeProfileInvalid
+  computed_profile_hash=$(claude_json profile-hash "$profile_settings_temp") || fail localClaudeProfileInvalid
+  [ "$computed_profile_hash" = "$profile_hash" ] || fail localClaudeProfileInvalid
+fi
 marker="$file.proxyenv-applied"
 safe "$marker"
 marker_hash() { if [ -f "$marker" ]; then awk 'NR == 1 { print $1 }' "$marker"; else printf absent; fi; }
 marker_mode() { if [ -f "$marker" ]; then awk 'NR == 1 { print $2 == "merge" ? "merge" : "exact" }' "$marker"; else printf exact; fi; }
+marker_profile_hash() { if [ -f "$marker" ]; then awk 'NR == 1 { print $3 }' "$marker"; fi; }
+marker_catalog_hash() { if [ -f "$marker" ]; then awk 'NR == 1 { print $4 }' "$marker"; fi; }
+if [ "$tool" = codex ]; then
+  safe_user_content "$codex_catalog"
+  [ ! -e "$codex_catalog" ] || [ -f "$codex_catalog" ] || fail unsafePath
+  safe_profile_catalog "$profile_catalog"
+  [ ! -e "$profile_catalog" ] || [ -f "$profile_catalog" ] || fail unsafePath
+fi
 managed_drift=false
 if [ -f "$marker" ]; then
   if [ "$(marker_hash)" != "$(hash "$file")" ]; then
-    [ "$previous" != null ] || fail configConflict
-    if [ "$tool" = codex ]; then [ "$codex_managed_model" = true ] || fail configConflict; fi
     managed_drift=true
   fi
   [ "$(marker_mode)" != merge ] || managed_drift=true
 fi
+if [ "$tool" = claude ] && [ -f "$marker" ] && [ "$(marker_profile_hash)" != "$claude_remote_profile_hash" ]; then
+  managed_drift=true
+fi
 if [ "$operation" = status ]; then
   configured=false
   if [ -f "$marker" ] && [ "$previous" != null ] && [ "$previous" = "$port" ]; then
-    if [ "$tool" != codex ] || { safe_user_content "$codex_catalog"; codex_catalog_matches && [ "$codex_auth_required" = false ] && [ "$codex_managed_model" = true ]; }; then configured=true; fi
+    if [ "$tool" != codex ] || { [ "$codex_auth_required" = false ] && [ "$codex_legacy_model" = false ] && [ -f "$profile_catalog" ] && [ "$(hash "$profile_catalog")" = "$(marker_catalog_hash)" ]; }; then configured=true; fi
   fi
-  printf '{"configured":%s,"previousPort":%s}\n' "$configured" "$previous"
+  if [ "$tool" = claude ]; then current_profile_hash="$claude_remote_profile_hash"; else current_profile_hash="$(marker_profile_hash)"; fi
+  printf '{"configured":%s,"previousPort":%s,"remoteModel":%s,"profileHash":"%s"}\n' "$configured" "$previous" "$codex_remote_model" "$current_profile_hash"
   exit 0
 fi
 if [ "$operation" = preview ] || [ "$operation" = apply ] || [ "$operation" = tool-verify ]; then
@@ -577,8 +703,16 @@ if [ "$operation" = preview ] || [ "$operation" = apply ] || [ "$operation" = to
   fi
 fi
 if [ "$operation" = preview ]; then
+  if [ "$tool" = codex ] && [ "$codex_legacy_model" = true ]; then
+    legacy_backup="$file.proxyenv-original"
+    safe_user_content "$legacy_backup"
+    [ -f "$legacy_backup" ] || fail legacyModelSelectionRequired
+  fi
   if [ -f "$file" ]; then config_exists=true; else config_exists=false; fi
-  printf '{"previousPort":%s,"expectedHash":"%s","configExists":%s,"permissionHardening":%s,"version":"%s"}\n' "$previous" "$(hash "$file")" "$config_exists" "$permission_hardening" "$version"
+  if [ "$tool" = claude ]; then current_profile_hash="$claude_remote_profile_hash"; else current_profile_hash="$(marker_profile_hash)"; fi
+  printf '{"previousPort":%s,"expectedHash":"%s","configExists":%s,"permissionHardening":%s,"version":"%s","profileHash":"%s","remoteChanged":%s}\n' "$previous" "$(hash "$file")" "$config_exists" "$permission_hardening" "$version" "$current_profile_hash" "$managed_drift"
+  [ -z "$profile_catalog_temp" ] || unlink "$profile_catalog_temp"
+  [ -z "$profile_settings_temp" ] || unlink "$profile_settings_temp"
   exit 0
 fi
 if [ "$operation" = tool-verify ]; then
@@ -632,10 +766,8 @@ fi
 [ -d "$directory" ] || mkdir -m 700 "$directory" || fail unsafePath
 backup="$file.proxyenv-original"
 lock="$file.proxyenv-lock"
-if [ "$tool" = codex ]; then
-  safe_user_content "$codex_catalog"
-  [ ! -e "$codex_catalog" ] || [ -f "$codex_catalog" ] || fail unsafePath
-fi
+legacy_extension_backup="$file.proxyenv-extension-original"
+legacy_extension_state="$file.proxyenv-extension-state"
 if [ "$permission_hardening" = true ]; then
   [ "$repair_permissions" = true ] || fail configConflict
   [ "$(hash "$file")" = "$expected" ] || fail configConflict
@@ -646,53 +778,111 @@ if [ "$permission_hardening" = true ]; then
   [ "$(hash "$file")" = "$expected" ] || fail configConflict
 fi
 safe_user_content "$backup"; safe "$marker"; safe "$lock"
-for regular in "$backup" "$marker" "$lock"; do
+if [ "$tool" = codex ]; then
+  safe_user_content "$legacy_extension_backup"
+  safe_user_content "$legacy_extension_state"
+fi
+for regular in "$backup" "$marker" "$lock" "$legacy_extension_backup" "$legacy_extension_state"; do
   [ ! -e "$regular" ] || [ -f "$regular" ] || fail unsafePath
 done
 exec 9>"$lock"
 flock -n 9 || fail configConflict
 safe_user_content "$file"; validate "$file"
+legacy_catalog_owned="$codex_legacy_model"
 current=$(hash "$file")
 had_marker=false
 old_marker=''
 create_backup=false
+backup_source=''
+legacy_extension_owned=false
 if [ -f "$marker" ]; then had_marker=true; old_marker=$(cat "$marker"); fi
+if [ "$tool" = codex ] && [ ! -f "$marker" ]; then
+  if [ -f "$legacy_extension_state" ]; then
+    legacy_backup_hash=$(hash "$legacy_extension_backup")
+    "$config_python" - "$legacy_extension_state" "$current" "$legacy_backup_hash" <<'PY' || fail configConflict
+from __future__ import print_function
+import io
+import json
+import sys
+
+try:
+    STRING_TYPES = (basestring,)
+except NameError:
+    STRING_TYPES = (str,)
+try:
+    with io.open(sys.argv[1], "r", encoding="utf-8") as source:
+        record = json.load(source)
+    valid = (
+        isinstance(record, dict)
+        and record.get("schema") == 1
+        and record.get("tool") == "codex"
+        and record.get("state") == "applied"
+        and record.get("originalHash") == sys.argv[3]
+        and isinstance(record.get("appliedHash"), STRING_TYPES)
+        and len(record.get("appliedHash")) == 64
+        and all(char in "0123456789abcdef" for char in record.get("appliedHash"))
+        and isinstance(record.get("port"), int)
+        and 1024 <= record.get("port") <= 65535
+    )
+except (IOError, OSError, UnicodeError, ValueError, TypeError):
+    valid = False
+sys.exit(0 if valid else 42)
+PY
+    legacy_extension_owned=true
+  elif [ -e "$legacy_extension_backup" ]; then
+    fail configConflict
+  fi
+fi
 if [ "$operation" = apply ]; then
   [ "$current" = "$expected" ] || fail configConflict
   if [ -f "$marker" ]; then
-    if [ "$tool" = codex ] && [ -f "$codex_catalog" ]; then codex_catalog_matches || fail configConflict; fi
+    if [ "$tool" = codex ] && [ "$codex_legacy_model" = true ] && [ -f "$codex_catalog" ]; then codex_catalog_matches || fail configConflict; fi
     if [ "$(marker_hash)" != "$current" ]; then
-      [ "$previous" != null ] || fail configConflict
       managed_drift=true
     fi
     [ "$(marker_mode)" != merge ] || managed_drift=true
+    managed_previous="$previous"
+    managed_legacy_model="$codex_legacy_model"
     validate "$backup"
+    previous="$managed_previous"
+    codex_legacy_model="$managed_legacy_model"
   else
-    [ ! -e "$backup" ] || fail configConflict
-    if [ "$tool" = codex ]; then [ ! -e "$codex_catalog" ] || fail configConflict; fi
-    if [ -f "$file" ]; then create_backup=true; fi
+    [ ! -e "$backup" ] || unlink "$backup" || fail configConflict
+    if [ "$legacy_extension_owned" = true ]; then
+      create_backup=legacy
+    elif [ -f "$file" ]; then
+      create_backup=true
+      backup_source="$file"
+    fi
   fi
 elif [ "$operation" = restore ]; then
   [ -f "$marker" ] || fail noBackup
-  if [ "$tool" = codex ] && [ -f "$codex_catalog" ]; then codex_catalog_matches || fail configConflict; fi
+  if [ "$tool" = codex ] && [ "$codex_legacy_model" = true ] && [ -f "$codex_catalog" ]; then codex_catalog_matches || fail configConflict; fi
   [ "$current" = "$expected" ] || fail configConflict
   if [ "$(marker_hash)" != "$current" ]; then
-    [ "$previous" != null ] || fail configConflict
     managed_drift=true
   fi
   [ "$(marker_mode)" != merge ] || managed_drift=true
   [ "$(hash "$backup")" = "$expected_backup" ] || fail configConflict
+  managed_previous="$previous"
+  managed_legacy_model="$codex_legacy_model"
   validate "$backup"
+  previous="$managed_previous"
+  codex_legacy_model="$managed_legacy_model"
 else
   fail invalidRequest
 fi
 temporary=$(mktemp "$directory/.proxyenv-write.XXXXXX") || fail remoteFailed
 rollback=$(mktemp "$directory/.proxyenv-rollback.XXXXXX") || fail remoteFailed
+catalog_rollback=''
+legacy_baseline=''
+if [ "$tool" = codex ] && [ -f "$profile_catalog" ]; then
+  catalog_rollback=$(mktemp "$directory/.proxyenv-catalog-rollback.XXXXXX") || fail remoteFailed
+  cp -p "$profile_catalog" "$catalog_rollback" || fail remoteFailed
+fi
 transaction=false
 committed=false
 created_backup=false
-created_catalog=false
-catalog_temporary=''
 next="$current"
 restore_to_absent=false
 cleanup() {
@@ -711,6 +901,11 @@ cleanup() {
         [ ! -f "$marker" ] || unlink "$marker"
         [ ! -f "$backup" ] || unlink "$backup"
       fi
+      if [ "$tool" = codex ]; then
+        if [ -n "$catalog_rollback" ]; then mv -f "$catalog_rollback" "$profile_catalog" || return 1
+        else [ ! -e "$profile_catalog" ] || unlink "$profile_catalog" || return 1
+        fi
+      fi
     else
       # Unknown third-party state: retain backup and marker for manual recovery.
       return 1
@@ -719,23 +914,45 @@ cleanup() {
   if [ "$transaction" = false ] && [ "$created_backup" = true ]; then
     unlink "$backup" 2>/dev/null || :
   fi
-  if [ "$committed" = false ] && [ "$created_catalog" = true ]; then
-    unlink "$codex_catalog" 2>/dev/null || :
-  fi
   unlink "$temporary" 2>/dev/null || :
   unlink "$rollback" 2>/dev/null || :
-  [ -z "$catalog_temporary" ] || unlink "$catalog_temporary" 2>/dev/null || :
+  [ -z "$profile_catalog_temp" ] || unlink "$profile_catalog_temp" 2>/dev/null || :
+  [ -z "$profile_settings_temp" ] || unlink "$profile_settings_temp" 2>/dev/null || :
+  [ -z "$catalog_rollback" ] || unlink "$catalog_rollback" 2>/dev/null || :
+  [ -z "$legacy_baseline" ] || unlink "$legacy_baseline" 2>/dev/null || :
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 if [ -f "$file" ]; then cp -p "$file" "$rollback" || fail remoteFailed; fi
+if [ "$create_backup" = legacy ]; then
+  legacy_baseline=$(mktemp "$directory/.proxyenv-legacy-baseline.XXXXXX") || fail remoteFailed
+  if [ "$previous" != null ]; then
+    requested_profile_model="$profile_model"
+    codex_toml restore "$file" "$legacy_extension_backup" >"$legacy_baseline" || fail configConflict
+    profile_model="$requested_profile_model"
+  elif [ -f "$file" ]; then
+    cat "$file" >"$legacy_baseline" || fail remoteFailed
+  fi
+  if [ -s "$legacy_baseline" ]; then
+    create_backup=true
+    backup_source="$legacy_baseline"
+  else
+    create_backup=false
+  fi
+fi
 if [ "$operation" = apply ]; then
   if [ "$tool" = claude ]; then
-    claude_json render "$file" "$port" >"$temporary" || fail configConflict
+    claude_json render "$file" "$port" "$profile_settings_temp" >"$temporary" || fail configConflict
     rendered_port=$(claude_json inspect "$temporary") || fail configConflict
     [ "$rendered_port" = "$port" ] || fail verifyFailed
+    [ "$(claude_json profile-hash "$temporary")" = "$profile_hash" ] || fail verifyFailed
   else
-    codex_toml render "$file" "$port" >"$temporary" || fail configConflict
+    set +e
+    codex_toml render "$file" "$port" "$profile_model" >"$temporary"
+    render_status=$?
+    set -e
+    [ "$render_status" -ne 43 ] || fail legacyModelSelectionRequired
+    [ "$render_status" -eq 0 ] || fail configConflict
     rendered_port=$(codex_toml inspect "$temporary") || fail configConflict
     [ "$rendered_port" = "$port" ] || fail verifyFailed
   fi
@@ -743,8 +960,15 @@ else
   if [ "$managed_drift" = true ]; then
     if [ "$tool" = claude ]; then
       claude_json restore "$file" "$backup" >"$temporary" || fail configConflict
+    elif [ "$previous" = null ]; then
+      if [ -f "$file" ]; then cat "$file" >"$temporary"; else restore_to_absent=true; fi
     else
-      codex_toml restore "$file" "$backup" >"$temporary" || fail configConflict
+      set +e
+      codex_toml restore "$file" "$backup" >"$temporary"
+      restore_status=$?
+      set -e
+      [ "$restore_status" -ne 43 ] || fail legacyModelSelectionRequired
+      [ "$restore_status" -eq 0 ] || fail configConflict
     fi
     [ -s "$temporary" ] || restore_to_absent=true
   elif [ -f "$backup" ]; then
@@ -754,17 +978,9 @@ else
   fi
 fi
 if [ "$create_backup" = true ]; then
-  cp -p "$file" "$backup" || fail remoteFailed
+  cp -p "$backup_source" "$backup" || fail remoteFailed
   created_backup=true
   sync -f "$backup" || fail remoteFailed
-fi
-if [ "$operation" = apply ] && [ "$tool" = codex ] && [ ! -f "$codex_catalog" ]; then
-  catalog_temporary=$(mktemp "$directory/.proxyenv-catalog.XXXXXX") || fail remoteFailed
-  codex_catalog_json >"$catalog_temporary" || fail remoteFailed
-  sync -f "$catalog_temporary" || fail remoteFailed
-  mv -f "$catalog_temporary" "$codex_catalog" || fail remoteFailed
-  created_catalog=true
-  codex_catalog_matches || fail verifyFailed
 fi
 sync -f "$temporary" || fail remoteFailed
 next=$(hash "$temporary")
@@ -777,8 +993,18 @@ if [ "$operation" = apply ]; then
   marker_kind=exact
   [ "$had_marker" = false ] || marker_kind=$(marker_mode)
   [ "$managed_drift" = false ] || marker_kind=merge
-  printf '%s %s' "$next" "$marker_kind" >"$marker"
+  if [ "$tool" = codex ]; then
+    printf '%s %s %s %s' "$next" "$marker_kind" "$profile_hash" "$(hash "$profile_catalog_temp")" >"$marker"
+  else
+    printf '%s %s %s' "$next" "$marker_kind" "$profile_hash" >"$marker"
+  fi
   sync -f "$marker" || fail remoteFailed
+fi
+if [ "$operation" = apply ] && [ "$tool" = codex ]; then
+  mv -f "$profile_catalog_temp" "$profile_catalog" || fail remoteCatalogWriteFailed
+  chmod 600 "$profile_catalog" || fail remoteCatalogWriteFailed
+  sync -f "$profile_catalog" || fail remoteCatalogWriteFailed
+  profile_catalog_temp=''
 fi
 if [ "$operation" = restore ] && [ "$restore_to_absent" = true ]; then
   unlink "$file" || fail remoteFailed
@@ -794,13 +1020,18 @@ fi
 validate "$file"
 if [ "$operation" = apply ]; then
   [ "$previous" = "$port" ] || fail rollbackConflict
-  if [ "$tool" = codex ]; then codex_catalog_matches || fail rollbackConflict; fi
 fi
-if [ "$operation" = restore ] && [ "$tool" = codex ] && [ -f "$codex_catalog" ]; then
+if [ "$tool" = codex ] && [ "$legacy_catalog_owned" = true ] && [ -f "$codex_catalog" ]; then
+  codex_catalog_matches || fail configConflict
   unlink "$codex_catalog" || fail remoteFailed
 fi
 committed=true
+if [ "$tool" = codex ]; then
+  [ ! -f "$legacy_extension_state" ] || unlink "$legacy_extension_state" 2>/dev/null || :
+  [ ! -f "$legacy_extension_backup" ] || unlink "$legacy_extension_backup" 2>/dev/null || :
+fi
 if [ "$operation" = restore ]; then
+  if [ "$tool" = codex ] && [ -f "$profile_catalog" ]; then unlink "$profile_catalog" || fail remoteCatalogWriteFailed; fi
   [ ! -f "$backup" ] || unlink "$backup"
   unlink "$marker"
 fi

@@ -27,7 +27,13 @@ pub enum RemoteToolRouteMode {
 #[serde(rename_all = "camelCase")]
 pub enum RemoteToolRequestPolicy {
     Passthrough,
-    LocalEffectiveModel,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RemoteConfigProjection {
+    RouteOnly,
+    RouteAndClientProfile,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -60,6 +66,7 @@ pub struct RemoteToolState {
     pub verification_supported: bool,
     pub supported_route_modes: &'static [RemoteToolRouteMode],
     pub request_policy: RemoteToolRequestPolicy,
+    pub config_projection: RemoteConfigProjection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +81,9 @@ pub trait RemoteToolAdapter: Sync {
     fn display_name(&self) -> &'static str;
     fn config_path(&self) -> &'static str;
     fn launch(&self) -> &'static str;
-    fn render(&self, port: u16) -> String;
+    fn render(&self, port: u16, profile_model: Option<&str>) -> String;
     fn request_policy(&self) -> RemoteToolRequestPolicy;
+    fn config_projection(&self) -> RemoteConfigProjection;
     fn configured(&self, summary: &Summary) -> bool;
     fn set_configured(&self, summary: &mut Summary, configured: bool);
     fn verification(&self, summary: &Summary) -> RemoteToolVerification;
@@ -99,13 +107,14 @@ pub trait RemoteToolAdapter: Sync {
             verification_supported: self.verification_supported(),
             supported_route_modes: self.supported_route_modes(),
             request_policy: self.request_policy(),
+            config_projection: self.config_projection(),
         }
     }
 
-    fn preview(&self, port: u16) -> RemoteToolPlan {
+    fn preview(&self, port: u16, profile_model: Option<&str>) -> RemoteToolPlan {
         RemoteToolPlan {
             path: self.config_path(),
-            content: self.render(port),
+            content: self.render(port, profile_model),
             launch: self.launch(),
         }
     }
@@ -151,14 +160,19 @@ impl RemoteToolAdapter for CodexCliAdapter {
         "codex"
     }
 
-    fn render(&self, port: u16) -> String {
+    fn render(&self, port: u16, profile_model: Option<&str>) -> String {
+        let model = profile_model.unwrap_or("<local-selected-model>");
         format!(
-            "model_provider = \"proxyenv_bridge\"\nmodel = \"proxyenv-bridge\"\nmodel_catalog_json = \".proxyenv-bridge-model-catalog.json\"\n\n[model_providers.proxyenv_bridge]\nname = \"ProxyEnv Local Bridge\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\n"
+            "model = \"{model}\"\nmodel_provider = \"proxyenv_bridge\"\nmodel_catalog_json = \"proxyenv-codex-model-catalog.json\"\n\n[model_providers.proxyenv_bridge]\nname = \"ProxyEnv Local Bridge\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\n"
         )
     }
 
     fn request_policy(&self) -> RemoteToolRequestPolicy {
-        RemoteToolRequestPolicy::LocalEffectiveModel
+        RemoteToolRequestPolicy::Passthrough
+    }
+
+    fn config_projection(&self) -> RemoteConfigProjection {
+        RemoteConfigProjection::RouteAndClientProfile
     }
 
     fn configured(&self, summary: &Summary) -> bool {
@@ -214,7 +228,7 @@ impl RemoteToolAdapter for ClaudeCliAdapter {
         "claude"
     }
 
-    fn render(&self, port: u16) -> String {
+    fn render(&self, port: u16, _profile_model: Option<&str>) -> String {
         format!(
             "{{\"env\":{{\"ANTHROPIC_BASE_URL\":\"http://127.0.0.1:{port}\",\"ANTHROPIC_AUTH_TOKEN\":\"PROXY_MANAGED\"}}}}\n"
         )
@@ -222,6 +236,10 @@ impl RemoteToolAdapter for ClaudeCliAdapter {
 
     fn request_policy(&self) -> RemoteToolRequestPolicy {
         RemoteToolRequestPolicy::Passthrough
+    }
+
+    fn config_projection(&self) -> RemoteConfigProjection {
+        RemoteConfigProjection::RouteOnly
     }
 
     fn configured(&self, summary: &Summary) -> bool {
@@ -304,10 +322,7 @@ mod tests {
             assert!(!adapter.config_path().is_empty());
             assert!(!adapter.launch().is_empty());
         }
-        assert_eq!(
-            CODEX.request_policy(),
-            RemoteToolRequestPolicy::LocalEffectiveModel
-        );
+        assert_eq!(CODEX.request_policy(), RemoteToolRequestPolicy::Passthrough);
         assert_eq!(
             CLAUDE.request_policy(),
             RemoteToolRequestPolicy::Passthrough
@@ -320,28 +335,34 @@ mod tests {
         assert!(!CODEX.detect("0.133.9"));
         assert!(CLAUDE.detect("2.1.0"));
         assert!(!CLAUDE.detect("1.9.9"));
-        assert!(CODEX.preview(25721).content.contains("model_provider"));
         assert!(CODEX
-            .preview(25721)
+            .preview(25721, Some("deepseek-flash"))
+            .content
+            .contains("model_provider"));
+        assert!(CODEX
+            .preview(25721, Some("deepseek-flash"))
             .content
             .contains("requires_openai_auth = false"));
         assert!(CODEX
-            .preview(25721)
+            .preview(25721, Some("deepseek-flash"))
             .content
-            .contains("model = \"proxyenv-bridge\""));
+            .contains("model = \"deepseek-flash\""));
         assert!(CODEX
-            .preview(25721)
+            .preview(25721, Some("deepseek-flash"))
             .content
-            .contains("model_catalog_json = \".proxyenv-bridge-model-catalog.json\""));
+            .contains("model_catalog_json"));
         assert!(CODEX
-            .preview(25721)
+            .preview(25721, Some("deepseek-flash"))
             .content
             .contains("supports_websockets = false"));
         assert!(!CODEX
-            .preview(25721)
+            .preview(25721, Some("deepseek-flash"))
             .content
             .contains("requires_openai_auth = true"));
-        assert!(CLAUDE.preview(25721).content.contains("ANTHROPIC_BASE_URL"));
+        assert!(CLAUDE
+            .preview(25721, None)
+            .content
+            .contains("ANTHROPIC_BASE_URL"));
         assert_eq!(CODEX.config_path(), "~/.codex/config.toml");
         assert_eq!(CODEX.launch(), "codex");
         assert_eq!(CLAUDE.config_path(), "~/.claude/settings.json");
@@ -376,8 +397,9 @@ mod tests {
         assert_eq!(value["verification"], "verifyPending");
         assert_eq!(value["verificationSupported"], false);
         assert_eq!(value["supportedRouteModes"][0], "ccSwitch");
-        assert_eq!(value["requestPolicy"], "localEffectiveModel");
-        assert_eq!(value.as_object().map(serde_json::Map::len), Some(7));
+        assert_eq!(value["requestPolicy"], "passthrough");
+        assert_eq!(value["configProjection"], "routeAndClientProfile");
+        assert_eq!(value.as_object().map(serde_json::Map::len), Some(8));
     }
 
     #[test]

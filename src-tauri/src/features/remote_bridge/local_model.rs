@@ -1,125 +1,55 @@
 use crate::services::local_file;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashSet,
     fs,
     path::{Component, Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 const MAX_CODEX_CONFIG_BYTES: u64 = 128 * 1024;
 const MAX_CODEX_CATALOG_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_CLAUDE_CONFIG_BYTES: u64 = 128 * 1024;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum ModelResolutionState {
-    Resolved,
-    Ambiguous,
-    Unsupported,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileError {
+    Missing,
     Invalid,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum ResolutionSource {
-    LocalEffectiveProfile,
-    ManualCompatibilityRule,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum CompatibilityValidationState {
-    Valid,
-    Stale,
-    Ambiguous,
-    Invalid,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct EffectiveModel {
-    pub display_model: Option<String>,
-    pub canonical_model: String,
-    pub source: ResolutionSource,
-    pub semantic_hash: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ModelResolution {
-    Resolved(EffectiveModel),
-    Ambiguous,
-    Unsupported,
-    Invalid,
+pub struct LocalCodexProfile {
+    pub model: String,
+    pub catalog_path: PathBuf,
+    pub catalog_bytes: Vec<u8>,
+    pub hash: String,
+    pub stamp: LocalCodexProfileStamp,
 }
 
-impl ModelResolution {
-    pub fn state(&self) -> ModelResolutionState {
-        match self {
-            Self::Resolved(_) => ModelResolutionState::Resolved,
-            Self::Ambiguous => ModelResolutionState::Ambiguous,
-            Self::Unsupported => ModelResolutionState::Unsupported,
-            Self::Invalid => ModelResolutionState::Invalid,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalCodexProfileStamp {
+    config_modified: u128,
+    config_len: u64,
+    catalog_modified: u128,
+    catalog_len: u64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CompatibilityRule {
-    pub id: String,
-    pub incoming_model: String,
-    pub local_display_model: String,
-    pub canonical_model: String,
-    pub enabled: bool,
-    pub created_at: String,
-    pub updated_at: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalClaudeProfile {
+    pub model: Option<String>,
+    pub settings_bytes: Vec<u8>,
+    pub hash: String,
+    pub stamp: LocalClaudeProfileStamp,
 }
 
-#[derive(Debug)]
-struct CatalogModel {
-    slug: String,
-    display_name: Option<String>,
-}
-
-struct LocalContext {
-    configured_model: String,
-    models: Vec<CatalogModel>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalClaudeProfileStamp {
+    exists: bool,
+    modified: u128,
+    len: u64,
 }
 
 fn safe_text(value: &str, max: usize) -> bool {
     !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
-}
-
-fn parse_catalog(bytes: &[u8]) -> Option<Vec<CatalogModel>> {
-    let root: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-    let models = root.as_object()?.get("models")?.as_array()?;
-    if models.is_empty() {
-        return None;
-    }
-    let mut slugs = HashSet::new();
-    let mut parsed = Vec::with_capacity(models.len());
-    for model in models {
-        let model = model.as_object()?;
-        let slug = model.get("slug")?.as_str()?;
-        if !safe_text(slug, 256) || !slugs.insert(slug.to_owned()) {
-            return None;
-        }
-        let display_name = match model.get("display_name") {
-            Some(value) => {
-                let value = value.as_str()?;
-                if !safe_text(value, 512) {
-                    return None;
-                }
-                Some(value.to_owned())
-            }
-            None => None,
-        };
-        parsed.push(CatalogModel {
-            slug: slug.to_owned(),
-            display_name,
-        });
-    }
-    Some(parsed)
 }
 
 #[cfg(windows)]
@@ -132,6 +62,164 @@ fn is_reparse_point(metadata: &fs::Metadata) -> bool {
 #[cfg(not(windows))]
 fn is_reparse_point(_: &fs::Metadata) -> bool {
     false
+}
+
+fn file_stamp(path: &Path) -> Result<(u128, u64), ProfileError> {
+    let metadata = fs::symlink_metadata(path).map_err(|_| ProfileError::Missing)?;
+    if !metadata.file_type().is_file()
+        || metadata.file_type().is_symlink()
+        || is_reparse_point(&metadata)
+    {
+        return Err(ProfileError::Invalid);
+    }
+    let modified = metadata
+        .modified()
+        .map_err(|_| ProfileError::Invalid)?
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| ProfileError::Invalid)?
+        .as_nanos();
+    Ok((modified, metadata.len()))
+}
+
+fn optional_file_stamp(path: &Path) -> Result<LocalClaudeProfileStamp, ProfileError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_file()
+                || metadata.file_type().is_symlink()
+                || is_reparse_point(&metadata)
+            {
+                return Err(ProfileError::Invalid);
+            }
+            let modified = metadata
+                .modified()
+                .map_err(|_| ProfileError::Invalid)?
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_| ProfileError::Invalid)?
+                .as_nanos();
+            Ok(LocalClaudeProfileStamp {
+                exists: true,
+                modified,
+                len: metadata.len(),
+            })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(LocalClaudeProfileStamp {
+            exists: false,
+            modified: 0,
+            len: 0,
+        }),
+        Err(_) => Err(ProfileError::Invalid),
+    }
+}
+
+fn safe_claude_env_key(key: &str) -> bool {
+    key == "ANTHROPIC_MODEL"
+        || key == "CLAUDE_CODE_SUBAGENT_MODEL"
+        || key == "CLAUDE_CODE_EFFORT_LEVEL"
+        || key == "ANTHROPIC_CUSTOM_MODEL_OPTION"
+        || ["OPUS", "SONNET", "HAIKU", "FABLE"].iter().any(|tier| {
+            ["MODEL", "MODEL_NAME"]
+                .iter()
+                .any(|field| key == format!("ANTHROPIC_DEFAULT_{tier}_{field}"))
+        })
+}
+
+fn safe_model_text(value: &serde_json::Value) -> bool {
+    value.as_str().is_some_and(|text| {
+        safe_text(text, 512)
+            && !text.contains("://")
+            && !text.contains('@')
+            && !text.contains(['\r', '\n'])
+    })
+}
+
+fn validate_claude_field(key: &str, value: &serde_json::Value) -> bool {
+    match key {
+        "model" | "effortLevel" => safe_model_text(value),
+        "alwaysThinkingEnabled" => value.is_boolean(),
+        "availableModels" => value
+            .as_array()
+            .is_some_and(|items| items.len() <= 128 && items.iter().all(safe_model_text)),
+        "modelOverrides" => value.as_object().is_some_and(|items| {
+            items.len() <= 128
+                && items
+                    .iter()
+                    .all(|(name, model)| safe_text(name, 256) && safe_model_text(model))
+        }),
+        _ => false,
+    }
+}
+
+pub fn inspect_claude_profile() -> Result<LocalClaudeProfile, ProfileError> {
+    let home = dirs::home_dir().ok_or(ProfileError::Missing)?;
+    inspect_claude_profile_at(&home)
+}
+
+fn inspect_claude_profile_at(home: &Path) -> Result<LocalClaudeProfile, ProfileError> {
+    let config_path = home.join(".claude").join("settings.json");
+    let stamp = optional_file_stamp(&config_path)?;
+    let root = match local_file::safe_read(&config_path, MAX_CLAUDE_CONFIG_BYTES)
+        .map_err(|_| ProfileError::Invalid)?
+    {
+        Some(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes)
+            .map_err(|_| ProfileError::Invalid)?,
+        None => serde_json::json!({}),
+    };
+    let source = root.as_object().ok_or(ProfileError::Invalid)?;
+    let mut projected = serde_json::Map::new();
+    for key in [
+        "model",
+        "availableModels",
+        "modelOverrides",
+        "effortLevel",
+        "alwaysThinkingEnabled",
+    ] {
+        if let Some(value) = source.get(key) {
+            if !validate_claude_field(key, value) {
+                return Err(ProfileError::Invalid);
+            }
+            projected.insert(key.to_owned(), value.clone());
+        }
+    }
+    let mut projected_env = serde_json::Map::new();
+    if let Some(env) = source.get("env") {
+        let env = env.as_object().ok_or(ProfileError::Invalid)?;
+        for (key, value) in env {
+            if safe_claude_env_key(key) {
+                if !safe_model_text(value) {
+                    return Err(ProfileError::Invalid);
+                }
+                projected_env.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    if !projected_env.is_empty() {
+        projected.insert("env".to_owned(), serde_json::Value::Object(projected_env));
+    }
+    let model = projected
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            projected
+                .get("env")
+                .and_then(serde_json::Value::as_object)
+                .and_then(|env| env.get("ANTHROPIC_MODEL"))
+                .and_then(serde_json::Value::as_str)
+        })
+        .map(str::to_owned);
+    let settings_bytes = serde_json::to_vec(&serde_json::Value::Object(projected))
+        .map_err(|_| ProfileError::Invalid)?;
+    let hash = hex::encode(Sha256::digest(&settings_bytes));
+    Ok(LocalClaudeProfile {
+        model,
+        settings_bytes,
+        hash,
+        stamp,
+    })
+}
+
+pub fn claude_profile_stamp_changed(profile: &LocalClaudeProfile) -> Result<bool, ProfileError> {
+    let home = dirs::home_dir().ok_or(ProfileError::Missing)?;
+    Ok(profile.stamp != optional_file_stamp(&home.join(".claude").join("settings.json"))?)
 }
 
 fn safe_catalog_path(root: &Path, relative: &str) -> Option<PathBuf> {
@@ -159,225 +247,146 @@ fn safe_catalog_path(root: &Path, relative: &str) -> Option<PathBuf> {
     resolved.starts_with(&root).then_some(resolved)
 }
 
-pub fn resolve_codex_model() -> ModelResolution {
-    let Some(home) = dirs::home_dir() else {
-        return ModelResolution::Unsupported;
-    };
-    resolve_codex_model_at(&home)
+pub fn inspect_codex_profile() -> Result<LocalCodexProfile, ProfileError> {
+    let home = dirs::home_dir().ok_or(ProfileError::Missing)?;
+    inspect_codex_profile_at(&home)
 }
 
-fn resolve_codex_model_at(home: &Path) -> ModelResolution {
-    let context = match read_context_at(home) {
-        Ok(context) => context,
-        Err(resolution) => return resolution,
-    };
-    resolve_context(&context)
-}
-
-fn read_context_at(home: &Path) -> Result<LocalContext, ModelResolution> {
+fn inspect_codex_profile_at(home: &Path) -> Result<LocalCodexProfile, ProfileError> {
     let directory = home.join(".codex");
     let config_path = directory.join("config.toml");
-    let config_bytes = match local_file::safe_read(&config_path, MAX_CODEX_CONFIG_BYTES) {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => return Err(ModelResolution::Unsupported),
-        Err(_) => return Err(ModelResolution::Invalid),
-    };
-    let Ok(config_text) = std::str::from_utf8(&config_bytes) else {
-        return Err(ModelResolution::Invalid);
-    };
-    let Ok(config) = toml::from_str::<toml::Value>(config_text) else {
-        return Err(ModelResolution::Invalid);
-    };
-    let Some(root) = config.as_table() else {
-        return Err(ModelResolution::Invalid);
-    };
-    let configured_model = match root.get("model") {
-        Some(value) => match value.as_str().filter(|value| safe_text(value, 256)) {
-            Some(value) => value,
-            None => return Err(ModelResolution::Invalid),
-        },
-        None => return Err(ModelResolution::Unsupported),
-    };
-    let catalog_name = match root.get("model_catalog_json") {
-        Some(value) => match value.as_str().filter(|value| safe_text(value, 1024)) {
-            Some(value) => value,
-            None => return Err(ModelResolution::Invalid),
-        },
-        None => return Err(ModelResolution::Unsupported),
-    };
-    let Some(catalog_path) = safe_catalog_path(&directory, catalog_name) else {
-        return Err(ModelResolution::Invalid);
-    };
-    let catalog_bytes = match local_file::safe_read(&catalog_path, MAX_CODEX_CATALOG_BYTES) {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => return Err(ModelResolution::Unsupported),
-        Err(_) => return Err(ModelResolution::Invalid),
-    };
-    let Some(models) = parse_catalog(&catalog_bytes) else {
-        return Err(ModelResolution::Invalid);
-    };
-
-    Ok(LocalContext {
-        configured_model: configured_model.to_owned(),
-        models,
-    })
-}
-
-fn resolve_context(context: &LocalContext) -> ModelResolution {
-    let configured_model = context.configured_model.as_str();
-    let matched = if let Some(model) = context
-        .models
-        .iter()
-        .find(|model| model.slug == configured_model)
-    {
-        model
-    } else {
-        let aliases = context
-            .models
-            .iter()
-            .filter(|model| model.display_name.as_deref() == Some(configured_model))
-            .collect::<Vec<_>>();
-        match aliases.as_slice() {
-            [model] => *model,
-            [] if context.models.len() == 1 => {
-                // Local routing gateways such as CC Switch may keep a stable
-                // request-model alias in config.toml while replacing the
-                // single catalog entry with the selected route's display
-                // metadata. The configured model remains the request source
-                // of truth; the sole catalog entry is descriptive only.
-                let model = &context.models[0];
-                let semantic_hash = hex::encode(Sha256::digest(
-                    serde_json::to_vec(&(
-                        configured_model,
-                        configured_model,
-                        model.slug.as_str(),
-                        model.display_name.as_deref(),
-                    ))
-                    .expect("effective model hash input is serializable"),
-                ));
-                return ModelResolution::Resolved(EffectiveModel {
-                    display_model: model
-                        .display_name
-                        .clone()
-                        .or_else(|| Some(model.slug.clone())),
-                    canonical_model: configured_model.to_owned(),
-                    source: ResolutionSource::LocalEffectiveProfile,
-                    semantic_hash,
-                });
-            }
-            [] => return ModelResolution::Unsupported,
-            _ => return ModelResolution::Ambiguous,
-        }
-    };
-    let semantic_hash = hex::encode(Sha256::digest(
-        serde_json::to_vec(&(
-            configured_model,
-            matched.slug.as_str(),
-            matched.display_name.as_deref(),
-        ))
-        .expect("effective model hash input is serializable"),
+    let config_bytes = local_file::safe_read(&config_path, MAX_CODEX_CONFIG_BYTES)
+        .map_err(|_| ProfileError::Invalid)?
+        .ok_or(ProfileError::Missing)?;
+    let config_text = std::str::from_utf8(&config_bytes).map_err(|_| ProfileError::Invalid)?;
+    let config = toml::from_str::<toml::Value>(config_text).map_err(|_| ProfileError::Invalid)?;
+    let root = config.as_table().ok_or(ProfileError::Invalid)?;
+    let model = root
+        .get("model")
+        .and_then(toml::Value::as_str)
+        .filter(|value| safe_text(value, 256))
+        .ok_or(ProfileError::Missing)?
+        .to_owned();
+    let catalog_name = root
+        .get("model_catalog_json")
+        .and_then(toml::Value::as_str)
+        .filter(|value| safe_text(value, 1024))
+        .ok_or(ProfileError::Missing)?;
+    let catalog_path = safe_catalog_path(&directory, catalog_name).ok_or(ProfileError::Invalid)?;
+    let catalog_bytes = local_file::safe_read(&catalog_path, MAX_CODEX_CATALOG_BYTES)
+        .map_err(|_| ProfileError::Invalid)?
+        .ok_or(ProfileError::Missing)?;
+    let catalog: serde_json::Value =
+        serde_json::from_slice(&catalog_bytes).map_err(|_| ProfileError::Invalid)?;
+    let models = catalog
+        .as_object()
+        .and_then(|object| object.get("models"))
+        .and_then(serde_json::Value::as_array)
+        .ok_or(ProfileError::Invalid)?;
+    let contains_model = models.iter().any(|entry| {
+        entry
+            .as_object()
+            .and_then(|object| {
+                object
+                    .get("slug")
+                    .or_else(|| object.get("model"))
+                    .or_else(|| object.get("id"))
+            })
+            .and_then(serde_json::Value::as_str)
+            == Some(model.as_str())
+    });
+    if !contains_model {
+        return Err(ProfileError::Invalid);
+    }
+    let (config_modified, config_len) = file_stamp(&config_path)?;
+    let (catalog_modified, catalog_len) = file_stamp(&catalog_path)?;
+    let hash = hex::encode(Sha256::digest(
+        [model.as_bytes(), b"\0", catalog_bytes.as_slice()].concat(),
     ));
-    ModelResolution::Resolved(EffectiveModel {
-        display_model: matched
-            .display_name
-            .clone()
-            .or_else(|| Some(matched.slug.clone())),
-        canonical_model: matched.slug.clone(),
-        source: ResolutionSource::LocalEffectiveProfile,
-        semantic_hash,
+    Ok(LocalCodexProfile {
+        model,
+        catalog_path,
+        catalog_bytes,
+        hash,
+        stamp: LocalCodexProfileStamp {
+            config_modified,
+            config_len,
+            catalog_modified,
+            catalog_len,
+        },
     })
 }
 
-pub fn resolve_for_request(incoming_model: &str, rules: &[CompatibilityRule]) -> ModelResolution {
-    let Some(home) = dirs::home_dir() else {
-        return ModelResolution::Unsupported;
-    };
-    resolve_for_request_at(&home, incoming_model, rules)
-}
-
-pub fn validate_compatibility_rule(rule: &CompatibilityRule) -> CompatibilityValidationState {
-    if !safe_text(&rule.incoming_model, 256)
-        || !safe_text(&rule.local_display_model, 512)
-        || !safe_text(&rule.canonical_model, 256)
-    {
-        return CompatibilityValidationState::Invalid;
-    }
-    let Some(home) = dirs::home_dir() else {
-        return CompatibilityValidationState::Stale;
-    };
-    let Ok(context) = read_context_at(&home) else {
-        return CompatibilityValidationState::Stale;
-    };
-    if context.configured_model != rule.local_display_model
-        || !context
-            .models
-            .iter()
-            .any(|model| model.slug == rule.canonical_model)
-    {
-        CompatibilityValidationState::Stale
-    } else {
-        CompatibilityValidationState::Valid
-    }
-}
-
-fn resolve_for_request_at(
-    home: &Path,
-    incoming_model: &str,
-    rules: &[CompatibilityRule],
-) -> ModelResolution {
-    let context = match read_context_at(home) {
-        Ok(context) => context,
-        Err(resolution) => return resolution,
-    };
-    match resolve_context(&context) {
-        resolved @ ModelResolution::Resolved(_) => resolved,
-        automatic => {
-            let matches = rules
-                .iter()
-                .filter(|rule| {
-                    rule.enabled
-                        && rule.incoming_model == incoming_model
-                        && rule.local_display_model == context.configured_model
-                        && context
-                            .models
-                            .iter()
-                            .any(|model| model.slug == rule.canonical_model)
-                        && safe_text(&rule.canonical_model, 256)
-                        && safe_text(&rule.local_display_model, 512)
-                })
-                .collect::<Vec<_>>();
-            match matches.as_slice() {
-                [rule] => {
-                    let semantic_hash = hex::encode(Sha256::digest(
-                        serde_json::to_vec(&(
-                            rule.incoming_model.as_str(),
-                            rule.local_display_model.as_str(),
-                            rule.canonical_model.as_str(),
-                        ))
-                        .expect("compatibility rule hash input is serializable"),
-                    ));
-                    ModelResolution::Resolved(EffectiveModel {
-                        display_model: Some(rule.local_display_model.clone()),
-                        canonical_model: rule.canonical_model.clone(),
-                        source: ResolutionSource::ManualCompatibilityRule,
-                        semantic_hash,
-                    })
-                }
-                [] => automatic,
-                _ => ModelResolution::Ambiguous,
-            }
-        }
-    }
+/// The two-second bridge poll only reads metadata for the two known files. It
+/// never opens or parses their contents unless this reports a change.
+pub fn profile_stamp_changed(profile: &LocalCodexProfile) -> Result<bool, ProfileError> {
+    let home = dirs::home_dir().ok_or(ProfileError::Missing)?;
+    let config_path = home.join(".codex").join("config.toml");
+    let (config_modified, config_len) = file_stamp(&config_path)?;
+    let (catalog_modified, catalog_len) = file_stamp(&profile.catalog_path)?;
+    Ok(profile.stamp
+        != LocalCodexProfileStamp {
+            config_modified,
+            config_len,
+            catalog_modified,
+            catalog_len,
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, time::SystemTime};
+    use std::time::SystemTime;
+
+    #[test]
+    fn claude_profile_projects_only_safe_model_selection() {
+        let root = fixture("model = \"fixture\"\n", "unused.json", None);
+        let path = root.join(".claude/settings.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"model":"模型 A","availableModels":["模型 A","sonnet"],"modelOverrides":{"sonnet":"模型 A"},"env":{"ANTHROPIC_DEFAULT_SONNET_MODEL":"模型 A","ANTHROPIC_DEFAULT_SECRET_MODEL":"private-model","ANTHROPIC_CUSTOM_MODEL_OPTION_TOKEN":"private-option","ANTHROPIC_AUTH_TOKEN":"private-token","ANTHROPIC_BASE_URL":"https://upstream.example"},"permissions":{"allow":["private"]}}"#,
+        )
+        .unwrap();
+        let profile = inspect_claude_profile_at(&root).unwrap();
+        let projected: serde_json::Value = serde_json::from_slice(&profile.settings_bytes).unwrap();
+        assert_eq!(projected["model"], "模型 A");
+        assert_eq!(projected["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"], "模型 A");
+        assert!(projected["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
+        assert!(projected["env"].get("ANTHROPIC_BASE_URL").is_none());
+        assert!(projected["env"]
+            .get("ANTHROPIC_DEFAULT_SECRET_MODEL")
+            .is_none());
+        assert!(projected["env"]
+            .get("ANTHROPIC_CUSTOM_MODEL_OPTION_TOKEN")
+            .is_none());
+        assert!(projected.get("permissions").is_none());
+        assert_eq!(profile.model.as_deref(), Some("模型 A"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn claude_profile_rejects_nested_or_url_model_values_and_handles_missing_file() {
+        let root = fixture("model = \"fixture\"\n", "unused.json", None);
+        assert_eq!(
+            inspect_claude_profile_at(&root).unwrap().settings_bytes,
+            b"{}"
+        );
+        let path = root.join(".claude/settings.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for value in [
+            r#"{"modelOverrides":{"sonnet":{"token":"private"}}}"#,
+            r#"{"env":{"ANTHROPIC_DEFAULT_SONNET_MODEL":"https://upstream.example"}}"#,
+        ] {
+            fs::write(&path, value).unwrap();
+            assert_eq!(inspect_claude_profile_at(&root), Err(ProfileError::Invalid));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn fixture(config: &str, catalog_name: &str, catalog: Option<&str>) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "proxyenv-local-model-{}-{}",
+            "proxyenv-codex-profile-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -392,157 +401,108 @@ mod tests {
         root
     }
 
-    fn catalog(models: &str) -> String {
-        format!(r#"{{"models":[{models}],"future":{{"preserved":true}}}}"#)
-    }
-
     #[test]
-    fn resolves_slug_and_unique_display_name_from_configured_catalog() {
-        let data = catalog(
-            r#"{"slug":"deepseek-v4-pro","display_name":"gpt-5.6-sol","future_capability":{"enabled":true}}"#,
-        );
-        for configured in ["deepseek-v4-pro", "gpt-5.6-sol"] {
-            let config =
-                format!("model = \"{configured}\"\nmodel_catalog_json = \"models-v2.json\"\n");
-            let root = fixture(&config, "models-v2.json", Some(&data));
-            let ModelResolution::Resolved(model) = resolve_codex_model_at(&root) else {
-                panic!("model should resolve");
-            };
-            assert_eq!(model.display_model.as_deref(), Some("gpt-5.6-sol"));
-            assert_eq!(model.canonical_model, "deepseek-v4-pro");
-            fs::remove_dir_all(root).unwrap();
-        }
-    }
-
-    #[test]
-    fn supports_nested_catalog_and_rejects_unsafe_paths() {
-        let data = catalog(r#"{"slug":"kimi-k2.5","display_name":"kimi"}"#);
+    fn captures_selected_model_and_preserves_catalog_bytes_opaquely() {
+        let catalog =
+            r#"{"models":[{"slug":"deepseek-flash","future":{"opaque":true}}],"futureRoot":[1,2]}"#;
         let root = fixture(
-            "model = \"kimi\"\nmodel_catalog_json = \"nested/models.json\"\n",
+            "model = \"deepseek-flash\"\nmodel_catalog_json = \"models.json\"\n",
+            "models.json",
+            Some(catalog),
+        );
+        let profile = inspect_codex_profile_at(&root).unwrap();
+        assert_eq!(profile.model, "deepseek-flash");
+        assert_eq!(profile.catalog_bytes, catalog.as_bytes());
+        assert!(!profile.hash.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn supports_nested_catalog_but_rejects_unsafe_or_missing_profile() {
+        let catalog = r#"{"models":[{"id":"kimi-k2.5"}]}"#;
+        let root = fixture(
+            "model = \"kimi-k2.5\"\nmodel_catalog_json = \"nested/models.json\"\n",
             "nested/models.json",
-            Some(&data),
+            Some(catalog),
         );
-        assert!(matches!(
-            resolve_codex_model_at(&root),
-            ModelResolution::Resolved(_)
-        ));
+        assert!(inspect_codex_profile_at(&root).is_ok());
         fs::remove_dir_all(root).unwrap();
 
-        for catalog_path in ["../outside.json", "C:/outside.json", "./models.json"] {
-            let config = format!("model = \"kimi\"\nmodel_catalog_json = \"{catalog_path}\"\n");
-            let root = fixture(&config, "unused.json", None);
-            assert_eq!(resolve_codex_model_at(&root), ModelResolution::Invalid);
+        for path in ["../outside.json", "C:/outside.json", "./models.json"] {
+            let root = fixture(
+                &format!("model = \"kimi\"\nmodel_catalog_json = \"{path}\"\n"),
+                "unused.json",
+                None,
+            );
+            assert_eq!(inspect_codex_profile_at(&root), Err(ProfileError::Invalid));
             fs::remove_dir_all(root).unwrap();
         }
     }
 
     #[test]
-    fn duplicate_alias_is_ambiguous_and_invalid_catalog_is_rejected() {
-        let aliases = catalog(
-            r#"{"slug":"one","display_name":"shared"},{"slug":"two","display_name":"shared"}"#,
-        );
+    fn rejects_invalid_catalog_and_model_not_present_in_catalog() {
         let root = fixture(
-            "model = \"shared\"\nmodel_catalog_json = \"models.json\"\n",
+            "model = \"missing\"\nmodel_catalog_json = \"models.json\"\n",
             "models.json",
-            Some(&aliases),
+            Some(r#"{"models":[{"slug":"other"}]}"#),
         );
-        assert_eq!(resolve_codex_model_at(&root), ModelResolution::Ambiguous);
+        assert_eq!(inspect_codex_profile_at(&root), Err(ProfileError::Invalid));
         fs::remove_dir_all(root).unwrap();
 
-        let duplicate = catalog(r#"{"slug":"same"},{"slug":"same"}"#);
         let root = fixture(
-            "model = \"same\"\nmodel_catalog_json = \"models.json\"\n",
+            "model = \"broken\"\nmodel_catalog_json = \"models.json\"\n",
             "models.json",
-            Some(&duplicate),
+            Some("not json"),
         );
-        assert_eq!(resolve_codex_model_at(&root), ModelResolution::Invalid);
+        assert_eq!(inspect_codex_profile_at(&root), Err(ProfileError::Invalid));
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn missing_or_unresolved_local_profile_does_not_guess() {
-        for (config, catalog_data) in [
-            ("model = \"gpt-5\"\n", None),
-            (
-                "model = \"unknown\"\nmodel_catalog_json = \"models.json\"\n",
-                Some(catalog(r#"{"slug":"one"},{"slug":"two"}"#)),
-            ),
-            (
-                "model_catalog_json = \"models.json\"\n",
-                Some(catalog(r#"{"slug":"known"}"#)),
-            ),
-        ] {
-            let root = fixture(config, "models.json", catalog_data.as_deref());
-            assert_eq!(resolve_codex_model_at(&root), ModelResolution::Unsupported);
-            fs::remove_dir_all(root).unwrap();
-        }
-    }
-
-    #[test]
-    fn single_catalog_entry_can_describe_a_gateway_route_alias() {
-        let data = catalog(r#"{"slug":"deepseek-flash","display_name":"deepseek-flash"}"#);
+    fn rejects_missing_model_catalog_and_oversized_catalog() {
         let root = fixture(
-            "model = \"deepseek-v4-pro\"\nmodel_catalog_json = \"models.json\"\n",
+            "model_catalog_json = \"models.json\"\n",
             "models.json",
-            Some(&data),
+            Some(r#"{"models":[]}"#),
         );
-        let ModelResolution::Resolved(model) = resolve_codex_model_at(&root) else {
-            panic!("gateway request model should resolve");
-        };
-        assert_eq!(model.display_model.as_deref(), Some("deepseek-flash"));
-        assert_eq!(model.canonical_model, "deepseek-v4-pro");
-        assert_eq!(model.source, ResolutionSource::LocalEffectiveProfile);
+        assert_eq!(inspect_codex_profile_at(&root), Err(ProfileError::Missing));
+        fs::remove_dir_all(root).unwrap();
+
+        let root = fixture(
+            "model = \"deepseek\"\nmodel_catalog_json = \"missing.json\"\n",
+            "unused.json",
+            None,
+        );
+        assert_eq!(inspect_codex_profile_at(&root), Err(ProfileError::Invalid));
+        fs::remove_dir_all(root).unwrap();
+
+        let root = fixture(
+            "model = \"deepseek\"\nmodel_catalog_json = \"models.json\"\n",
+            "models.json",
+            Some("{}"),
+        );
+        fs::write(
+            root.join(".codex/models.json"),
+            vec![b' '; MAX_CODEX_CATALOG_BYTES as usize + 1],
+        )
+        .unwrap();
+        assert_eq!(inspect_codex_profile_at(&root), Err(ProfileError::Invalid));
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
-    fn automatic_resolution_wins_and_only_current_valid_manual_mapping_is_used() {
-        let data = catalog(
-            r#"{"slug":"deepseek-v4-pro","display_name":"gpt-5.6-sol"},{"slug":"kimi-k2.5","display_name":"kimi"}"#,
+    fn rejects_symlinked_catalog() {
+        use std::os::unix::fs::symlink;
+        let root = fixture(
+            "model = \"deepseek\"\nmodel_catalog_json = \"models.json\"\n",
+            "unused.json",
+            None,
         );
-        let auto_root = fixture(
-            "model = \"kimi\"\nmodel_catalog_json = \"models.json\"\n",
-            "models.json",
-            Some(&data),
-        );
-        let stale_rule = CompatibilityRule {
-            id: "rule".into(),
-            incoming_model: "remote-old".into(),
-            local_display_model: "gpt-5.6-sol".into(),
-            canonical_model: "deepseek-v4-pro".into(),
-            enabled: true,
-            created_at: "now".into(),
-            updated_at: "now".into(),
-        };
-        let ModelResolution::Resolved(auto) =
-            resolve_for_request_at(&auto_root, "remote-old", std::slice::from_ref(&stale_rule))
-        else {
-            panic!("automatic model should resolve");
-        };
-        assert_eq!(auto.canonical_model, "kimi-k2.5");
-        assert_eq!(auto.source, ResolutionSource::LocalEffectiveProfile);
-        fs::remove_dir_all(auto_root).unwrap();
-
-        let manual_root = fixture(
-            "model = \"custom-display\"\nmodel_catalog_json = \"models.json\"\n",
-            "models.json",
-            Some(&data),
-        );
-        let valid_rule = CompatibilityRule {
-            local_display_model: "custom-display".into(),
-            ..stale_rule.clone()
-        };
-        let ModelResolution::Resolved(manual) =
-            resolve_for_request_at(&manual_root, "remote-old", &[valid_rule])
-        else {
-            panic!("manual model should resolve");
-        };
-        assert_eq!(manual.canonical_model, "deepseek-v4-pro");
-        assert_eq!(manual.source, ResolutionSource::ManualCompatibilityRule);
-        assert_eq!(
-            resolve_for_request_at(&manual_root, "remote-old", &[stale_rule]),
-            ModelResolution::Unsupported
-        );
-        fs::remove_dir_all(manual_root).unwrap();
+        let outside = root.join("outside.json");
+        fs::write(&outside, r#"{"models":[{"slug":"deepseek"}]}"#).unwrap();
+        symlink(&outside, root.join(".codex/models.json")).unwrap();
+        assert_eq!(inspect_codex_profile_at(&root), Err(ProfileError::Invalid));
+        fs::remove_dir_all(root).unwrap();
     }
 }
