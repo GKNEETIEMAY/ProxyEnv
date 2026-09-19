@@ -32,19 +32,19 @@ Implementation is on `v0.2.0dev`; the stable release remains v0.1.4 pending live
 - [x] Automatically allocated remote loopback ports with a second occupancy check before connection.
 - [x] CC Switch route detection that distinguishes confirmed ownership, an unknown listener, and no listener.
 - [x] Structured bridge errors, a bridge-health panel, and capability-specific next-step guidance.
-- [x] Managed neutral Codex route plus Claude standard user-settings takeover with reviewed writes, exact remote backups, write-failure rollback, and conflict-safe restore.
-- [x] Local Codex effective-model resolution and request-time canonical model rewrite with a static remote capability profile, without copying the active local catalog or upstream model selection.
+- [x] Direct Codex and Claude shared client-profile switches with remote baselines, atomic write/readback, rollback, and safe restore.
+- [x] Lifecycle-bound Codex and Claude safe model-profile synchronization: no inactive polling, two-second metadata checks while active, debounced parse/hash on change, opaque Codex catalog preservation, and a pure runtime relay with no model or tool-call rewriting.
 - [x] Shared RemoteToolAdapter registry for Codex/Claude CLI metadata, compatibility, lifecycle operations, launch commands, and honest pending-verification state.
 - [x] User-triggered Claude CLI request verification with isolated settings/tools, redacted result categories, and verification invalidation when the route changes.
 - [x] Claude Code Remote - SSH preview/apply/restore support for `environmentVariables` plus explicitly reviewed `disableLoginPrompt`.
 - [x] Conservative VS Code Remote Context detection for Stable, Insiders and constrained custom roots, with explicit extension-location confirmation and non-guessing multi-version handling.
 - [x] Four-language Remote Bridge interface and redacted diagnostics.
 - [ ] Live Windows → Linux SSH, MobaXterm compatibility, CC Switch routing, Claude request verification, and Codex request acceptance on user-provided targets.
-- [ ] Opt-in Codex / Claude Code VS Code extension acceptance, separate from CLI scope, with user-confirmed remote execution location.
+- [x] Codex VS Code Remote Extension reuses the same direct remote client-profile switch as Codex CLI, including automatic adoption of verified legacy extension recovery state.
 
 实现已进入 `v0.2.0dev`，仍需真实 Windows/SSH 环境验收；尚未作为稳定版发布。
 
-图形化扩展适配已进入开发分支：可分别选择 CLI 与扩展，确认远端运行位置后预览、应用或恢复配置。结构化目标、自动端口、CC Switch 分级检测和桥接后指引已经实现，但两种 CLI、两种扩展、Provider 切换与断连失败链路全部真实验收后，才可声明稳定支持。详见[扩展审计](REMOTE_BRIDGE_EXTENSION_AUDIT.md)。
+Codex 与 Claude Code 图形化扩展适配已进入开发分支。各工具的 Remote Extension 与 CLI 使用同一远端用户 Profile 和直接开关事务；Claude 扩展独立登录检查是否接受共享配置仍待实机核验。结构化目标、自动端口、CC Switch 分级检测和桥接后指引已经实现，但两种 CLI、两种扩展、Provider 切换与断连失败链路全部真实验收后，才可声明稳定支持。详见[扩展审计](REMOTE_BRIDGE_EXTENSION_AUDIT.md)。
 
 ## Future
 
