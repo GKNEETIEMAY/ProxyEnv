@@ -21,7 +21,7 @@ const MAX_TERMINAL_BYTES: usize = 65_536;
 const MAX_TRANSCRIPT_CHARS: usize = 8_192;
 const MAX_CONTROL_BYTES: usize = 64;
 const SESSION_TTL: Duration = Duration::from_secs(180);
-const PROMPT_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const PROMPT_WAIT_TIMEOUT: Duration = Duration::from_secs(20);
 const COMPLETION_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -163,6 +163,7 @@ struct Session {
     last_prompt: Option<(PromptType, String)>,
     prompt_generation: u32,
     prompt_consumed_at: usize,
+    observed_output_len: usize,
     waiting_since: Instant,
     authenticated_at: Option<Instant>,
     target_fingerprint: String,
@@ -552,6 +553,16 @@ fn parse_ssh_prompt(text: &str, attempt: u16) -> Option<AuthPrompt> {
     if line_lower.ends_with("password:") {
         return Some(make(PromptType::Password, line.to_owned(), true));
     }
+    let password_like = line_lower.contains("password")
+        || line_lower.contains("passcode")
+        || line.contains("密码")
+        || line.contains("口令");
+    let prompt_terminated = line.ends_with(':') || line.ends_with('：');
+    if password_like && (prompt_terminated || line_lower == "password") {
+        // Arbitrary keyboard-interactive text must not become a reusable
+        // account password merely because it contains a password-like word.
+        return Some(make(PromptType::KeyboardInteractive, line.to_owned(), true));
+    }
     if ["duo", "token:", "challenge:", "response:"]
         .iter()
         .any(|pattern| line_lower.contains(pattern))
@@ -749,6 +760,7 @@ pub fn begin(
         last_prompt: None,
         prompt_generation: 0,
         prompt_consumed_at: 0,
+        observed_output_len: 0,
         waiting_since: Instant::now(),
         authenticated_at: None,
         target_fingerprint,
@@ -769,6 +781,10 @@ pub fn state(session_id: &str) -> BridgeResult<Snapshot> {
         .get_mut(session_id)
         .ok_or("sshAuthSessionMissing")?;
     let (terminal_text, authenticated, output_closed, output_len) = transcript(&session.output)?;
+    if output_len > session.observed_output_len {
+        session.observed_output_len = output_len;
+        session.waiting_since = Instant::now();
+    }
     session.auth.authenticated = authenticated;
     if authenticated && session.authenticated_at.is_none() {
         session.authenticated_at = Some(Instant::now());
@@ -1177,6 +1193,12 @@ mod tests {
         let challenge = parse_ssh_prompt("Duo two-factor login\nToken:", 2)
             .expect("keyboard-interactive prompt");
         assert_eq!(challenge.prompt_type, PromptType::KeyboardInteractive);
+        for value in ["Password for student:", "服务器密码：", "口令："] {
+            let prompt = parse_ssh_prompt(value, 1).expect("localized password prompt");
+            assert_eq!(prompt.prompt_type, PromptType::KeyboardInteractive);
+            assert!(prompt.secret);
+        }
+        assert!(PROMPT_WAIT_TIMEOUT >= Duration::from_secs(15));
     }
 
     #[test]
