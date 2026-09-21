@@ -50,7 +50,7 @@ function fixture({jsonEngine="python3",claudeLocation="path",privateGroup=false,
     const claudeProfile=env.TEST_CLAUDE_PROFILE || '{"model":"fixture-claude"}';
     const claudeProfileHash=createHash("sha256").update(claudeProfile).digest("hex");
     const needsClaudeProfile=tool==="claude" && ["preview","apply"].includes(operation);
-    const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nport=${port}\nports='17897'\nexpected='${expected}'\nexpected_backup='${backupHash}'\nrepair_permissions='${env.TEST_REPAIR_PERMISSIONS === "1" ? "true" : "false"}'\nscheme='http'\nprofile_model_b64='${needsProfile ? Buffer.from(profileModel).toString("base64") : ""}'\nprofile_catalog_b64='${needsProfile ? Buffer.from(profileCatalog).toString("base64") : ""}'\nprofile_settings_b64='${needsClaudeProfile ? Buffer.from(claudeProfile).toString("base64") : ""}'\nprofile_hash='${needsProfile ? profileHash : needsClaudeProfile ? claudeProfileHash : ""}'\n${script}`;
+    const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nport=${port}\nports='${env.TEST_REMOTE_PORT ?? 17897}'\nexpected='${expected}'\nexpected_backup='${backupHash}'\nrepair_permissions='${env.TEST_REPAIR_PERMISSIONS === "1" ? "true" : "false"}'\nscheme='http'\nprofile_model_b64='${needsProfile ? Buffer.from(profileModel).toString("base64") : ""}'\nprofile_catalog_b64='${needsProfile ? Buffer.from(profileCatalog).toString("base64") : ""}'\nprofile_settings_b64='${needsClaudeProfile ? Buffer.from(claudeProfile).toString("base64") : ""}'\nprofile_hash='${needsProfile ? profileHash : needsClaudeProfile ? claudeProfileHash : ""}'\n${script}`;
     const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:{...process.env,CODEX_HOME:"",CLAUDE_CONFIG_DIR:"",HOME:posix(home),PATH:`${posix(bin)}:/usr/bin:/bin`,...env}});
     assert.equal(result.status,0,result.stderr || result.error?.message);
     return JSON.parse(result.stdout.trim());
@@ -59,11 +59,14 @@ function fixture({jsonEngine="python3",claudeLocation="path",privateGroup=false,
 }
 test("remote port preflight rejects occupation and wildcard listeners",{skip:!available},()=>{
   const f=fixture();try {
-    assert.equal(f.run("check").verified,true);
-    assert.equal(f.run("check","codex",25721,"absent",{TEST_LISTENERS:"LISTEN 0 128 127.0.0.1:17897 0.0.0.0:*"}).error,"portInUse");
-    assert.equal(f.run("verify","codex",25721,"absent",{TEST_LISTENERS:"LISTEN 0 128 0.0.0.0:17897 0.0.0.0:*"}).error,"unsafeBinding");
-    assert.equal(f.run("verify","codex",25721,"absent",{TEST_LISTENERS:"LISTEN 0 128 127.0.0.1:17897 0.0.0.0:*"}).verified,true);
-    assert.equal(f.run("verify","codex",25721,"absent",{TEST_LISTENERS:"LISTEN 0 128 [::]:17897 [::]:*"}).error,"unsafeBinding");
+    for(const remotePort of [17897, 10809]) {
+      const input={TEST_REMOTE_PORT:remotePort};
+      assert.equal(f.run("check","codex",25721,"absent",input).verified,true);
+      assert.equal(f.run("check","codex",25721,"absent",{...input,TEST_LISTENERS:`LISTEN 0 128 127.0.0.1:${remotePort} 0.0.0.0:*`}).error,"portInUse");
+      assert.equal(f.run("verify","codex",25721,"absent",{...input,TEST_LISTENERS:`LISTEN 0 128 0.0.0.0:${remotePort} 0.0.0.0:*`}).error,"unsafeBinding");
+      assert.equal(f.run("verify","codex",25721,"absent",{...input,TEST_LISTENERS:`LISTEN 0 128 127.0.0.1:${remotePort} 0.0.0.0:*`}).verified,true);
+      assert.equal(f.run("verify","codex",25721,"absent",{...input,TEST_LISTENERS:`LISTEN 0 128 [::]:${remotePort} [::]:*`}).error,"unsafeBinding");
+    }
   } finally { f.cleanup(); }
 });
 for(const tool of ["codex","claude"]) test(`${tool}: preview, apply, stale preview, repeat apply and restore`,{skip:!available || !python},()=>{
@@ -524,14 +527,15 @@ test("CLI launch commands are hidden until their remote configuration is applied
   assert.match(adapters,/launchCommand: "claude"/);
 });
 
-test("remote bridge reuses stable ports and restores enabled tool state after reconnect",()=>{
+test("remote bridge resolves consumer and AI ports independently and restores enabled tool state",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh_auth.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  assert.match(bridge,/DEFAULT_PROXY_REMOTE_PORT: u16 = 17_897/);
+  assert.match(bridge,/runtime_expected_port\(\s*&target,/);
   assert.match(bridge,/DEFAULT_CC_REMOTE_PORT: u16 = 15_721/);
-  assert.match(bridge,/derived_ports\(&fingerprint, round\)/);
+  assert.match(bridge,/resolve_port_pair\(\s*&fingerprint,\s*local_port,\s*runtime_expected_proxy_port/);
+  assert.match(bridge,/first_available_port\(/);
   assert.match(bridge,/remote_request\(\s*"status",\s*\*adapter,\s*route_port,\s*None/);
   assert.match(bridge,/refresh_tool_configuration\(&mut summary\)/);
   assert.match(bridge,/refresh_tool_configuration\(&mut next\)/);
