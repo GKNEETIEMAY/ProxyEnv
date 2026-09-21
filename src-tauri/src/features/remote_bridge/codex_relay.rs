@@ -381,6 +381,7 @@ fn forward(
     let body = request.body;
     let url = format!("http://{}:{}{}", upstream.host, upstream.port, request.path);
     let client = Client::builder()
+        .no_proxy()
         .connect_timeout(Duration::from_secs(5))
         .timeout(None)
         .build()

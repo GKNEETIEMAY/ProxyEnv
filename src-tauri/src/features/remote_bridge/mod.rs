@@ -19,7 +19,6 @@ use std::{
 
 pub type BridgeResult<T> = std::result::Result<T, String>;
 
-pub const DEFAULT_PROXY_REMOTE_PORT: u16 = 17_897;
 pub const DEFAULT_CC_REMOTE_PORT: u16 = 15_721;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -116,6 +115,8 @@ pub struct Summary {
     pub status: Status,
     pub target: Option<RemoteTarget>,
     pub proxy: Option<Endpoint>,
+    pub runtime_expected_proxy_port: Option<u16>,
+    pub runtime_proxy_match: RuntimeProxyMatch,
     pub cc: Option<Endpoint>,
     pub proxy_status: Option<Status>,
     pub cc_status: Option<Status>,
@@ -229,6 +230,17 @@ impl LocalToolProfile {
 pub struct PortAllocation {
     pub proxy_port: u16,
     pub cc_port: u16,
+    pub runtime_expected_proxy_port: Option<u16>,
+    pub runtime_port_conflict: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeProxyMatch {
+    #[default]
+    Unknown,
+    Matched,
+    Mismatch,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -420,6 +432,20 @@ fn refresh(state: &mut Store) {
         };
         state.summary.proxy_status = state.summary.proxy.as_ref().map(|_| state.proxy_status);
         state.summary.cc_status = state.summary.cc.as_ref().map(|_| state.cc_status);
+        if let Some(target) = state.summary.target.as_ref() {
+            state.summary.runtime_expected_proxy_port = runtime_expected_port(
+                target,
+                state.summary.proxy.as_ref().map(|e| e.local.protocol),
+            );
+            state.summary.runtime_proxy_match = runtime_proxy_match(
+                state.summary.runtime_expected_proxy_port,
+                state
+                    .summary
+                    .proxy
+                    .as_ref()
+                    .map(|endpoint| endpoint.remote_port),
+            );
+        }
         let endpoints_available = proxy_available && cc_available;
         state.summary.status =
             observed_status(&state.summary, current.as_ref(), endpoints_available);
@@ -905,56 +931,114 @@ pub fn check_remote_network(target_id: String) -> BridgeResult<RemoteNetworkObse
     };
     Ok(RemoteNetworkObservation { server_internet })
 }
-fn derived_ports(seed: &str, round: u8) -> PortAllocation {
+fn derived_port(seed: &str, round: u8, lane: u8) -> u16 {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(format!("{seed}\n{round}"));
-    let map = |offset: usize| {
-        20_000 + (u16::from_le_bytes([digest[offset], digest[offset + 1]]) % 40_001)
-    };
-    let proxy_port = map(0);
-    let mut cc_port = map(2);
-    if proxy_port == cc_port {
-        cc_port = if cc_port == 60_000 {
-            20_000
-        } else {
-            cc_port + 1
-        };
-    }
-    PortAllocation {
-        proxy_port,
-        cc_port,
+    let offset = usize::from(lane) * 2;
+    20_000 + (u16::from_le_bytes([digest[offset], digest[offset + 1]]) % 40_001)
+}
+
+fn runtime_expected_port(
+    target: &RemoteTarget,
+    local_protocol: Option<ProxyProtocol>,
+) -> Option<u16> {
+    if target.can_open_vscode
+        && matches!(
+            local_protocol,
+            Some(ProxyProtocol::Http | ProxyProtocol::Mixed)
+        )
+    {
+        vscode::user_proxy_port()
+    } else {
+        None
     }
 }
 
-pub fn allocate_ports(target_id: String, prefer_defaults: bool) -> BridgeResult<PortAllocation> {
-    ssh::validate_target(&target_id)?;
-    let fingerprint = ssh::fingerprint(&target_id)?;
-    let mut candidates = Vec::with_capacity(25);
-    if prefer_defaults {
-        candidates.push(PortAllocation {
-            proxy_port: DEFAULT_PROXY_REMOTE_PORT,
-            cc_port: DEFAULT_CC_REMOTE_PORT,
-        });
+fn runtime_proxy_match(expected: Option<u16>, actual: Option<u16>) -> RuntimeProxyMatch {
+    match (expected, actual) {
+        (Some(expected), Some(actual)) if expected == actual => RuntimeProxyMatch::Matched,
+        (Some(_), Some(_)) => RuntimeProxyMatch::Mismatch,
+        _ => RuntimeProxyMatch::Unknown,
     }
-    for round in 0..24 {
-        let candidate = derived_ports(&fingerprint, round);
-        if !candidates.iter().any(|existing| {
-            existing.proxy_port == candidate.proxy_port && existing.cc_port == candidate.cc_port
-        }) {
-            candidates.push(candidate);
-        }
-    }
-    for candidate in candidates {
-        match ssh::remote(
-            &target_id,
-            json!({"operation":"check","ports":[candidate.proxy_port,candidate.cc_port]}),
-        ) {
-            Ok(_) => return Ok(candidate),
-            Err(code) if code == "portInUse" => continue,
-            Err(code) => return Err(code),
+}
+
+fn first_available_port(
+    preferred: impl IntoIterator<Item = u16>,
+    excluded: Option<u16>,
+    mut available: impl FnMut(u16) -> BridgeResult<bool>,
+) -> BridgeResult<u16> {
+    for candidate in preferred {
+        if Some(candidate) != excluded && available(candidate)? {
+            return Ok(candidate);
         }
     }
     Err("portAllocationFailed".into())
+}
+
+pub fn allocate_ports(target_id: String, prefer_defaults: bool) -> BridgeResult<PortAllocation> {
+    let target = ssh::target(&target_id)?;
+    let fingerprint = ssh::fingerprint(&target_id)?;
+    let local = active::snapshot()
+        .ok()
+        .and_then(|context| context.available_candidate().cloned());
+    let runtime_expected_proxy_port =
+        runtime_expected_port(&target, local.as_ref().map(|candidate| candidate.protocol));
+    let local_port = local.as_ref().map(|candidate| candidate.port);
+    resolve_port_pair(
+        &fingerprint,
+        local_port,
+        runtime_expected_proxy_port,
+        prefer_defaults,
+        |candidate| match ssh::remote(&target_id, json!({"operation":"check","ports":[candidate]}))
+        {
+            Ok(_) => Ok(true),
+            Err(code) if code == "portInUse" => Ok(false),
+            Err(code) => Err(code),
+        },
+    )
+}
+
+fn resolve_port_pair(
+    fingerprint: &str,
+    local_port: Option<u16>,
+    runtime_expected_proxy_port: Option<u16>,
+    prefer_defaults: bool,
+    mut remote_available: impl FnMut(u16) -> BridgeResult<bool>,
+) -> BridgeResult<PortAllocation> {
+    let mut runtime_port_conflict = false;
+    let proxy_port = if let Some(expected) = runtime_expected_proxy_port {
+        if remote_available(expected)? {
+            expected
+        } else {
+            runtime_port_conflict = true;
+            first_available_port(
+                (0..24).map(|round| derived_port(fingerprint, round, 0)),
+                None,
+                &mut remote_available,
+            )?
+        }
+    } else {
+        let preferred = local_port.filter(|_| prefer_defaults).into_iter();
+        first_available_port(
+            preferred.chain((0..24).map(|round| derived_port(fingerprint, round, 0))),
+            None,
+            &mut remote_available,
+        )?
+    };
+    let preferred_cc = prefer_defaults
+        .then_some(DEFAULT_CC_REMOTE_PORT)
+        .into_iter();
+    let cc_port = first_available_port(
+        preferred_cc.chain((0..24).map(|round| derived_port(fingerprint, round, 1))),
+        Some(proxy_port),
+        &mut remote_available,
+    )?;
+    Ok(PortAllocation {
+        proxy_port,
+        cc_port,
+        runtime_expected_proxy_port,
+        runtime_port_conflict,
+    })
 }
 pub fn detect_cc(local_port: u16) -> BridgeResult<CcDetection> {
     port(local_port)?;
@@ -1029,9 +1113,16 @@ pub fn preview(request: &Request) -> BridgeResult<Summary> {
         .map(remote_environment)
         .transpose()?
         .unwrap_or_default();
+    let runtime_expected_proxy_port = runtime_expected_port(
+        &target,
+        proxy.as_ref().map(|endpoint| endpoint.local.protocol),
+    );
+    let runtime_proxy_match = runtime_proxy_match(runtime_expected_proxy_port, request.proxy_port);
     let mut summary = Summary {
         target: Some(target),
         proxy,
+        runtime_expected_proxy_port,
+        runtime_proxy_match,
         cc,
         environment,
         active_proxy_revision: request.proxy_port.map(|_| context.revision),
@@ -1777,17 +1868,87 @@ mod tests {
         assert!(port(65535).is_ok());
     }
     #[test]
-    fn stable_remote_port_policy_has_fixed_defaults_and_repeatable_fallbacks() {
-        assert_eq!(DEFAULT_PROXY_REMOTE_PORT, 17_897);
+    fn remote_port_fallbacks_are_repeatable_and_independent() {
         assert_eq!(DEFAULT_CC_REMOTE_PORT, 15_721);
+        assert_eq!(
+            derived_port("same-ssh-target", 0, 0),
+            derived_port("same-ssh-target", 0, 0)
+        );
+        assert_ne!(
+            derived_port("same-ssh-target", 0, 0),
+            derived_port("same-ssh-target", 0, 1)
+        );
+        assert!((20_000..=60_000).contains(&derived_port("same-ssh-target", 0, 0)));
+    }
 
-        let first = derived_ports("same-ssh-target", 0);
-        let repeated = derived_ports("same-ssh-target", 0);
-        assert_eq!(first.proxy_port, repeated.proxy_port);
-        assert_eq!(first.cc_port, repeated.cc_port);
-        assert_ne!(first.proxy_port, first.cc_port);
-        assert!((20_000..=60_000).contains(&first.proxy_port));
-        assert!((20_000..=60_000).contains(&first.cc_port));
+    #[test]
+    fn runtime_proxy_port_and_local_upstream_are_independent() {
+        let expected = 7897;
+        for active in [expected, 10809, 2080] {
+            let allocation =
+                resolve_port_pair("fixture", Some(active), Some(expected), true, |_| Ok(true))
+                    .unwrap();
+            assert_eq!(allocation.proxy_port, expected);
+            assert_eq!(allocation.cc_port, DEFAULT_CC_REMOTE_PORT);
+            assert!(!allocation.runtime_port_conflict);
+        }
+        let no_runtime =
+            resolve_port_pair("fixture", Some(10809), None, true, |_| Ok(true)).unwrap();
+        assert_eq!(no_runtime.proxy_port, 10809);
+        assert_eq!(no_runtime.runtime_expected_proxy_port, None);
+        let switched =
+            resolve_port_pair("fixture", Some(2080), Some(expected), true, |_| Ok(true)).unwrap();
+        assert_eq!(switched.proxy_port, expected);
+    }
+
+    #[test]
+    fn occupied_runtime_proxy_port_falls_back_without_moving_cc() {
+        let expected = 7897;
+        let fallback = derived_port("fixture", 0, 0);
+        let result = resolve_port_pair("fixture", Some(10809), Some(expected), true, |port| {
+            Ok(port != expected)
+        })
+        .unwrap();
+        assert_eq!(result.proxy_port, fallback);
+        assert!(result.runtime_port_conflict);
+        assert_eq!(result.cc_port, DEFAULT_CC_REMOTE_PORT);
+        assert_eq!(
+            runtime_proxy_match(result.runtime_expected_proxy_port, Some(result.proxy_port)),
+            RuntimeProxyMatch::Mismatch
+        );
+        let cc_conflict = resolve_port_pair("fixture", Some(10809), Some(expected), true, |port| {
+            Ok(port != DEFAULT_CC_REMOTE_PORT)
+        })
+        .unwrap();
+        assert_eq!(cc_conflict.proxy_port, expected);
+        assert_eq!(
+            runtime_proxy_match(
+                cc_conflict.runtime_expected_proxy_port,
+                Some(cc_conflict.proxy_port)
+            ),
+            RuntimeProxyMatch::Matched
+        );
+        assert_eq!(cc_conflict.cc_port, derived_port("fixture", 0, 1));
+        assert!(!cc_conflict.runtime_port_conflict);
+        let shared_preference = resolve_port_pair(
+            "fixture",
+            Some(10809),
+            Some(DEFAULT_CC_REMOTE_PORT),
+            true,
+            |_| Ok(true),
+        )
+        .unwrap();
+        assert_eq!(shared_preference.proxy_port, DEFAULT_CC_REMOTE_PORT);
+        assert_ne!(shared_preference.cc_port, shared_preference.proxy_port);
+        let no_runtime =
+            resolve_port_pair("fixture", Some(10809), None, true, |port| Ok(port != 10809))
+                .unwrap();
+        assert_eq!(no_runtime.proxy_port, fallback);
+        assert_eq!(no_runtime.cc_port, DEFAULT_CC_REMOTE_PORT);
+        assert_eq!(
+            runtime_proxy_match(None, Some(no_runtime.proxy_port)),
+            RuntimeProxyMatch::Unknown
+        );
     }
     #[test]
     fn revision_changes_never_retarget_an_existing_tunnel() {

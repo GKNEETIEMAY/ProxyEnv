@@ -11,6 +11,44 @@ pub fn settings_path() -> Option<PathBuf> {
     dirs::config_dir().map(|p| p.join("Code/User/settings.json"))
 }
 
+/// A local user setting is a port expectation, not proof of runtime use.
+pub fn user_proxy_port() -> Option<u16> {
+    let path = settings_path()?;
+    let metadata = std::fs::symlink_metadata(&path).ok()?;
+    if !metadata.file_type().is_file() || metadata.len() > 1024 * 1024 {
+        return None;
+    }
+    let profiles = path.parent()?.join("profiles");
+    if profiles.is_dir() && std::fs::read_dir(profiles).ok()?.next().is_some() {
+        return None;
+    }
+    let settings = parse_settings(&std::fs::read_to_string(path).ok()?).ok()?;
+    proxy_port_from_settings(&settings)
+}
+
+fn proxy_port_from_settings(settings: &serde_json::Value) -> Option<u16> {
+    if settings.get("http.useLocalProxyConfiguration") == Some(&serde_json::Value::Bool(false))
+        || settings.get("http.proxySupport") == Some(&serde_json::Value::String("off".into()))
+    {
+        return None;
+    }
+    let raw = settings.get("http.proxy")?.as_str()?;
+    let url = reqwest::Url::parse(raw).ok()?;
+    // A reverse forward transports bytes; it does not translate HTTP, HTTPS
+    // or SOCKS proxy protocols. Only the observed HTTP case is supported.
+    if url.scheme() != "http"
+        || url.host_str() != Some("127.0.0.1")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    url.port().filter(|port| *port >= 1024)
+}
+
 // JSONC comments and trailing commas are syntax, not string contents. Keep this
 // small parser local; serde_json still performs all structural validation.
 pub fn parse_settings(input: &str) -> BridgeResult<serde_json::Value> {
@@ -291,5 +329,32 @@ mod tests {
             "Code - Insiders.exe"
         )));
         assert!(!is_vscode_process_name(std::ffi::OsStr::new("Cursor.exe")));
+    }
+
+    #[test]
+    fn user_proxy_inspection_accepts_only_explicit_loopback_ports() {
+        let parse = |raw: &str| proxy_port_from_settings(&parse_settings(raw).unwrap());
+        assert_eq!(
+            parse(r#"{"http.proxy":"http://127.0.0.1:7897"}"#),
+            Some(7897)
+        );
+        assert_eq!(
+            parse(r#"{"http.proxy":"http://127.0.0.1:10809"}"#),
+            Some(10809)
+        );
+        for raw in [
+            r#"{}"#,
+            r#"{"http.proxy":"http://proxy.example:7897"}"#,
+            r#"{"http.proxy":"http://user:secret@127.0.0.1:7897"}"#,
+            r#"{"http.proxy":"http://127.0.0.1:7897/path"}"#,
+            r#"{"http.proxy":"http://127.0.0.1"}"#,
+            r#"{"http.proxy":"http://localhost:7897"}"#,
+            r#"{"http.proxy":"http://[::1]:7897"}"#,
+            r#"{"http.proxy":"socks5://127.0.0.1:7897"}"#,
+            r#"{"http.proxy":"https://127.0.0.1:7897"}"#,
+            r#"{"http.proxy":"http://127.0.0.1:7897","http.useLocalProxyConfiguration":false}"#,
+        ] {
+            assert_eq!(parse(raw), None, "unexpected proxy from {raw}");
+        }
     }
 }

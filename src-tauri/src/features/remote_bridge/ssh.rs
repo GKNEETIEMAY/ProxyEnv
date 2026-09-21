@@ -1013,13 +1013,17 @@ pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResu
             host.clone()
         };
         cmd.arg("-R")
-            .arg(format!("127.0.0.1:{remote}:{host}:{local}"));
+            .arg(reverse_forward_spec(*remote, &host, *local));
     }
     cmd.arg(destination)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     OwnedChild::spawn(&mut cmd)
+}
+
+fn reverse_forward_spec(remote: u16, host: &str, local: u16) -> String {
+    format!("127.0.0.1:{remote}:{host}:{local}")
 }
 
 pub(super) fn extension_remote(
@@ -1266,6 +1270,15 @@ mod tests {
         assert_eq!(quote("two words"), "\"two words\"");
         assert_eq!(quote("a\"b"), "\"a\\\"b\"");
         assert_eq!(quote("C:\\Program Files\\"), "\"C:\\Program Files\\\\\"");
+    }
+    #[test]
+    fn reverse_forward_keeps_remote_consumer_and_local_upstream_ports_separate() {
+        for (remote, local) in [(7897, 10809), (10809, 10809)] {
+            assert_eq!(
+                reverse_forward_spec(remote, "127.0.0.1", local),
+                format!("127.0.0.1:{remote}:127.0.0.1:{local}")
+            );
+        }
     }
     #[test]
     fn target_ids_separate_sources_paths_and_aliases_without_exposing_paths() {

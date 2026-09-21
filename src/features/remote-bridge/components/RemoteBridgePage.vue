@@ -36,6 +36,8 @@ const proxy = ref(true);
 const cc = ref(false);
 const proxyPort = ref(0);
 const ccPort = ref(0);
+const runtimeExpectedPort = ref<number | null>(null);
+const runtimePortConflict = ref(false);
 const ccLocalPort = ref(15721);
 const ccDetection = ref<CcDetection>({ state: "notDetected", localPort: 15721 });
 type CheckSnapshot = { state: CheckState; checkedAt: number | null };
@@ -354,6 +356,8 @@ async function load() {
 function usePorts(ports: PortAllocation) {
   proxyPort.value = ports.proxyPort;
   ccPort.value = ports.ccPort;
+  runtimeExpectedPort.value = ports.runtimeExpectedProxyPort ?? null;
+  runtimePortConflict.value = ports.runtimePortConflict ?? false;
   feedback.value = "ports";
 }
 
@@ -361,6 +365,8 @@ function checkTarget() {
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
+  runtimeExpectedPort.value = null;
+  runtimePortConflict.value = false;
   sshCheck.value = { ...sshCheck.value, state: "checking" };
   if (props.reviewPreview) {
     usePorts({ proxyPort: 23841, ccPort: 31472 });
@@ -391,6 +397,8 @@ function refreshTargets() {
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
+  runtimeExpectedPort.value = null;
+  runtimePortConflict.value = false;
   void perform(load);
 }
 
@@ -514,6 +522,8 @@ watch(targetId, (nextTarget, previousTarget) => {
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
+  runtimeExpectedPort.value = null;
+  runtimePortConflict.value = false;
   vscodeOpened.value = false;
   sshCheck.value = { state: "idle", checkedAt: null };
   serverInternetCheck.value = { state: "idle", checkedAt: null };
@@ -624,6 +634,10 @@ onBeforeUnmount(() => {
                 <template #actions><label class="remote-choice"><input v-model="proxy" type="checkbox" :disabled="!proxyAvailable" />{{ copy.rbUseProxyBridge }}</label></template>
               </CheckRow>
               <dl v-if="proxy" class="remote-port-pair"><dt>{{ copy.rbRemotePort }}</dt><dd><code>127.0.0.1:{{ proxyPort }}</code></dd></dl>
+              <template v-if="proxy && selectedTarget?.canOpenVscode">
+                <dl v-if="runtimeExpectedPort" class="remote-port-pair"><dt>{{ copy.rbRuntimeSetting }}</dt><dd><code>127.0.0.1:{{ runtimeExpectedPort }}</code></dd></dl>
+                <p class="remote-hint" :class="{ 'notice notice-warning': runtimePortConflict }">{{ runtimePortConflict ? copy.rbRuntimeConflict : runtimeExpectedPort ? copy.rbRuntimeMatched : copy.rbRuntimeUnknown }}</p>
+              </template>
             </section>
             <section class="remote-check-group">
               <header><h3>{{ copy.rbAiRouteSection }}</h3><p>{{ copy.rbAiRouteSectionHint }}</p></header>
@@ -660,6 +674,10 @@ onBeforeUnmount(() => {
               <CheckRow v-if="summary.proxy" :label="copy.rbLocalProxyHealth" :state="bridgeCheckState(summary.proxyStatus)" :state-label="summary.proxyStatus ? copy.rbStates[summary.proxyStatus] : copy.rbCheckIdle" :checked-at="localProxyCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.proxy">
                 <template #detail><p class="check-row-detail"><code>{{ summary.proxy.local.host }}:{{ summary.proxy.local.port }}</code> → <code>127.0.0.1:{{ summary.proxy.remotePort }}</code></p></template>
               </CheckRow>
+              <div v-if="summary.proxy && summary.target?.canOpenVscode" class="remote-runtime-observation">
+                <p v-if="summary.runtimeExpectedProxyPort" class="remote-hint">{{ copy.rbRuntimeSetting }} · <code>127.0.0.1:{{ summary.runtimeExpectedProxyPort }}</code></p>
+                <p class="remote-hint" :class="{ 'notice notice-warning': summary.runtimeProxyMatch === 'mismatch' }">{{ summary.runtimeProxyMatch === 'mismatch' ? copy.rbRuntimeMismatch : summary.runtimeProxyMatch === 'matched' ? copy.rbRuntimeMatched : copy.rbRuntimeUnknown }}</p>
+              </div>
               <CheckRow v-if="summary.cc" :label="copy.rbLocalCcHealth" :state="bridgeCheckState(summary.ccStatus)" :state-label="summary.ccStatus ? copy.rbStates[summary.ccStatus] : copy.rbCheckIdle" :checked-at="ccCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.cc">
                 <template #detail><p class="check-row-detail"><code>{{ summary.cc.local.host }}:{{ summary.cc.local.port }}</code> → <code>127.0.0.1:{{ summary.cc.remotePort }}</code></p></template>
               </CheckRow>
