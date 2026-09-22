@@ -19,7 +19,7 @@
 > [!IMPORTANT]
 > 当前稳定版为 **v0.1.4**，支持 Windows 10/11 x64。当前与后续范围见[路线图](docs/ROADMAP.md)。
 
-> 开发分支 `v0.2.0dev` 已加入远程环境桥接，使用方法、安全边界与验证范围见[开发说明](docs/REMOTE_BRIDGE.md)。v0.2.0 尚未发布为稳定版。
+> 开发分支 `v0.2.0dev` 已加入远程环境桥接，使用方法、安全边界与验收记录见[现行入口](docs/remote-bridge/README.md)。v0.2.0 尚未发布为稳定版。
 
 ## ProxyEnv 是什么？
 
@@ -159,9 +159,9 @@ HKEY_CURRENT_USER\Environment
 
 ### 隐私边界
 
-ProxyEnv 不是代理客户端、VPN、订阅管理器、流量转发器或 TUN 控制器。它不控制 Clash/v2rayN API、节点、订阅、代理客户端规则、Windows 系统代理、路由、驱动或系统级环境变量，也不会向运行中进程注入或改写其环境。关闭进程的唯一例外是上述手动引导中经过明确确认和身份校验的重启操作。
+稳定版 v0.1.4 不承担流量转发。尚未发布的 v0.2 远程桥接允许用户明确启用会话级 SSH 反向转发与 ProxyEnv 自有本地 Relay，但它仍不是通用代理服务器或 VPN；共享 Linux 主机上的 M8 token 隔离仍是发布门槛。ProxyEnv 不控制 Clash/v2rayN API、节点、订阅、客户端规则、Windows 系统代理、路由、驱动或系统级环境变量，也不会向运行中进程注入或改写其环境。关闭进程的唯一例外是上述手动引导中经过明确确认和身份校验的重启操作。
 
-代理检测、协议探测、TUN 观测、应用枚举和环境变量管理均在本机完成。ProxyEnv 不读取、不保存、不管理代理账号密码、订阅 Token、节点凭据、其它代理认证信息或流量。运行时诊断统一经过脱敏边界，移除本机路径、代理地址和进程信息；配置字段原始值按完整敏感数据处理。除非用户明确触发现有代理测试，否则不会进行外部联网测试。用户主动检查更新时会访问固定的官方 GitHub 地址；再次点击“下载并安装更新”后，才会下载清单指定且通过签名验证的安装包。详见 [`SECURITY.md`](SECURITY.md)。
+本机代理检测、协议探测、TUN 观测、应用枚举与环境变量管理不会静默修改第三方配置。v0.2 开发版仅在用户明确启用远程桥接后，对允许的 Codex / Claude 配置字段执行受所有权、备份、校验和恢复保护的修改；Skills 投影仍在计划中。它不会把 Provider 凭据、订阅、节点或认证信息复制到远端工具配置。运行时诊断经过脱敏边界，配置原值按敏感数据处理。外网测试仍须用户主动触发。检查更新访问固定 GitHub 地址；单独点击“下载并安装更新”才获取并验证安装包。详见 [`SECURITY.md`](SECURITY.md)。
 
 ## 与环境变量工具对比
 
@@ -201,7 +201,7 @@ ProxyEnv 不是代理客户端、VPN、订阅管理器、流量转发器或 TUN 
 ProxyEnv/
 ├─ src/
 │  ├─ app/                       # Vue 外壳与桌面编排
-│  ├─ features/                  # 代理、应用助手与设置界面
+│  ├─ features/                  # 代理、应用助手、远程桥接与设置界面
 │  └─ shared/                    # IPC、i18n、类型和视觉令牌
 ├─ src-tauri/src/
 │  ├─ commands/                  # 轻量 Tauri IPC 适配器
@@ -210,12 +210,13 @@ ProxyEnv/
 │  ├─ features/proxy/            # 代理检测、计划、状态、同步/恢复/关闭
 │  ├─ features/network_observation/ # 只读虚拟网卡证据
 │  ├─ features/application_assistant/ # 应用选择、诊断与独立启动环境
+│  ├─ features/remote_bridge/    # SSH 会话、固定远端操作与共享工具配置
 │  └─ services/                  # 持久化应用设置
 ├─ public/proxy-clients/         # 运行时图标与归属说明
 └─ docs/                         # 架构文档与 README 插图
 ```
 
-通用 Environment Core 不包含代理客户端或代理变量知识。完整依赖规则见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+通用 Environment Core 不包含代理客户端或代理变量知识。参阅[文档索引](docs/README.md)、[当前架构](docs/ARCHITECTURE.md)和[远程桥接开发范围](docs/remote-bridge/README.md)。
 
 ## 开发环境
 

@@ -185,8 +185,8 @@ pub fn inspect(alias: String) -> BridgeResult<Inspection> {
             && inspection.extensions[0].detected
             && inspection.extensions[0].configuration == "notConfigured"
         {
-            // Remote Codex CLI and the VS Code extension read the same user
-            // profile. M7.5 owns that file once through the CLI transaction.
+            // Remote Codex CLI and VS Code share one managed user profile.
+            // This inspection mirrors that switch; it does not write a second profile.
             inspection.extensions[0].configuration = "configured".into();
         }
         state.summary.codex_extension = Some(inspection.extensions[0].configuration.clone());
@@ -195,8 +195,8 @@ pub fn inspect(alias: String) -> BridgeResult<Inspection> {
     Ok(inspection)
 }
 pub fn preview(selection: Selection) -> BridgeResult<Preview> {
-    // Codex extension profile synchronization belongs to M9. M7.5 only owns
-    // the remote CLI profile; legacy extension state may still be restored.
+    // Codex CLI and VS Code share the managed user profile. The old extension
+    // transaction is restore-only; never create another active Codex profile.
     if selection.tool == "codex" && !selection.restore {
         return Err("extensionUnsupported".into());
     }

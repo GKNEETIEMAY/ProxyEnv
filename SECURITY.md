@@ -7,6 +7,8 @@ Next: v0.2.0
 
 This policy covers Current Stable v0.1.4 and development changes planned for v0.2.0. The safe Diagnostic Report and unified ActiveProxyContext are shipped in v0.1.4. See the [Roadmap](docs/ROADMAP.md).
 
+Remote Bridge is unreleased development functionality. Its present loopback-only SSH reverse forwards do **not** isolate users on a shared Linux host; the M8 authenticated session relay described below is a release gate, not a current protection.
+
 Please report suspected vulnerabilities privately to the repository maintainers rather than opening a public issue. Include the affected version, operating system, reproduction steps, observed impact, and any relevant local logs with secrets removed.
 
 ## Trust model
@@ -34,20 +36,22 @@ ProxyEnv may:
 - create a local rule backup and restore it only when the current field still equals the value ProxyEnv applied;
 - contact the fixed official GitHub Releases API and pinned HTTPS updater manifest only when the user explicitly selects **Check for updates**;
 - after an explicit **Download and install** action, download only the manifest-selected installer, require Tauri signature verification, replace only the registered NSIS installation, and restart after successful installation.
+- in v0.2 development, after explicit selection and confirmation, establish owned SSH reverse forwards to fixed, reviewed local proxy/AI-route upstreams and stop them on disconnect;
+- after the user enables a supported remote tool, validate, back up, atomically update and verify only allowlisted Codex/Claude user-profile fields, preserving unrelated content and refusing conflicting restore state. A remote Skill projection is planned but not yet enabled.
 
 ## Prohibited capabilities
 
 ProxyEnv must not:
 
-- act as a VPN, proxy server, traffic forwarder, TUN controller, TUN driver installer, node manager, or subscription manager;
+- act as a general VPN or proxy server, open arbitrary traffic-forwarding destinations, control TUN, install drivers, manage nodes or subscriptions; explicit owned Remote Bridge forwarding is the limited exception above;
 - enable or disable TUN, adapters, routes, services, proxy clients, Windows System Proxy, proxy-client global settings, nodes, subscriptions, or client rules;
 - call Clash, v2rayN, or other proxy-client control APIs;
 - auto-download rules, run a rule marketplace, execute rule-provided code, shell commands, scripts, adapters, templates, or regular expressions;
 - inject into, hook, debug, suspend, or call `WriteProcessMemory` on a running process; termination is prohibited except for the explicitly confirmed, identity-checked manual-guide restart described above;
 - modify the environment of a running process or claim that registry broadcasts retroactively change it;
 - scan the full disk, search arbitrary configuration directories, accept user-defined rule paths/fields, or follow symlinks/reparse points;
-- modify settings, repair applications, follow changing ports, or run external connectivity tests in the background;
-- collect or upload traffic, subscriptions, nodes, credentials, tokens, passwords, application configuration contents, or process lists.
+- silently modify arbitrary third-party settings, repair applications, follow changing ports, or run external connectivity tests in the background; a user-enabled remote tool may reconcile only its owned allowlisted profile fields while the bridge is active;
+- collect or upload traffic, subscriptions, nodes, provider credentials, application configuration contents, or process lists. Transient SSH authentication responses and future relay session tokens are restricted to their explicit session boundaries, never diagnostic data.
 
 ## Local data
 
@@ -67,7 +71,15 @@ The Diagnostic Report preview uses a backend-issued allowlisted DTO, not seriali
 
 ProxyEnv does not read, save, or manage proxy user names or passwords, subscription tokens, node credentials, or any other proxy authentication material. Such values must never be added to logs, reports, snapshots, backups, settings, or application rules.
 
-Remote Bridge may accept an SSH password, key passphrase, verification code, or keyboard-interactive response only after the user explicitly opens an interactive authentication flow. Every response is bound to the session-owned current prompt ID, written directly to the current OpenSSH PTY stdin, never added to command arguments, configuration, settings, diagnostics, logs, terminal snapshots, or authentication snapshots, and cleared from frontend and backend input buffers after submission. It is not retained for later operations. Echo suppression removes only a byte-exact copy of the submitted response and never discards an arbitrary following line. If ConPTY does not expose a real prompt before the bounded wait expires, ProxyEnv stops the PTY and reports only safe diagnostic counts and flags; it never invents a fallback authentication question. Non-interactive checks reject unknown hosts; the interactive flow may ask the user to confirm a first-seen fingerprint, but never disables host-key checking and never bypasses an existing `known_hosts` mismatch. Cancelling, prompt timeout, expiry, disconnect, or application shutdown terminates the owned authentication process.
+Remote Bridge may accept an SSH password, key passphrase, verification code, or keyboard-interactive response only after the user explicitly opens an interactive authentication flow. Every response is bound to the session-owned current prompt ID, written directly to the current OpenSSH PTY stdin, never added to command arguments, configuration, settings, diagnostics, logs, terminal snapshots, or authentication snapshots, and cleared from frontend and backend plaintext input buffers after submission. Except for the eligible, session-encrypted plain server password described below, it is not retained for later operations. Echo suppression removes only a byte-exact copy of the submitted response and never discards an arbitrary following line. If ConPTY does not expose a real prompt before the bounded wait expires, ProxyEnv stops the PTY and reports only safe diagnostic counts and flags; it never invents a fallback authentication question. Non-interactive checks reject unknown hosts; the interactive flow may ask the user to confirm a first-seen fingerprint, but never disables host-key checking and never bypasses an existing `known_hosts` mismatch. Cancelling, prompt timeout, expiry, disconnect, or application shutdown terminates the owned authentication process.
+
+An eligible plain SSH server password may be retained **only during the current bridge** as Windows-current-user DPAPI ciphertext in memory, bound to the selected SSH configuration; target switch, disconnect, rejection and exit clear it. Key passphrases, OTPs and unknown challenges are never cached. This transport exception does not authorize storing proxy or provider credentials.
+
+## Remote Bridge shared-host boundary (v0.2 development)
+
+Loopback binding of an SSH reverse forward does not isolate Unix UIDs: another user on the same Linux host may attempt to connect. Current code must not claim otherwise. M8 requires a fresh ≥256-bit CSPRNG token per bridge, authenticated relay enforcement before access to a fixed upstream, rotation on reconnect and immediate revoke on disconnect. The token must stay out of the WebView, logs, diagnostic reports, provider API-key fields and `auth.json`. A different UID without the token must be denied. The same UID is one trust domain; root is outside a user-space isolation guarantee. See the [M8 design](docs/remote-bridge/AUTHENTICATED_RELAY.md).
+
+Remote Skills projection is **not yet implemented**. Its planned upload staging, manifest/hash verification, ownership marker, foreign same-name conflict and owned-only removal must be implemented and tested before claiming Skills are synchronized. No remote user file may be overwritten merely because a name matches. Legacy extension recovery code remains while its callers and restore obligations exist.
 
 ## Release security priorities
 

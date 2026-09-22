@@ -19,7 +19,7 @@
 > [!IMPORTANT]
 > **v0.1.4** is the current stable release for Windows 10/11 x64. See the [Roadmap](docs/ROADMAP.md) for current and upcoming scope.
 
-> Development branch `v0.2.0dev` adds Remote Environment Bridge. See [setup, safety boundaries and validation](docs/REMOTE_BRIDGE.md). v0.2.0 has not been published as a stable release.
+> Development branch `v0.2.0dev` adds Remote Environment Bridge. See the [current guide, limits and acceptance](docs/remote-bridge/README.md). v0.2.0 has not been published as a stable release.
 
 ## What is ProxyEnv?
 
@@ -160,9 +160,9 @@ Reports include version metadata, client counts and the current selection, indep
 
 ### Privacy boundaries
 
-ProxyEnv is not a proxy client, VPN, subscription manager, traffic forwarder, or TUN controller. It does not control Clash/v2rayN APIs, nodes, subscriptions, proxy-client rules, Windows System Proxy, routes, drivers, or system-level environment variables. It never injects into or rewrites a running process's environment. The only process-closing exception is the manual guide's explicitly confirmed, identity-checked restart described above.
+In stable v0.1.4, ProxyEnv does not forward traffic. The unreleased v0.2 Remote Bridge permits explicit, session-scoped SSH reverse forwards and a ProxyEnv-owned local relay; it is still not a general proxy server or VPN. M8 token isolation for shared Linux hosts remains a release gate. ProxyEnv does not control Clash/v2rayN APIs, nodes, subscriptions, proxy-client rules, Windows System Proxy, routes, drivers, or system-level environment variables. It never injects into or rewrites a running process's environment. The only process-closing exception is the manual guide's explicitly confirmed, identity-checked restart described above.
 
-Detection, protocol probing, TUN observation, application enumeration, and environment management stay on the local machine. ProxyEnv never reads, saves, or manages proxy user names or passwords, subscription tokens, node credentials, other proxy authentication material, or traffic. Runtime diagnostics pass through a shared redaction boundary that removes local paths, proxy endpoints, and process details; configuration values are treated as fully sensitive. It performs no external connectivity test unless the user explicitly requests the existing proxy test. A user-triggered update check contacts the fixed official GitHub endpoints; a separate Download and install action may then fetch the manifest-selected, signature-verified installer. See [`SECURITY.md`](SECURITY.md).
+Local detection, protocol probing, TUN observation, application enumeration and environment management do not silently change third-party settings. In v0.2 development, only an explicitly enabled Remote Bridge may update allowlisted Codex/Claude configuration with ownership, backup, verification and restore protection; Skills projection is planned, not implemented. It does not copy provider credentials, subscriptions, nodes or authentication material into remote tool configuration. Runtime diagnostics pass through a shared redaction boundary; configuration values are fully sensitive. External connectivity tests remain explicit. A user-triggered update check contacts fixed official GitHub endpoints; a separate Download and install action may fetch the signature-verified installer. See [`SECURITY.md`](SECURITY.md).
 
 ## Compared with environment-variable tools
 
@@ -202,7 +202,7 @@ The installed edition can check for and install Tauri-signed updates from About.
 ProxyEnv/
 ├─ src/
 │  ├─ app/                       # Vue shell and desktop orchestration
-│  ├─ features/                  # Proxy, application-assistant, and settings UI
+│  ├─ features/                  # Proxy, application-assistant, remote-bridge, settings UI
 │  └─ shared/                    # IPC, i18n, types, and visual tokens
 ├─ src-tauri/src/
 │  ├─ commands/                  # Thin Tauri IPC adapters
@@ -211,12 +211,13 @@ ProxyEnv/
 │  ├─ features/proxy/            # Proxy detection, plans, state, sync/restore/disable
 │  ├─ features/network_observation/ # Read-only virtual-adapter evidence
 │  ├─ features/application_assistant/ # Process selection, diagnosis, and isolated launch environments
+│  ├─ features/remote_bridge/    # SSH session, fixed remote operations, shared tool profiles
 │  └─ services/                  # Persistent application settings
 ├─ public/proxy-clients/         # Runtime icons and attribution
 └─ docs/                         # Architecture and README artwork
 ```
 
-The generic Environment Core has no proxy-client or proxy-variable knowledge. Dependency rules are documented in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+The generic Environment Core has no proxy-client or proxy-variable knowledge. See the [documentation index](docs/README.md), [architecture](docs/ARCHITECTURE.md) and [Remote Bridge development scope](docs/remote-bridge/README.md).
 
 ## Development environment
 
