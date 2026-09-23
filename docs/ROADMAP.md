@@ -23,7 +23,7 @@ The development branch already has structured OpenSSH/VS Code/Moba bookmark disc
 Release work still open:
 
 - [x] M8 per-session authenticated local relay, credential delivery, rotation/revocation and automated security tests. Real different-UID shared-host acceptance remains open.
-- [ ] SSH connection manager: import management, manual add, automatic OpenSSH or selected identity file; compatible MobaXterm launch.
+- [x] SSH connection manager: bounded automatic import, manual add, automatic OpenSSH or selected identity file, and compatible first-level MobaXterm launch. Real-device acceptance remains pending.
 - [ ] Managed remote session environment create/update/remove without default shell-startup edits.
 - [ ] Effective local Skills detection and conflict-safe remote projection/restore.
 - [ ] Simple default / Advanced UI with secure progressive disclosure.

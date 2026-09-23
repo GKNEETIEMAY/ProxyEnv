@@ -310,11 +310,42 @@ const authKo: AuthLabels = {
   rbAuthMethodIdentityFile:"SSH 키",rbAuthMethodAgent:"SSH Agent",rbAuthMethodPassword:"비밀번호",rbAuthMethodKeyboardInteractive:"대화형 확인",rbAuthMethodUnknown:"OpenSSH 인증",
   rbAuthError:"SSH 대화형 인증을 완료하지 못했습니다. 요청 내용, 계정 정책 및 호스트 키를 확인한 뒤 다시 시도하세요.",
 };
+const connectionEn = {
+  rbSourceManual: "ProxyEnv connection",
+  rbAddConnection: "Add SSH connection",
+  rbConnectionTitle: "Add SSH connection",
+  rbConnectionDisplayName: "Display name",
+  rbConnectionDestination: "Host or user@host",
+  rbConnectionDestinationHint: "Examples: lab.example.edu or student@lab.example.edu",
+  rbConnectionPort: "SSH port",
+  rbConnectionAuthentication: "Authentication",
+  rbConnectionAuthAutomatic: "Use OpenSSH automatically",
+  rbConnectionAuthAutomaticHint: "Uses your SSH configuration, default keys, ssh-agent, password, keyboard-interactive authentication and explicit first-use host-key confirmation.",
+  rbConnectionAuthIdentity: "Use a specific identity file",
+  rbConnectionIdentityFile: "Identity file path",
+  rbConnectionIdentityHint: "Enter an absolute path to an existing private-key file. ProxyEnv stores only the path and never reads or copies the key contents.",
+  rbConnectionSave: "Add connection",
+  rbConnectionRemove: "Remove connection",
+  rbConnectionRemoveTitle: "Remove saved connection?",
+  rbConnectionRemoveHint: "This removes only the ProxyEnv connection definition. SSH keys, known_hosts and remote files are not changed.",
+  rbConnectionInvalid: "Check the display name, destination, SSH port and identity-file path. No connection was saved.",
+};
+type ConnectionLabels = { [K in keyof typeof connectionEn]: string };
+const connectionZh: ConnectionLabels = {
+  rbSourceManual:"ProxyEnv 连接",rbAddConnection:"添加 SSH 连接",rbConnectionTitle:"添加 SSH 连接",rbConnectionDisplayName:"显示名称",rbConnectionDestination:"主机或 user@host",rbConnectionDestinationHint:"例如：lab.example.edu 或 student@lab.example.edu",rbConnectionPort:"SSH 端口",rbConnectionAuthentication:"认证方式",rbConnectionAuthAutomatic:"自动使用 OpenSSH",rbConnectionAuthAutomaticHint:"复用 SSH 配置、默认密钥、ssh-agent、密码、Keyboard Interactive，并在首次连接时明确确认主机密钥。",rbConnectionAuthIdentity:"指定身份文件",rbConnectionIdentityFile:"身份文件路径",rbConnectionIdentityHint:"请输入现有私钥文件的绝对路径。ProxyEnv 只保存路径，不读取或复制密钥内容。",rbConnectionSave:"添加连接",rbConnectionRemove:"移除连接",rbConnectionRemoveTitle:"移除已保存的连接？",rbConnectionRemoveHint:"只移除 ProxyEnv 保存的连接定义，不修改 SSH 密钥、known_hosts 或远端文件。",rbConnectionInvalid:"请检查显示名称、目标主机、SSH 端口和身份文件路径。连接未保存。",
+};
+const connectionJa: ConnectionLabels = {
+  rbSourceManual:"ProxyEnv 接続",rbAddConnection:"SSH 接続を追加",rbConnectionTitle:"SSH 接続を追加",rbConnectionDisplayName:"表示名",rbConnectionDestination:"ホストまたは user@host",rbConnectionDestinationHint:"例：lab.example.edu または student@lab.example.edu",rbConnectionPort:"SSH ポート",rbConnectionAuthentication:"認証",rbConnectionAuthAutomatic:"OpenSSH を自動使用",rbConnectionAuthAutomaticHint:"SSH 設定、既定キー、ssh-agent、パスワード、対話認証、初回ホストキー確認を使用します。",rbConnectionAuthIdentity:"特定の秘密鍵を使用",rbConnectionIdentityFile:"秘密鍵ファイルのパス",rbConnectionIdentityHint:"既存の秘密鍵への絶対パスを入力します。ProxyEnv はパスだけを保存し、鍵の内容を読み取りません。",rbConnectionSave:"接続を追加",rbConnectionRemove:"接続を削除",rbConnectionRemoveTitle:"保存済み接続を削除しますか？",rbConnectionRemoveHint:"ProxyEnv の接続定義だけを削除します。SSH キー、known_hosts、リモートファイルは変更しません。",rbConnectionInvalid:"表示名、接続先、SSH ポート、秘密鍵パスを確認してください。接続は保存されていません。",
+};
+const connectionKo: ConnectionLabels = {
+  rbSourceManual:"ProxyEnv 연결",rbAddConnection:"SSH 연결 추가",rbConnectionTitle:"SSH 연결 추가",rbConnectionDisplayName:"표시 이름",rbConnectionDestination:"호스트 또는 user@host",rbConnectionDestinationHint:"예: lab.example.edu 또는 student@lab.example.edu",rbConnectionPort:"SSH 포트",rbConnectionAuthentication:"인증",rbConnectionAuthAutomatic:"OpenSSH 자동 사용",rbConnectionAuthAutomaticHint:"SSH 설정, 기본 키, ssh-agent, 비밀번호, 대화형 인증 및 최초 호스트 키 확인을 사용합니다.",rbConnectionAuthIdentity:"지정된 키 파일 사용",rbConnectionIdentityFile:"키 파일 경로",rbConnectionIdentityHint:"기존 개인 키 파일의 절대 경로를 입력하세요. ProxyEnv는 경로만 저장하고 키 내용을 읽거나 복사하지 않습니다.",rbConnectionSave:"연결 추가",rbConnectionRemove:"연결 삭제",rbConnectionRemoveTitle:"저장된 연결을 삭제할까요?",rbConnectionRemoveHint:"ProxyEnv 연결 정의만 삭제합니다. SSH 키, known_hosts 및 원격 파일은 변경하지 않습니다.",rbConnectionInvalid:"표시 이름, 대상, SSH 포트 및 키 파일 경로를 확인하세요. 연결이 저장되지 않았습니다.",
+};
 const en = {
   ...extensionEn,
   ...flowEn,
   ...foundationEn,
   ...authEn,
+  ...connectionEn,
   rbCliOverlayMissing: "The remote CLI configuration has not been applied. Review the change and confirm the backup-protected write before copying a launch command.",
   rbCliOverlayReady: "The remote configuration was written and verified. Start the CLI with the command below.",
   rbVscodeOpen: "Open in VS Code", rbOpenSshConfig: "Open SSH configuration", rbRevealConfig: "Show configuration location", rbLaunchMobaxterm: "Launch MobaXterm", rbOpenVscodeSettings: "Open VS Code settings", rbLaunchManualTerminal: "Launch manual terminal", rbVscodeTargets: "Also reads remote.SSH.configFile from the default VS Code user settings (JSONC). Hosts from that file are marked VS Code. Custom profiles and portable settings are not scanned.", rbVscodeHint: "Connect VS Code Remote - SSH to this same host, then paste the proxy variables and CLI launch commands into its remote terminal. The bridge remains owned by ProxyEnv. Terminal exports do not reconfigure an already-running VS Code Server or extension host.", rbVscodeError: "Could not open the reviewed SSH target in VS Code. Check that VS Code and Remote - SSH are installed, and select a host from the same SSH configuration used by VS Code.",
@@ -349,6 +380,7 @@ const zh: Labels = {
   ...flowZh,
   ...foundationZh,
   ...authZh,
+  ...connectionZh,
   rbCliMissingError:"SSH 非交互会话中未找到 CLI。ProxyEnv 已检查 SSH PATH，以及原生、npm、NVM、pnpm、Volta、Bun、asdf 和 mise 的常见用户级目录，且未加载 Shell 配置。",
   rbCliOverlayMissing:"远端 CLI 配置尚未应用。请先预览变更并确认执行受备份保护的写入，再复制启动命令。",
   rbCliOverlayReady:"远端配置已写入并完成读回验证，请使用下方命令启动 CLI。",
@@ -369,6 +401,7 @@ const ja: Labels = {
   ...flowJa,
   ...foundationJa,
   ...authJa,
+  ...connectionJa,
   rbCliMissingError:"非対話 SSH セッションで CLI が見つかりません。ProxyEnv は Shell 設定を読み込まず、SSH PATH と一般的なユーザー単位の native、npm、NVM、pnpm、Volta、Bun、asdf、mise の場所を確認しました。",
   rbCliOverlayMissing:"リモート CLI 設定はまだ適用されていません。変更を確認し、バックアップ保護された書き込みを承認してから起動コマンドをコピーしてください。",
   rbCliOverlayReady:"リモート設定を書き込み、読み取り検証を完了しました。下のコマンドで CLI を起動してください。",
@@ -380,6 +413,7 @@ const ko: Labels = {
   ...flowKo,
   ...foundationKo,
   ...authKo,
+  ...connectionKo,
   rbCliMissingError:"비대화형 SSH 세션에서 CLI를 찾을 수 없습니다. ProxyEnv는 셸 설정을 로드하지 않고 SSH PATH와 일반적인 사용자 수준 native, npm, NVM, pnpm, Volta, Bun, asdf 및 mise 위치를 확인했습니다.",
   rbCliOverlayMissing:"원격 CLI 설정이 아직 적용되지 않았습니다. 변경을 검토하고 백업으로 보호된 쓰기를 확인한 뒤 실행 명령을 복사하세요.",
   rbCliOverlayReady:"원격 설정을 기록하고 읽기 검증을 완료했습니다. 아래 명령으로 CLI를 시작하세요.",
@@ -460,6 +494,7 @@ export function bridgeError(code: unknown, copy: Labels): string {
   if (value === "portRace") return copy.rbPortRace;
   if (["extensionMissing","extensionUnsupported","extensionContextChanged","extensionLocationRequired"].includes(value)) return copy.rbExtError;
   if (["vscodeMissing","vscodeConfigInvalid","vscodeConfigMismatch"].includes(value)) return copy.rbVscodeError;
+  if (["identityFileInvalid","connectionLimitReached"].includes(value)) return copy.rbConnectionInvalid;
   if (["sshConfigChanged","sshMissing","sshConfigMissing","sshConfigUnsafe","sshTimeout","hostKey","sshAuth","sshFailed","invalidTarget"].includes(value)) return copy.rbSshError;
   if (["forwardDenied","relayUnavailable"].includes(value)) return copy.rbForwardError;
   if (value === "unsafeBinding") return copy.rbBindingError;

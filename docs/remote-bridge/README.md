@@ -18,7 +18,7 @@ Current code supports separate local/remote pages, structured discovery, interac
 - The remote forwards bind loopback, but **current development code has no per-bridge token isolation between different Unix users**. Do not treat loopback binding as a shared-host security boundary. [Authenticated relay](AUTHENTICATED_RELAY.md) is a v0.2 release gate.
 - ProxyEnv does not read SSH private-key contents or Moba credentials. Interactive responses are session-scoped; only an eligible plain server password may be held as Windows-user DPAPI ciphertext for the current bridge.
 - Remote config writes are limited to reviewed Codex/Claude fields, with validation, backup, ownership and conflict-safe restore. Unknown or concurrently changed managed state fails closed. Secrets, provider URLs and `auth.json` are not projected.
-- MCP, additional AI tool adapters, macOS Remote Bridge and automatic runtime installation are out of scope. Skills projection, managed remote environment, manual SSH additions, Moba launch and Simple/Advanced UI are **planned, not present**.
+- MCP, additional AI tool adapters, macOS Remote Bridge and automatic runtime installation are out of scope. Skills projection and Simple/Advanced UI remain planned. Session-managed remote environment, manual SSH additions and compatible first-level MobaXterm launch are implemented on `v0.2.0dev`; real-device release acceptance remains pending.
 
 The present UI exposes advanced port, route and diagnostic information. The proposed Simple/Advanced split is described in [UI/UX](UI_UX.md), not advertised as shipped.
 

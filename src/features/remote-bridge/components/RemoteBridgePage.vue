@@ -15,6 +15,7 @@ import {
   type BridgeRequest,
   type BridgeSummary,
   type CcDetection,
+  type ManualConnectionInput,
   type PortAllocation,
   type RemoteTarget,
   type RemoteToolVerification,
@@ -29,6 +30,8 @@ const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
 const confirmation = ref<HTMLDialogElement>();
 const authDialog = ref<HTMLDialogElement>();
 const authInput = ref<HTMLInputElement>();
+const connectionDialog = ref<HTMLDialogElement>();
+const removeConnectionDialog = ref<HTMLDialogElement>();
 const targets = ref<RemoteTarget[]>([]);
 const targetId = ref("");
 const checked = ref(false);
@@ -55,6 +58,7 @@ const authResponse = ref("");
 const authSubmitting = ref(false);
 const showAuthDiagnostic = ref(false);
 const authRetryContext = ref<{ operation: SshAuthOperation; request: BridgeRequest | null }>();
+const newConnection = ref<ManualConnectionInput>({ displayName: "", destination: "", port: 22, authentication: "automatic", identityFile: null });
 let authPollTimer: ReturnType<typeof setTimeout> | undefined;
 const remoteTools = computed(() => remoteToolAdapters.map((adapter) => ({
   adapter,
@@ -73,7 +77,12 @@ const valid = computed(() => (proxy.value || cc.value)
 const errorText = computed(() => error.value ? bridgeError(error.value, props.copy) : "");
 const feedbackText = computed(() => feedback.value ? ({ copied: props.copy.rbCopied, tested: props.copy.rbTested, ports: props.copy.rbPortsGenerated, terminal: props.copy.rbTerminalLaunched })[feedback.value] : "");
 const activeTarget = computed(() => props.summary.target ?? selectedTarget.value);
-const sourceLabel = (target: RemoteTarget) => ({ openssh: props.copy.rbSourceOpenSsh, vscode: props.copy.rbSourceVscode, mobaxterm: props.copy.rbSourceMoba })[target.source];
+const sourceLabel = (target: RemoteTarget) => ({ openssh: props.copy.rbSourceOpenSsh, vscode: props.copy.rbSourceVscode, mobaxterm: props.copy.rbSourceMoba, manual: props.copy.rbSourceManual })[target.source];
+const connectionValid = computed(() => newConnection.value.displayName.trim().length > 0
+  && newConnection.value.destination.trim().length > 0
+  && newConnection.value.port > 0
+  && newConnection.value.port <= 65535
+  && (newConnection.value.authentication === "automatic" || !!newConnection.value.identityFile?.trim()));
 const helpHeadings = computed(() => ({ check: props.copy.rbHelpCheck, success: props.copy.rbHelpSuccess, failure: props.copy.rbHelpFailure, next: props.copy.rbHelpNext }));
 const helpContent = computed(() => ({
   ssh: { check: props.copy.rbSshHelpCheck, success: props.copy.rbSshHelpSuccess, failure: props.copy.rbSshHelpFailure, next: props.copy.rbSshHelpNext },
@@ -402,6 +411,37 @@ function refreshTargets() {
   void perform(load);
 }
 
+function openConnectionDialog() {
+  error.value = undefined;
+  newConnection.value = { displayName: "", destination: "", port: 22, authentication: "automatic", identityFile: null };
+  connectionDialog.value?.showModal();
+}
+
+function addConnection() {
+  if (!connectionValid.value) return;
+  void perform(async () => {
+    const input = {
+      ...newConnection.value,
+      identityFile: newConnection.value.authentication === "identityFile" ? newConnection.value.identityFile?.trim() || null : null,
+    };
+    const added = await remoteBackend.addConnection(input);
+    await load();
+    targetId.value = added.id;
+    connectionDialog.value?.close();
+  });
+}
+
+function removeConnection() {
+  const target = selectedTarget.value;
+  if (!target || target.source !== "manual") return;
+  removeConnectionDialog.value?.close();
+  void perform(async () => {
+    await remoteBackend.removeConnection(target.id);
+    targetId.value = "";
+    await load();
+  });
+}
+
 function regeneratePorts() {
   void perform(async () => usePorts(await remoteBackend.allocatePorts(targetId.value, false)));
 }
@@ -605,10 +645,13 @@ onBeforeUnmount(() => {
             <p v-if="selectedTarget && !selectedTarget.available" class="notice notice-warning">{{ copy.rbMobaUnsupported }}</p>
             <p class="remote-hint">{{ copy.rbRequirements }}</p>
             <div class="remote-actions">
+              <button class="secondary-action" type="button" @click="openConnectionDialog">{{ copy.rbAddConnection }}</button>
               <button class="secondary-action" type="button" @click="refreshTargets">{{ copy.rbRefresh }}</button>
-              <button v-if="selectedTarget && selectedTarget.source !== 'mobaxterm'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openTargetConfig(selectedTarget!.id))">{{ copy.rbOpenSshConfig }}</button>
-              <button v-if="selectedTarget" class="secondary-action" type="button" @click="perform(async () => remoteBackend.revealTargetConfig(selectedTarget!.id))">{{ copy.rbRevealConfig }}</button>
+              <button v-if="selectedTarget && ['openssh', 'vscode'].includes(selectedTarget.source)" class="secondary-action" type="button" @click="perform(() => remoteBackend.openTargetConfig(selectedTarget!.id))">{{ copy.rbOpenSshConfig }}</button>
+              <button v-if="selectedTarget && selectedTarget.source !== 'manual'" class="secondary-action" type="button" @click="perform(async () => remoteBackend.revealTargetConfig(selectedTarget!.id))">{{ copy.rbRevealConfig }}</button>
               <button v-if="selectedTarget?.source === 'vscode'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openVscodeSettings())">{{ copy.rbOpenVscodeSettings }}</button>
+              <button v-if="selectedTarget?.source === 'mobaxterm' && selectedTarget.available" class="secondary-action" type="button" @click="perform(() => remoteBackend.launchMobaxterm(selectedTarget!.id))">{{ copy.rbLaunchMobaxterm }}</button>
+              <button v-if="selectedTarget?.source === 'manual'" class="secondary-action danger-action" type="button" @click="removeConnectionDialog?.showModal()">{{ copy.rbConnectionRemove }}</button>
               <button class="primary-action" type="button" :disabled="!selectedTarget?.available" @click="checkTarget">{{ copy.rbCheck }}</button>
             </div>
           </template>
@@ -617,9 +660,10 @@ onBeforeUnmount(() => {
             <div v-if="selectedTarget" class="remote-selected-target remote-setup-target">
               <div><strong>{{ selectedTarget.displayName }}</strong><span>{{ sourceLabel(selectedTarget) }}</span><code>{{ withoutWindowsExtendedPathPrefix(selectedTarget.configPath) }}</code></div>
               <div class="remote-actions">
-                <button v-if="selectedTarget.source !== 'mobaxterm'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openTargetConfig(selectedTarget!.id))">{{ copy.rbOpenSshConfig }}</button>
-                <button class="secondary-action" type="button" @click="perform(async () => remoteBackend.revealTargetConfig(selectedTarget!.id))">{{ copy.rbRevealConfig }}</button>
+                <button v-if="['openssh', 'vscode'].includes(selectedTarget.source)" class="secondary-action" type="button" @click="perform(() => remoteBackend.openTargetConfig(selectedTarget!.id))">{{ copy.rbOpenSshConfig }}</button>
+                <button v-if="selectedTarget.source !== 'manual'" class="secondary-action" type="button" @click="perform(async () => remoteBackend.revealTargetConfig(selectedTarget!.id))">{{ copy.rbRevealConfig }}</button>
                 <button v-if="selectedTarget.source === 'vscode'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openVscodeSettings())">{{ copy.rbOpenVscodeSettings }}</button>
+                <button v-if="selectedTarget.source === 'mobaxterm'" class="secondary-action" type="button" @click="perform(() => remoteBackend.launchMobaxterm(selectedTarget!.id))">{{ copy.rbLaunchMobaxterm }}</button>
                 <button class="secondary-action" type="button" @click="checked = false">{{ copy.rbTarget }}</button>
               </div>
             </div>
@@ -698,7 +742,7 @@ onBeforeUnmount(() => {
                 <div class="remote-actions">
                   <button v-if="summary.environment" class="secondary-action" type="button" @click="copyValue(summary.environment)">{{ copy.rbCopy }}</button>
                   <button class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(() => remoteBackend.launchManualTerminal())">{{ copy.rbLaunchManualTerminal }}</button>
-                  <button class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(() => remoteBackend.launchMobaxterm())">{{ copy.rbLaunchMobaxterm }}</button>
+                  <button v-if="summary.target?.source === 'mobaxterm'" class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(() => remoteBackend.launchMobaxterm(summary.target!.id))">{{ copy.rbLaunchMobaxterm }}</button>
                   <button v-if="summary.target?.canOpenVscode" class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(async () => { await remoteBackend.openVscode(summary.target!.id); vscodeOpened = true; })">{{ copy.rbVscodeOpen }}</button>
                 </div>
                 <p v-if="vscodeOpened" class="remote-success" role="status">{{ copy.rbExtOpened }}</p>
@@ -741,6 +785,32 @@ onBeforeUnmount(() => {
       <p class="remote-feedback" role="status">{{ busy ? copy.rbBusy : feedbackText }}</p>
     </section>
   </main>
+
+  <dialog ref="connectionDialog" class="confirmation-dialog remote-connection-dialog" aria-labelledby="remote-connection-title" @cancel.prevent="connectionDialog?.close()">
+    <form @submit.prevent="addConnection">
+      <h2 id="remote-connection-title">{{ copy.rbConnectionTitle }}</h2>
+      <div class="remote-connection-fields">
+        <label>{{ copy.rbConnectionDisplayName }}<input v-model="newConnection.displayName" type="text" maxlength="80" autocomplete="off" required /></label>
+        <label>{{ copy.rbConnectionDestination }}<input v-model="newConnection.destination" type="text" maxlength="320" autocomplete="off" placeholder="student@lab.example.edu" required /><small>{{ copy.rbConnectionDestinationHint }}</small></label>
+        <label>{{ copy.rbConnectionPort }}<input v-model.number="newConnection.port" type="number" min="1" max="65535" required /></label>
+        <fieldset class="remote-auth-choice">
+          <legend>{{ copy.rbConnectionAuthentication }}</legend>
+          <label><input v-model="newConnection.authentication" type="radio" value="automatic" /><span><strong>{{ copy.rbConnectionAuthAutomatic }}</strong><small>{{ copy.rbConnectionAuthAutomaticHint }}</small></span></label>
+          <label><input v-model="newConnection.authentication" type="radio" value="identityFile" /><span><strong>{{ copy.rbConnectionAuthIdentity }}</strong></span></label>
+        </fieldset>
+        <label v-if="newConnection.authentication === 'identityFile'">{{ copy.rbConnectionIdentityFile }}<input v-model="newConnection.identityFile" type="text" autocomplete="off" required /><small>{{ copy.rbConnectionIdentityHint }}</small></label>
+      </div>
+      <div class="confirmation-actions"><button class="secondary-action" type="button" @click="connectionDialog?.close()">{{ copy.rbCancel }}</button><button class="primary-action" type="submit" :disabled="busy || !connectionValid">{{ copy.rbConnectionSave }}</button></div>
+    </form>
+  </dialog>
+
+  <dialog ref="removeConnectionDialog" class="confirmation-dialog remote-disconnect-dialog" aria-labelledby="remote-remove-connection-title" @cancel.prevent="removeConnectionDialog?.close()">
+    <form @submit.prevent="removeConnection">
+      <h2 id="remote-remove-connection-title">{{ copy.rbConnectionRemoveTitle }}</h2>
+      <p>{{ copy.rbConnectionRemoveHint }}</p>
+      <div class="confirmation-actions"><button class="secondary-action" type="button" autofocus @click="removeConnectionDialog?.close()">{{ copy.rbCancel }}</button><button class="primary-action" type="submit" :disabled="busy">{{ copy.rbConnectionRemove }}</button></div>
+    </form>
+  </dialog>
 
   <dialog ref="confirmation" class="confirmation-dialog remote-disconnect-dialog" aria-labelledby="remote-confirm-title" @cancel.prevent="confirmation?.close()">
     <form @submit.prevent="confirmDisconnect">
@@ -889,6 +959,16 @@ onBeforeUnmount(() => {
 .remote-tool-verification .remote-hint { max-width:68ch; margin:0; }
 .remote-error,.remote-danger { color:var(--danger); }.remote-error { font-size:12px; line-height:1.65; }.remote-feedback { min-height:18px; color:var(--muted); font-size:12px; }.remote-fields:disabled { opacity:.7; }
 .remote-disconnect-dialog { width:min(520px,calc(100vw - 40px)); }
+.remote-connection-dialog { width:min(560px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow-y:auto; }
+.remote-connection-fields { display:grid; margin-top:18px; gap:14px; }
+.remote-connection-fields > label { display:grid; gap:7px; color:var(--muted); font-size:11px; font-weight:650; }
+.remote-connection-fields input[type=text],.remote-connection-fields input[type=number] { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--line-strong); border-radius:9px; color:var(--text); background:var(--surface-strong); outline:none; }
+.remote-connection-fields input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+.remote-connection-fields small { color:var(--muted); font-size:10px; font-weight:400; line-height:1.55; }
+.remote-auth-choice { display:grid; padding:12px 0; margin:0; gap:10px; border:0; border-block:1px solid var(--line); }
+.remote-auth-choice legend { padding:0 0 8px; color:var(--muted); font-size:11px; font-weight:650; }
+.remote-auth-choice label { display:grid; align-items:start; grid-template-columns:16px minmax(0,1fr); gap:10px; cursor:pointer; }
+.remote-auth-choice label > span { display:grid; gap:3px; }.remote-auth-choice strong { color:var(--text); font-size:12px; }.remote-auth-choice input { margin-top:2px; accent-color:var(--accent-strong); }
 .remote-auth-dialog { width:min(540px,calc(100vw - 40px)); }
 .remote-auth-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; }
 .remote-auth-heading h2 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:22px; letter-spacing:-.025em; }

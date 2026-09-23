@@ -2,6 +2,7 @@ mod authenticated_relay;
 #[cfg(test)]
 #[allow(dead_code)]
 mod codex_relay;
+pub(crate) mod connections;
 pub(crate) mod credential_cache;
 pub mod extension;
 mod local_model;
@@ -32,6 +33,7 @@ pub enum RemoteTargetSource {
     Openssh,
     Vscode,
     Mobaxterm,
+    Manual,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -987,6 +989,16 @@ pub fn report() -> Report {
 }
 pub fn targets() -> BridgeResult<Vec<RemoteTarget>> {
     ssh::targets()
+}
+pub fn add_connection(input: connections::ManualConnectionInput) -> BridgeResult<RemoteTarget> {
+    let connection = connections::add(input)?;
+    Ok(connections::target(&connection))
+}
+pub fn remove_connection(id: String) -> BridgeResult<()> {
+    connections::remove(&id)
+}
+pub fn launch_mobaxterm(target_id: String) -> BridgeResult<()> {
+    ssh::launch_mobaxterm_target(&target_id)
 }
 pub fn check(target_id: String) -> BridgeResult<PortAllocation> {
     ssh::validate_target(&target_id)?;

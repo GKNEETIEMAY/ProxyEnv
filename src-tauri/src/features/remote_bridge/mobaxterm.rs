@@ -1,6 +1,7 @@
 use super::BridgeResult;
 use std::{
     collections::HashSet,
+    ffi::OsString,
     path::{Path, PathBuf},
 };
 use sysinfo::System;
@@ -53,12 +54,32 @@ pub fn config_paths() -> Vec<PathBuf> {
         .collect()
 }
 
+fn bookmark_arguments(config_path: &Path, bookmark_name: &str) -> Vec<OsString> {
+    vec![
+        "-i".into(),
+        config_path.as_os_str().to_owned(),
+        "-bookmark".into(),
+        bookmark_name.into(),
+    ]
+}
+
 #[cfg(windows)]
-pub fn launch() -> BridgeResult<()> {
+pub fn launch(config_path: &Path, bookmark_name: &str) -> BridgeResult<()> {
     use std::process::{Command, Stdio};
 
+    if !config_path.is_absolute()
+        || !config_path.is_file()
+        || bookmark_name.is_empty()
+        || bookmark_name.len() > 160
+        || bookmark_name.chars().any(char::is_control)
+    {
+        return Err("mobaSessionUnsupported".into());
+    }
     let system = System::new_all();
-    let mut candidates = system
+    let configured = config_path
+        .canonicalize()
+        .map_err(|_| "mobaConfigInvalid")?;
+    let processes = system
         .processes()
         .values()
         .filter(|process| {
@@ -68,8 +89,28 @@ pub fn launch() -> BridgeResult<()> {
                 .to_ascii_lowercase()
                 .contains("mobaxterm")
         })
+        .collect::<Vec<_>>();
+    let mut candidates = processes
+        .iter()
+        .filter(|process| {
+            configured_path(process)
+                .or_else(|| {
+                    process
+                        .exe()
+                        .and_then(Path::parent)
+                        .map(|path| path.join("MobaXterm.ini"))
+                })
+                .and_then(|path| path.canonicalize().ok())
+                .as_ref()
+                == Some(&configured)
+        })
         .filter_map(|process| process.exe().map(Path::to_path_buf))
         .collect::<Vec<_>>();
+    candidates.extend(
+        processes
+            .into_iter()
+            .filter_map(|process| process.exe().map(Path::to_path_buf)),
+    );
     for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
         if let Some(root) = std::env::var_os(variable) {
             let root = PathBuf::from(root);
@@ -82,6 +123,7 @@ pub fn launch() -> BridgeResult<()> {
         .find(|candidate| candidate.is_absolute() && candidate.is_file())
         .ok_or("mobaSessionUnsupported")?;
     Command::new(executable)
+        .args(bookmark_arguments(&configured, bookmark_name))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -91,7 +133,7 @@ pub fn launch() -> BridgeResult<()> {
 }
 
 #[cfg(not(windows))]
-pub fn launch() -> BridgeResult<()> {
+pub fn launch(_config_path: &Path, _bookmark_name: &str) -> BridgeResult<()> {
     Err("processFailed".into())
 }
 
@@ -105,19 +147,27 @@ pub fn sessions(path: &Path) -> BridgeResult<Vec<Session>> {
 }
 
 pub fn sessions_from(input: &str) -> Vec<Session> {
-    let mut in_bookmarks = false;
+    let mut bookmark_section = None;
     let mut sessions = Vec::new();
     for raw in input.lines() {
         let line = raw.trim();
         if line.starts_with('[') && line.ends_with(']') {
             let section = &line[1..line.len() - 1];
-            in_bookmarks = section == "Bookmarks"
-                || section.strip_prefix("Bookmarks_").is_some_and(|suffix| {
-                    !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
-                });
+            bookmark_section = if section == "Bookmarks" {
+                Some(true)
+            } else if section.strip_prefix("Bookmarks_").is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            }) {
+                Some(false)
+            } else {
+                None
+            };
             continue;
         }
-        if !in_bookmarks || line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+        let Some(top_level) = bookmark_section else {
+            continue;
+        };
+        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
             continue;
         }
         let Some((name, raw_value)) = line.split_once('=') else {
@@ -152,8 +202,13 @@ pub fn sessions_from(input: &str) -> Vec<Session> {
             .map(|value| value.trim())
             .filter(|value| super::ssh::safe_name(value))
             .map(str::to_owned);
-        let compatible =
-            raw_value.starts_with("#109#") && host.is_some() && port.is_some() && user.is_some();
+        // MobaXterm officially supports `-bookmark` only for first-level
+        // bookmarks. Nested entries remain visible but are not launchable.
+        let compatible = top_level
+            && raw_value.starts_with("#109#")
+            && host.is_some()
+            && port.is_some()
+            && user.is_some();
         sessions.push(Session {
             name: name.into(),
             host,
@@ -179,5 +234,27 @@ mod tests {
         assert!(sessions[0].compatible);
         assert!(!sessions[1].compatible);
         assert!(!format!("{sessions:?}").contains("secret"));
+    }
+
+    #[test]
+    fn nested_bookmarks_are_imported_but_not_claimed_launchable() {
+        let input = "[Bookmarks_1]\nGPU Server=#109#0%gpu.example.test%22%dev%%-1%-1%%%%%0";
+        let sessions = sessions_from(input);
+        assert_eq!(sessions.len(), 1);
+        assert!(!sessions[0].compatible);
+    }
+
+    #[test]
+    fn bookmark_launch_arguments_keep_config_and_name_as_separate_values() {
+        let path = Path::new("C:/Users/example/MobaXterm.ini");
+        assert_eq!(
+            bookmark_arguments(path, "GPU Server"),
+            vec![
+                OsString::from("-i"),
+                path.as_os_str().to_owned(),
+                OsString::from("-bookmark"),
+                OsString::from("GPU Server"),
+            ]
+        );
     }
 }

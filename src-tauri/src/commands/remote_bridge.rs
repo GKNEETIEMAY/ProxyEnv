@@ -62,6 +62,22 @@ pub async fn remote_bridge_targets() -> CommandResult<Vec<RemoteTarget>> {
     run("targetDiscovery", Some("ssh"), bridge::targets).await
 }
 #[tauri::command]
+pub async fn remote_bridge_add_connection(
+    input: bridge::connections::ManualConnectionInput,
+) -> CommandResult<RemoteTarget> {
+    run("targetWrite", Some("ssh"), move || {
+        bridge::add_connection(input)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn remote_bridge_remove_connection(id: String) -> CommandResult<()> {
+    run("targetWrite", Some("ssh"), move || {
+        bridge::remove_connection(id)
+    })
+    .await
+}
+#[tauri::command]
 pub async fn remote_bridge_summary() -> CommandResult<Summary> {
     run("stateRead", None, bridge::summary).await
 }
@@ -294,8 +310,11 @@ pub async fn remote_bridge_open_target_config(target_id: String) -> CommandResul
 }
 
 #[tauri::command]
-pub async fn remote_bridge_launch_mobaxterm() -> CommandResult<()> {
-    run("openTarget", Some("mobaxterm"), bridge::mobaxterm::launch).await
+pub async fn remote_bridge_launch_mobaxterm(target_id: String) -> CommandResult<()> {
+    run("openTarget", Some("mobaxterm"), move || {
+        bridge::launch_mobaxterm(target_id)
+    })
+    .await
 }
 
 #[tauri::command]

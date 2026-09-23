@@ -50,6 +50,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::remote_bridge::remote_bridge_targets,
+            commands::remote_bridge::remote_bridge_add_connection,
+            commands::remote_bridge::remote_bridge_remove_connection,
             commands::remote_bridge::remote_bridge_summary,
             commands::remote_bridge::remote_bridge_model_settings,
             commands::remote_bridge::remote_bridge_save_model_settings,

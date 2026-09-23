@@ -352,7 +352,8 @@ test("managed proxy terminal loads a private authenticated session environment",
   assert.match(page,/<details class="remote-advanced">/);
   assert.match(page,/v-if="summary\.environment"/);
   const advanced=page.slice(page.indexOf('<details class="remote-advanced">'),page.indexOf('</details>',page.indexOf('<details class="remote-advanced">')));
-  assert.match(advanced,/remoteBackend\.launchMobaxterm\(\)/);
+  assert.match(advanced,/remoteBackend\.launchMobaxterm\(summary\.target!\.id\)/);
+  assert.match(advanced,/summary\.target\?\.source === 'mobaxterm'/);
   assert.match(advanced,/remoteBackend\.openVscode\(summary\.target!\.id\)/);
   assert.match(advanced,/v-if="summary\.environment" class="remote-hint"/);
   assert.match(ssh,/fn launch_terminal/);
@@ -727,7 +728,26 @@ test("M7 keeps VS Code Server context and extension location conservative",()=>{
   const targetSelection=page.slice(page.indexOf('<template v-if="!checked">'),page.indexOf('<template v-else>'));
   assert.doesNotMatch(targetSelection,/launchSshTerminal/);
   assert.doesNotMatch(targetSelection,/remoteBackend\.openVscode\(/);
-  assert.doesNotMatch(targetSelection,/remoteBackend\.launchMobaxterm\(/);
+  assert.match(targetSelection,/remoteBackend\.launchMobaxterm\(selectedTarget!\.id\)/);
+  assert.match(targetSelection,/selectedTarget\?\.source === 'mobaxterm'/);
+});
+
+test("SSH connection manager keeps manual definitions credential-free and Moba launch target-bound",()=>{
+  const store=readFileSync("src-tauri/src/features/remote_bridge/connections.rs","utf8");
+  const moba=readFileSync("src-tauri/src/features/remote_bridge/mobaxterm.rs","utf8");
+  const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(store,/pub struct ManualConnectionInput/);
+  assert.match(store,/ManualAuthentication::Automatic/);
+  assert.match(store,/symlink_metadata/);
+  assert.doesNotMatch(store,/password|passphrase|credential/i);
+  assert.match(moba,/\.arg|\.args\(bookmark_arguments/);
+  assert.match(moba,/"-i"\.into\(\)/);
+  assert.match(moba,/"-bookmark"\.into\(\)/);
+  assert.match(state,/addConnection: .*remote_bridge_add_connection/);
+  assert.match(state,/removeConnection: .*remote_bridge_remove_connection/);
+  assert.match(page,/copy\.rbAddConnection/);
+  assert.match(page,/newConnection\.authentication === 'identityFile'/);
 });
 
 test("remote target paths reuse the Windows extended-path display cleanup",async()=>{

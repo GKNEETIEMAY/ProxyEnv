@@ -3,7 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { ProxyEndpoint } from "../../shared/types";
 import type { RemoteToolId } from "./tool-adapters";
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "stale" | "unavailable" | "error";
-export type RemoteTargetSource = "openssh" | "vscode" | "mobaxterm";
+export type RemoteTargetSource = "openssh" | "vscode" | "mobaxterm" | "manual";
 export type SshAuthMode = "nonInteractive" | "interactive";
 export type SshAuthMethod = "identityFile" | "agent" | "password" | "keyboardInteractive" | "unknown";
 export interface SshAuthState { mode: SshAuthMode; method: SshAuthMethod; authenticated: boolean; passwordStored: boolean }
@@ -15,6 +15,7 @@ export interface SshPtyDiagnostic { bytesReceived: number; printableBytes: numbe
 export interface SshAuthSnapshot { sessionId: string; operation: SshAuthOperation; status: SshAuthSessionStatus; auth: SshAuthState; prompt: SshAuthPrompt | null; diagnostic: SshPtyDiagnostic; error: string | null }
 export interface SshAuthOutcome { operation: SshAuthOperation; ports: PortAllocation | null; summary: BridgeSummary | null }
 export interface RemoteTarget { id: string; displayName: string; source: RemoteTargetSource; sourceLabel: string; configPath: string; sshAlias: string | null; host: string | null; user: string | null; port: number | null; identityFile: string | null; available: boolean; compatibility: "compatible" | "unsupported"; unavailableReason: string | null; canOpenVscode: boolean }
+export interface ManualConnectionInput { displayName:string; destination:string; port:number; authentication:"automatic"|"identityFile"; identityFile:string|null }
 export interface BridgeEndpoint { local: ProxyEndpoint; remotePort: number }
 export type RemoteToolVerification = "notConfigured" | "verifyPending" | "verified" | "authenticationRequired" | "routeUnavailable" | "timedOut" | "failed";
 export interface RemoteToolState { id: RemoteToolId; displayName: string; configured: boolean; verification: RemoteToolVerification; verificationSupported: boolean; supportedRouteModes: "ccSwitch"[]; requestPolicy: "passthrough"; configProjection: "routeOnly" | "routeAndClientProfile" }
@@ -65,6 +66,8 @@ export const remoteBackend = {
   extensionPreview: (selection: { alias: string; tool: RemoteToolId; contextHash: string; remoteConfirmed: boolean; restore: boolean }) => invoke<ExtensionPreview>("remote_bridge_extension_preview", { selection }),
   extensionApply: (id: string) => invoke<void>("remote_bridge_extension_apply", { id, confirmed: true }),
   targets: () => invoke<RemoteTarget[]>("remote_bridge_targets"),
+  addConnection: (input:ManualConnectionInput) => invoke<RemoteTarget>("remote_bridge_add_connection", { input }),
+  removeConnection: (id:string) => invoke<void>("remote_bridge_remove_connection", { id }),
   summary: () => invoke<BridgeSummary>("remote_bridge_summary"),
   check: (targetId: string) => invoke<PortAllocation>("remote_bridge_check", { targetId }),
   checkNetwork: (targetId: string) => invoke<RemoteNetworkObservation>("remote_bridge_check_network", { targetId }),
@@ -92,7 +95,7 @@ export const remoteBackend = {
   openVscodeSettings: () => invoke<void>("remote_bridge_open_vscode_settings"),
   revealTargetConfig: (targetId:string) => invoke<void>("remote_bridge_reveal_target_config",{targetId}),
   openTargetConfig: (targetId:string) => invoke<void>("remote_bridge_open_target_config",{targetId}),
-  launchMobaxterm: () => invoke<void>("remote_bridge_launch_mobaxterm"),
+  launchMobaxterm: (targetId:string) => invoke<void>("remote_bridge_launch_mobaxterm", { targetId }),
 };
 export function useRemoteBridge() {
   const summary = ref<BridgeSummary>(emptySummary());

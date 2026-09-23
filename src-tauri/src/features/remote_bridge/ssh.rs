@@ -1,6 +1,6 @@
 use super::{
-    mobaxterm, BridgeResult, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request,
-    SshAuthMethod,
+    connections, mobaxterm, BridgeResult, RemoteTarget, RemoteTargetCompatibility,
+    RemoteTargetSource, Request, SshAuthMethod,
 };
 use std::{
     io::{Read, Write},
@@ -144,8 +144,9 @@ enum Connection {
     },
     Direct {
         host: String,
-        user: String,
+        user: Option<String>,
         port: u16,
+        identity_file: Option<PathBuf>,
     },
 }
 
@@ -166,6 +167,7 @@ fn target_id(source: RemoteTargetSource, path: &Path, name: &str) -> String {
         RemoteTargetSource::Openssh => "openssh",
         RemoteTargetSource::Vscode => "vscode",
         RemoteTargetSource::Mobaxterm => "mobaxterm",
+        RemoteTargetSource::Manual => "manual",
     };
     format!("{source}|{}|{name}", path_key(path))
 }
@@ -270,7 +272,12 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
             {
                 result.push(ResolvedTarget {
                     public,
-                    connection: Connection::Direct { host, user, port },
+                    connection: Connection::Direct {
+                        host,
+                        user: Some(user),
+                        port,
+                        identity_file: None,
+                    },
                     config_path: path.clone(),
                 });
             } else {
@@ -278,13 +285,27 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
                     public,
                     connection: Connection::Direct {
                         host: String::new(),
-                        user: String::new(),
+                        user: None,
                         port: 0,
+                        identity_file: None,
                     },
                     config_path: path.clone(),
                 });
             }
         }
+    }
+    for connection in connections::all()? {
+        let public = connections::target(&connection);
+        result.push(ResolvedTarget {
+            public,
+            connection: Connection::Direct {
+                host: connection.host,
+                user: connection.user,
+                port: connection.port,
+                identity_file: connection.identity_file.map(PathBuf::from),
+            },
+            config_path: PathBuf::new(),
+        });
     }
     Ok(result)
 }
@@ -337,15 +358,48 @@ fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Comman
             }
             alias
         }
-        Connection::Direct { host, user, port } => {
-            if !safe_host(&host) || !safe_name(&user) || port == 0 {
+        Connection::Direct {
+            host,
+            user,
+            port,
+            identity_file,
+        } => {
+            if !safe_host(&host)
+                || user.as_deref().is_some_and(|user| !safe_name(user))
+                || port == 0
+            {
                 return Err("mobaSessionUnsupported".into());
             }
-            cmd.arg("-p").arg(port.to_string()).arg("-l").arg(user);
+            cmd.arg("-p").arg(port.to_string());
+            if let Some(user) = user {
+                cmd.arg("-l").arg(user);
+            }
+            if let Some(identity_file) = identity_file {
+                let metadata =
+                    std::fs::symlink_metadata(&identity_file).map_err(|_| "identityFileInvalid")?;
+                if !identity_file.is_absolute()
+                    || !metadata.is_file()
+                    || metadata.file_type().is_symlink()
+                {
+                    return Err("identityFileInvalid".into());
+                }
+                cmd.arg("-oIdentitiesOnly=yes").arg("-i").arg(identity_file);
+            }
             host
         }
     };
     Ok((cmd, destination))
+}
+
+pub fn launch_mobaxterm_target(id: &str) -> BridgeResult<()> {
+    let target = resolve(id)?;
+    if target.public.source != RemoteTargetSource::Mobaxterm
+        || !target.public.available
+        || target.public.compatibility != RemoteTargetCompatibility::Compatible
+    {
+        return Err("mobaSessionUnsupported".into());
+    }
+    mobaxterm::launch(&target.config_path, &target.public.display_name)
 }
 
 fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(Command, String)> {
