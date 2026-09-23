@@ -87,8 +87,13 @@ if [ "$operation" = session-env-apply ] || [ "$operation" = session-env-remove ]
   safe "$sessions_root"
   session_directory="$sessions_root/$session_id"
   session_file="$session_directory/env.sh"
+  session_marker="# ProxyEnv managed session $session_id"
   safe "$session_directory"
   safe "$session_file"
+  if [ -e "$session_file" ]; then
+    [ -f "$session_file" ] || fail configConflict
+    grep -Fqx "$session_marker" "$session_file" || fail configConflict
+  fi
   if [ "$operation" = session-env-remove ]; then
     [ ! -f "$session_file" ] || unlink "$session_file" || fail remoteFailed
     [ ! -d "$session_directory" ] || rmdir "$session_directory" 2>/dev/null || fail remoteFailed
@@ -100,6 +105,7 @@ if [ "$operation" = session-env-apply ] || [ "$operation" = session-env-remove ]
   cleanup_session_environment() { unlink "$temporary" 2>/dev/null || :; }
   trap cleanup_session_environment EXIT
   {
+    printf '%s\n' "$session_marker"
     printf '%s\n' 'unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY'
     case "$protocol" in
       http)

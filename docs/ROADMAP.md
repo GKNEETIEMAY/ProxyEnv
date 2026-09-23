@@ -24,13 +24,13 @@ Release work still open:
 
 - [x] M8 per-session authenticated local relay, credential delivery, rotation/revocation and automated security tests. Real different-UID shared-host acceptance remains open.
 - [x] SSH connection manager: bounded automatic import, manual add, automatic OpenSSH or selected identity file, and compatible first-level MobaXterm launch. Real-device acceptance remains pending.
-- [ ] Managed remote session environment create/update/remove without default shell-startup edits.
+- [x] Managed remote session environment create/update/remove with ownership checks and no default shell-startup edits. Real-device lifecycle acceptance remains pending.
 - [ ] Effective local Skills detection and conflict-safe remote projection/restore.
 - [ ] Simple default / Advanced UI with secure progressive disclosure.
 - [ ] Real-device Claude and Codex matrix, provider changes, streaming, disconnect/reconnect and recovery.
 - [ ] Windows/Linux CI, RustSec/security audit, documentation and release acceptance.
 
-The Codex VS Code Remote observation is **accepted for those three behaviors on one target**; Claude Extension remains pending. Moba launch, M8 shared-host acceptance, Skills and Simple/Advanced UI are pending. Do not describe both extensions as wholly untested or either as universally accepted.
+The Codex VS Code Remote observation is **accepted for those three behaviors on one target**; Claude Extension remains pending. Moba launch, managed-environment lifecycle, M8 shared-host isolation, Skills and Simple/Advanced UI still need real acceptance or implementation as noted above. Do not describe both extensions as wholly untested or either as universally accepted.
 
 ## Future — v0.3 research
 

@@ -116,11 +116,24 @@ test("managed remote environment is session-owned and removable",{skip:!availabl
     assert.deepEqual(applied,{sessionEnvironment:"applied"});
     const file=join(f.home,".proxyenv/sessions/0123456789abcdef0123456789abcdef/env.sh");
     const content=readFileSync(file,"utf8");
+    assert.match(content,/# ProxyEnv managed session 0123456789abcdef0123456789abcdef/);
     assert.match(content,/HTTP_PROXY='http:\/\/proxyenv:[0-9a-f]{64}@127\.0\.0\.1:17897'/);
     assert.match(content,/NO_PROXY='localhost,127\.0\.0\.1,::1'/);
     assert.ok(!JSON.stringify(applied).includes(token));
     assert.deepEqual(f.run("session-env-remove"),{sessionEnvironment:"removed"});
     assert.equal(existsSync(file),false);
+  } finally { f.cleanup(); }
+});
+test("managed remote environment refuses foreign same-name files",{skip:!available},()=>{
+  const f=fixture();try {
+    const directory=join(f.home,".proxyenv/sessions/0123456789abcdef0123456789abcdef");
+    const file=join(directory,"env.sh");
+    mkdirSync(directory,{recursive:true,mode:0o700});
+    writeFileSync(file,"export FOREIGN_VALUE=keep\n",{mode:0o600});
+    assert.equal(f.run("session-env-apply","codex",17897).error,"configConflict");
+    assert.equal(readFileSync(file,"utf8"),"export FOREIGN_VALUE=keep\n");
+    assert.equal(f.run("session-env-remove").error,"configConflict");
+    assert.equal(readFileSync(file,"utf8"),"export FOREIGN_VALUE=keep\n");
   } finally { f.cleanup(); }
 });
 test("Claude request verification returns only an allowlisted state",{skip:!available || !python},()=>{
