@@ -322,41 +322,51 @@ fn inspect(tool: RemoteToolId, skill_root: &Path) -> BridgeResult<LocalSkill> {
     })
 }
 
+fn collect_local_skills(
+    tool: RemoteToolId,
+    root: &Path,
+    result: &mut Vec<LocalSkill>,
+) -> BridgeResult<()> {
+    // Claude does not always have a local Skills directory. Absence means
+    // "nothing to project" and must not create ~/.claude/skills as a side effect.
+    if !root.exists() {
+        return Ok(());
+    }
+    let metadata = fs::symlink_metadata(root).map_err(|_| "localSkillUnsafe")?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("localSkillUnsafe".into());
+    }
+    let mut entries = fs::read_dir(root)
+        .map_err(|_| "localSkillUnsafe")?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "localSkillUnsafe")?;
+    entries.sort_by_key(|entry| entry.file_name());
+    let mut count = 0;
+    for entry in entries {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !projectable_skill_name(tool, name) {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|_| "localSkillUnsafe")?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            continue;
+        }
+        count += 1;
+        if count > MAX_SKILLS_PER_TOOL {
+            return Err("localSkillUnsafe".into());
+        }
+        result.push(inspect(tool, &entry.path())?);
+    }
+    Ok(())
+}
+
 pub fn local_skills() -> BridgeResult<Vec<LocalSkill>> {
     let mut result = Vec::new();
     for tool in [RemoteToolId::Codex, RemoteToolId::Claude] {
-        let root = root(tool)?;
-        if !root.exists() {
-            continue;
-        }
-        let metadata = fs::symlink_metadata(&root).map_err(|_| "localSkillUnsafe")?;
-        if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err("localSkillUnsafe".into());
-        }
-        let mut entries = fs::read_dir(&root)
-            .map_err(|_| "localSkillUnsafe")?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| "localSkillUnsafe")?;
-        entries.sort_by_key(|entry| entry.file_name());
-        let mut count = 0;
-        for entry in entries {
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else {
-                continue;
-            };
-            if !projectable_skill_name(tool, name) {
-                continue;
-            }
-            let metadata = fs::symlink_metadata(entry.path()).map_err(|_| "localSkillUnsafe")?;
-            if !metadata.is_dir() || metadata.file_type().is_symlink() {
-                continue;
-            }
-            count += 1;
-            if count > MAX_SKILLS_PER_TOOL {
-                return Err("localSkillUnsafe".into());
-            }
-            result.push(inspect(tool, &entry.path())?);
-        }
+        collect_local_skills(tool, &root(tool)?, &mut result)?;
     }
     Ok(result)
 }
@@ -804,6 +814,34 @@ mod tests {
         }
         assert!(!projectable_skill_name(RemoteToolId::Codex, ".system"));
         assert!(projectable_skill_name(RemoteToolId::Claude, ".system"));
+    }
+
+    #[test]
+    fn codex_system_skills_are_ignored_and_a_missing_claude_root_stays_absent() {
+        let mut nonce = [0_u8; 8];
+        getrandom::fill(&mut nonce).unwrap();
+        let temporary = std::env::temp_dir().join(format!(
+            "proxyenv-skill-discovery-test-{}-{}",
+            std::process::id(),
+            hex::encode(nonce)
+        ));
+        let codex_root = temporary.join(".codex/skills");
+        let system_root = codex_root.join(".system");
+        let user_root = codex_root.join("user-skill");
+        let claude_root = temporary.join(".claude/skills");
+        fs::create_dir_all(&system_root).unwrap();
+        fs::create_dir_all(&user_root).unwrap();
+        fs::write(system_root.join("SKILL.md"), "# System\n").unwrap();
+        fs::write(user_root.join("SKILL.md"), "# User\n").unwrap();
+
+        let mut skills = Vec::new();
+        collect_local_skills(RemoteToolId::Codex, &codex_root, &mut skills).unwrap();
+        collect_local_skills(RemoteToolId::Claude, &claude_root, &mut skills).unwrap();
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].view.id, "codex|user-skill");
+        assert!(!claude_root.exists());
+        fs::remove_dir_all(&temporary).unwrap();
     }
 
     #[test]
