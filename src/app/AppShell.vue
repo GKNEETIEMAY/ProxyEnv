@@ -602,9 +602,9 @@ onMounted(async () => {
       settingsTab.value = preview === "about" ? "about" : "general";
     } else if (preview === "assistant" || preview === "assistant-result") {
       view.value = "assistant";
-    } else if (["remote", "remote-connected", "remote-auth", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(preview ?? "")) {
+    } else if (["remote", "remote-connected", "remote-connected-advanced", "remote-auth", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(preview ?? "")) {
       openRemote();
-      if (preview === "remote-connected") remoteBridgeSummary.value = {
+      if (["remote-connected", "remote-connected-advanced"].includes(preview ?? "")) remoteBridgeSummary.value = {
         status: "connected",
         target: { id: "openssh|preview|aliyun-dev", displayName: "aliyun-dev", source: "openssh", sourceLabel: "OpenSSH", configPath: "~\\.ssh\\config", sshAlias: "aliyun-dev", host: null, user: null, port: null, identityFile: null, available: true, compatibility: "compatible", unavailableReason: null, canOpenVscode: true },
         proxy: { local: { host: "127.0.0.1", port: 10809, protocol: "mixed" }, remotePort: 23841 },

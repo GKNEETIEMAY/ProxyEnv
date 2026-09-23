@@ -362,13 +362,14 @@ test("managed proxy terminal loads a private authenticated session environment",
   assert.match(state,/launchManualTerminal: \(\) => invoke<void>\("remote_bridge_launch_manual_terminal"\)/);
   assert.match(page,/@click="launchProxyTerminal"/);
   assert.match(page,/remoteBackend\.launchManualTerminal\(\)/);
-  assert.match(page,/<details class="remote-advanced">/);
+  assert.match(page,/<div class="remote-advanced-panel">/);
   assert.match(page,/v-if="summary\.environment"/);
-  const advanced=page.slice(page.indexOf('<details class="remote-advanced">'),page.indexOf('</details>',page.indexOf('<details class="remote-advanced">')));
+  const advancedStart=page.indexOf('<div class="remote-advanced-panel">');
+  const advanced=page.slice(advancedStart,page.indexOf('</section>',advancedStart));
   assert.match(advanced,/remoteBackend\.launchMobaxterm\(summary\.target!\.id\)/);
   assert.match(advanced,/summary\.target\?\.source === 'mobaxterm'/);
-  assert.match(advanced,/remoteBackend\.openVscode\(summary\.target!\.id\)/);
   assert.match(advanced,/v-if="summary\.environment" class="remote-hint"/);
+  assert.match(page,/remote-primary-actions[\s\S]*remoteBackend\.openVscode\(summary\.target!\.id\)/);
   assert.match(ssh,/fn launch_terminal/);
   assert.match(ssh,/launch_terminal\(target_id, fingerprint, None\)/);
 });
@@ -711,6 +712,24 @@ test("Skills projection is effective-directory based, staged, owned and metadata
   assert.match(runtime,/remote_bridge_skills/);
   assert.match(state,/enableSkill/);
   assert.match(page,/rbSkillsTitle/);
+});
+
+test("connected bridge defaults to a concise overview and preserves advanced state in place",()=>{
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const copy=readFileSync("src/shared/i18n/remote-bridge.ts","utf8");
+  assert.match(page,/const advancedView = ref\(false\)/);
+  assert.match(page,/role="group" :aria-label="copy\.rbViewMode"/);
+  assert.match(page,/:aria-pressed="!advancedView"/);
+  assert.match(page,/:aria-pressed="advancedView"/);
+  assert.match(page,/v-show="advancedView" class="remote-runtime-observation"/);
+  assert.match(page,/v-show="advancedView" class="remote-next-section"/);
+  assert.match(page,/skillsSummaryLabel/);
+  assert.match(page,/v-if="advancedView \|\| skills\.length > 0" class="remote-next-section remote-skills"/);
+  assert.match(page,/remote-primary-actions/);
+  assert.doesNotMatch(page,/v-if="advancedView" class="remote-next-section"/);
+  for(const key of ["rbSimpleView","rbAdvancedView","rbViewMode","rbToolsTitle","rbSkillsSummary"]) {
+    assert.equal(copy.match(new RegExp(`${key}:`,"g"))?.length,4,`${key} must exist in all four locales`);
+  }
 });
 
 test("Claude verification is a fixed isolated request and never returns model output",()=>{
