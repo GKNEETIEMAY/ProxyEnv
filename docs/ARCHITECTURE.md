@@ -161,9 +161,9 @@ The rule engine accepts only bundled, schema-versioned JSON. It rejects unknown 
 
 ## Remote Bridge / 远程环境桥接
 
-Remote Bridge below describes implemented `v0.2.0dev` code, not stable-release support. M8 token authentication, a managed remote session environment, Skills projection, connection-manager additions and Simple/Advanced presentation are planned separately; see [scope](remote-bridge/V0.2_SCOPE.md) and [acceptance](remote-bridge/ACCEPTANCE_V0.2.md). A loopback SSH listener alone does not isolate users on a shared Linux host.
+Remote Bridge below describes implemented `v0.2.0dev` code, not stable-release support. M8 token authentication, managed remote session environment, SSH connection-manager additions and owned Skills projection are implemented; their remaining real-device acceptance is tracked separately. Simple/Advanced presentation is still open. See [scope](remote-bridge/V0.2_SCOPE.md) and [acceptance](remote-bridge/ACCEPTANCE_V0.2.md). A loopback SSH listener alone does not isolate users on a shared Linux host.
 
-远程桥接部分描述 `v0.2.0dev` 已实现代码，并非稳定版承诺。M8 token 认证、远端会话环境、Skills 投影、连接管理新增功能与简易/高级界面仍在规划中；共享 Linux 主机上的 loopback 监听不能隔离不同用户。
+远程桥接部分描述 `v0.2.0dev` 已实现代码，并非稳定版承诺。M8 token 认证、远端会话环境、SSH 连接管理和受所有权保护的 Skills 投影已经实现，仍需完成对应实机验收；简易/高级界面仍待收口。共享 Linux 主机上的 loopback 监听不能隔离不同用户。
 
 Remote Bridge is a first-level product surface beside Local Environment. `AppShell.vue` owns the primary `local | remote` navigation context and keeps both primary surfaces mounted after first use, switching visibility without a cross-fade or keyed remount. The application assistant remains a Local Environment drill-down, while Settings returns to whichever primary surface opened it. `RemoteBridgePage.vue` owns one continuous setup/status workspace and uses dialogs only for OpenSSH interaction, reviewed Codex/Claude configuration, restore, and disconnect confirmation.
 

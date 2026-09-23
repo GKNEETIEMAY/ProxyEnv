@@ -27,6 +27,8 @@ export interface BridgeRequest { targetId: string; proxyPort: number | null; ccP
 export interface PortAllocation { proxyPort: number; ccPort: number; runtimeExpectedProxyPort?: number | null; runtimePortConflict?: boolean }
 export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
 export interface RemoteNetworkObservation { serverInternet: "reachable" | "unreachable" | "unknown" }
+export type SkillProjectionState = "notSynced" | "synced" | "localChanged" | "conflict" | "unavailable";
+export interface RemoteSkill { id:string; tool:RemoteToolId; name:string; hash:string; fileCount:number; totalSize:number; state:SkillProjectionState; enabled:boolean }
 export interface ConfigPreview { id: string; tool: RemoteToolId; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean; existingConfig:boolean; routeUpdate:boolean; permissionHardening:boolean }
 export type VscodeRemoteContextStatus = "detected" | "ambiguous" | "unsupported";
 export type ExtensionLocationState = "locationUnknown" | "activeUnknown" | "remoteConfirmed";
@@ -69,6 +71,9 @@ export const remoteBackend = {
   addConnection: (input:ManualConnectionInput) => invoke<RemoteTarget>("remote_bridge_add_connection", { input }),
   removeConnection: (id:string) => invoke<void>("remote_bridge_remove_connection", { id }),
   summary: () => invoke<BridgeSummary>("remote_bridge_summary"),
+  skills: () => invoke<RemoteSkill[]>("remote_bridge_skills"),
+  enableSkill: (id:string) => invoke<RemoteSkill>("remote_bridge_enable_skill", { id }),
+  disableSkill: (id:string) => invoke<RemoteSkill>("remote_bridge_disable_skill", { id }),
   check: (targetId: string) => invoke<PortAllocation>("remote_bridge_check", { targetId }),
   checkNetwork: (targetId: string) => invoke<RemoteNetworkObservation>("remote_bridge_check_network", { targetId }),
   sshAuthBegin: (operation: SshAuthOperation, targetId: string, request: BridgeRequest | null = null) => invoke<SshAuthSnapshot>("ssh_auth_begin", { operation, targetId, request }),

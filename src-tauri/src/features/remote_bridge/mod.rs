@@ -8,6 +8,7 @@ pub mod extension;
 mod local_model;
 pub(crate) mod mobaxterm;
 pub(crate) mod settings;
+mod skills;
 mod ssh;
 pub mod ssh_auth;
 pub mod tool_adapter;
@@ -844,6 +845,7 @@ fn exposed_summary(summary: &Summary) -> Summary {
 }
 
 pub fn start_monitor() {
+    skills::start_monitor();
     if let Ok(mut state) = store().lock() {
         state.follow_local_codex_profile = settings::load()
             .map(|value| value.follow_local_codex_profile)
@@ -931,6 +933,20 @@ pub fn start_monitor() {
         std::thread::sleep(Duration::from_millis(500));
         sync_changed_profile(candidate);
     });
+}
+
+pub use skills::SkillView;
+
+pub fn skill_views() -> BridgeResult<Vec<SkillView>> {
+    skills::views()
+}
+
+pub fn enable_skill(id: String) -> BridgeResult<SkillView> {
+    skills::enable(id)
+}
+
+pub fn disable_skill(id: String) -> BridgeResult<SkillView> {
+    skills::disable(id)
 }
 pub fn summary() -> BridgeResult<Summary> {
     Ok(exposed_summary(&lock()?.summary))

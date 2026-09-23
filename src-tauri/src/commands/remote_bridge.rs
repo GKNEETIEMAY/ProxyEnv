@@ -38,6 +38,7 @@ fn command_error(
             | "remoteFailed"
             | "routeOutdated"
             | "stateUnavailable"
+            | "skillBusy"
     );
     BridgeCommandError {
         code,
@@ -80,6 +81,27 @@ pub async fn remote_bridge_remove_connection(id: String) -> CommandResult<()> {
 #[tauri::command]
 pub async fn remote_bridge_summary() -> CommandResult<Summary> {
     run("stateRead", None, bridge::summary).await
+}
+
+#[tauri::command]
+pub async fn remote_bridge_skills() -> CommandResult<Vec<bridge::SkillView>> {
+    run("skillInspection", Some("skills"), bridge::skill_views).await
+}
+
+#[tauri::command]
+pub async fn remote_bridge_enable_skill(id: String) -> CommandResult<bridge::SkillView> {
+    run("skillProjection", Some("skills"), move || {
+        bridge::enable_skill(id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remote_bridge_disable_skill(id: String) -> CommandResult<bridge::SkillView> {
+    run("skillProjection", Some("skills"), move || {
+        bridge::disable_skill(id)
+    })
+    .await
 }
 
 #[tauri::command]

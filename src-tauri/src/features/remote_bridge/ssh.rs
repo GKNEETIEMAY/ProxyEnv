@@ -3,6 +3,7 @@ use super::{
     RemoteTargetSource, Request, SshAuthMethod,
 };
 use std::{
+    fs,
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -1084,6 +1085,211 @@ pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_jso
     parse_remote_output(operation, &text)
 }
 
+fn skill_value<'a>(request: &'a serde_json::Value, name: &str) -> BridgeResult<&'a str> {
+    request[name]
+        .as_str()
+        .ok_or_else(|| "invalidRequest".into())
+}
+
+fn skill_component(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 96
+        && value != "."
+        && value != ".."
+        && !value.starts_with(".proxyenv-")
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn skill_payload(request: &serde_json::Value) -> BridgeResult<Zeroizing<String>> {
+    let operation = skill_value(request, "operation")?;
+    let tool = skill_value(request, "tool")?;
+    let name = skill_value(request, "skillName")?;
+    let hash = skill_value(request, "skillHash")?;
+    let manifest = request["manifestBase64"].as_str().unwrap_or("");
+    let directories = request["directoriesBase64"].as_str().unwrap_or("");
+    let file_count = request["fileCount"].as_u64().unwrap_or(0);
+    let total_size = request["totalSize"].as_u64().unwrap_or(0);
+    let valid_base64 = |value: &str, limit: usize| {
+        value.len() <= limit
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+    };
+    if !["status", "prepare", "apply", "remove", "cleanup"].contains(&operation)
+        || !["codex", "claude"].contains(&tool)
+        || !skill_component(name)
+        || hash.len() != 64
+        || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || file_count > 256
+        || total_size > 8 * 1024 * 1024
+        || !valid_base64(manifest, 512 * 1024)
+        || !valid_base64(directories, 256 * 1024)
+        || (operation == "prepare" && (manifest.is_empty() || file_count == 0))
+    {
+        return Err("invalidRequest".into());
+    }
+    Ok(Zeroizing::new(format!(
+        "operation='{operation}'\ntool='{tool}'\nskill_name='{name}'\nskill_hash='{hash}'\nfile_count={file_count}\ntotal_size={total_size}\nmanifest_b64='{manifest}'\ndirectories_b64='{directories}'\n{}",
+        include_str!("skill-remote.sh")
+    )))
+}
+
+pub(super) fn skill_remote(
+    alias: &str,
+    request: &serde_json::Value,
+) -> BridgeResult<serde_json::Value> {
+    let source = skill_payload(request)?;
+    let (mut cmd, destination) = remote_target_command(alias)?;
+    cmd.arg("-oClearAllForwardings=yes")
+        .arg(destination)
+        .arg("sh -s");
+    let text = output(cmd, Some(source), 30)?;
+    let value: serde_json::Value =
+        serde_json::from_str(text.trim()).map_err(|_| "remoteUnsupported")?;
+    if let Some(error) = value["error"].as_str() {
+        return Err(match error {
+            "invalidRequest" | "remoteUnsupported" | "rootForbidden" | "dependencyMissing"
+            | "unsafePath" | "skillConflict" | "skillBusy" | "skillVerifyFailed"
+            | "remoteFailed" | "rollbackFailed" | "writeRolledBack" => error,
+            _ => "remoteFailed",
+        }
+        .into());
+    }
+    Ok(value)
+}
+
+fn scp_target_command(id: &str) -> BridgeResult<(Command, String)> {
+    let target = resolve(id)?;
+    if !target.public.available
+        || target.public.compatibility != RemoteTargetCompatibility::Compatible
+    {
+        return Err("targetUnsupported".into());
+    }
+    #[cfg(windows)]
+    let mut command = Command::new(
+        PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()))
+            .join("System32/OpenSSH/scp.exe"),
+    );
+    #[cfg(not(windows))]
+    let mut command = Command::new("scp");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command.args([
+        "-q",
+        "-O",
+        "-oConnectTimeout=8",
+        "-oConnectionAttempts=1",
+        "-oForwardAgent=no",
+        "-oForwardX11=no",
+        "-oPermitLocalCommand=no",
+        "-oControlMaster=no",
+        "-oControlPath=none",
+        "-oClearAllForwardings=yes",
+    ]);
+    let destination = match target.connection {
+        Connection::Config { alias, config } => {
+            if let Some(path) = config {
+                command.arg("-F").arg(path);
+            }
+            alias
+        }
+        Connection::Direct {
+            host,
+            user,
+            port,
+            identity_file,
+        } => {
+            if !safe_host(&host)
+                || user.as_deref().is_some_and(|user| !safe_name(user))
+                || port == 0
+            {
+                return Err("targetUnsupported".into());
+            }
+            command.arg("-P").arg(port.to_string());
+            if let Some(identity_file) = identity_file {
+                let metadata =
+                    fs::symlink_metadata(&identity_file).map_err(|_| "identityFileInvalid")?;
+                if !identity_file.is_absolute()
+                    || !metadata.is_file()
+                    || metadata.file_type().is_symlink()
+                {
+                    return Err("identityFileInvalid".into());
+                }
+                command
+                    .arg("-oIdentitiesOnly=yes")
+                    .arg("-i")
+                    .arg(identity_file);
+            }
+            let host = if host.contains(':') {
+                format!("[{host}]")
+            } else {
+                host
+            };
+            user.map_or(host.clone(), |user| format!("{user}@{host}"))
+        }
+    };
+    #[cfg(windows)]
+    {
+        let fingerprint = fingerprint(id)?;
+        if let Some((password, entropy)) = super::credential_cache::terminal_payload(&fingerprint)?
+        {
+            let askpass = std::env::current_exe().map_err(|_| "processFailed")?;
+            command
+                .args([
+                    "-oStrictHostKeyChecking=yes",
+                    "-oBatchMode=no",
+                    "-oPasswordAuthentication=yes",
+                    "-oKbdInteractiveAuthentication=yes",
+                    "-oNumberOfPasswordPrompts=1",
+                ])
+                .env("PROXYENV_SSH_ASKPASS", "1")
+                .env("PROXYENV_SSH_PASSWORD", password)
+                .env("PROXYENV_SSH_PASSWORD_ENTROPY", entropy)
+                .env("SSH_ASKPASS", askpass)
+                .env("SSH_ASKPASS_REQUIRE", "force")
+                .env("DISPLAY", "proxyenv:0");
+        } else {
+            command.args(["-oStrictHostKeyChecking=yes", "-oBatchMode=yes"]);
+        }
+    }
+    #[cfg(not(windows))]
+    command.args(["-oStrictHostKeyChecking=yes", "-oBatchMode=yes"]);
+    Ok((command, destination))
+}
+
+pub(super) fn skill_upload(
+    alias: &str,
+    local_path: &Path,
+    tool: &str,
+    name: &str,
+    hash: &str,
+    relative_path: &str,
+) -> BridgeResult<()> {
+    if !local_path.is_absolute()
+        || !["codex", "claude"].contains(&tool)
+        || !skill_component(name)
+        || hash.len() != 64
+        || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || relative_path.split('/').any(|part| !skill_component(part))
+    {
+        return Err("invalidRequest".into());
+    }
+    let metadata = fs::symlink_metadata(local_path).map_err(|_| "localSkillChanged")?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("localSkillUnsafe".into());
+    }
+    let (mut command, destination) = scp_target_command(alias)?;
+    let remote =
+        format!("{destination}:~/.proxyenv/staging/skills/{tool}/{name}/{hash}/{relative_path}");
+    command.arg("--").arg(local_path).arg(remote);
+    output(command, None, 30).map(|_| ())
+}
+
 pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResult<OwnedChild> {
     // The preflight and the persistent reverse-forward process must use the
     // same session authentication source. Otherwise a password-only target
@@ -1408,6 +1614,52 @@ mod tests {
         assert_ne!(open_ssh, other_alias);
         assert!(!open_ssh.contains("Users"));
         assert!(!other_path.contains("D:/SSH"));
+    }
+    #[test]
+    fn skill_projection_payload_accepts_only_bounded_allowlisted_metadata() {
+        let valid = serde_json::json!({
+            "operation":"prepare",
+            "tool":"codex",
+            "skillName":"safe-skill",
+            "skillHash":"a".repeat(64),
+            "fileCount":1,
+            "totalSize":8,
+            "manifestBase64":"YWJjCg==",
+            "directoriesBase64":""
+        });
+        let payload = skill_payload(&valid).unwrap();
+        assert!(payload.contains("skill_name='safe-skill'"));
+        assert!(payload.contains("skills_staging=\"$staging_root/skills\""));
+        for (field, value) in [
+            ("skillName", "../escape"),
+            ("skillName", ".proxyenv-owner"),
+            ("tool", "other"),
+            ("operation", "execute"),
+        ] {
+            let mut invalid = valid.clone();
+            invalid[field] = serde_json::json!(value);
+            assert!(skill_payload(&invalid).is_err(), "accepted {field}={value}");
+        }
+        let mut oversized = valid;
+        oversized["totalSize"] = serde_json::json!(8 * 1024 * 1024 + 1);
+        assert!(skill_payload(&oversized).is_err());
+    }
+    #[test]
+    fn skill_projection_script_uses_staging_ownership_and_atomic_activation() {
+        let script = include_str!("skill-remote.sh");
+        for required in [
+            "skills_staging=\"$staging_root/skills\"",
+            ".proxyenv-owner",
+            ".proxyenv-manifest",
+            "sha256sum",
+            "mv \"$stage\" \"$destination\"",
+            "owner_matches \"$destination\"",
+        ] {
+            assert!(script.contains(required), "missing {required}");
+        }
+        for forbidden in ["scp -r", ".bashrc", ".profile", "sudo "] {
+            assert!(!script.contains(forbidden), "found {forbidden}");
+        }
     }
     #[cfg(windows)]
     #[test]

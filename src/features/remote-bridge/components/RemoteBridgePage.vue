@@ -18,6 +18,7 @@ import {
   type ManualConnectionInput,
   type PortAllocation,
   type RemoteTarget,
+  type RemoteSkill,
   type RemoteToolVerification,
   type ProfileSyncState,
   type SshAuthOperation,
@@ -65,6 +66,7 @@ const remoteTools = computed(() => remoteToolAdapters.map((adapter) => ({
   inspection: adapter.inspect(props.summary),
   launch: adapter.launch(props.summary),
 })));
+const skills = ref<RemoteSkill[]>([]);
 
 const selectedTarget = computed(() => targets.value.find((target) => target.id === targetId.value));
 const live = computed(() => ["connected", "stale", "unavailable", "connecting"].includes(props.summary.status) && !!props.summary.target);
@@ -531,6 +533,36 @@ function verifyTool(adapter: RemoteToolAdapter) {
   });
 }
 
+async function refreshSkills() {
+  if (props.reviewPreview || props.summary.status !== "connected") {
+    skills.value = [];
+    return;
+  }
+  skills.value = await remoteBackend.skills();
+}
+
+function skillStateLabel(skill: RemoteSkill): string {
+  return ({
+    notSynced: props.copy.rbSkillNotSynced,
+    synced: props.copy.rbSkillSynced,
+    localChanged: props.copy.rbSkillChanged,
+    conflict: props.copy.rbSkillConflict,
+    unavailable: props.copy.rbSkillUnavailable,
+  })[skill.state];
+}
+
+function skillToolLabel(skill: RemoteSkill): string {
+  return ({ codex: "Codex", claude: "Claude Code" })[skill.tool];
+}
+
+function toggleSkill(skill: RemoteSkill) {
+  void perform(async () => {
+    if (skill.enabled) await remoteBackend.disableSkill(skill.id);
+    else await remoteBackend.enableSkill(skill.id);
+    await refreshSkills();
+  });
+}
+
 function copyValue(value: string) {
   void perform(async () => {
     await copyText(value);
@@ -582,14 +614,22 @@ watch(() => props.summary.target?.id, (id) => {
   if (id && live.value) {
     targetId.value = id;
     void refreshNetworkChecks();
+    void refreshSkills().catch(() => undefined);
   }
+});
+watch(() => props.summary.status, (status) => {
+  if (status === "connected") void refreshSkills().catch(() => undefined);
+  else skills.value = [];
 });
 
 onMounted(() => {
   proxy.value = proxyAvailable.value;
   updateLocalProxyCheck();
   void perform(load);
-  if (props.summary.target) void refreshNetworkChecks();
+  if (props.summary.target) {
+    void refreshNetworkChecks();
+    void refreshSkills().catch(() => undefined);
+  }
   const authReview = new URLSearchParams(window.location.search).get("impeccable-review");
   if (props.reviewPreview && ["remote-auth", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(authReview ?? "")) {
     const unavailable = authReview === "remote-auth-unavailable";
@@ -767,6 +807,22 @@ onBeforeUnmount(() => {
                   <button class="secondary-action" type="button" :disabled="busy || summary.status !== 'connected'" @click="verifyTool(tool.adapter)">{{ tool.adapter.verifyLabel(copy) }}</button>
                 </div>
               </template>
+          </section>
+
+          <section class="remote-next-section remote-skills">
+              <h3>{{ copy.rbSkillsTitle }}</h3>
+              <p class="remote-hint">{{ copy.rbSkillsHint }}</p>
+              <p v-if="skills.length === 0" class="remote-hint">{{ copy.rbSkillsEmpty }}</p>
+              <div v-else class="remote-tool-access-list">
+                <label v-for="skill in skills" :key="skill.id" class="remote-tool-access">
+                  <span class="remote-tool-access-copy"><strong>{{ skill.name }}</strong><small>{{ skillToolLabel(skill) }} · {{ skillStateLabel(skill) }}</small></span>
+                  <span class="remote-tool-access-control">
+                    <span>{{ skill.enabled ? copy.rbSkillDisable : copy.rbSkillEnable }}</span>
+                    <input class="switch-input" type="checkbox" role="switch" :checked="skill.enabled" :disabled="busy || summary.status !== 'connected'" :aria-label="`${skill.name} · ${skill.enabled ? copy.rbSkillDisable : copy.rbSkillEnable}`" @click.prevent="toggleSkill(skill)" />
+                  </span>
+                </label>
+              </div>
+              <p v-if="skills.some((skill) => skill.enabled)" class="remote-hint">{{ copy.rbSkillRestart }}</p>
           </section>
 
           <section v-if="summary.target?.canOpenVscode" class="remote-vscode">

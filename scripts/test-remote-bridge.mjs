@@ -682,6 +682,37 @@ test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary"
   assert.doesNotMatch(dialog,/routeMappings|compatibilityRules|incomingModel|targetModel/);
 });
 
+test("Skills projection is effective-directory based, staged, owned and metadata-triggered",()=>{
+  const skills=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const remote=readFileSync("src-tauri/src/features/remote_bridge/skill-remote.sh","utf8");
+  const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
+  const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
+  const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(skills,/CODEX_HOME[\s\S]*\.codex/);
+  assert.match(skills,/CLAUDE_CONFIG_DIR[\s\S]*\.claude/);
+  assert.match(skills,/value == "\.system"/);
+  assert.match(skills,/metadata_stamp_id/);
+  assert.match(skills,/sleep\(Duration::from_secs\(2\)\)/);
+  assert.match(skills,/sleep\(Duration::from_millis\(500\)\)/);
+  assert.match(skills,/MAX_FILES_PER_SKILL/);
+  assert.match(skills,/MAX_SKILL_BYTES/);
+  assert.match(ssh,/System32\/OpenSSH\/scp\.exe/);
+  assert.match(ssh,/"-O"/);
+  assert.match(remote,/\.proxyenv-owner/);
+  assert.match(remote,/\.proxyenv-manifest/);
+  assert.match(remote,/validate_existing "\$destination"/);
+  assert.match(remote,/mv "\$stage" "\$destination"/);
+  assert.doesNotMatch(remote,/scp\s+-r/);
+  assert.doesNotMatch(remote,/\.bashrc|\.profile|sudo\s/);
+  assert.match(commands,/remote_bridge_enable_skill/);
+  assert.match(commands,/remote_bridge_disable_skill/);
+  assert.match(runtime,/remote_bridge_skills/);
+  assert.match(state,/enableSkill/);
+  assert.match(page,/rbSkillsTitle/);
+});
+
 test("Claude verification is a fixed isolated request and never returns model output",()=>{
   const shell=readFileSync("src-tauri/src/features/remote_bridge/remote.sh","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
