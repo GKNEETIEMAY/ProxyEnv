@@ -4,7 +4,7 @@ set -eu
 fail() { printf '{"error":"%s"}\n' "$1"; exit 0; }
 [ "$(uname -s)" = Linux ] || fail remoteUnsupported
 [ "$(id -u)" != 0 ] || fail rootForbidden
-for utility in ss awk sha256sum mktemp flock sync stat grep cut cp mv cat unlink rm rmdir chmod; do
+for utility in ss awk sha256sum mktemp flock sync stat grep cut cp mv cat unlink rm rmdir chmod mkdir; do
   command -v "$utility" >/dev/null 2>&1 || fail dependencyMissing
 done
 check_ports() {
@@ -32,7 +32,10 @@ case "$operation" in
   test)
     check_ports
     command -v curl >/dev/null 2>&1 || fail dependencyMissing
-    curl --disable --silent --fail --output /dev/null --max-time 12 --noproxy '' --proxy "$scheme://127.0.0.1:$port" https://www.gstatic.com/generate_204 >/dev/null 2>&1 || fail networkFailed
+    # Keep the session credential out of argv/process listings. curl reads the
+    # proxy URL from stdin and the local relay strips credentials upstream.
+    printf 'proxy = "%s://proxyenv:%s@127.0.0.1:%s"\n' "$scheme" "$session_token" "$port" |
+      curl --disable --silent --fail --output /dev/null --max-time 12 --noproxy '' --config - https://www.gstatic.com/generate_204 >/dev/null 2>&1 || fail networkFailed
     printf '{"tested":true}\n'; exit 0;;
 esac
 umask 077
@@ -71,6 +74,58 @@ is_safe_user_content() {
   fi
 }
 safe_user_content() { is_safe_user_content "$1" || fail unsafePath; }
+
+if [ "$operation" = session-env-apply ] || [ "$operation" = session-env-remove ]; then
+  umask 077
+  proxyenv_root="$HOME/.proxyenv"
+  sessions_root="$proxyenv_root/sessions"
+  safe "$proxyenv_root"
+  safe "$sessions_root"
+  [ -d "$proxyenv_root" ] || mkdir -m 700 "$proxyenv_root" || fail unsafePath
+  [ -d "$sessions_root" ] || mkdir -m 700 "$sessions_root" || fail unsafePath
+  safe "$proxyenv_root"
+  safe "$sessions_root"
+  session_directory="$sessions_root/$session_id"
+  session_file="$session_directory/env.sh"
+  safe "$session_directory"
+  safe "$session_file"
+  if [ "$operation" = session-env-remove ]; then
+    [ ! -f "$session_file" ] || unlink "$session_file" || fail remoteFailed
+    [ ! -d "$session_directory" ] || rmdir "$session_directory" 2>/dev/null || fail remoteFailed
+    printf '{"sessionEnvironment":"removed"}\n'
+    exit 0
+  fi
+  [ -d "$session_directory" ] || mkdir -m 700 "$session_directory" || fail unsafePath
+  temporary=$(mktemp "$session_directory/.env.XXXXXX") || fail remoteFailed
+  cleanup_session_environment() { unlink "$temporary" 2>/dev/null || :; }
+  trap cleanup_session_environment EXIT
+  {
+    printf '%s\n' 'unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY'
+    case "$protocol" in
+      http)
+        printf "export HTTP_PROXY='http://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
+        printf "export HTTPS_PROXY='http://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
+        ;;
+      socks5)
+        printf "export ALL_PROXY='socks5h://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
+        ;;
+      mixed)
+        printf "export HTTP_PROXY='http://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
+        printf "export HTTPS_PROXY='http://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
+        printf "export ALL_PROXY='socks5h://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
+        ;;
+      *) fail invalidRequest;;
+    esac
+    printf "%s\n" "export NO_PROXY='localhost,127.0.0.1,::1'"
+  } >"$temporary" || fail remoteFailed
+  chmod 600 "$temporary" || fail remoteFailed
+  mv -f "$temporary" "$session_file" || fail remoteFailed
+  sync -f "$session_file" || fail remoteFailed
+  trap - EXIT
+  printf '{"sessionEnvironment":"applied"}\n'
+  exit 0
+fi
+
 is_safe_profile_catalog() {
   [ ! -L "$1" ] || return 1
   if [ -e "$1" ]; then
@@ -167,9 +222,9 @@ fi
 [ ! -e "$file" ] || [ -f "$file" ] || fail unsafePath
 render() {
   if [ "$tool" = codex ]; then
-    printf 'model_provider = "proxyenv_bridge"\n\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv Local Bridge"\nbase_url = "http://127.0.0.1:%s/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\n' "$1"
+    printf 'model_provider = "proxyenv_bridge"\n\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv Local Bridge"\nbase_url = "http://127.0.0.1:%s/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false\nhttp_headers = { "X-ProxyEnv-Session" = "%s" }\n' "$1" "$session_token"
   else
-    printf '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:%s","ANTHROPIC_AUTH_TOKEN":"PROXY_MANAGED"}}\n' "$1"
+    printf '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:%s","ANTHROPIC_AUTH_TOKEN":"PROXY_MANAGED","ANTHROPIC_CUSTOM_HEADERS":"X-ProxyEnv-Session: %s"}}\n' "$1" "$session_token"
   fi
 }
 hash() { if [ -f "$1" ]; then sha256sum "$1" | awk '{print $1}'; else printf absent; fi; }
@@ -201,6 +256,10 @@ def object_without_duplicates(pairs):
 
 action, path, argument, profile_path = sys.argv[1:]
 MODEL_KEYS = ("model", "availableModels", "modelOverrides", "effortLevel", "alwaysThinkingEnabled")
+SESSION_HEADER = "X-ProxyEnv-Session"
+session_token = os.environ.get("PROXYENV_SESSION_TOKEN", "")
+if session_token and not re.match(r"^[0-9a-fA-F]{64}$", session_token):
+    sys.exit(42)
 
 def model_env_key(key):
     return (key in ("ANTHROPIC_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL", "ANTHROPIC_CUSTOM_MODEL_OPTION")
@@ -249,15 +308,22 @@ if action == "profile-hash":
 elif action == "inspect":
     base_url = env.get("ANTHROPIC_BASE_URL")
     auth_token = env.get("ANTHROPIC_AUTH_TOKEN")
+    custom_headers = env.get("ANTHROPIC_CUSTOM_HEADERS")
     other_auth = any(key in env for key in (
         "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"
     ))
     match = re.match(r"^http://127\.0\.0\.1:([0-9]{4,5})$", base_url or "")
-    if match and auth_token == "PROXY_MANAGED" and not other_auth:
+    header_supported = (custom_headers is None or
+                        custom_headers == "{0}: {1}".format(SESSION_HEADER, session_token) or
+                        re.match(r"^X-ProxyEnv-Session: [0-9a-fA-F]{64}$", custom_headers or ""))
+    if match and auth_token == "PROXY_MANAGED" and not other_auth and header_supported:
         value = int(match.group(1))
         print(value if 1024 <= value <= 65535 else "null")
     else:
         print("null")
+elif action == "session-match":
+    print("true" if env.get("ANTHROPIC_CUSTOM_HEADERS") ==
+          "{0}: {1}".format(SESSION_HEADER, session_token) else "false")
 elif action == "render":
     route_port = int(argument)
     if not 1024 <= route_port <= 65535:
@@ -277,6 +343,7 @@ elif action == "render":
     for key in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"):
         env.pop(key, None)
     env["ANTHROPIC_AUTH_TOKEN"] = "PROXY_MANAGED"
+    env["ANTHROPIC_CUSTOM_HEADERS"] = "{0}: {1}".format(SESSION_HEADER, session_token)
     config["env"] = env
     json.dump(config, sys.stdout, ensure_ascii=True, indent=2)
     sys.stdout.write("\n")
@@ -308,7 +375,7 @@ elif action == "restore":
     env = dict(env)
     managed_keys = (
         "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY",
-        "OPENROUTER_API_KEY", "OPENAI_API_KEY"
+        "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_CUSTOM_HEADERS"
     )
     managed_keys = managed_keys + tuple(key for key in set(list(env) + list(original_env)) if model_env_key(key))
     for key in managed_keys:
@@ -357,6 +424,8 @@ except NameError:
 HEADER = re.compile(r"^\s*\[([^\[\]]+)\]\s*(?:#.*)?$")
 ARRAY_HEADER = re.compile(r"^\s*\[\[([^\[\]]+)\]\]\s*(?:#.*)?$")
 ASSIGNMENT = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*=\s*(.*?)\s*$")
+SESSION_HEADER = "X-ProxyEnv-Session"
+SESSION_HEADERS = re.compile(r'^\{\s*"X-ProxyEnv-Session"\s*=\s*"([0-9a-fA-F]{64})"\s*\}(?:\s*#.*)?$')
 
 def fail():
     sys.exit(42)
@@ -450,8 +519,14 @@ def parse(lines):
             elif key == "model_providers" or key.startswith(TABLE):
                 fail()
         elif section == TABLE:
-            if key not in ("name", "base_url", "wire_api", "requires_openai_auth", "supports_websockets") or key in provider_values:
+            if key not in ("name", "base_url", "wire_api", "requires_openai_auth", "supports_websockets", "http_headers") or key in provider_values:
                 provider_unknown = True
+            elif key == "http_headers":
+                header_match = SESSION_HEADERS.match(raw.strip())
+                if header_match:
+                    provider_values[key] = header_match.group(1)
+                else:
+                    provider_unknown = True
             else:
                 provider_values[key] = scalar(raw)
     if provider_start is not None and provider_end is None:
@@ -461,6 +536,8 @@ def parse(lines):
     supported_provider = provider_keys in (
         set(("name", "base_url", "wire_api", "requires_openai_auth")),
         set(("name", "base_url", "wire_api", "requires_openai_auth", "supports_websockets")),
+        set(("name", "base_url", "wire_api", "requires_openai_auth", "http_headers")),
+        set(("name", "base_url", "wire_api", "requires_openai_auth", "supports_websockets", "http_headers")),
     )
     if not provider_unknown and provider_start is not None and supported_provider:
         match = re.match(r"^http://127\.0\.0\.1:([0-9]{4,5})/v1$", provider_values.get("base_url", ""))
@@ -482,9 +559,13 @@ def parse(lines):
                          and top_values.get("model_catalog_json") == LEGACY_CATALOG),
         "profile_catalog": top_values.get("model_catalog_json") == "proxyenv-codex-model-catalog.json",
         "requires_openai_auth": provider_values.get("requires_openai_auth"),
+        "session_header": provider_values.get("http_headers"),
     }
 
 def canonical(port):
+    session_token = os.environ.get("PROXYENV_SESSION_TOKEN", "")
+    if not re.match(r"^[0-9a-fA-F]{64}$", session_token):
+        fail()
     return [
         "[model_providers.proxyenv_bridge]\n",
         "name = \"ProxyEnv Local Bridge\"\n",
@@ -492,6 +573,7 @@ def canonical(port):
         "wire_api = \"responses\"\n",
         "requires_openai_auth = false\n",
         "supports_websockets = false\n",
+        "http_headers = {{ \"X-ProxyEnv-Session\" = {0} }}\n".format(json.dumps(session_token)),
     ]
 
 def emit(lines):
@@ -544,6 +626,8 @@ if action == "inspect":
 elif action == "auth-required":
     value = parsed["requires_openai_auth"]
     print("true" if value is True else "false" if value is False else "null")
+elif action == "session-match":
+    print("true" if parsed["session_header"] == os.environ.get("PROXYENV_SESSION_TOKEN", "") else "false")
 elif action == "legacy-model":
     print("true" if parsed["legacy_model"] else "false")
 elif action == "current-model":
@@ -610,13 +694,16 @@ validate() {
   codex_legacy_model=false
   codex_remote_model=null
   claude_remote_profile_hash=''
+  session_current=false
   if [ -f "$1" ]; then
     if [ "$tool" = claude ]; then
       previous=$(claude_json inspect "$1") || fail configConflict
+      session_current=$(claude_json session-match "$1") || fail configConflict
       claude_remote_profile_hash=$(claude_json profile-hash "$1") || fail configConflict
       [ "$previous" = null ] || { [ "$previous" -ge 1024 ] && [ "$previous" -le 65535 ]; } || fail configConflict
     else
       previous=$(codex_toml inspect "$1") || fail configConflict
+      session_current=$(codex_toml session-match "$1") || fail configConflict
       codex_auth_required=$(codex_toml auth-required "$1") || fail configConflict
       codex_legacy_model=$(codex_toml legacy-model "$1") || fail configConflict
       codex_remote_model=$(codex_toml current-model "$1") || fail configConflict
@@ -681,11 +768,11 @@ if [ "$tool" = claude ] && [ -f "$marker" ] && [ "$(marker_profile_hash)" != "$c
 fi
 if [ "$operation" = status ]; then
   configured=false
-  if [ -f "$marker" ] && [ "$previous" != null ] && [ "$previous" = "$port" ]; then
+  if [ -f "$marker" ] && [ "$previous" != null ] && [ "$previous" = "$port" ] && [ "$session_current" = true ]; then
     if [ "$tool" != codex ] || { [ "$codex_auth_required" = false ] && [ "$codex_legacy_model" = false ] && [ -f "$profile_catalog" ] && [ "$(hash "$profile_catalog")" = "$(marker_catalog_hash)" ]; }; then configured=true; fi
   fi
   if [ "$tool" = claude ]; then current_profile_hash="$claude_remote_profile_hash"; else current_profile_hash="$(marker_profile_hash)"; fi
-  printf '{"configured":%s,"previousPort":%s,"remoteModel":%s,"profileHash":"%s"}\n' "$configured" "$previous" "$codex_remote_model" "$current_profile_hash"
+  printf '{"configured":%s,"owned":%s,"previousPort":%s,"remoteModel":%s,"profileHash":"%s"}\n' "$configured" "$([ -f "$marker" ] && printf true || printf false)" "$previous" "$codex_remote_model" "$current_profile_hash"
   exit 0
 fi
 if [ "$operation" = preview ] || [ "$operation" = apply ] || [ "$operation" = tool-verify ]; then
@@ -700,6 +787,9 @@ if [ "$operation" = preview ] || [ "$operation" = apply ] || [ "$operation" = to
   else
     printf '%s' "$version" | grep -Eq '^2\.[0-9]+\.[0-9]+ \(Claude Code\)$' || fail cliUnsupported
     version=${version% (Claude Code)}
+    claude_minor=$(printf '%s' "$version" | cut -d. -f2)
+    claude_patch=$(printf '%s' "$version" | cut -d. -f3)
+    { [ "$claude_minor" -gt 1 ] || { [ "$claude_minor" -eq 1 ] && [ "$claude_patch" -ge 227 ]; }; } || fail cliUnsupported
   fi
 fi
 if [ "$operation" = preview ]; then
@@ -710,7 +800,7 @@ if [ "$operation" = preview ]; then
   fi
   if [ -f "$file" ]; then config_exists=true; else config_exists=false; fi
   if [ "$tool" = claude ]; then current_profile_hash="$claude_remote_profile_hash"; else current_profile_hash="$(marker_profile_hash)"; fi
-  printf '{"previousPort":%s,"expectedHash":"%s","configExists":%s,"permissionHardening":%s,"version":"%s","profileHash":"%s","remoteChanged":%s}\n' "$previous" "$(hash "$file")" "$config_exists" "$permission_hardening" "$version" "$current_profile_hash" "$managed_drift"
+  printf '{"previousPort":%s,"expectedHash":"%s","configExists":%s,"owned":%s,"permissionHardening":%s,"version":"%s","profileHash":"%s","remoteChanged":%s}\n' "$previous" "$(hash "$file")" "$config_exists" "$([ -f "$marker" ] && printf true || printf false)" "$permission_hardening" "$version" "$current_profile_hash" "$managed_drift"
   [ -z "$profile_catalog_temp" ] || unlink "$profile_catalog_temp"
   [ -z "$profile_settings_temp" ] || unlink "$profile_settings_temp"
   exit 0
@@ -1020,6 +1110,7 @@ fi
 validate "$file"
 if [ "$operation" = apply ]; then
   [ "$previous" = "$port" ] || fail rollbackConflict
+  [ "$session_current" = true ] || fail rollbackConflict
 fi
 if [ "$tool" = codex ] && [ "$legacy_catalog_owned" = true ] && [ -f "$codex_catalog" ]; then
   codex_catalog_matches || fail configConflict

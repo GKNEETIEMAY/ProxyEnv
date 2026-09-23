@@ -693,10 +693,10 @@ onBeforeUnmount(() => {
               <p class="remote-hint">{{ copy.rbManagedShellScope }}</p>
               <details class="remote-advanced">
                 <summary>{{ copy.rbAdvancedCopy }}</summary>
-                <pre>{{ summary.environment }}</pre>
-                <p class="remote-hint">{{ copy.rbExternalClientHint }}</p>
+                <pre v-if="summary.environment">{{ summary.environment }}</pre>
+                <p v-if="summary.environment" class="remote-hint">{{ copy.rbExternalClientHint }}</p>
                 <div class="remote-actions">
-                  <button class="secondary-action" type="button" @click="copyValue(summary.environment)">{{ copy.rbCopy }}</button>
+                  <button v-if="summary.environment" class="secondary-action" type="button" @click="copyValue(summary.environment)">{{ copy.rbCopy }}</button>
                   <button class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(() => remoteBackend.launchManualTerminal())">{{ copy.rbLaunchManualTerminal }}</button>
                   <button class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(() => remoteBackend.launchMobaxterm())">{{ copy.rbLaunchMobaxterm }}</button>
                   <button v-if="summary.target?.canOpenVscode" class="secondary-action" type="button" :disabled="summary.status !== 'connected'" @click="perform(async () => { await remoteBackend.openVscode(summary.target!.id); vscodeOpened = true; })">{{ copy.rbVscodeOpen }}</button>

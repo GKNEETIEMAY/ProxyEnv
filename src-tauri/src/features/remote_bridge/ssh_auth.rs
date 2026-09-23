@@ -142,7 +142,8 @@ enum Completion {
         request: Request,
         summary: Box<Summary>,
         fingerprint: String,
-        relay: Option<super::codex_relay::CodexRelay>,
+        proxy_relay: Box<Option<super::authenticated_relay::AuthenticatedRelay>>,
+        ai_relay: Box<Option<super::authenticated_relay::AuthenticatedRelay>>,
     },
 }
 
@@ -732,7 +733,8 @@ pub fn begin(
                     request,
                     summary: Box::new(plan.summary),
                     fingerprint: plan.fingerprint,
-                    relay: plan.relay,
+                    proxy_relay: Box::new(plan.proxy_relay),
+                    ai_relay: Box::new(plan.ai_relay),
                 },
             )
         }
@@ -1051,7 +1053,8 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
             request,
             summary,
             fingerprint,
-            relay,
+            proxy_relay,
+            ai_relay,
         } => {
             let process = session.process.take().ok_or("processFailed")?;
             let summary = super::complete_interactive_connect(
@@ -1060,7 +1063,8 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
                 fingerprint,
                 process,
                 session.auth,
-                relay,
+                *proxy_relay,
+                *ai_relay,
             )?;
             Ok(Outcome {
                 operation: Operation::Connect,

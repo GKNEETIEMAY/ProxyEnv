@@ -461,7 +461,7 @@ export function bridgeError(code: unknown, copy: Labels): string {
   if (["extensionMissing","extensionUnsupported","extensionContextChanged","extensionLocationRequired"].includes(value)) return copy.rbExtError;
   if (["vscodeMissing","vscodeConfigInvalid","vscodeConfigMismatch"].includes(value)) return copy.rbVscodeError;
   if (["sshConfigChanged","sshMissing","sshConfigMissing","sshConfigUnsafe","sshTimeout","hostKey","sshAuth","sshFailed","invalidTarget"].includes(value)) return copy.rbSshError;
-  if (value === "forwardDenied") return copy.rbForwardError;
+  if (["forwardDenied","relayUnavailable"].includes(value)) return copy.rbForwardError;
   if (value === "unsafeBinding") return copy.rbBindingError;
   if (["configConflict","unsafePath","noBackup","rollbackConflict","rollbackFailed","writeRolledBack","verifyFailed"].includes(value)) return copy.rbConfigError;
   if (value === "legacyModelSelectionRequired") return copy.rbLegacyModelSelectionError;

@@ -33,7 +33,7 @@ function fixture({jsonEngine="python3",claudeLocation="path",privateGroup=false,
   if(process.platform==="win32") mock("stat",'[ "$2" != %a ] || { printf 700; exit; }; /usr/bin/stat "$@"');
   mock("mv",'for target do :; done; if [ "${TEST_FAIL_REPLACE:-}" = 1 ] && [ ! -e "$HOME/.replace-failed" ]; then case "$target" in *config.toml|*settings.json) touch "$HOME/.replace-failed"; exit 1;; esac; fi; /usr/bin/mv "$@"');
   mock("codex",'printf "%s\\n" "${TEST_CODEX_VERSION:-codex-cli 0.134.0}"');
-  const claudeBody='if [ "$1" = --version ]; then printf "2.1.0 (Claude Code)\\n"; exit; fi; case "${TEST_CLAUDE_VERIFY:-verified}" in verified) printf \'{"result":"PROXYENV_VERIFY_OK"}\\n\';; auth) printf \'login required secret-fixture\\n\' >&2; exit 1;; route) printf \'gateway connection refused secret-fixture\\n\' >&2; exit 1;; timeout) exit 124;; *) printf \'unexpected secret-fixture\\n\' >&2; exit 1;; esac';
+  const claudeBody='if [ "$1" = --version ]; then printf "2.1.227 (Claude Code)\\n"; exit; fi; case "${TEST_CLAUDE_VERIFY:-verified}" in verified) printf \'{"result":"PROXYENV_VERIFY_OK"}\\n\';; auth) printf \'login required secret-fixture\\n\' >&2; exit 1;; route) printf \'gateway connection refused secret-fixture\\n\' >&2; exit 1;; timeout) exit 124;; *) printf \'unexpected secret-fixture\\n\' >&2; exit 1;; esac';
   if(["native","nvm"].includes(claudeLocation)) {
     const userBin=claudeLocation==="native" ? join(home,".local/bin") : join(home,".nvm/versions/node/v22.0.0/bin");
     mkdirSync(userBin,{recursive:true,mode:claudeLocation==="nvm" ? 0o775 : 0o700});
@@ -50,7 +50,8 @@ function fixture({jsonEngine="python3",claudeLocation="path",privateGroup=false,
     const claudeProfile=env.TEST_CLAUDE_PROFILE || '{"model":"fixture-claude"}';
     const claudeProfileHash=createHash("sha256").update(claudeProfile).digest("hex");
     const needsClaudeProfile=tool==="claude" && ["preview","apply"].includes(operation);
-    const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nport=${port}\nports='${env.TEST_REMOTE_PORT ?? 17897}'\nexpected='${expected}'\nexpected_backup='${backupHash}'\nrepair_permissions='${env.TEST_REPAIR_PERMISSIONS === "1" ? "true" : "false"}'\nscheme='http'\nprofile_model_b64='${needsProfile ? Buffer.from(profileModel).toString("base64") : ""}'\nprofile_catalog_b64='${needsProfile ? Buffer.from(profileCatalog).toString("base64") : ""}'\nprofile_settings_b64='${needsClaudeProfile ? Buffer.from(claudeProfile).toString("base64") : ""}'\nprofile_hash='${needsProfile ? profileHash : needsClaudeProfile ? claudeProfileHash : ""}'\n${script}`;
+    const sessionToken=env.TEST_SESSION_TOKEN || "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nport=${port}\nports='${env.TEST_REMOTE_PORT ?? 17897}'\nexpected='${expected}'\nexpected_backup='${backupHash}'\nrepair_permissions='${env.TEST_REPAIR_PERMISSIONS === "1" ? "true" : "false"}'\nprotocol='http'\nscheme='http'\nsession_id='0123456789abcdef0123456789abcdef'\nsession_token='${sessionToken}'\nPROXYENV_SESSION_TOKEN="$session_token"\nexport PROXYENV_SESSION_TOKEN\nprofile_model_b64='${needsProfile ? Buffer.from(profileModel).toString("base64") : ""}'\nprofile_catalog_b64='${needsProfile ? Buffer.from(profileCatalog).toString("base64") : ""}'\nprofile_settings_b64='${needsClaudeProfile ? Buffer.from(claudeProfile).toString("base64") : ""}'\nprofile_hash='${needsProfile ? profileHash : needsClaudeProfile ? claudeProfileHash : ""}'\n${script}`;
     const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:{...process.env,CODEX_HOME:"",CLAUDE_CONFIG_DIR:"",HOME:posix(home),PATH:`${posix(bin)}:/usr/bin:/bin`,...env}});
     assert.equal(result.status,0,result.stderr || result.error?.message);
     return JSON.parse(result.stdout.trim());
@@ -76,6 +77,8 @@ for(const tool of ["codex","claude"]) test(`${tool}: preview, apply, stale previ
     const preview=f.run("preview",tool);assert.equal(preview.expectedHash,"absent");assert.equal(existsSync(folder),false);
     assert.equal(f.run("apply",tool).configured,true);assert.equal(existsSync(file),true);
     const applied=readFileSync(file,"utf8");assert.match(applied,/127\.0\.0\.1:25721/);
+    if(tool==="codex") assert.match(applied,/http_headers = \{ "X-ProxyEnv-Session" = "[0-9a-f]{64}" \}/);
+    else assert.match(applied,/"ANTHROPIC_CUSTOM_HEADERS": "X-ProxyEnv-Session: [0-9a-f]{64}"/);
     const firstStatus=f.run("status",tool);
     assert.equal(firstStatus.configured,true);assert.equal(firstStatus.previousPort,25721);
     assert.equal(firstStatus.remoteModel,tool==="codex"?"fixture-model":null);
@@ -87,6 +90,37 @@ for(const tool of ["codex","claude"]) test(`${tool}: preview, apply, stale previ
     assert.equal(f.run("apply",tool,25722,next.expectedHash).configured,true);
     assert.equal(f.run("restore",tool).configured,false);assert.equal(existsSync(file),false);
     assert.equal(f.run("restore",tool).error,"noBackup");
+  } finally { f.cleanup(); }
+});
+for(const tool of ["codex","claude"]) test(`${tool}: reconnect rotates the owned session credential without a new user decision`,{skip:!available || !python},()=>{
+  const f=fixture();try {
+    const rotated="abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    const initial=f.run("preview",tool);
+    assert.equal(f.run("apply",tool,25721,initial.expectedHash).configured,true);
+    const stale=f.run("status",tool,25721,"absent",{TEST_SESSION_TOKEN:rotated});
+    assert.equal(stale.configured,false);
+    assert.equal(stale.owned,true);
+    const preview=f.run("preview",tool,25721,"absent",{TEST_SESSION_TOKEN:rotated});
+    assert.equal(f.run("apply",tool,25721,preview.expectedHash,{TEST_SESSION_TOKEN:rotated}).configured,true);
+    assert.equal(f.run("status",tool,25721,"absent",{TEST_SESSION_TOKEN:rotated}).configured,true);
+    const file=join(f.home,tool==="codex"?".codex/config.toml":".claude/settings.json");
+    const content=readFileSync(file,"utf8");
+    assert.match(content,new RegExp(rotated));
+    assert.doesNotMatch(content,/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/);
+  } finally { f.cleanup(); }
+});
+test("managed remote environment is session-owned and removable",{skip:!available},()=>{
+  const f=fixture();try {
+    const token="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const applied=f.run("session-env-apply","codex",17897,"absent",{TEST_SESSION_TOKEN:token});
+    assert.deepEqual(applied,{sessionEnvironment:"applied"});
+    const file=join(f.home,".proxyenv/sessions/0123456789abcdef0123456789abcdef/env.sh");
+    const content=readFileSync(file,"utf8");
+    assert.match(content,/HTTP_PROXY='http:\/\/proxyenv:[0-9a-f]{64}@127\.0\.0\.1:17897'/);
+    assert.match(content,/NO_PROXY='localhost,127\.0\.0\.1,::1'/);
+    assert.ok(!JSON.stringify(applied).includes(token));
+    assert.deepEqual(f.run("session-env-remove"),{sessionEnvironment:"removed"});
+    assert.equal(existsSync(file),false);
   } finally { f.cleanup(); }
 });
 test("Claude request verification returns only an allowlisted state",{skip:!available || !python},()=>{
@@ -288,7 +322,7 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
   assert.match(page,/authSession\.diagnostic\.cprRequests/);
   assert.doesNotMatch(page,/Authentication response|认证响应/);
 });
-test("managed proxy terminal is one-click, shell-scoped, and keeps manual export advanced",()=>{
+test("managed proxy terminal loads a private authenticated session environment",()=>{
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
@@ -304,7 +338,9 @@ test("managed proxy terminal is one-click, shell-scoped, and keeps manual export
   assert.match(ssh,/PROXYENV_SSH_LAUNCH/);
   assert.match(ssh,/SSH_ASKPASS_REQUIRE/);
   assert.match(ssh,/exec \\\"\$\{\{SHELL:-\/bin\/sh\}\}\\\" -i/);
-  for(const name of ["HTTP_PROXY","HTTPS_PROXY","ALL_PROXY","NO_PROXY"]) assert.match(bridge,new RegExp(name));
+  assert.match(ssh,/\.proxyenv\/sessions\/\{session_id\}\/env\.sh/);
+  assert.match(bridge,/fn apply_session_environment/);
+  assert.match(bridge,/fn remove_session_environment/);
   assert.match(commands,/fn remote_bridge_launch_proxy_terminal/);
   assert.match(commands,/fn remote_bridge_launch_manual_terminal/);
   assert.match(runtime,/remote_bridge::remote_bridge_launch_proxy_terminal/);
@@ -314,11 +350,11 @@ test("managed proxy terminal is one-click, shell-scoped, and keeps manual export
   assert.match(page,/@click="launchProxyTerminal"/);
   assert.match(page,/remoteBackend\.launchManualTerminal\(\)/);
   assert.match(page,/<details class="remote-advanced">/);
-  assert.match(page,/copyValue\(summary\.environment\)/);
+  assert.match(page,/v-if="summary\.environment"/);
   const advanced=page.slice(page.indexOf('<details class="remote-advanced">'),page.indexOf('</details>',page.indexOf('<details class="remote-advanced">')));
   assert.match(advanced,/remoteBackend\.launchMobaxterm\(\)/);
   assert.match(advanced,/remoteBackend\.openVscode\(summary\.target!\.id\)/);
-  assert.match(advanced,/copy\.rbExternalClientHint/);
+  assert.match(advanced,/v-if="summary\.environment" class="remote-hint"/);
   assert.match(ssh,/fn launch_terminal/);
   assert.match(ssh,/launch_terminal\(target_id, fingerprint, None\)/);
 });
@@ -371,13 +407,13 @@ test("Claude JSON editor avoids Python 3-only syntax and regular-expression APIs
 test("Claude native installer is discovered without loading interactive shell profiles",{skip:!available || !python},()=>{
   const f=fixture({claudeLocation:"native"});try {
     const preview=f.run("preview","claude");
-    assert.equal(preview.version,"2.1.0");
+    assert.equal(preview.version,"2.1.227");
   } finally { f.cleanup(); }
 });
 test("Claude installed through NVM is discovered without sourcing shell profiles",{skip:!available || !python},()=>{
   const f=fixture({claudeLocation:"nvm"});try {
     const preview=f.run("preview","claude");
-    assert.equal(preview.version,"2.1.0");
+    assert.equal(preview.version,"2.1.227");
     assert.match(script,/stat -c %g/);
     assert.match(script,/id -gn/);
     assert.match(script,/id -un/);
@@ -537,8 +573,8 @@ test("remote bridge resolves consumer and AI ports independently and restores en
   assert.match(bridge,/resolve_port_pair\(\s*&fingerprint,\s*local_port,\s*runtime_expected_proxy_port/);
   assert.match(bridge,/first_available_port\(/);
   assert.match(bridge,/remote_request\(\s*"status",\s*\*adapter,\s*route_port,\s*None/);
-  assert.match(bridge,/refresh_tool_configuration\(&mut summary\)/);
-  assert.match(bridge,/refresh_tool_configuration\(&mut next\)/);
+  assert.match(bridge,/refresh_tool_configuration\([\s\S]*&mut summary,[\s\S]*ai_token/);
+  assert.match(bridge,/refresh_tool_configuration\([\s\S]*&mut next,[\s\S]*ai_token/);
   assert.match(auth,/super::allocate_ports\(session\.target_id, true\)/);
   assert.match(state,/allocatePorts: \(targetId: string, preferDefaults = true\)/);
   assert.match(page,/remoteBackend\.allocatePorts\(targetId\.value, false\)/);

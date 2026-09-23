@@ -1,6 +1,6 @@
 # v0.2 Remote Bridge acceptance record
 
-This records **observed evidence**, not implementation or design intent. Last documentation review: 2026-09-22. Stable remains v0.1.4; no v0.2 release decision has been made.
+This records **observed evidence**, not implementation or design intent. Last documentation review: 2026-09-23. Stable remains v0.1.4; no v0.2 release decision has been made.
 
 ## Recorded real-device observation
 
@@ -20,4 +20,4 @@ The user reported that, on their Windows → Linux VS Code Remote target, the Co
 
 Record date, Windows build, local proxy client/Active Proxy, VS Code build/Remote SSH, Linux distribution/kernel/UID context, Codex Extension/bundled Codex/CLI and Claude versions, CC Switch/provider/model, General Proxy and AI Route ports (redacted when shared), streaming, tool calls, file edit, disconnect/reconnect, ownership restore, expected/actual result and safe evidence. Keep credentials, raw paths, tokens and SSH transcripts out of this file.
 
-The release gate also requires Windows and Linux CI, RustSec and security audit green; M8 token isolation and all in-scope productization work; and explicit maintainer review of the full matrix. The earlier `docs/REMOTE_BRIDGE.md` snapshots and mocked tests cannot substitute for live acceptance.
+The release gate also requires Windows and Linux CI, RustSec and security audit green; live different-UID verification of the implemented M8 token isolation; all in-scope productization work; and explicit maintainer review of the full matrix. The earlier `docs/REMOTE_BRIDGE.md` snapshots and mocked tests cannot substitute for live acceptance.

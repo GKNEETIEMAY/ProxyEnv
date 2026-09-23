@@ -25,6 +25,7 @@ fn command_error(
         "sshTimeout"
             | "sshFailed"
             | "forwardDenied"
+            | "relayUnavailable"
             | "portInUse"
             | "portAllocationFailed"
             | "ccUnavailable"

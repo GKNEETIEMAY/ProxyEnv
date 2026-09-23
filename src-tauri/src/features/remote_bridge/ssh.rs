@@ -1,6 +1,6 @@
 use super::{
-    mobaxterm, BridgeResult, Endpoint, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource,
-    Request, SshAuthMethod,
+    mobaxterm, BridgeResult, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request,
+    SshAuthMethod,
 };
 use std::{
     io::{Read, Write},
@@ -9,6 +9,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use zeroize::Zeroizing;
 
 #[derive(Clone, Copy)]
 enum CommandMode {
@@ -389,12 +390,13 @@ pub(super) fn interactive_target_command(id: &str) -> BridgeResult<(Command, Str
     target_command_with_batch_mode(id, false)
 }
 
-fn managed_terminal_remote_command(endpoint: &Endpoint) -> BridgeResult<String> {
-    let exports = super::remote_environment(endpoint)?
-        .lines()
-        .collect::<Vec<_>>()
-        .join("; ");
-    Ok(format!("{exports}; exec \"${{SHELL:-/bin/sh}}\" -i"))
+fn managed_terminal_remote_command(session_id: &str) -> BridgeResult<String> {
+    if session_id.len() != 32 || !session_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("invalidRequest".into());
+    }
+    Ok(format!(
+        "proxyenv_session=\"$HOME/.proxyenv/sessions/{session_id}/env.sh\"; [ -f \"$proxyenv_session\" ] || exit 1; . \"$proxyenv_session\"; unset proxyenv_session; exec \"${{SHELL:-/bin/sh}}\" -i"
+    ))
 }
 
 #[cfg(windows)]
@@ -568,13 +570,13 @@ fn spawn_new_console(command: &Command) -> BridgeResult<()> {
 
 pub fn launch_managed_terminal(
     target_id: &str,
-    endpoint: &Endpoint,
+    session_id: &str,
     fingerprint: &str,
 ) -> BridgeResult<()> {
     launch_terminal(
         target_id,
         fingerprint,
-        Some(managed_terminal_remote_command(endpoint)?),
+        Some(managed_terminal_remote_command(session_id)?),
     )
 }
 
@@ -744,7 +746,11 @@ impl Drop for OwnedChild {
     }
 }
 
-pub fn output(mut cmd: Command, input: Option<String>, seconds: u64) -> BridgeResult<String> {
+pub fn output(
+    mut cmd: Command,
+    input: Option<Zeroizing<String>>,
+    seconds: u64,
+) -> BridgeResult<String> {
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -807,7 +813,9 @@ pub fn output(mut cmd: Command, input: Option<String>, seconds: u64) -> BridgeRe
     String::from_utf8(output).map_err(|_| "remoteFailed".into())
 }
 
-pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(String, &'static str)> {
+pub(super) fn remote_payload(
+    request: &serde_json::Value,
+) -> BridgeResult<(Zeroizing<String>, &'static str)> {
     let operation = request["operation"].as_str().ok_or("invalidRequest")?;
     if ![
         "check",
@@ -820,6 +828,8 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
         "restore",
         "restore-preview",
         "tool-verify",
+        "session-env-apply",
+        "session-env-remove",
     ]
     .contains(&operation)
     {
@@ -854,7 +864,11 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
             return Err("invalidRequest".into());
         }
     }
-    let scheme = if request["protocol"] == "socks5" {
+    let protocol = request["protocol"].as_str().unwrap_or("http");
+    if !["http", "socks5", "mixed"].contains(&protocol) {
+        return Err("invalidRequest".into());
+    }
+    let scheme = if protocol == "socks5" {
         "socks5h"
     } else {
         "http"
@@ -863,6 +877,8 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
     let profile_catalog = request["profileCatalogBase64"].as_str().unwrap_or("");
     let profile_settings = request["profileSettingsBase64"].as_str().unwrap_or("");
     let profile_hash = request["profileHash"].as_str().unwrap_or("");
+    let session_token = request["sessionToken"].as_str().unwrap_or("");
+    let session_id = request["sessionId"].as_str().unwrap_or("");
     let valid_base64 = |value: &str, limit: usize| {
         value.len() <= limit
             && value
@@ -875,6 +891,17 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
         || (!profile_hash.is_empty()
             && !(profile_hash.len() == 64
                 && profile_hash.bytes().all(|byte| byte.is_ascii_hexdigit())))
+        || (!session_token.is_empty()
+            && !(session_token.len() == 64
+                && session_token.bytes().all(|byte| byte.is_ascii_hexdigit())))
+        || (!session_id.is_empty()
+            && !(session_id.len() == 32 && session_id.bytes().all(|byte| byte.is_ascii_hexdigit())))
+        || (matches!(
+            operation,
+            "test" | "preview" | "status" | "apply" | "tool-verify" | "session-env-apply"
+        ) && session_token.is_empty())
+        || (matches!(operation, "session-env-apply" | "session-env-remove")
+            && session_id.is_empty())
         || (tool == "codex"
             && matches!(operation, "preview" | "apply")
             && (profile_model.is_empty() || profile_catalog.is_empty() || profile_hash.is_empty()))
@@ -884,7 +911,7 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
     {
         return Err("invalidRequest".into());
     }
-    let source = format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nrepair_permissions={repair_permissions}\nscheme='{scheme}'\nprofile_model_b64='{profile_model}'\nprofile_catalog_b64='{profile_catalog}'\nprofile_settings_b64='{profile_settings}'\nprofile_hash='{profile_hash}'\n{}", ports.join(" "), include_str!("remote.sh"));
+    let source = Zeroizing::new(format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nrepair_permissions={repair_permissions}\nprotocol='{protocol}'\nscheme='{scheme}'\nprofile_model_b64='{profile_model}'\nprofile_catalog_b64='{profile_catalog}'\nprofile_settings_b64='{profile_settings}'\nprofile_hash='{profile_hash}'\nsession_id='{session_id}'\nsession_token='{session_token}'\nPROXYENV_SESSION_TOKEN=\"$session_token\"\nexport PROXYENV_SESSION_TOKEN\n{}", ports.join(" "), include_str!("remote.sh")));
     let operation = match operation {
         "check" => "check",
         "verify" => "verify",
@@ -896,6 +923,8 @@ pub(super) fn remote_payload(request: &serde_json::Value) -> BridgeResult<(Strin
         "restore" => "restore",
         "restore-preview" => "restore-preview",
         "tool-verify" => "tool-verify",
+        "session-env-apply" => "session-env-apply",
+        "session-env-remove" => "session-env-remove",
         _ => return Err("invalidRequest".into()),
     };
     Ok((source, operation))
@@ -969,6 +998,8 @@ pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<s
                 })
         }
         "restore" => value["configured"] == false,
+        "session-env-apply" => value["sessionEnvironment"] == "applied",
+        "session-env-remove" => value["sessionEnvironment"] == "removed",
         "tool-verify" => matches!(
             value["verification"].as_str(),
             Some(
@@ -1037,7 +1068,7 @@ pub(super) fn extension_remote(
     cmd.arg("-oClearAllForwardings=yes")
         .arg(destination)
         .arg("sh -s");
-    let raw = output(cmd, Some(source), 30)?;
+    let raw = output(cmd, Some(Zeroizing::new(source)), 30)?;
     let value: serde_json::Value = serde_json::from_str(raw.trim()).map_err(|_| "remoteFailed")?;
     if let Some(error) = value["error"].as_str() {
         return Err(match error {
@@ -1075,6 +1106,41 @@ mod tests {
             assert!(!safe_name(value));
         }
         assert!(!safe_host("bad host"));
+    }
+    #[test]
+    fn authenticated_remote_operations_require_bounded_hex_session_material() {
+        assert_eq!(
+            remote_payload(&serde_json::json!({
+                "operation": "test",
+                "port": 17897,
+                "protocol": "http"
+            }))
+            .unwrap_err(),
+            "invalidRequest"
+        );
+        assert!(remote_payload(&serde_json::json!({
+            "operation": "test",
+            "port": 17897,
+            "protocol": "http",
+            "sessionToken": "not-a-token"
+        }))
+        .is_err());
+        let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert!(remote_payload(&serde_json::json!({
+            "operation": "test",
+            "port": 17897,
+            "protocol": "http",
+            "sessionToken": token
+        }))
+        .is_ok());
+        assert!(remote_payload(&serde_json::json!({
+            "operation": "session-env-apply",
+            "port": 17897,
+            "protocol": "mixed",
+            "sessionId": "0123456789abcdef0123456789abcdef",
+            "sessionToken": token
+        }))
+        .is_ok());
     }
     #[test]
     fn openssh_parameters_keep_security_overrides_and_have_no_shell() {
@@ -1169,8 +1235,6 @@ mod tests {
     }
     #[test]
     fn managed_terminal_is_interactive_and_does_not_modify_shell_startup_files() {
-        use crate::features::proxy::{ProxyEndpoint, ProxyProtocol};
-
         let command = command_with_mode(CommandMode::ManagedTerminal);
         let args: Vec<_> = command
             .get_args()
@@ -1187,26 +1251,22 @@ mod tests {
         }
         assert!(!args.iter().any(|argument| argument == "-T"));
 
-        let script = managed_terminal_remote_command(&Endpoint {
-            local: ProxyEndpoint {
-                host: "127.0.0.1".into(),
-                port: 7897,
-                protocol: ProxyProtocol::Mixed,
-            },
-            remote_port: 17897,
-        })
-        .unwrap();
+        let session_id = "0123456789abcdef0123456789abcdef";
+        let script = managed_terminal_remote_command(session_id).unwrap();
         for expected in [
-            "unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY",
-            "export HTTP_PROXY=http://127.0.0.1:17897",
-            "export HTTPS_PROXY=http://127.0.0.1:17897",
-            "export ALL_PROXY=socks5h://127.0.0.1:17897",
-            "export NO_PROXY=localhost,127.0.0.1,::1",
+            ".proxyenv/sessions/0123456789abcdef0123456789abcdef/env.sh",
+            ". \"$proxyenv_session\"",
             "exec \"${SHELL:-/bin/sh}\" -i",
         ] {
             assert!(script.contains(expected));
         }
-        for forbidden in [".bashrc", ".profile", "/etc/environment", "sudo"] {
+        for forbidden in [
+            ".bashrc",
+            ".profile",
+            "/etc/environment",
+            "sudo",
+            "proxyenv:",
+        ] {
             assert!(!script.contains(forbidden));
         }
     }

@@ -1,3 +1,6 @@
+mod authenticated_relay;
+#[cfg(test)]
+#[allow(dead_code)]
 mod codex_relay;
 pub(crate) mod credential_cache;
 pub mod extension;
@@ -8,7 +11,9 @@ mod ssh;
 pub mod ssh_auth;
 pub mod tool_adapter;
 pub(crate) mod vscode;
-use super::proxy::{active, plan, ProxyEndpoint, ProxyProtocol, ProxyVariable};
+#[cfg(test)]
+use super::proxy::ProxyVariable;
+use super::proxy::{active, plan, ProxyEndpoint, ProxyProtocol};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -274,7 +279,8 @@ pub struct RemoteNetworkObservation {
 struct Store {
     summary: Summary,
     child: Option<Box<dyn ssh::ManagedSsh>>,
-    relay: Option<codex_relay::CodexRelay>,
+    proxy_relay: Option<authenticated_relay::AuthenticatedRelay>,
+    ai_relay: Option<authenticated_relay::AuthenticatedRelay>,
     pending: Option<Pending>,
     extension_pending: Option<extension::Pending>,
     cc_detected: bool,
@@ -295,7 +301,8 @@ impl Default for Store {
         Self {
             summary: Summary::default(),
             child: None,
-            relay: None,
+            proxy_relay: None,
+            ai_relay: None,
             pending: None,
             extension_pending: None,
             cc_detected: false,
@@ -335,6 +342,7 @@ fn port(value: u16) -> BridgeResult<()> {
         Err("invalidPort".into())
     }
 }
+#[cfg(test)]
 fn remote_environment(endpoint: &Endpoint) -> BridgeResult<String> {
     let remote = ProxyEndpoint {
         host: "127.0.0.1".into(),
@@ -391,7 +399,8 @@ fn refresh(state: &mut Store) {
     if let Some(child) = state.child.as_mut() {
         if !matches!(child.is_running(), Ok(true)) {
             state.child = None;
-            state.relay = None;
+            state.proxy_relay = None;
+            state.ai_relay = None;
             state.summary.status = Status::Disconnected;
             state.proxy_status = Status::Disconnected;
             state.cc_status = Status::Disconnected;
@@ -413,17 +422,24 @@ fn refresh(state: &mut Store) {
             .summary
             .proxy
             .as_ref()
-            .is_none_or(|e| listening(&e.local));
+            .is_none_or(|e| listening(&e.local))
+            && state.summary.proxy.as_ref().is_none_or(|_| {
+                state
+                    .proxy_relay
+                    .as_ref()
+                    .is_some_and(|relay| relay.is_running())
+            });
         let cc_available = state
             .summary
             .cc
             .as_ref()
             .is_none_or(|e| listening(&e.local))
-            && state
-                .summary
-                .cc
-                .as_ref()
-                .is_none_or(|_| state.relay.as_ref().is_some_and(|relay| relay.is_running()));
+            && state.summary.cc.as_ref().is_none_or(|_| {
+                state
+                    .ai_relay
+                    .as_ref()
+                    .is_some_and(|relay| relay.is_running())
+            });
         state.proxy_status = observed_status(&state.summary, current.as_ref(), proxy_available);
         state.cc_status = if cc_available {
             Status::Connected
@@ -469,6 +485,7 @@ fn remote_request(
     adapter: &dyn tool_adapter::RemoteToolAdapter,
     port: u16,
     profile: Option<&LocalToolProfile>,
+    session_token: Option<&str>,
 ) -> serde_json::Value {
     let mut request = json!({
         "operation": operation,
@@ -486,6 +503,9 @@ fn remote_request(
                 request["profileSettingsBase64"] = json!(base64_bytes(&profile.settings_bytes));
             }
         }
+    }
+    if let Some(session_token) = session_token {
+        request["sessionToken"] = json!(session_token);
     }
     request
 }
@@ -517,7 +537,7 @@ fn base64_bytes(bytes: &[u8]) -> String {
     output
 }
 
-fn refresh_tool_configuration(summary: &mut Summary) {
+fn refresh_tool_configuration(summary: &mut Summary, session_token: Option<&str>) {
     let Some(target_id) = summary.target.as_ref().map(|target| target.id.clone()) else {
         return;
     };
@@ -531,12 +551,52 @@ fn refresh_tool_configuration(summary: &mut Summary) {
     for adapter in tool_adapter::adapters() {
         let status = ssh::remote(
             &target_id,
-            remote_request("status", *adapter, route_port, None),
+            remote_request("status", *adapter, route_port, None, session_token),
         )
         .ok();
-        let configured = status
+        let mut configured = status
+            .as_ref()
             .and_then(|value| value["configured"].as_bool())
             .unwrap_or(false);
+
+        // A reconnect rotates the session token. If this tool is already
+        // ProxyEnv-owned and still points at the same route, refresh the
+        // allowlisted projection transactionally instead of forcing the user
+        // through configuration again. Unowned files are never touched.
+        let owned_route = status.as_ref().is_some_and(|value| {
+            value["owned"] == true && value["previousPort"].as_u64() == Some(u64::from(route_port))
+        });
+        if !configured && owned_route {
+            if let (Some(session_token), Ok(profile)) =
+                (session_token, LocalToolProfile::inspect(adapter.id()))
+            {
+                let preview = ssh::remote(
+                    &target_id,
+                    remote_request(
+                        "preview",
+                        *adapter,
+                        route_port,
+                        Some(&profile),
+                        Some(session_token),
+                    ),
+                );
+                if let Ok(preview) = preview {
+                    if let Some(expected_hash) = preview["expectedHash"].as_str() {
+                        let mut apply = remote_request(
+                            "apply",
+                            *adapter,
+                            route_port,
+                            Some(&profile),
+                            Some(session_token),
+                        );
+                        apply["expectedHash"] = json!(expected_hash);
+                        apply["repairPermissions"] =
+                            json!(preview["permissionHardening"].as_bool().unwrap_or(false));
+                        configured = ssh::remote(&target_id, apply).is_ok();
+                    }
+                }
+            }
+        }
         if configured {
             adapter.apply(summary);
         } else {
@@ -612,7 +672,7 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
             return;
         };
         if state.child.is_none()
-            || state.relay.is_none()
+            || state.ai_relay.is_none()
             || !profile_sync_enabled(&state, tool)
             || state.pending.is_some()
         {
@@ -639,16 +699,27 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
             state.profile_syncing = false;
             return;
         };
+        let Some(session_token) = state.ai_relay.as_ref().map(|relay| relay.token()) else {
+            state.profile_syncing = false;
+            return;
+        };
         (
             target.id.clone(),
             endpoint.remote_port,
             state.target_fingerprint.clone(),
+            session_token,
         )
     };
     let adapter = tool_adapter::by_id(tool);
     let preview = match ssh::remote(
         &snapshot.0,
-        remote_request("preview", adapter, snapshot.1, Some(&profile)),
+        remote_request(
+            "preview",
+            adapter,
+            snapshot.1,
+            Some(&profile),
+            Some(snapshot.3.as_str()),
+        ),
     ) {
         Ok(value) => value,
         Err(code) => {
@@ -683,7 +754,13 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
         finish_profile_sync(tool, settings::ProfileSyncState::RemoteUnavailable);
         return;
     };
-    let mut apply_request = remote_request("apply", adapter, snapshot.1, Some(&profile));
+    let mut apply_request = remote_request(
+        "apply",
+        adapter,
+        snapshot.1,
+        Some(&profile),
+        Some(snapshot.3.as_str()),
+    );
     apply_request["expectedHash"] = json!(expected_hash);
     apply_request["repairPermissions"] = json!(false);
     if let Err(code) = ssh::remote(&snapshot.0, apply_request) {
@@ -699,7 +776,13 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
     }
     let verified = ssh::remote(
         &snapshot.0,
-        remote_request("preview", adapter, snapshot.1, Some(&profile)),
+        remote_request(
+            "preview",
+            adapter,
+            snapshot.1,
+            Some(&profile),
+            Some(snapshot.3.as_str()),
+        ),
     );
     let verified = matches!(
         verified,
@@ -717,7 +800,7 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
     }
     if let Ok(mut state) = store().lock() {
         let same_bridge = state.child.is_some()
-            && state.relay.is_some()
+            && state.ai_relay.is_some()
             && profile_sync_enabled(&state, tool)
             && state
                 .summary
@@ -737,7 +820,7 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
         } else if tool == tool_adapter::RemoteToolId::Codex && !state.follow_local_codex_profile {
             clear_cached_profile(&mut state, tool);
             state.profile_sync_state = settings::ProfileSyncState::Disabled;
-        } else if state.child.is_none() || state.relay.is_none() {
+        } else if state.child.is_none() || state.ai_relay.is_none() {
             clear_cached_profile(&mut state, tool);
             if tool == tool_adapter::RemoteToolId::Codex {
                 state.profile_sync_state = settings::ProfileSyncState::NotStarted;
@@ -777,7 +860,7 @@ pub fn start_monitor() {
             }
             // Profile polling exists only while the bridge and at least one
             // shared remote client profile are active.
-            if state.child.is_none() || state.relay.is_none() {
+            if state.child.is_none() || state.ai_relay.is_none() {
                 state.local_codex_profile = None;
                 state.local_claude_profile = None;
                 state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
@@ -872,7 +955,7 @@ pub fn save_model_settings(
     if !follow {
         state.local_codex_profile = None;
         state.profile_sync_state = settings::ProfileSyncState::Disabled;
-    } else if state.child.is_some() && state.relay.is_some() && state.summary.codex_configured {
+    } else if state.child.is_some() && state.ai_relay.is_some() && state.summary.codex_configured {
         state.profile_sync_state = settings::ProfileSyncState::LocalChanged;
     } else {
         state.profile_sync_state = settings::ProfileSyncState::NotStarted;
@@ -1108,11 +1191,9 @@ pub fn preview(request: &Request) -> BridgeResult<Summary> {
     } else {
         None
     };
-    let environment = proxy
-        .as_ref()
-        .map(remote_environment)
-        .transpose()?
-        .unwrap_or_default();
+    // Authenticated relays must never expose their session credential to the
+    // WebView. The managed terminal loads a private remote env file instead.
+    let environment = String::new();
     let runtime_expected_proxy_port = runtime_expected_port(
         &target,
         proxy.as_ref().map(|endpoint| endpoint.local.protocol),
@@ -1144,37 +1225,90 @@ pub(super) struct InteractiveConnectPlan {
     pub summary: Summary,
     pub fingerprint: String,
     pub endpoints: Vec<(u16, String, u16)>,
-    pub relay: Option<codex_relay::CodexRelay>,
+    pub proxy_relay: Option<authenticated_relay::AuthenticatedRelay>,
+    pub ai_relay: Option<authenticated_relay::AuthenticatedRelay>,
 }
 
-fn relay_for(summary: &Summary) -> BridgeResult<Option<codex_relay::CodexRelay>> {
-    summary
+fn relays_for(
+    summary: &Summary,
+) -> BridgeResult<(
+    Option<authenticated_relay::AuthenticatedRelay>,
+    Option<authenticated_relay::AuthenticatedRelay>,
+)> {
+    let proxy = summary
+        .proxy
+        .as_ref()
+        .map(|endpoint| {
+            authenticated_relay::AuthenticatedRelay::start(
+                endpoint.local.clone(),
+                authenticated_relay::RelayMode::General(endpoint.local.protocol),
+            )
+        })
+        .transpose()?;
+    let ai = summary
         .cc
         .as_ref()
-        .map(|endpoint| codex_relay::CodexRelay::start(endpoint.local.clone()))
-        .transpose()
+        .map(|endpoint| {
+            authenticated_relay::AuthenticatedRelay::start(
+                endpoint.local.clone(),
+                authenticated_relay::RelayMode::AiHttp,
+            )
+        })
+        .transpose()?;
+    Ok((proxy, ai))
 }
 
 fn forwarding_endpoints(
     summary: &Summary,
-    relay: Option<&codex_relay::CodexRelay>,
+    proxy_relay: Option<&authenticated_relay::AuthenticatedRelay>,
+    ai_relay: Option<&authenticated_relay::AuthenticatedRelay>,
 ) -> BridgeResult<Vec<(u16, String, u16)>> {
-    let mut endpoints = summary
-        .proxy
-        .iter()
-        .map(|endpoint| {
-            (
-                endpoint.remote_port,
-                endpoint.local.host.clone(),
-                endpoint.local.port,
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut endpoints = Vec::new();
+    if let Some(endpoint) = summary.proxy.as_ref() {
+        let relay = proxy_relay.ok_or("relayUnavailable")?;
+        endpoints.push((endpoint.remote_port, "127.0.0.1".into(), relay.port()));
+    }
     if let Some(endpoint) = summary.cc.as_ref() {
-        let relay = relay.ok_or("relayUnavailable")?;
+        let relay = ai_relay.ok_or("relayUnavailable")?;
         endpoints.push((endpoint.remote_port, "127.0.0.1".into(), relay.port()));
     }
     Ok(endpoints)
+}
+
+fn apply_session_environment(
+    target_id: &str,
+    summary: &Summary,
+    relay: Option<&authenticated_relay::AuthenticatedRelay>,
+) -> BridgeResult<()> {
+    let Some(endpoint) = summary.proxy.as_ref() else {
+        return Ok(());
+    };
+    let relay = relay.ok_or("relayUnavailable")?;
+    let token = relay.token();
+    ssh::remote(
+        target_id,
+        json!({
+            "operation": "session-env-apply",
+            "sessionId": relay.session_id(),
+            "sessionToken": token.as_str(),
+            "port": endpoint.remote_port,
+            "protocol": endpoint.local.protocol,
+        }),
+    )?;
+    Ok(())
+}
+
+fn remove_session_environment(target_id: &str, session_id: Option<&str>) {
+    let Some(session_id) = session_id else {
+        return;
+    };
+    let _ = ssh::remote(
+        target_id,
+        json!({
+            "operation": "session-env-remove",
+            "sessionId": session_id,
+        }),
+    );
 }
 
 pub(super) fn prepare_interactive_connect(
@@ -1188,13 +1322,14 @@ pub(super) fn prepare_interactive_connect(
     }
     let fingerprint = ssh::fingerprint(&request.target_id)?;
     let summary = preview(request)?;
-    let relay = relay_for(&summary)?;
-    let endpoints = forwarding_endpoints(&summary, relay.as_ref())?;
+    let (proxy_relay, ai_relay) = relays_for(&summary)?;
+    let endpoints = forwarding_endpoints(&summary, proxy_relay.as_ref(), ai_relay.as_ref())?;
     Ok(InteractiveConnectPlan {
         summary,
         fingerprint,
         endpoints,
-        relay,
+        proxy_relay,
+        ai_relay,
     })
 }
 
@@ -1225,7 +1360,8 @@ pub(super) fn complete_interactive_connect(
     fingerprint: String,
     process: ssh_auth::PtyProcess,
     auth: SshAuthState,
-    relay: Option<codex_relay::CodexRelay>,
+    proxy_relay: Option<authenticated_relay::AuthenticatedRelay>,
+    ai_relay: Option<authenticated_relay::AuthenticatedRelay>,
 ) -> BridgeResult<Summary> {
     if ssh::fingerprint(&request.target_id)? != fingerprint {
         return Err("sshConfigChanged".into());
@@ -1233,11 +1369,13 @@ pub(super) fn complete_interactive_connect(
     if request.proxy_port.is_some() {
         preview(&request)?;
     }
+    apply_session_environment(&request.target_id, &summary, proxy_relay.as_ref())?;
     summary.status = Status::Connected;
     summary.proxy_status = summary.proxy.as_ref().map(|_| Status::Connected);
     summary.cc_status = summary.cc.as_ref().map(|_| Status::Connected);
     summary.ssh_auth = auth;
-    refresh_tool_configuration(&mut summary);
+    let ai_token = ai_relay.as_ref().map(|relay| relay.token());
+    refresh_tool_configuration(&mut summary, ai_token.as_ref().map(|token| token.as_str()));
     let mut state = lock()?;
     if state.child.is_some() {
         return Err("alreadyConnected".into());
@@ -1246,7 +1384,8 @@ pub(super) fn complete_interactive_connect(
     state.proxy_status = Status::Connected;
     state.cc_status = Status::Connected;
     state.child = Some(Box::new(process));
-    state.relay = relay;
+    state.proxy_relay = proxy_relay;
+    state.ai_relay = ai_relay;
     state.reachable = true;
     state.target_fingerprint = Some(fingerprint);
     state.ssh_auth = auth;
@@ -1267,8 +1406,8 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         let fingerprint = ssh::fingerprint(&request.target_id)?;
         let mut next = preview(&request)?;
         state.summary.status = Status::Connecting;
-        let relay = relay_for(&next)?;
-        let endpoints = forwarding_endpoints(&next, relay.as_ref())?;
+        let (proxy_relay, ai_relay) = relays_for(&next)?;
+        let endpoints = forwarding_endpoints(&next, proxy_relay.as_ref(), ai_relay.as_ref())?;
         let ports: Vec<_> = endpoints.iter().map(|e| e.0).collect();
         ssh::remote(
             &request.target_id,
@@ -1308,15 +1447,18 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         if request.proxy_port.is_some() {
             preview(&request)?;
         }
+        apply_session_environment(&request.target_id, &next, proxy_relay.as_ref())?;
         next.status = Status::Connected;
         next.proxy_status = next.proxy.as_ref().map(|_| Status::Connected);
         next.cc_status = next.cc.as_ref().map(|_| Status::Connected);
-        refresh_tool_configuration(&mut next);
+        let ai_token = ai_relay.as_ref().map(|relay| relay.token());
+        refresh_tool_configuration(&mut next, ai_token.as_ref().map(|token| token.as_str()));
         state.summary = next;
         state.proxy_status = Status::Connected;
         state.cc_status = Status::Connected;
         state.child = Some(Box::new(child));
-        state.relay = relay;
+        state.proxy_relay = proxy_relay;
+        state.ai_relay = ai_relay;
         state.ssh_auth = SshAuthState {
             mode: SshAuthMode::NonInteractive,
             method: ssh::non_interactive_auth_method(&request.target_id),
@@ -1339,8 +1481,22 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
         return Err("confirmationRequired".into());
     }
     let mut state = lock()?;
+    let target_id = state
+        .summary
+        .target
+        .as_ref()
+        .map(|target| target.id.clone());
+    let session_id = state
+        .proxy_relay
+        .as_ref()
+        .map(|relay| relay.session_id().to_owned());
+    // Revoke both local capabilities before any potentially slow SSH cleanup.
+    state.proxy_relay = None;
+    state.ai_relay = None;
+    if let Some(target_id) = target_id.as_deref() {
+        remove_session_environment(target_id, session_id.as_deref());
+    }
     state.child = None;
-    state.relay = None;
     state.pending = None;
     state.extension_pending = None;
     state.profile_syncing = false;
@@ -1369,7 +1525,8 @@ pub fn shutdown() {
     // outstanding kill-on-close jobs even when an operation owns the mutex.
     if let Ok(mut state) = store().try_lock() {
         state.child = None;
-        state.relay = None;
+        state.proxy_relay = None;
+        state.ai_relay = None;
         state.profile_syncing = false;
         state.local_codex_profile = None;
         state.local_claude_profile = None;
@@ -1394,14 +1551,24 @@ pub fn test() -> BridgeResult<()> {
     if Some(ssh::fingerprint(target_id)?) != state.target_fingerprint {
         return Err("sshConfigChanged".into());
     }
+    let session_token = state
+        .proxy_relay
+        .as_ref()
+        .map(|relay| relay.token())
+        .ok_or("proxyUnavailable")?;
     ssh::remote(
         target_id,
-        json!({"operation":"test","port":endpoint.remote_port,"protocol":endpoint.local.protocol}),
+        json!({
+            "operation":"test",
+            "port":endpoint.remote_port,
+            "protocol":endpoint.local.protocol,
+            "sessionToken":session_token.as_str()
+        }),
     )?;
     Ok(())
 }
-fn proxy_terminal_context() -> BridgeResult<(String, Endpoint, String)> {
-    let (target_id, endpoint, target_fingerprint) = {
+fn proxy_terminal_context() -> BridgeResult<(String, String, String)> {
+    let (target_id, session_id, target_fingerprint) = {
         let mut state = lock()?;
         refresh(&mut state);
         if state.summary.status != Status::Connected
@@ -1415,23 +1582,23 @@ fn proxy_terminal_context() -> BridgeResult<(String, Endpoint, String)> {
             .as_ref()
             .map(|target| target.id.clone())
             .ok_or("invalidTarget")?;
-        let endpoint = state
-            .summary
-            .proxy
+        state.summary.proxy.as_ref().ok_or("proxyUnavailable")?;
+        let session_id = state
+            .proxy_relay
             .as_ref()
-            .cloned()
-            .ok_or("proxyUnavailable")?;
-        (target_id, endpoint, state.target_fingerprint.clone())
+            .map(|relay| relay.session_id().to_owned())
+            .ok_or("relayUnavailable")?;
+        (target_id, session_id, state.target_fingerprint.clone())
     };
     if Some(ssh::fingerprint(&target_id)?) != target_fingerprint {
         return Err("sshConfigChanged".into());
     }
     let fingerprint = target_fingerprint.ok_or("sshConfigChanged")?;
-    Ok((target_id, endpoint, fingerprint))
+    Ok((target_id, session_id, fingerprint))
 }
 pub fn launch_proxy_terminal() -> BridgeResult<()> {
-    let (target_id, endpoint, fingerprint) = proxy_terminal_context()?;
-    ssh::launch_managed_terminal(&target_id, &endpoint, &fingerprint)
+    let (target_id, session_id, fingerprint) = proxy_terminal_context()?;
+    ssh::launch_managed_terminal(&target_id, &session_id, &fingerprint)
 }
 pub fn launch_manual_terminal() -> BridgeResult<()> {
     let (target_id, _, fingerprint) = proxy_terminal_context()?;
@@ -1477,9 +1644,20 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
             tool_adapter::RemoteToolId::Claude => "localClaudeProfileInvalid",
         },
     )?);
+    let session_token = state
+        .ai_relay
+        .as_ref()
+        .map(|relay| relay.token())
+        .ok_or("ccUnavailable")?;
     let value = ssh::remote(
         &target_id,
-        remote_request("preview", adapter, port, local_profile.as_ref()),
+        remote_request(
+            "preview",
+            adapter,
+            port,
+            local_profile.as_ref(),
+            Some(session_token.as_str()),
+        ),
     )?;
     if adapter.id() == tool_adapter::RemoteToolId::Codex
         && value["remoteChanged"].as_bool() == Some(true)
@@ -1573,6 +1751,11 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
         return Err("ccUnavailable".into());
     }
     let adapter = tool_adapter::by_id(pending.preview.tool);
+    let session_token = state
+        .ai_relay
+        .as_ref()
+        .map(|relay| relay.token())
+        .ok_or("ccUnavailable")?;
     let applied = ssh::remote(
         &pending.target_id,
         json!({
@@ -1584,7 +1767,8 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
             "profileModelBase64":pending.local_profile.as_ref().and_then(|profile| match profile { LocalToolProfile::Codex(profile) => Some(base64(&profile.model)), _ => None }),
             "profileCatalogBase64":pending.local_profile.as_ref().and_then(|profile| match profile { LocalToolProfile::Codex(profile) => Some(base64_bytes(&profile.catalog_bytes)), _ => None }),
             "profileSettingsBase64":pending.local_profile.as_ref().and_then(|profile| match profile { LocalToolProfile::Claude(profile) => Some(base64_bytes(&profile.settings_bytes)), _ => None }),
-            "profileHash":pending.local_profile.as_ref().map(LocalToolProfile::hash)
+            "profileHash":pending.local_profile.as_ref().map(LocalToolProfile::hash),
+            "sessionToken":session_token.as_str()
         }),
     )?;
     let applied_hash = applied["appliedHash"].as_str().ok_or("remoteFailed")?;
@@ -1608,6 +1792,7 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
             adapter,
             pending.port,
             pending.local_profile.as_ref(),
+            Some(session_token.as_str()),
         ),
     ) {
         Ok(value) => value,
@@ -1735,7 +1920,7 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
     if !adapter.verification_supported() {
         return Err("toolVerificationUnsupported".into());
     }
-    let (target_id, target_fingerprint, route_port) = {
+    let (target_id, target_fingerprint, route_port, session_token) = {
         let mut state = lock()?;
         refresh(&mut state);
         if state.child.is_none()
@@ -1760,6 +1945,11 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
             .as_ref()
             .map(|endpoint| endpoint.remote_port)
             .ok_or("bridgeUnavailable")?;
+        let session_token = state
+            .ai_relay
+            .as_ref()
+            .map(|relay| relay.token())
+            .ok_or("bridgeUnavailable")?;
         if ssh::fingerprint(&target_id)? != fingerprint {
             return Err("sshConfigChanged".into());
         }
@@ -1768,12 +1958,17 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
             tool_adapter::RemoteToolVerification::VerifyPending,
         );
         sync_tool_states(&mut state.summary);
-        (target_id, fingerprint, route_port)
+        (target_id, fingerprint, route_port, session_token)
     };
 
     let value = ssh::remote(
         &target_id,
-        json!({"operation":"tool-verify","tool":adapter.id().as_str(),"port":route_port}),
+        json!({
+            "operation":"tool-verify",
+            "tool":adapter.id().as_str(),
+            "port":route_port,
+            "sessionToken":session_token.as_str()
+        }),
     )?;
     let verification: tool_adapter::RemoteToolVerification =
         serde_json::from_value(value.get("verification").cloned().ok_or("remoteFailed")?)

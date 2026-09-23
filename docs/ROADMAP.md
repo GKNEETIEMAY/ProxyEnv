@@ -22,7 +22,7 @@ The development branch already has structured OpenSSH/VS Code/Moba bookmark disc
 
 Release work still open:
 
-- [ ] M8 per-session authenticated local relay with rotation/revocation and shared-host tests.
+- [x] M8 per-session authenticated local relay, credential delivery, rotation/revocation and automated security tests. Real different-UID shared-host acceptance remains open.
 - [ ] SSH connection manager: import management, manual add, automatic OpenSSH or selected identity file; compatible MobaXterm launch.
 - [ ] Managed remote session environment create/update/remove without default shell-startup edits.
 - [ ] Effective local Skills detection and conflict-safe remote projection/restore.
@@ -30,7 +30,7 @@ Release work still open:
 - [ ] Real-device Claude and Codex matrix, provider changes, streaming, disconnect/reconnect and recovery.
 - [ ] Windows/Linux CI, RustSec/security audit, documentation and release acceptance.
 
-The Codex VS Code Remote observation is **accepted for those three behaviors on one target**; Claude Extension remains pending. Moba launch, M8, Skills and Simple/Advanced UI are pending. Do not describe both extensions as wholly untested or either as universally accepted.
+The Codex VS Code Remote observation is **accepted for those three behaviors on one target**; Claude Extension remains pending. Moba launch, M8 shared-host acceptance, Skills and Simple/Advanced UI are pending. Do not describe both extensions as wholly untested or either as universally accepted.
 
 ## Future — v0.3 research
 
