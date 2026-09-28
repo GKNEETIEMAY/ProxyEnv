@@ -16,7 +16,7 @@ use zeroize::Zeroizing;
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
 const USERNAME: &str = "proxyenv";
-const SESSION_HEADER: &str = "x-proxyenv-session";
+pub(super) const SESSION_HEADER: &str = "x-proxyenv-session";
 
 #[derive(Clone, Copy)]
 pub(super) enum RelayMode {
@@ -24,11 +24,42 @@ pub(super) enum RelayMode {
     AiHttp,
 }
 
+// Only the active AI relay can issue this route. It is not an arbitrary
+// loopback proxy: the destination is fixed and AI authentication still runs.
+#[derive(Clone)]
+pub(super) struct AiRoute {
+    remote_port: u16,
+    upstream: ProxyEndpoint,
+    session: Arc<Session>,
+}
+
+impl AiRoute {
+    fn request_line(&self, line: &str) -> Option<String> {
+        let mut parts = line.split(' ');
+        let method = parts.next()?;
+        let target = parts.next()?;
+        let version = parts.next()?;
+        if parts.next().is_some()
+            || !matches!(method, "GET" | "HEAD" | "POST")
+            || !matches!(version, "HTTP/1.0" | "HTTP/1.1")
+        {
+            return None;
+        }
+        for host in ["127.0.0.1", "localhost", "[::1]"] {
+            let prefix = format!("http://{host}:{}/", self.remote_port);
+            if let Some(path) = target.strip_prefix(&prefix) {
+                return Some(format!("{method} /{path} {version}"));
+            }
+        }
+        None
+    }
+}
+
 struct Session {
     secret: Zeroizing<[u8; 32]>,
     revoked: AtomicBool,
     next_connection: AtomicU64,
-    connections: Mutex<HashMap<u64, (TcpStream, TcpStream)>>,
+    connections: Mutex<HashMap<u64, (TcpStream, Option<TcpStream>)>>,
 }
 
 impl Session {
@@ -60,16 +91,23 @@ impl Session {
             == 0
     }
 
-    fn track(&self, downstream: &TcpStream, upstream: &TcpStream) -> Result<u64, &'static str> {
+    fn track(
+        &self,
+        downstream: &TcpStream,
+        upstream: Option<&TcpStream>,
+    ) -> Result<u64, &'static str> {
         let id = self.next_connection.fetch_add(1, Ordering::Relaxed);
         let pair = (
             downstream.try_clone().map_err(|_| "relayUnavailable")?,
-            upstream.try_clone().map_err(|_| "relayUnavailable")?,
+            upstream
+                .map(|upstream| upstream.try_clone().map_err(|_| "relayUnavailable"))
+                .transpose()?,
         );
-        self.connections
-            .lock()
-            .map_err(|_| "relayUnavailable")?
-            .insert(id, pair);
+        let mut connections = self.connections.lock().map_err(|_| "relayUnavailable")?;
+        if self.revoked.load(Ordering::Acquire) {
+            return Err("relayUnauthorized");
+        }
+        connections.insert(id, pair);
         Ok(id)
     }
 
@@ -84,7 +122,9 @@ impl Session {
         if let Ok(mut connections) = self.connections.lock() {
             for (_, (downstream, upstream)) in connections.drain() {
                 let _ = downstream.shutdown(Shutdown::Both);
-                let _ = upstream.shutdown(Shutdown::Both);
+                if let Some(upstream) = upstream {
+                    let _ = upstream.shutdown(Shutdown::Both);
+                }
             }
         }
     }
@@ -92,6 +132,7 @@ impl Session {
 
 pub(crate) struct AuthenticatedRelay {
     port: u16,
+    upstream: ProxyEndpoint,
     session_id: String,
     session: Arc<Session>,
     worker: Option<JoinHandle<()>>,
@@ -99,6 +140,14 @@ pub(crate) struct AuthenticatedRelay {
 
 impl AuthenticatedRelay {
     pub(super) fn start(upstream: ProxyEndpoint, mode: RelayMode) -> BridgeResult<Self> {
+        Self::start_with_ai_route(upstream, mode, None)
+    }
+
+    pub(super) fn start_with_ai_route(
+        upstream: ProxyEndpoint,
+        mode: RelayMode,
+        ai_route: Option<AiRoute>,
+    ) -> BridgeResult<Self> {
         let upstream_ip = upstream
             .host
             .parse::<IpAddr>()
@@ -119,6 +168,7 @@ impl AuthenticatedRelay {
         let mut session_id = [0u8; 16];
         getrandom::fill(&mut session_id).map_err(|_| "stateUnavailable")?;
         let worker_session = Arc::clone(&session);
+        let route_upstream = upstream.clone();
         let worker = thread::Builder::new()
             .name("proxyenv-authenticated-relay".into())
             .spawn(move || {
@@ -127,10 +177,17 @@ impl AuthenticatedRelay {
                         Ok((downstream, _)) => {
                             let endpoint = upstream.clone();
                             let connection_session = Arc::clone(&worker_session);
+                            let route = ai_route.clone();
                             let _ = thread::Builder::new()
                                 .name("proxyenv-authenticated-connection".into())
                                 .spawn(move || {
-                                    let _ = handle(downstream, endpoint, mode, connection_session);
+                                    let _ = handle(
+                                        downstream,
+                                        endpoint,
+                                        mode,
+                                        connection_session,
+                                        route,
+                                    );
                                 });
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -143,6 +200,7 @@ impl AuthenticatedRelay {
             .map_err(|_| "relayUnavailable")?;
         Ok(Self {
             port,
+            upstream: route_upstream,
             session_id: hex::encode(session_id),
             session,
             worker: Some(worker),
@@ -151,6 +209,14 @@ impl AuthenticatedRelay {
 
     pub(super) fn port(&self) -> u16 {
         self.port
+    }
+
+    pub(super) fn ai_route(&self, remote_port: u16) -> AiRoute {
+        AiRoute {
+            remote_port,
+            upstream: self.upstream.clone(),
+            session: Arc::clone(&self.session),
+        }
     }
 
     pub(super) fn token(&self) -> Zeroizing<String> {
@@ -185,6 +251,7 @@ fn handle(
     upstream: ProxyEndpoint,
     mode: RelayMode,
     session: Arc<Session>,
+    ai_route: Option<AiRoute>,
 ) -> Result<(), &'static str> {
     downstream
         .set_read_timeout(Some(IO_TIMEOUT))
@@ -193,7 +260,14 @@ fn handle(
         .set_write_timeout(Some(IO_TIMEOUT))
         .map_err(|_| "relayUnavailable")?;
     match mode {
-        RelayMode::AiHttp => handle_http(downstream, upstream, session, SESSION_HEADER),
+        RelayMode::AiHttp => {
+            let id = session.track(&downstream, None)?;
+            let result = super::codex_relay::handle_authenticated(downstream, upstream, |token| {
+                session.accepts(token)
+            });
+            session.untrack(id);
+            result
+        }
         RelayMode::General(protocol) => {
             let mut first = [0u8; 1];
             let count = downstream.peek(&mut first).map_err(|_| "invalidRequest")?;
@@ -204,7 +278,7 @@ fn handle(
                     Err("invalidRequest")
                 }
             } else if matches!(protocol, ProxyProtocol::Http | ProxyProtocol::Mixed) {
-                handle_http(downstream, upstream, session, "proxy-authorization")
+                handle_http(downstream, upstream, session, ai_route)
             } else {
                 Err("invalidRequest")
             }
@@ -234,7 +308,7 @@ fn handle_http(
     mut downstream: TcpStream,
     upstream: ProxyEndpoint,
     session: Arc<Session>,
-    credential_header: &str,
+    ai_route: Option<AiRoute>,
 ) -> Result<(), &'static str> {
     let received = read_head(&mut downstream)?;
     let header_end = received
@@ -243,13 +317,16 @@ fn handle_http(
         .ok_or("invalidRequest")?
         + 4;
     let head = std::str::from_utf8(&received[..header_end]).map_err(|_| "invalidRequest")?;
-    let mut output = String::new();
+    let mut output = Zeroizing::new(String::new());
     let mut lines = head[..head.len() - 4].split("\r\n");
     let request_line = lines.next().ok_or("invalidRequest")?;
     if request_line.contains(['\r', '\n']) {
         return Err("invalidRequest");
     }
-    output.push_str(request_line);
+    let ai_request_line = ai_route
+        .as_ref()
+        .and_then(|route| route.request_line(request_line));
+    output.push_str(ai_request_line.as_deref().unwrap_or(request_line));
     output.push_str("\r\n");
     let mut authenticated = false;
     for line in lines {
@@ -257,36 +334,59 @@ fn handle_http(
             return Err("invalidRequest");
         }
         let (name, value) = line.split_once(':').ok_or("invalidRequest")?;
-        if name.trim().eq_ignore_ascii_case(credential_header) {
+        if name.trim().eq_ignore_ascii_case("proxy-authorization") {
             if authenticated {
                 return Err("invalidRequest");
             }
-            authenticated = if credential_header == "proxy-authorization" {
-                valid_basic(value.trim(), &session)
-            } else {
-                session.accepts(value.trim().as_bytes())
-            };
+            authenticated = valid_basic(value.trim(), &session);
+            continue;
+        }
+        // Never leak the AI session token to a general proxy/upstream site.
+        if ai_request_line.is_none() && name.trim().eq_ignore_ascii_case(SESSION_HEADER) {
             continue;
         }
         output.push_str(line);
         output.push_str("\r\n");
     }
-    if !authenticated {
-        if credential_header == "proxy-authorization" {
-            let _ = downstream.write_all(
-                b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"ProxyEnv\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
-        } else {
-            let _ = downstream.write_all(
-                b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
-        }
+    if !authenticated && ai_request_line.is_none() {
+        let _ = downstream.write_all(
+            b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"ProxyEnv\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
         return Err("relayUnauthorized");
     }
     if session.revoked.load(Ordering::Acquire) {
         return Err("relayUnauthorized");
     }
     output.push_str("\r\n");
+    if ai_request_line.is_some() {
+        let route = ai_route.as_ref().ok_or("relayUnavailable")?;
+        if route.session.revoked.load(Ordering::Acquire) {
+            downstream
+                .write_all(
+                    b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .map_err(|_| "relayUnavailable")?;
+            return Err("relayUnavailable");
+        }
+        // Reuse the AI parser/authenticator, not a second connection to an
+        // ephemeral listener whose port could be reused after revocation.
+        let mut buffered = Zeroizing::new(output.as_bytes().to_vec());
+        buffered.extend_from_slice(&received[header_end..]);
+        let id = session.track(&downstream, None)?;
+        let result = (|| {
+            let ai_id = route.session.track(&downstream, None)?;
+            let result = super::codex_relay::handle_authenticated_buffered(
+                downstream,
+                route.upstream.clone(),
+                |token| route.session.accepts(token) && !session.revoked.load(Ordering::Acquire),
+                buffered,
+            );
+            route.session.untrack(ai_id);
+            result
+        })();
+        session.untrack(id);
+        return result;
+    }
     let mut upstream_stream =
         TcpStream::connect((&*upstream.host, upstream.port)).map_err(|_| "relayUnavailable")?;
     upstream_stream
@@ -299,7 +399,7 @@ fn handle_http(
         .write_all(output.as_bytes())
         .and_then(|_| upstream_stream.write_all(&received[header_end..]))
         .map_err(|_| "relayUnavailable")?;
-    let id = session.track(&downstream, &upstream_stream)?;
+    let id = session.track(&downstream, Some(&upstream_stream))?;
     let result = tunnel(downstream, upstream_stream);
     session.untrack(id);
     result
@@ -325,7 +425,7 @@ fn decode_base64(input: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let mut output = Vec::with_capacity(input.len() / 4 * 3);
-    for chunk in input.chunks_exact(4) {
+    for chunk in input.as_chunks::<4>().0 {
         let mut values = [0u8; 4];
         let mut padding = 0;
         for (index, byte) in chunk.iter().copied().enumerate() {
@@ -413,7 +513,7 @@ fn handle_socks5(
     if response.get(1) != Some(&0) {
         return Err("relayUnavailable");
     }
-    let id = session.track(&downstream, &upstream_stream)?;
+    let id = session.track(&downstream, Some(&upstream_stream))?;
     let result = tunnel(downstream, upstream_stream);
     session.untrack(id);
     result
@@ -543,6 +643,195 @@ mod tests {
         )
     }
 
+    fn exchange(port: u16, request: &str) -> String {
+        let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    }
+
+    fn routed_proxy(
+        ai: &AuthenticatedRelay,
+        remote_port: u16,
+    ) -> (AuthenticatedRelay, TcpListener) {
+        // Keeping this socket unaccepted lets tests prove the general upstream
+        // is never used for AI requests (even after the AI route is revoked).
+        let unused = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        unused.set_nonblocking(true).unwrap();
+        let proxy = AuthenticatedRelay::start_with_ai_route(
+            ProxyEndpoint {
+                host: "127.0.0.1".into(),
+                port: unused.local_addr().unwrap().port(),
+                protocol: ProxyProtocol::Http,
+            },
+            RelayMode::General(ProxyProtocol::Http),
+            Some(ai.ai_route(remote_port)),
+        )
+        .unwrap();
+        (proxy, unused)
+    }
+
+    #[test]
+    fn ai_route_matches_only_explicit_active_loopback_authority() {
+        let (endpoint, _receiver) = upstream();
+        let ai = AuthenticatedRelay::start(endpoint, RelayMode::AiHttp).unwrap();
+        let route = ai.ai_route(15721);
+        for host in ["127.0.0.1", "localhost", "[::1]"] {
+            assert_eq!(
+                route.request_line(&format!("POST http://{host}:15721/v1/responses HTTP/1.1")),
+                Some("POST /v1/responses HTTP/1.1".into())
+            );
+        }
+        for line in [
+            "POST http://127.0.0.1:15722/v1/responses HTTP/1.1",
+            "POST http://127.0.0.1:157210/v1/responses HTTP/1.1",
+            "POST http://127.0.0.1:15721@evil.example/v1/responses HTTP/1.1",
+            "POST http://user@127.0.0.1:15721/v1/responses HTTP/1.1",
+            "POST http://127.0.0.1.evil.example:15721/v1/responses HTTP/1.1",
+            "POST https://127.0.0.1:15721/v1/responses HTTP/1.1",
+            "POST /v1/responses HTTP/1.1",
+            "CONNECT 127.0.0.1:15721 HTTP/1.1",
+            "POST http://127.0.0.1:15721/v1/responses HTTP/1.1 extra",
+        ] {
+            assert!(route.request_line(line).is_none(), "{line}");
+        }
+    }
+
+    #[test]
+    fn misrouted_ai_requires_ai_token_not_proxy_credentials() {
+        let (endpoint, receiver) = upstream();
+        let ai = AuthenticatedRelay::start(endpoint, RelayMode::AiHttp).unwrap();
+        let (proxy, unused) = routed_proxy(&ai, 15721);
+        for headers in [
+            String::new(),
+            format!(
+                "Proxy-Authorization: Basic {}\r\n",
+                basic(proxy.token().as_str())
+            ),
+            format!("X-ProxyEnv-Session: {}\r\n", proxy.token().as_str()),
+        ] {
+            let response = exchange(proxy.port(), &format!(
+                "POST http://127.0.0.1:15721/v1/responses HTTP/1.1\r\n{headers}Content-Length: 0\r\n\r\n"));
+            assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+        }
+        let response = exchange(proxy.port(), &format!(
+            "POST http://127.0.0.1:15721/v1/responses HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 0\r\n\r\n", ai.token().as_str()));
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let request =
+            String::from_utf8(receiver.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        assert!(request.starts_with("POST /v1/responses HTTP/1.1"));
+        assert!(!request.to_ascii_lowercase().contains(SESSION_HEADER));
+        assert!(unused.accept().is_err());
+    }
+
+    #[test]
+    fn ai_token_does_not_authorize_general_proxy_and_revoked_route_fails_closed() {
+        let (endpoint, _receiver) = upstream();
+        let ai = AuthenticatedRelay::start(endpoint, RelayMode::AiHttp).unwrap();
+        let (proxy, unused) = routed_proxy(&ai, 15721);
+        let token = ai.token();
+        for target in [
+            "http://example.com/v1/responses",
+            "http://127.0.0.1:15722/v1/responses",
+        ] {
+            let response = exchange(
+                proxy.port(),
+                &format!(
+                    "POST {target} HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 0\r\n\r\n",
+                    token.as_str()
+                ),
+            );
+            assert!(response.starts_with("HTTP/1.1 407"), "{response}");
+        }
+        drop(ai);
+        let response = exchange(proxy.port(), &format!(
+            "POST http://127.0.0.1:15721/v1/responses HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 0\r\n\r\n", token.as_str()));
+        assert!(response.starts_with("HTTP/1.1 502"), "{response}");
+        assert!(unused.accept().is_err());
+    }
+
+    #[test]
+    fn general_proxy_strips_ai_credentials_on_unrelated_requests() {
+        let (endpoint, receiver) = upstream();
+        let proxy =
+            AuthenticatedRelay::start(endpoint, RelayMode::General(ProxyProtocol::Http)).unwrap();
+        let response = exchange(proxy.port(), &format!(
+            "GET http://example.com/ HTTP/1.1\r\nProxy-Authorization: Basic {}\r\nX-ProxyEnv-Session: private-ai-token\r\n\r\n", basic(proxy.token().as_str())));
+        assert!(response.starts_with("HTTP/1.1 200"));
+        let request =
+            String::from_utf8(receiver.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        assert!(!request.to_ascii_lowercase().contains(SESSION_HEADER));
+        assert!(!request.contains("private-ai-token"));
+        assert!(!request.to_ascii_lowercase().contains("proxy-authorization"));
+    }
+
+    #[test]
+    fn codex_request_through_http_proxy_preserves_body_and_streams_before_completion() {
+        use std::io::{BufRead, BufReader};
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let endpoint = ProxyEndpoint {
+            host: "127.0.0.1".into(),
+            port: listener.local_addr().unwrap().port(),
+            protocol: ProxyProtocol::Http,
+        };
+        let (continue_tx, continue_rx) = mpsc::channel();
+        let body = r#"{"model":"unchanged","stream":true,"tools":[{"type":"function","name":"exec_command"}]}"#;
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut head = String::new();
+            loop {
+                let mut line = String::new();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                head.push_str(&line);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let mut actual = vec![0; body.len()];
+            reader.read_exact(&mut actual).unwrap();
+            assert_eq!(actual, body.as_bytes());
+            assert!(!head.to_ascii_lowercase().contains(SESSION_HEADER));
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: first\n\n").unwrap();
+            // The second event cannot be sent until the client has received the
+            // first: this catches accidental buffering of the entire response.
+            continue_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            stream.write_all(b"data: {\"type\":\"response.function_call_arguments.done\",\"arguments\":\"{}\"}\n\n").unwrap();
+        });
+        let ai = AuthenticatedRelay::start(endpoint, RelayMode::AiHttp).unwrap();
+        let (proxy, unused) = routed_proxy(&ai, 15721);
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", proxy.port())).unwrap())
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap();
+        let response = client
+            .post("http://127.0.0.1:15721/v1/responses")
+            .header(SESSION_HEADER, ai.token().as_str())
+            .body(body)
+            .send()
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let mut reader = BufReader::new(response);
+        let mut first = String::new();
+        reader.read_line(&mut first).unwrap();
+        assert_eq!(first, "data: first\n");
+        continue_tx.send(()).unwrap();
+        let mut tail = String::new();
+        reader.read_to_string(&mut tail).unwrap();
+        assert!(tail.contains("response.function_call_arguments.done"));
+        worker.join().unwrap();
+        assert!(unused.accept().is_err());
+    }
+
     #[test]
     fn ai_relay_rejects_missing_token_and_strips_valid_token() {
         let (endpoint, receiver) = upstream();
@@ -568,6 +857,54 @@ mod tests {
         assert!(!upstream_request
             .to_ascii_lowercase()
             .contains(SESSION_HEADER));
+    }
+
+    #[test]
+    fn ai_relay_repeated_unauthorized_requests_receive_http_responses() {
+        let unused_upstream = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let relay = AuthenticatedRelay::start(
+            ProxyEndpoint {
+                host: "127.0.0.1".into(),
+                port: unused_upstream.local_addr().unwrap().port(),
+                protocol: ProxyProtocol::Http,
+            },
+            RelayMode::AiHttp,
+        )
+        .unwrap();
+        for _ in 0..20 {
+            let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, relay.port())).unwrap();
+            client
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                .unwrap();
+            let mut response = String::new();
+            client.read_to_string(&mut response).unwrap();
+            assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+        }
+    }
+
+    #[test]
+    fn ai_relay_reports_upstream_failure_instead_of_closing_silently() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let relay = AuthenticatedRelay::start(
+            ProxyEndpoint {
+                host: "127.0.0.1".into(),
+                port,
+                protocol: ProxyProtocol::Http,
+            },
+            RelayMode::AiHttp,
+        )
+        .unwrap();
+        let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, relay.port())).unwrap();
+        let request = format!(
+            "POST /v1/messages HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 2\r\n\r\n{{}}",
+            relay.token().as_str()
+        );
+        client.write_all(request.as_bytes()).unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 502"), "{response}");
     }
 
     #[test]
@@ -599,16 +936,57 @@ mod tests {
     }
 
     #[test]
-    fn ai_relay_preserves_streaming_http_bytes_after_authentication() {
+    fn configured_proxy_url_authenticates_without_a_password_prompt() {
+        let (endpoint, receiver) = upstream();
+        let relay =
+            AuthenticatedRelay::start(endpoint, RelayMode::General(ProxyProtocol::Http)).unwrap();
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .proxy(
+                reqwest::Proxy::all(format!(
+                    "http://proxyenv:{}@127.0.0.1:{}",
+                    relay.token().as_str(),
+                    relay.port()
+                ))
+                .unwrap(),
+            )
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap();
+        let response = client.get("http://example.test/").send().unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let request =
+            String::from_utf8(receiver.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        assert!(!request.to_ascii_lowercase().contains("proxy-authorization"));
+        assert!(!request.contains(relay.token().as_str()));
+    }
+
+    #[test]
+    fn ai_relay_forwards_http_response_after_authentication() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
-        let expected = b"POST /v1/responses HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 11\r\n\r\n{\"ok\":true}".to_vec();
-        let expected_upstream = expected.clone();
         let upstream = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut received = vec![0u8; expected_upstream.len()];
-            stream.read_exact(&mut received).unwrap();
-            assert_eq!(received, expected_upstream);
+            let mut received = Vec::new();
+            let header_end = loop {
+                let mut chunk = [0u8; 1024];
+                let count = stream.read(&mut chunk).unwrap();
+                assert!(count > 0);
+                received.extend_from_slice(&chunk[..count]);
+                if let Some(index) = received.windows(4).position(|part| part == b"\r\n\r\n") {
+                    break index + 4;
+                }
+            };
+            while received.len() < header_end + 11 {
+                let mut chunk = [0u8; 11];
+                let count = stream.read(&mut chunk).unwrap();
+                assert!(count > 0);
+                received.extend_from_slice(&chunk[..count]);
+            }
+            let headers = String::from_utf8_lossy(&received[..header_end]).to_ascii_lowercase();
+            assert!(headers.starts_with("post /v1/responses http/1.1"));
+            assert!(!headers.contains(SESSION_HEADER));
+            assert_eq!(&received[header_end..header_end + 11], b"{\"ok\":true}");
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\ndata:\r\n")
                 .unwrap();
@@ -632,10 +1010,8 @@ mod tests {
         client.write_all(b"{\"ok\":true}").unwrap();
         let mut response = Vec::new();
         client.read_to_end(&mut response).unwrap();
-        assert_eq!(
-            response,
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\ndata:\r\n4\r\nnext\r\n0\r\n\r\n"
-        );
+        assert!(response.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        assert!(response.ends_with(b"\r\n\r\ndata:next"));
         upstream.join().unwrap();
     }
 

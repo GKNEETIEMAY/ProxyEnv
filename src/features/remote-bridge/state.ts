@@ -2,6 +2,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { ProxyEndpoint } from "../../shared/types";
 import type { RemoteToolId } from "./tool-adapters";
+export interface BridgeSummary { reconnectState?: "idle" | "waiting" | "retrying" | "attentionRequired" }
 export type BridgeStatus = "disconnected" | "connecting" | "connected" | "stale" | "unavailable" | "error";
 export type RemoteTargetSource = "openssh" | "vscode" | "mobaxterm" | "manual";
 export type SshAuthMode = "nonInteractive" | "interactive";
@@ -89,6 +90,8 @@ export const remoteBackend = {
   disconnect: () => invoke<BridgeSummary>("remote_bridge_disconnect", { confirmed:true }),
   test: () => invoke<void>("remote_bridge_test"),
   launchProxyTerminal: () => invoke<void>("remote_bridge_launch_proxy_terminal"),
+  proxyPassword: (targetId: string, remotePort: number) => invoke<string>("remote_bridge_proxy_password", { targetId, remotePort }),
+  sessionEnvironmentCommand: () => invoke<string>("remote_bridge_session_environment_command"),
   launchManualTerminal: () => invoke<void>("remote_bridge_launch_manual_terminal"),
   clearSessionCredential: () => invoke<void>("remote_bridge_clear_session_credential"),
   configPreview: (tool: RemoteToolId) => invoke<ConfigPreview>("remote_bridge_config_preview", { tool }),
@@ -96,7 +99,7 @@ export const remoteBackend = {
   configRestorePreview: (targetId:string, tool:RemoteToolId) => invoke<ConfigPreview>("remote_bridge_config_restore_preview", { targetId,tool }),
   configRestore: (id: string) => invoke<void>("remote_bridge_config_restore", { id, confirmed:true }),
   toolVerify: (tool: RemoteToolId) => invoke<ToolVerificationResult>("remote_bridge_tool_verify", { tool }),
-  openVscode: (targetId:string) => invoke<void>("remote_bridge_open_vscode",{targetId}),
+  openVscode: (targetId:string) => invoke<string | null>("remote_bridge_open_vscode",{targetId}),
   openVscodeSettings: () => invoke<void>("remote_bridge_open_vscode_settings"),
   revealTargetConfig: (targetId:string) => invoke<void>("remote_bridge_reveal_target_config",{targetId}),
   openTargetConfig: (targetId:string) => invoke<void>("remote_bridge_open_target_config",{targetId}),

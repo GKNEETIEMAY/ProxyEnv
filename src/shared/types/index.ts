@@ -98,6 +98,8 @@ export interface AppSettings {
   launchAtStartup: boolean;
   silentStart: boolean;
   closeToTray: boolean;
+  notificationsEnabled: boolean;
+  notificationSound: boolean;
   proxyVariables: ManagedProxyVariable[];
 }
 

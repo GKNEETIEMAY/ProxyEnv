@@ -25,6 +25,7 @@ import AppHeader from "./components/AppHeader.vue";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 
 import RemoteBridgePage from "../features/remote-bridge/components/RemoteBridgePage.vue";
+import BridgeReconnectNotice from "../features/remote-bridge/components/BridgeReconnectNotice.vue";
 import { useRemoteBridge, type BridgeSummary } from "../features/remote-bridge/state";
 const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge } = useRemoteBridge();
 
@@ -37,6 +38,8 @@ const defaultSettings: AppSettings = {
   launchAtStartup: false,
   silentStart: false,
   closeToTray: true,
+  notificationsEnabled: true,
+  notificationSound: false,
   proxyVariables: ["http", "https"]
 };
 
@@ -51,6 +54,9 @@ const settingsError = ref("");
 const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
 const instanceNoticeVisible = ref(false);
+const bridgeNoticeVisible = ref(false);
+watch(() => remoteBridgeSummary.value.reconnectState, state => { if (state !== "attentionRequired") bridgeNoticeVisible.value = false; });
+function openBridgeNotice() { bridgeNoticeVisible.value = false; openRemote(); void refreshRemoteBridge(); }
 const appVersion = ref("0.2.0");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
@@ -73,6 +79,7 @@ const environment = ref<EnvironmentStatus>({
 const candidates = ref<ProxyCandidate[]>([]);
 const tun = ref<TunObservation>({ state: "unknown", evidence: [] });
 const draftSettings = ref<AppSettings>({ ...defaultSettings });
+watch(() => draftSettings.value.notificationsEnabled, enabled => { if (!enabled) bridgeNoticeVisible.value = false; });
 const maximized = ref(false);
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 const reviewPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has("impeccable-review");
@@ -641,7 +648,9 @@ onMounted(async () => {
   unlisten = await Promise.all([
     listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { acceptEnvironmentStatus(payload); }),
     listen<string>("operation-error", ({ payload }) => { error.value = payload; }),
-    listen("second-instance-opened", showSecondInstanceNotice)
+    listen("second-instance-opened", showSecondInstanceNotice),
+    listen("bridge-attention", () => { if (draftSettings.value.notificationsEnabled) bridgeNoticeVisible.value = true; }),
+    listen("bridge-notification-open", openBridgeNotice)
   ]);
   await refresh();
   refreshTimer = window.setInterval(() => void refresh(true), 5000);
@@ -761,5 +770,6 @@ onBeforeUnmount(() => {
     </div>
     </div>
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
+    <BridgeReconnectNotice :visible="bridgeNoticeVisible" :sound="draftSettings.notificationSound" :copy="copy" @dismiss="bridgeNoticeVisible = false" @open="openBridgeNotice" />
   </div>
 </template>

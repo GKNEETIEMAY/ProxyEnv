@@ -1286,8 +1286,56 @@ pub(super) fn skill_upload(
     let (mut command, destination) = scp_target_command(alias)?;
     let remote =
         format!("{destination}:~/.proxyenv/staging/skills/{tool}/{name}/{hash}/{relative_path}");
-    command.arg("--").arg(local_path).arg(remote);
+    command
+        .arg("--")
+        .arg(scp_local_path(local_path)?)
+        .arg(remote);
     output(command, None, 30).map(|_| ())
+}
+
+#[cfg(windows)]
+fn scp_local_path(path: &Path) -> BridgeResult<PathBuf> {
+    let path = path.to_str().ok_or("localSkillUnsafe")?;
+    // Rust canonicalization returns \\?\C:\..., which Windows scp treats as
+    // a remote host because it sees the drive colon after an unrecognized prefix.
+    let ordinary = if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else if let Some(drive) = path.strip_prefix(r"\\?\") {
+        if drive.len() < 3
+            || !drive.as_bytes()[0].is_ascii_alphabetic()
+            || drive.as_bytes()[1] != b':'
+            || drive.as_bytes()[2] != b'\\'
+        {
+            return Err("localSkillUnsafe".into());
+        }
+        drive.to_owned()
+    } else {
+        path.to_owned()
+    };
+    let ordinary = PathBuf::from(ordinary);
+    if !ordinary.is_absolute() {
+        return Err("localSkillUnsafe".into());
+    }
+    Ok(ordinary)
+}
+
+#[cfg(not(windows))]
+fn scp_local_path(path: &Path) -> BridgeResult<PathBuf> {
+    Ok(path.to_path_buf())
+}
+
+pub(super) fn reconnect_probe(target: &str) -> BridgeResult<()> {
+    let (mut command, destination) = remote_target_command(target)?;
+    command
+        .arg("-oClearAllForwardings=yes")
+        .arg(destination)
+        .arg("printf PROXYENV_RECONNECT_READY");
+    let result = output(command, None, 12)?;
+    if result.trim() == "PROXYENV_RECONNECT_READY" {
+        Ok(())
+    } else {
+        Err("remoteFailed".into())
+    }
 }
 
 pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResult<OwnedChild> {
@@ -1341,6 +1389,11 @@ pub(super) fn extension_remote(
             | "writeRolledBack"
             | "extensionMissing"
             | "extensionUnsupported"
+            | "remoteNodeMissing"
+            | "remoteNodeUnsafe"
+            | "remoteNodeUnsupported"
+            | "vscodeServerMissing"
+            | "vscodeServerAmbiguous"
             | "extensionContextChanged"
             | "customHome"
             | "remoteUnsupported" => error,
@@ -1354,6 +1407,22 @@ pub(super) fn extension_remote(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn skill_upload_uses_a_windows_path_scp_recognizes_as_local() {
+        assert_eq!(
+            scp_local_path(Path::new(
+                r"\\?\C:\Users\demo\.cc-switch\skills\example\SKILL.md"
+            ))
+            .unwrap(),
+            PathBuf::from(r"C:\Users\demo\.cc-switch\skills\example\SKILL.md")
+        );
+        assert_eq!(
+            scp_local_path(Path::new(r"\\?\UNC\server\share\SKILL.md")).unwrap(),
+            PathBuf::from(r"\\server\share\SKILL.md")
+        );
+        assert!(scp_local_path(Path::new(r"\\?\GLOBALROOT\Device\example")).is_err());
+    }
     #[test]
     fn aliases_reject_patterns_options_and_shell_syntax() {
         assert_eq!(

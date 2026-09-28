@@ -30,6 +30,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            desktop::notifications::setup(app.handle().clone());
             features::remote_bridge::start_monitor();
             let settings = settings::load().unwrap_or_default();
             tray::setup(app.handle(), &settings)?;
@@ -73,6 +74,8 @@ pub fn run() {
             commands::remote_bridge::remote_bridge_disconnect,
             commands::remote_bridge::remote_bridge_test,
             commands::remote_bridge::remote_bridge_launch_proxy_terminal,
+            commands::remote_bridge::remote_bridge_proxy_password,
+            commands::remote_bridge::remote_bridge_session_environment_command,
             commands::remote_bridge::remote_bridge_launch_manual_terminal,
             commands::remote_bridge::remote_bridge_clear_session_credential,
             commands::remote_bridge::remote_bridge_config_preview,

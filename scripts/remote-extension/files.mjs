@@ -39,7 +39,7 @@ export function read(file, root, uid) {
     } finally { fs.closeSync(fd); }
   } catch(e) { if(e.code === 'ENOENT') return null; throw e; }
 }
-function atomic(file, text, root, uid) {
+export function atomic(file, text, root, uid) {
   safe(file, root, uid);
   if (text === null) { if (fs.existsSync(file)) fs.unlinkSync(file); return; }
   const temporary = file + '.tmp-' + randomBytes(12).toString('hex');

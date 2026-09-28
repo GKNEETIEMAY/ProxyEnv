@@ -260,6 +260,25 @@ pub async fn remote_bridge_clear_session_credential() -> CommandResult<()> {
     .await
 }
 #[tauri::command]
+pub async fn remote_bridge_proxy_password(
+    target_id: String,
+    remote_port: u16,
+) -> CommandResult<String> {
+    run("proxyCredentialCopy", Some("proxy"), move || {
+        bridge::proxy_password(target_id, remote_port)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn remote_bridge_session_environment_command() -> CommandResult<String> {
+    run(
+        "sessionEnvironment",
+        Some("proxy"),
+        bridge::session_environment_command,
+    )
+    .await
+}
+#[tauri::command]
 pub async fn remote_bridge_config_preview(tool: String) -> CommandResult<ConfigPreview> {
     run("configurationPreview", Some("cli"), move || {
         bridge::config_preview(tool)
@@ -298,9 +317,9 @@ pub async fn remote_bridge_tool_verify(tool: String) -> CommandResult<ToolVerifi
     .await
 }
 #[tauri::command]
-pub async fn remote_bridge_open_vscode(target_id: String) -> CommandResult<()> {
+pub async fn remote_bridge_open_vscode(target_id: String) -> CommandResult<Option<String>> {
     run("openTarget", Some("vscode"), move || {
-        bridge::vscode::open(target_id)
+        bridge::open_vscode(target_id)
     })
     .await
 }

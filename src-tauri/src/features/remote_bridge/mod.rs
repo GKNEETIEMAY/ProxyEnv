@@ -1,5 +1,4 @@
 mod authenticated_relay;
-#[cfg(test)]
 #[allow(dead_code)]
 mod codex_relay;
 pub(crate) mod connections;
@@ -7,12 +6,14 @@ pub(crate) mod credential_cache;
 pub mod extension;
 mod local_model;
 pub(crate) mod mobaxterm;
+mod reconnect;
 pub(crate) mod settings;
 mod skills;
 mod ssh;
 pub mod ssh_auth;
 pub mod tool_adapter;
 pub(crate) mod vscode;
+mod vscode_network;
 #[cfg(test)]
 use super::proxy::ProxyVariable;
 use super::proxy::{active, plan, ProxyEndpoint, ProxyProtocol};
@@ -120,6 +121,7 @@ pub struct Endpoint {
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
+    pub reconnect_state: reconnect::State,
     pub status: Status,
     pub target: Option<RemoteTarget>,
     pub proxy: Option<Endpoint>,
@@ -280,6 +282,9 @@ pub struct RemoteNetworkObservation {
     pub server_internet: RemoteInternetState,
 }
 struct Store {
+    last_request: Option<Request>,
+    reconnect: Option<reconnect::Retry>,
+    connection_generation: u64,
     summary: Summary,
     child: Option<Box<dyn ssh::ManagedSsh>>,
     proxy_relay: Option<authenticated_relay::AuthenticatedRelay>,
@@ -302,6 +307,9 @@ struct Store {
 impl Default for Store {
     fn default() -> Self {
         Self {
+            last_request: None,
+            reconnect: None,
+            connection_generation: 0,
             summary: Summary::default(),
             child: None,
             proxy_relay: None,
@@ -323,6 +331,7 @@ impl Default for Store {
     }
 }
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
+static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 fn store() -> &'static Mutex<Store> {
     STORE.get_or_init(|| Mutex::new(Store::default()))
 }
@@ -402,9 +411,17 @@ fn refresh(state: &mut Store) {
     if let Some(child) = state.child.as_mut() {
         if !matches!(child.is_running(), Ok(true)) {
             state.child = None;
-            state.proxy_relay = None;
-            state.ai_relay = None;
-            state.summary.status = Status::Disconnected;
+            if state.last_request.is_some() {
+                state.reconnect = Some(reconnect::Retry::new());
+                state.summary.reconnect_state = reconnect::State::Waiting;
+                state.summary.status = Status::Connecting;
+            } else {
+                state.proxy_relay = None;
+                state.ai_relay = None;
+                state.summary.status = Status::Disconnected;
+            }
+            state.ssh_auth.authenticated = false;
+            state.summary.ssh_auth = state.ssh_auth;
             state.proxy_status = Status::Disconnected;
             state.cc_status = Status::Disconnected;
             state.summary.proxy_status = state.summary.proxy.as_ref().map(|_| Status::Disconnected);
@@ -468,9 +485,8 @@ fn refresh(state: &mut Store) {
         let endpoints_available = proxy_available && cc_available;
         state.summary.status =
             observed_status(&state.summary, current.as_ref(), endpoints_available);
-        if state.summary.status != Status::Connected
-            || state.summary.cc_status != Some(Status::Connected)
-        {
+        // A stale general proxy must not invalidate an independent AI route.
+        if state.summary.cc_status != Some(Status::Connected) {
             invalidate_tool_verification(&mut state.summary);
         }
     }
@@ -562,7 +578,7 @@ fn refresh_tool_configuration(summary: &mut Summary, session_token: Option<&str>
             .and_then(|value| value["configured"].as_bool())
             .unwrap_or(false);
 
-        // A reconnect rotates the session token. If this tool is already
+        // An explicit replacement connection rotates the session token. If this tool is already
         // ProxyEnv-owned and still points at the same route, refresh the
         // allowlisted projection transactionally instead of forcing the user
         // through configuration again. Unowned files are never touched.
@@ -854,6 +870,7 @@ pub fn start_monitor() {
     std::thread::spawn(|| loop {
         std::thread::sleep(Duration::from_secs(2));
         ssh_auth::cleanup();
+        reconnect::tick();
         let candidate = {
             let Ok(mut state) = store().try_lock() else {
                 continue;
@@ -1263,16 +1280,6 @@ fn relays_for(
     Option<authenticated_relay::AuthenticatedRelay>,
     Option<authenticated_relay::AuthenticatedRelay>,
 )> {
-    let proxy = summary
-        .proxy
-        .as_ref()
-        .map(|endpoint| {
-            authenticated_relay::AuthenticatedRelay::start(
-                endpoint.local.clone(),
-                authenticated_relay::RelayMode::General(endpoint.local.protocol),
-            )
-        })
-        .transpose()?;
     let ai = summary
         .cc
         .as_ref()
@@ -1280,6 +1287,21 @@ fn relays_for(
             authenticated_relay::AuthenticatedRelay::start(
                 endpoint.local.clone(),
                 authenticated_relay::RelayMode::AiHttp,
+            )
+        })
+        .transpose()?;
+    let ai_route = ai
+        .as_ref()
+        .zip(summary.cc.as_ref())
+        .map(|(relay, endpoint)| relay.ai_route(endpoint.remote_port));
+    let proxy = summary
+        .proxy
+        .as_ref()
+        .map(|endpoint| {
+            authenticated_relay::AuthenticatedRelay::start_with_ai_route(
+                endpoint.local.clone(),
+                authenticated_relay::RelayMode::General(endpoint.local.protocol),
+                ai_route,
             )
         })
         .transpose()?;
@@ -1366,6 +1388,7 @@ pub(super) fn mark_interactive_connecting() -> BridgeResult<()> {
     if state.child.is_some() {
         return Err("alreadyConnected".into());
     }
+    reconnect::cancel(&mut state);
     state.pending = None;
     state.extension_pending = None;
     state.summary.status = Status::Connecting;
@@ -1401,6 +1424,13 @@ pub(super) fn complete_interactive_connect(
     summary.status = Status::Connected;
     summary.proxy_status = summary.proxy.as_ref().map(|_| Status::Connected);
     summary.cc_status = summary.cc.as_ref().map(|_| Status::Connected);
+    summary.error = refresh_owned_vscode_network(
+        &summary,
+        proxy_relay.as_ref(),
+        ai_relay.as_ref(),
+        &fingerprint,
+    )
+    .err();
     summary.ssh_auth = auth;
     let ai_token = ai_relay.as_ref().map(|relay| relay.token());
     refresh_tool_configuration(&mut summary, ai_token.as_ref().map(|token| token.as_str()));
@@ -1409,6 +1439,7 @@ pub(super) fn complete_interactive_connect(
         return Err("alreadyConnected".into());
     }
     state.summary = summary;
+    state.last_request = Some(request);
     state.proxy_status = Status::Connected;
     state.cc_status = Status::Connected;
     state.child = Some(Box::new(process));
@@ -1428,6 +1459,7 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
     if state.child.is_some() {
         return Err("alreadyConnected".into());
     }
+    reconnect::cancel(&mut state);
     state.pending = None;
     let result = (|| {
         state.extension_pending = None;
@@ -1479,9 +1511,17 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         next.status = Status::Connected;
         next.proxy_status = next.proxy.as_ref().map(|_| Status::Connected);
         next.cc_status = next.cc.as_ref().map(|_| Status::Connected);
+        next.error = refresh_owned_vscode_network(
+            &next,
+            proxy_relay.as_ref(),
+            ai_relay.as_ref(),
+            &fingerprint,
+        )
+        .err();
         let ai_token = ai_relay.as_ref().map(|relay| relay.token());
         refresh_tool_configuration(&mut next, ai_token.as_ref().map(|token| token.as_str()));
         state.summary = next;
+        state.last_request = Some(request.clone());
         state.proxy_status = Status::Connected;
         state.cc_status = Status::Connected;
         state.child = Some(Box::new(child));
@@ -1509,6 +1549,11 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
         return Err("confirmationRequired".into());
     }
     let mut state = lock()?;
+    // Invalidate in-flight recovery before revoking credentials or cleanup.
+    state.connection_generation = state.connection_generation.wrapping_add(1);
+    state.last_request = None;
+    state.reconnect = None;
+    state.summary.reconnect_state = reconnect::State::Idle;
     let target_id = state
         .summary
         .target
@@ -1521,6 +1566,7 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     // Revoke both local capabilities before any potentially slow SSH cleanup.
     state.proxy_relay = None;
     state.ai_relay = None;
+    let vscode_restore_error = restore_vscode_network(&mut state).err();
     if let Some(target_id) = target_id.as_deref() {
         remove_session_environment(target_id, session_id.as_deref());
     }
@@ -1542,6 +1588,7 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     state.proxy_status = Status::Disconnected;
     state.cc_status = Status::Disconnected;
     invalidate_tool_verification(&mut state.summary);
+    state.summary.error = vscode_restore_error;
     credential_cache::clear();
     Ok(exposed_summary(&state.summary))
 }
@@ -1549,6 +1596,7 @@ pub fn clear_session_credential() {
     credential_cache::clear();
 }
 pub fn shutdown() {
+    STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
     // Never hold up application exit behind an SSH timeout. Windows closes all
     // outstanding kill-on-close jobs even when an operation owns the mutex.
     if let Ok(mut state) = store().try_lock() {
@@ -1566,7 +1614,7 @@ pub fn shutdown() {
 pub fn test() -> BridgeResult<()> {
     let mut state = lock()?;
     refresh(&mut state);
-    if state.summary.status != Status::Connected {
+    if !capability_ready(state.child.is_some(), state.summary.proxy_status) {
         return Err("bridgeUnavailable".into());
     }
     let endpoint = state.summary.proxy.as_ref().ok_or("proxyUnavailable")?;
@@ -1599,9 +1647,7 @@ fn proxy_terminal_context() -> BridgeResult<(String, String, String)> {
     let (target_id, session_id, target_fingerprint) = {
         let mut state = lock()?;
         refresh(&mut state);
-        if state.summary.status != Status::Connected
-            || state.summary.proxy_status != Some(Status::Connected)
-        {
+        if !capability_ready(state.child.is_some(), state.summary.proxy_status) {
             return Err("bridgeUnavailable".into());
         }
         let target_id = state
@@ -1627,6 +1673,190 @@ fn proxy_terminal_context() -> BridgeResult<(String, String, String)> {
 pub fn launch_proxy_terminal() -> BridgeResult<()> {
     let (target_id, session_id, fingerprint) = proxy_terminal_context()?;
     ssh::launch_managed_terminal(&target_id, &session_id, &fingerprint)
+}
+
+fn restore_vscode_network(state: &mut Store) -> BridgeResult<()> {
+    if let Some(target) = &state.summary.target {
+        vscode_network::restore(&target.id)?;
+    }
+    Ok(())
+}
+
+fn refresh_owned_vscode_network(
+    summary: &Summary,
+    proxy_relay: Option<&authenticated_relay::AuthenticatedRelay>,
+    ai_relay: Option<&authenticated_relay::AuthenticatedRelay>,
+    fingerprint: &str,
+) -> BridgeResult<()> {
+    let target = summary.target.as_ref().ok_or("invalidTarget")?;
+    if !vscode_network::is_managed(&target.id)? {
+        return Ok(());
+    }
+    if let Some(relay) = ai_relay.or(proxy_relay) {
+        return vscode_network::apply(&target.id, relay.session_id(), fingerprint);
+    }
+    vscode_network::restore(&target.id)
+}
+
+/// Configure only the connected remote VS Code Server, never local user settings.
+/// The user invokes this through Open in VS Code; credentials stay out of IPC.
+pub fn open_vscode(target: String) -> BridgeResult<Option<String>> {
+    let mut state = lock()?;
+    refresh(&mut state);
+    if state.child.is_none()
+        || state.summary.target.as_ref().map(|item| item.id.as_str()) != Some(target.as_str())
+    {
+        return Err("bridgeUnavailable".into());
+    }
+    if !state
+        .summary
+        .target
+        .as_ref()
+        .is_some_and(|item| item.can_open_vscode)
+    {
+        return Err("vscodeConfigMismatch".into());
+    }
+    let fingerprint = ssh::fingerprint(&target)?;
+    if state.target_fingerprint.as_deref() != Some(fingerprint.as_str()) {
+        return Err("sshConfigChanged".into());
+    }
+    // Apply the remote VS Code network isolation before the window starts. If the
+    // server already exists, launching first lets extensions inherit stale proxy
+    // settings and can trigger a proxy-authentication loop until the window reloads.
+    open_vscode_with_setup(
+        || vscode::open(target.clone()),
+        || {
+            let relay = state
+                .ai_relay
+                .as_ref()
+                .or(state.proxy_relay.as_ref())
+                .ok_or("bridgeUnavailable")?;
+            vscode_network::apply(&target, relay.session_id(), &fingerprint)?;
+            Ok(())
+        },
+    )
+}
+
+fn open_vscode_with_setup(
+    launch: impl FnOnce() -> BridgeResult<()>,
+    configure: impl FnOnce() -> BridgeResult<()>,
+) -> BridgeResult<Option<String>> {
+    match configure() {
+        Ok(()) => {
+            launch()?;
+            Ok(None)
+        }
+        // The first Remote SSH connection may need VS Code itself to install the
+        // server. Allow that bootstrap window, but keep the warning explicit so it
+        // is not mistaken for a configured session.
+        Err(code) if code == "vscodeServerMissing" => {
+            launch()?;
+            Ok(Some(code))
+        }
+        Err(code) => Err(code),
+    }
+}
+
+#[cfg(test)]
+mod vscode_launch_tests {
+    use super::*;
+
+    #[test]
+    fn remote_setup_precedes_launch() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let warning = open_vscode_with_setup(
+            || {
+                calls.borrow_mut().push("launch");
+                Ok(())
+            },
+            || {
+                calls.borrow_mut().push("configure");
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(warning, None);
+        assert_eq!(*calls.borrow(), ["configure", "launch"]);
+    }
+
+    #[test]
+    fn unsafe_remote_setup_prevents_launch() {
+        let opened = std::cell::Cell::new(false);
+        assert_eq!(
+            open_vscode_with_setup(
+                || {
+                    opened.set(true);
+                    Ok(())
+                },
+                || Err("unsafePath".into()),
+            )
+            .unwrap_err(),
+            "unsafePath"
+        );
+        assert!(!opened.get());
+    }
+
+    #[test]
+    fn missing_vscode_server_allows_bootstrap_with_warning() {
+        let opened = std::cell::Cell::new(false);
+        let warning = open_vscode_with_setup(
+            || {
+                opened.set(true);
+                Ok(())
+            },
+            || Err("vscodeServerMissing".into()),
+        )
+        .unwrap();
+        assert!(opened.get());
+        assert_eq!(warning.as_deref(), Some("vscodeServerMissing"));
+    }
+
+    #[test]
+    fn failed_launch_is_reported_after_successful_setup() {
+        assert_eq!(
+            open_vscode_with_setup(|| Err("vscodeMissing".into()), || Ok(())).unwrap_err(),
+            "vscodeMissing"
+        );
+    }
+}
+fn capability_ready(ssh_running: bool, status: Option<Status>) -> bool {
+    ssh_running && status == Some(Status::Connected)
+}
+
+/// Explicit user-triggered copy only. Never include this secret in Summary,
+/// diagnostics, Debug output, automatic polling, or command-line arguments.
+pub fn proxy_password(target_id: String, remote_port: u16) -> BridgeResult<String> {
+    let mut state = lock()?;
+    refresh(&mut state);
+    if !capability_ready(state.child.is_some(), state.summary.proxy_status)
+        || state
+            .summary
+            .proxy
+            .as_ref()
+            .map(|endpoint| endpoint.remote_port)
+            != Some(remote_port)
+        || state
+            .summary
+            .target
+            .as_ref()
+            .map(|target| target.id.as_str())
+            != Some(target_id.as_str())
+        || Some(ssh::fingerprint(&target_id)?) != state.target_fingerprint
+    {
+        return Err("bridgeUnavailable".into());
+    }
+    state
+        .proxy_relay
+        .as_ref()
+        .map(|relay| relay.token().to_string())
+        .ok_or_else(|| "proxyUnavailable".into())
+}
+
+pub fn session_environment_command() -> BridgeResult<String> {
+    let (_, session_id, _) = proxy_terminal_context()?;
+    Ok(format!(
+        ". \"$HOME/.proxyenv/sessions/{session_id}/env.sh\""
+    ))
 }
 pub fn launch_manual_terminal() -> BridgeResult<()> {
     let (target_id, _, fingerprint) = proxy_terminal_context()?;
@@ -1951,10 +2181,7 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
     let (target_id, target_fingerprint, route_port, session_token) = {
         let mut state = lock()?;
         refresh(&mut state);
-        if state.child.is_none()
-            || state.summary.status != Status::Connected
-            || state.summary.cc_status != Some(Status::Connected)
-        {
+        if !capability_ready(state.child.is_some(), state.summary.cc_status) {
             return Err("bridgeUnavailable".into());
         }
         if !adapter.configured(&state.summary) {
@@ -2011,9 +2238,7 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
 
     let mut state = lock()?;
     refresh(&mut state);
-    if state.child.is_none()
-        || state.summary.status != Status::Connected
-        || state.summary.cc_status != Some(Status::Connected)
+    if !capability_ready(state.child.is_some(), state.summary.cc_status)
         || state.summary.target.as_ref().map(|target| &target.id) != Some(&target_id)
         || state.target_fingerprint.as_ref() != Some(&target_fingerprint)
         || ssh::fingerprint(&target_id)? != target_fingerprint
@@ -2032,6 +2257,24 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn route_actions_depend_only_on_their_own_capability_and_ssh() {
+        for unrelated in [Status::Stale, Status::Unavailable, Status::Connected] {
+            assert!(capability_ready(true, Some(Status::Connected)));
+            assert_eq!(
+                capability_ready(true, Some(unrelated)),
+                unrelated == Status::Connected
+            );
+        }
+        assert!(!capability_ready(false, Some(Status::Connected)));
+        assert!(!capability_ready(true, None));
+    }
+
+    #[test]
+    fn disconnected_session_cannot_export_a_proxy_password() {
+        assert!(proxy_password("unselected-target".into(), 17897).is_err());
+    }
+
     #[test]
     fn remote_environment_obeys_protocol_and_uses_remote_socks_dns() {
         let endpoint = |protocol| Endpoint {

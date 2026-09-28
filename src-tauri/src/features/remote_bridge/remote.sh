@@ -106,7 +106,7 @@ if [ "$operation" = session-env-apply ] || [ "$operation" = session-env-remove ]
   trap cleanup_session_environment EXIT
   {
     printf '%s\n' "$session_marker"
-    printf '%s\n' 'unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY'
+    printf '%s\n' 'unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy'
     case "$protocol" in
       http)
         printf "export HTTP_PROXY='http://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
@@ -122,7 +122,12 @@ if [ "$operation" = session-env-apply ] || [ "$operation" = session-env-remove ]
         ;;
       *) fail invalidRequest;;
     esac
-    printf "%s\n" "export NO_PROXY='localhost,127.0.0.1,::1'"
+    printf '%s\n' '[ -z "${HTTP_PROXY:-}" ] || export http_proxy="$HTTP_PROXY"'
+    printf '%s\n' '[ -z "${HTTPS_PROXY:-}" ] || export https_proxy="$HTTPS_PROXY"'
+    printf '%s\n' '[ -z "${ALL_PROXY:-}" ] || export all_proxy="$ALL_PROXY"'
+    # Preserve both user bypass lists, but always bypass the local AI listener.
+    printf '%s\n' 'export NO_PROXY="localhost,127.0.0.1,::1${NO_PROXY:+,$NO_PROXY}${no_proxy:+,$no_proxy}"'
+    printf '%s\n' 'export no_proxy="$NO_PROXY"'
   } >"$temporary" || fail remoteFailed
   chmod 600 "$temporary" || fail remoteFailed
   mv -f "$temporary" "$session_file" || fail remoteFailed

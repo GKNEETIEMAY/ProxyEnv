@@ -1,4 +1,4 @@
-use super::{ssh, tool_adapter::RemoteToolId, BridgeResult, Status};
+use super::{ssh, tool_adapter::RemoteToolId, BridgeResult};
 use crate::services::local_file;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -62,6 +62,8 @@ struct ProjectionStore {
     #[serde(default)]
     enabled: Vec<String>,
     #[serde(default)]
+    disabled: Vec<String>,
+    #[serde(default)]
     projections: Vec<StoredProjection>,
 }
 
@@ -113,12 +115,23 @@ fn load_store() -> BridgeResult<ProjectionStore> {
     if store.enabled.len() > MAX_SKILLS_PER_TOOL * 2 {
         return Err("stateUnavailable".into());
     }
+    if store.disabled.len() > MAX_SKILLS_PER_TOOL * 2 {
+        return Err("stateUnavailable".into());
+    }
     if store.projections.len() > MAX_SKILLS_PER_TOOL * 2 {
         return Err("stateUnavailable".into());
     }
     store.enabled.sort();
     store.enabled.dedup();
-    if store.enabled.iter().any(|id| parse_id(id).is_err()) {
+    store.disabled.sort();
+    store.disabled.dedup();
+    if store.enabled.iter().any(|id| parse_id(id).is_err())
+        || store.disabled.iter().any(|id| parse_id(id).is_err())
+        || store
+            .enabled
+            .iter()
+            .any(|id| store.disabled.binary_search(id).is_ok())
+    {
         return Err("stateUnavailable".into());
     }
     for projection in &store.projections {
@@ -157,8 +170,10 @@ fn parse_id(id: &str) -> BridgeResult<(RemoteToolId, &str)> {
 }
 
 fn connected_target() -> BridgeResult<String> {
-    let state = super::lock()?;
-    if state.child.is_none() || state.summary.status != Status::Connected {
+    let mut state = super::lock()?;
+    super::refresh(&mut state);
+    // Skill transport needs SSH, not either optional forwarding capability.
+    if state.child.is_none() {
         return Err("bridgeUnavailable".into());
     }
     state
@@ -200,6 +215,58 @@ fn root(tool: RemoteToolId) -> BridgeResult<PathBuf> {
     Ok(configured.join("skills"))
 }
 
+fn cc_switch_root() -> BridgeResult<PathBuf> {
+    dirs::home_dir()
+        .map(|home| home.join(".cc-switch").join("skills"))
+        .ok_or_else(|| "stateUnavailable".into())
+}
+
+fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        metadata.file_type().is_symlink()
+            || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
+}
+
+fn is_direct_cc_switch_target(link: &Path, target: &Path, managed_root: &Path) -> bool {
+    target.parent() == Some(managed_root) && target.file_name() == link.file_name()
+}
+
+fn cc_switch_skill_target(link: &Path, managed_root: &Path) -> BridgeResult<Option<PathBuf>> {
+    let metadata = match fs::symlink_metadata(link) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("localSkillUnsafe".into()),
+    };
+    if !is_link_or_reparse(&metadata) {
+        return Ok(None);
+    }
+    let managed_root = match fs::canonicalize(managed_root) {
+        Ok(root) => root,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("localSkillUnsafe".into()),
+    };
+    let target = match fs::canonicalize(link) {
+        Ok(target) => target,
+        Err(_) => return Ok(None),
+    };
+    if !is_direct_cc_switch_target(link, &target, &managed_root) {
+        return Ok(None);
+    }
+    let metadata = fs::symlink_metadata(&target).map_err(|_| "localSkillUnsafe")?;
+    if !metadata.is_dir() || is_link_or_reparse(&metadata) {
+        return Ok(None);
+    }
+    Ok(Some(target))
+}
+
 fn collect_files(
     skill_root: &Path,
     directory: &Path,
@@ -211,7 +278,7 @@ fn collect_files(
         return Err("localSkillUnsafe".into());
     }
     let metadata = fs::symlink_metadata(directory).map_err(|_| "localSkillUnsafe")?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+    if !metadata.is_dir() || is_link_or_reparse(&metadata) {
         return Err("localSkillUnsafe".into());
     }
     let mut entries = fs::read_dir(directory)
@@ -227,7 +294,7 @@ fn collect_files(
         }
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path).map_err(|_| "localSkillUnsafe")?;
-        if metadata.file_type().is_symlink() {
+        if is_link_or_reparse(&metadata) {
             return Err("localSkillUnsafe".into());
         }
         if metadata.is_dir() {
@@ -325,6 +392,7 @@ fn inspect(tool: RemoteToolId, skill_root: &Path) -> BridgeResult<LocalSkill> {
 fn collect_local_skills(
     tool: RemoteToolId,
     root: &Path,
+    managed_root: &Path,
     result: &mut Vec<LocalSkill>,
 ) -> BridgeResult<()> {
     // Claude does not always have a local Skills directory. Absence means
@@ -333,7 +401,7 @@ fn collect_local_skills(
         return Ok(());
     }
     let metadata = fs::symlink_metadata(root).map_err(|_| "localSkillUnsafe")?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+    if !metadata.is_dir() || is_link_or_reparse(&metadata) {
         return Err("localSkillUnsafe".into());
     }
     let mut entries = fs::read_dir(root)
@@ -350,23 +418,23 @@ fn collect_local_skills(
         if !projectable_skill_name(tool, name) {
             continue;
         }
-        let metadata = fs::symlink_metadata(entry.path()).map_err(|_| "localSkillUnsafe")?;
-        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        let Some(target) = cc_switch_skill_target(&entry.path(), managed_root)? else {
             continue;
-        }
+        };
         count += 1;
         if count > MAX_SKILLS_PER_TOOL {
             return Err("localSkillUnsafe".into());
         }
-        result.push(inspect(tool, &entry.path())?);
+        result.push(inspect(tool, &target)?);
     }
     Ok(())
 }
 
 pub fn local_skills() -> BridgeResult<Vec<LocalSkill>> {
     let mut result = Vec::new();
+    let managed_root = cc_switch_root()?;
     for tool in [RemoteToolId::Codex, RemoteToolId::Claude] {
-        collect_local_skills(tool, &root(tool)?, &mut result)?;
+        collect_local_skills(tool, &root(tool)?, &managed_root, &mut result)?;
     }
     Ok(result)
 }
@@ -464,6 +532,13 @@ fn remember(id: &str, stamp: Option<String>, state: SkillProjectionState) {
     }
 }
 
+fn forget_stamp(id: &str, state: SkillProjectionState) {
+    if let Ok(mut runtime) = runtime().lock() {
+        runtime.stamps.remove(id);
+        runtime.states.insert(id.to_owned(), state);
+    }
+}
+
 fn project(target: &str, skill: &LocalSkill) -> BridgeResult<()> {
     let _operation = operations().lock().map_err(|_| "stateUnavailable")?;
     ssh::skill_remote(target, &request(skill, "prepare"))?;
@@ -493,7 +568,8 @@ fn project(target: &str, skill: &LocalSkill) -> BridgeResult<()> {
 pub fn views() -> BridgeResult<Vec<SkillView>> {
     let store = load_store()?;
     let enabled = store.enabled.iter().cloned().collect::<BTreeSet<_>>();
-    let target = connected_target().ok();
+    let disabled = store.disabled.iter().cloned().collect::<BTreeSet<_>>();
+    let connected = connected_target().is_ok();
     let remembered = runtime()
         .lock()
         .map_err(|_| "stateUnavailable")?
@@ -501,18 +577,21 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
         .clone();
     let mut views = Vec::new();
     for mut skill in local_skills()? {
-        skill.view.enabled = enabled.contains(&skill.view.id);
+        // A CC Switch link is an enabled source by default. `disabled` records
+        // only an explicit per-agent remote opt-out.
+        skill.view.enabled = !disabled.contains(&skill.view.id);
         skill.view.state = if !skill.view.enabled {
             SkillProjectionState::NotSynced
-        } else if let Some(target) = target.as_deref() {
-            match ssh::skill_remote(target, &request(&skill, "status")) {
-                Ok(value) => state_from(&value).unwrap_or(SkillProjectionState::Unavailable),
-                Err(code) if code == "skillConflict" => SkillProjectionState::Conflict,
-                Err(_) => remembered
-                    .get(&skill.view.id)
-                    .copied()
-                    .unwrap_or(SkillProjectionState::Unavailable),
-            }
+        } else if connected && enabled.contains(&skill.view.id) {
+            remembered
+                .get(&skill.view.id)
+                .copied()
+                .unwrap_or(SkillProjectionState::Unavailable)
+        } else if connected {
+            remembered
+                .get(&skill.view.id)
+                .copied()
+                .unwrap_or(SkillProjectionState::NotSynced)
         } else {
             SkillProjectionState::Unavailable
         };
@@ -528,6 +607,10 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
         .into_iter()
         .filter(|projection| enabled.contains(&projection.id) && !visible.contains(&projection.id))
     {
+        let state = remembered
+            .get(&projection.id)
+            .copied()
+            .unwrap_or(SkillProjectionState::Unavailable);
         views.push(SkillView {
             id: projection.id,
             tool: projection.tool,
@@ -535,7 +618,7 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
             hash: projection.hash,
             file_count: projection.file_count,
             total_size: projection.total_size,
-            state: SkillProjectionState::Unavailable,
+            state,
             enabled: true,
         });
     }
@@ -551,6 +634,7 @@ pub fn enable(id: String) -> BridgeResult<SkillView> {
         store.enabled.push(id.clone());
         store.enabled.sort();
     }
+    store.disabled.retain(|disabled| disabled != &id);
     store.projections.retain(|projection| projection.id != id);
     store.projections.push(stored(&skill));
     store
@@ -572,18 +656,18 @@ pub fn enable(id: String) -> BridgeResult<SkillView> {
 }
 
 pub fn disable(id: String) -> BridgeResult<SkillView> {
+    remove_projection(id, true)
+}
+
+fn remove_projection(id: String, remember_disabled: bool) -> BridgeResult<SkillView> {
     let mut store = load_store()?;
     let local = by_id(&id).ok();
-    let projection = local
-        .as_ref()
-        .map(stored)
-        .or_else(|| {
-            store
-                .projections
-                .iter()
-                .find(|projection| projection.id == id)
-                .cloned()
-        })
+    let projection = store
+        .projections
+        .iter()
+        .find(|projection| projection.id == id)
+        .cloned()
+        .or_else(|| local.as_ref().map(stored))
         .ok_or("localSkillMissing")?;
     let target = connected_target()?;
     let _operation = operations().lock().map_err(|_| "stateUnavailable")?;
@@ -593,8 +677,13 @@ pub fn disable(id: String) -> BridgeResult<SkillView> {
     }
     store.enabled.retain(|enabled| enabled != &id);
     store.projections.retain(|stored| stored.id != id);
+    store.disabled.retain(|disabled| disabled != &id);
+    if remember_disabled && local.is_some() {
+        store.disabled.push(id.clone());
+        store.disabled.sort();
+    }
     persist_store(&store)?;
-    remember(&id, None, SkillProjectionState::NotSynced);
+    forget_stamp(&id, SkillProjectionState::NotSynced);
     let mut view = local.map(|skill| skill.view).unwrap_or(SkillView {
         id: projection.id,
         tool: projection.tool,
@@ -614,7 +703,7 @@ fn metadata_stamp(skill: &LocalSkill) -> BridgeResult<String> {
     let mut digest = Sha256::new();
     for file in &skill.files {
         let metadata = fs::symlink_metadata(&file.local_path).map_err(|_| "localSkillChanged")?;
-        if !metadata.is_file() || metadata.file_type().is_symlink() {
+        if !metadata.is_file() || is_link_or_reparse(&metadata) {
             return Err("localSkillUnsafe".into());
         }
         let modified = metadata
@@ -642,7 +731,7 @@ fn metadata_stamp_directory(
         return Err("localSkillUnsafe".into());
     }
     let metadata = fs::symlink_metadata(directory).map_err(|_| "localSkillChanged")?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+    if !metadata.is_dir() || is_link_or_reparse(&metadata) {
         return Err("localSkillUnsafe".into());
     }
     let mut entries = fs::read_dir(directory)
@@ -658,7 +747,7 @@ fn metadata_stamp_directory(
         }
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path).map_err(|_| "localSkillChanged")?;
-        if metadata.file_type().is_symlink() {
+        if is_link_or_reparse(&metadata) {
             return Err("localSkillUnsafe".into());
         }
         if metadata.is_dir() {
@@ -695,7 +784,8 @@ fn metadata_stamp_directory(
 
 fn metadata_stamp_id(id: &str) -> BridgeResult<String> {
     let (tool, name) = parse_id(id)?;
-    let skill_root = root(tool)?.join(name);
+    let skill_root = cc_switch_skill_target(&root(tool)?.join(name), &cc_switch_root()?)?
+        .ok_or("localSkillMissing")?;
     let mut digest = Sha256::new();
     let mut file_count = 0;
     let mut total_size = 0;
@@ -715,18 +805,106 @@ fn metadata_stamp_id(id: &str) -> BridgeResult<String> {
 
 fn monitor_once() -> BridgeResult<()> {
     let target = connected_target()?;
-    let enabled = load_store()?.enabled;
+    let local = local_skills()?;
+    let local_ids = local
+        .iter()
+        .map(|skill| skill.view.id.clone())
+        .collect::<BTreeSet<_>>();
+    let initial_store = load_store()?;
+    let missing = initial_store
+        .enabled
+        .iter()
+        .filter(|id| !local_ids.contains(*id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let stale_disabled = initial_store
+        .disabled
+        .iter()
+        .filter(|id| !local_ids.contains(*id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() || !stale_disabled.is_empty() {
+        // CC Switch can replace links while updating its selection. Recheck
+        // after a short debounce before removing a verified remote projection.
+        thread::sleep(Duration::from_millis(500));
+        let current_ids = local_skills()?
+            .into_iter()
+            .map(|skill| skill.view.id)
+            .collect::<BTreeSet<_>>();
+        for id in missing.into_iter().filter(|id| !current_ids.contains(id)) {
+            match remove_projection(id.clone(), false) {
+                Ok(_) => {}
+                Err(code) => remember(
+                    &id,
+                    None,
+                    if code == "skillConflict" {
+                        SkillProjectionState::Conflict
+                    } else {
+                        SkillProjectionState::Unavailable
+                    },
+                ),
+            }
+        }
+        let stale_disabled = stale_disabled
+            .into_iter()
+            .filter(|id| !current_ids.contains(id))
+            .collect::<BTreeSet<_>>();
+        if !stale_disabled.is_empty() {
+            let mut store = load_store()?;
+            store.disabled.retain(|id| !stale_disabled.contains(id));
+            persist_store(&store)?;
+        }
+    }
     let target_changed = {
         let mut runtime = runtime().lock().map_err(|_| "stateUnavailable")?;
         let changed = runtime.target_id.as_deref() != Some(target.as_str());
         if changed {
             runtime.target_id = Some(target.clone());
             runtime.stamps.clear();
+            runtime.states.clear();
         }
         changed
     };
+    let store = load_store()?;
+    let disabled = store.disabled.iter().cloned().collect::<BTreeSet<_>>();
+    let mut enabled = store.enabled.iter().cloned().collect::<BTreeSet<_>>();
+    let mut just_projected = BTreeSet::new();
+    for skill in &local {
+        let id = &skill.view.id;
+        if disabled.contains(id) || enabled.contains(id) {
+            continue;
+        }
+        let stamp = metadata_stamp(skill)?;
+        let previous = runtime()
+            .lock()
+            .map_err(|_| "stateUnavailable")?
+            .stamps
+            .get(id)
+            .cloned();
+        if !target_changed && previous.as_deref() == Some(stamp.as_str()) {
+            continue;
+        }
+        match enable(id.clone()) {
+            Ok(_) => {
+                enabled.insert(id.clone());
+                just_projected.insert(id.clone());
+            }
+            Err(code) => remember(
+                id,
+                Some(stamp),
+                if code == "skillConflict" {
+                    SkillProjectionState::Conflict
+                } else {
+                    SkillProjectionState::Unavailable
+                },
+            ),
+        }
+    }
     let mut changed = Vec::new();
     for id in enabled {
+        if just_projected.contains(&id) {
+            continue;
+        }
         let stamp = match metadata_stamp_id(&id) {
             Ok(stamp) => stamp,
             Err(_) => {
@@ -804,6 +982,26 @@ pub fn start_monitor() {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    fn link_directory(target: &Path, link: &Path) -> std::io::Result<()> {
+        std::os::unix::fs::symlink(target, link)
+    }
+
+    #[cfg(windows)]
+    fn link_directory(target: &Path, link: &Path) -> std::io::Result<()> {
+        std::os::windows::fs::symlink_dir(target, link)
+    }
+
+    #[cfg(unix)]
+    fn unlink_directory(link: &Path) -> std::io::Result<()> {
+        fs::remove_file(link)
+    }
+
+    #[cfg(windows)]
+    fn unlink_directory(link: &Path) -> std::io::Result<()> {
+        fs::remove_dir(link)
+    }
+
     #[test]
     fn skill_components_reject_traversal_shell_syntax_and_reserved_metadata() {
         for valid in ["skill-name", "SKILL.md", "reference_1"] {
@@ -817,7 +1015,14 @@ mod tests {
     }
 
     #[test]
-    fn codex_system_skills_are_ignored_and_a_missing_claude_root_stays_absent() {
+    fn legacy_projection_store_defaults_to_no_explicit_opt_outs() {
+        let store: ProjectionStore =
+            serde_json::from_str(r#"{"enabled":[],"projections":[]}"#).unwrap();
+        assert!(store.disabled.is_empty());
+    }
+
+    #[test]
+    fn only_cc_switch_linked_skills_are_discovered_for_each_tool() {
         let mut nonce = [0_u8; 8];
         getrandom::fill(&mut nonce).unwrap();
         let temporary = std::env::temp_dir().join(format!(
@@ -826,21 +1031,81 @@ mod tests {
             hex::encode(nonce)
         ));
         let codex_root = temporary.join(".codex/skills");
-        let system_root = codex_root.join(".system");
-        let user_root = codex_root.join("user-skill");
         let claude_root = temporary.join(".claude/skills");
-        fs::create_dir_all(&system_root).unwrap();
-        fs::create_dir_all(&user_root).unwrap();
-        fs::write(system_root.join("SKILL.md"), "# System\n").unwrap();
-        fs::write(user_root.join("SKILL.md"), "# User\n").unwrap();
+        let managed_root = temporary.join(".cc-switch/skills");
+        let managed_skill = managed_root.join("impeccable");
+        let local_skill = codex_root.join("local-only");
+        let external_skill = temporary.join("external/foreign");
+        fs::create_dir_all(&codex_root).unwrap();
+        fs::create_dir_all(&claude_root).unwrap();
+        fs::create_dir_all(&managed_skill).unwrap();
+        fs::create_dir_all(&local_skill).unwrap();
+        fs::create_dir_all(&external_skill).unwrap();
+        fs::write(managed_skill.join("SKILL.md"), "# Managed\n").unwrap();
+        fs::write(local_skill.join("SKILL.md"), "# Local\n").unwrap();
+        fs::write(external_skill.join("SKILL.md"), "# Foreign\n").unwrap();
+        assert!(is_direct_cc_switch_target(
+            &codex_root.join("impeccable"),
+            &managed_skill,
+            &managed_root
+        ));
+        assert!(!is_direct_cc_switch_target(
+            &codex_root.join("renamed"),
+            &managed_skill,
+            &managed_root
+        ));
+        assert!(!is_direct_cc_switch_target(
+            &codex_root.join("foreign"),
+            &external_skill,
+            &managed_root
+        ));
+        let links_supported =
+            link_directory(&managed_skill, &codex_root.join("impeccable")).is_ok();
+        if links_supported {
+            link_directory(&managed_skill, &claude_root.join("impeccable")).unwrap();
+            link_directory(&external_skill, &codex_root.join("foreign")).unwrap();
+        }
 
         let mut skills = Vec::new();
-        collect_local_skills(RemoteToolId::Codex, &codex_root, &mut skills).unwrap();
-        collect_local_skills(RemoteToolId::Claude, &claude_root, &mut skills).unwrap();
+        collect_local_skills(RemoteToolId::Codex, &codex_root, &managed_root, &mut skills).unwrap();
+        collect_local_skills(
+            RemoteToolId::Claude,
+            &claude_root,
+            &managed_root,
+            &mut skills,
+        )
+        .unwrap();
+        let missing_claude_root = temporary.join("missing-claude/skills");
+        collect_local_skills(
+            RemoteToolId::Claude,
+            &missing_claude_root,
+            &managed_root,
+            &mut skills,
+        )
+        .unwrap();
 
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].view.id, "codex|user-skill");
-        assert!(!claude_root.exists());
+        let expected = if links_supported {
+            vec!["codex|impeccable", "claude|impeccable"]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(
+            skills
+                .iter()
+                .map(|skill| skill.view.id.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(skills.iter().all(|skill| skill
+            .files
+            .iter()
+            .all(|file| file.local_path.starts_with(&managed_skill))));
+        assert!(!missing_claude_root.exists());
+        if links_supported {
+            unlink_directory(&codex_root.join("impeccable")).unwrap();
+            unlink_directory(&claude_root.join("impeccable")).unwrap();
+            unlink_directory(&codex_root.join("foreign")).unwrap();
+        }
         fs::remove_dir_all(&temporary).unwrap();
     }
 

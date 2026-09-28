@@ -1,0 +1,182 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { getNodeValue } from 'jsonc-parser';
+import { jsonTree } from './remote-extension/config.mjs';
+import { networkTransaction, networkSettingsPath } from './remote-extension/network.mjs';
+
+test('network setup does not inspect extension installations or stale server version directories', t => {
+  const f = fixture(t);
+  const server = path.join(path.dirname(f.file), '.vscode-server');
+  fs.mkdirSync(server, {mode:0o700});
+  // Deliberately invalid version-scanning entries: irrelevant to Machine settings.
+  fs.writeFileSync(path.join(server, 'bin'), 'not a directory');
+  fs.writeFileSync(path.join(server, 'extensions'), 'not a directory');
+  assert.equal(networkSettingsPath(path.dirname(f.file), fs.statSync(server).uid), path.join(server, 'data/Machine/settings.json'));
+});
+
+test('network setup distinguishes absent and ambiguous servers and honors explicit agent root', t => {
+  const f = fixture(t), root = path.dirname(f.file), uid = fs.statSync(root).uid;
+  assert.throws(() => networkSettingsPath(root, uid), /vscodeServerMissing/);
+  const stable = path.join(root, '.vscode-server');
+  fs.mkdirSync(stable, {mode:0o700});
+  fs.mkdirSync(path.join(root, '.vscode-server-insiders'), {mode:0o700});
+  assert.throws(() => networkSettingsPath(root, uid), /vscodeServerAmbiguous/);
+  assert.equal(networkSettingsPath(root, uid, stable), path.join(stable, 'data/Machine/settings.json'));
+  assert.throws(() => networkSettingsPath(root, uid, path.dirname(root)), /customHome/);
+});
+
+const sessionId = 'b'.repeat(32);
+
+test('runtime launcher resolves installed executable paths and rejects unsafe or old runtimes', t => {
+  const git = process.platform === 'win32' ? spawnSync('where.exe', ['git'], {encoding:'utf8'}).stdout?.trim().split(/\r?\n/)[0] : null;
+  const shell = git ? path.resolve(path.dirname(git), '../bin/bash.exe') : '/bin/sh';
+  if (!fs.existsSync(shell)) return t.skip('POSIX shell unavailable');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyenv-runtime-'));
+  t.after(() => fs.rmSync(directory, {recursive:true, force:true}));
+  const executable = path.join(directory, 'node');
+  fs.writeFileSync(executable, '#!/bin/sh\nprintf "%s\\n" "${TEST_NODE_VERSION:-v22.0.0}"\n', {mode:0o700});
+  const posix = executable.replaceAll('\\', '/').replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+  const source = fs.readFileSync('src-tauri/src/features/remote_bridge/extension-launch.sh', 'utf8');
+  assert.match(source, /command -v node/);
+  assert.match(source, /\.nvm\/versions\/node\/\*\/bin\/node/);
+  // Mock only POSIX ownership/modes on Windows; run the real selection and
+  // canonicalization control flow and a real executable with a version result.
+  const script = `stat() { if [ "$2" = '%a' ]; then printf '%s' "${'$'}{TEST_NODE_MODE:-755}"; else printf 0; fi; }\n` +
+    source.replace(/^for candidate in .*; do$/m, `for candidate in '${posix}'; do`) + '\nprintf "runtime-ready\\n"\n';
+  const run = env => spawnSync(shell, ['-s'], {input:script, encoding:'utf8', timeout:10000, env:{...process.env,...env}});
+  assert.match(run({}).stdout, /runtime-ready/);
+  assert.match(run({TEST_NODE_MODE:'777'}).stdout, /remoteNodeUnsafe/);
+  assert.match(run({TEST_NODE_VERSION:'v18.0.0'}).stdout, /remoteNodeUnsupported/);
+});
+function fixture(t, initial = null) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'proxyenv-network-'));
+  const file = path.join(root, 'settings.json');
+  if (initial !== null) fs.writeFileSync(file, initial, { mode: 0o600 });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const options = { root, file, uid: fs.statSync(root).uid, sessionId };
+  return {
+    file, journal: file + '.proxyenv-network-state',
+    apply: (extra = {}, inject) => networkTransaction({ ...options, operation: 'network-apply', ...extra }, inject),
+    restore: (extra = {}, inject) => networkTransaction({ ...options, operation: 'network-restore', ...extra }, inject),
+    read: () => ({ ...getNodeValue(jsonTree(fs.readFileSync(file, 'utf8'))) }),
+  };
+}
+test('remote network isolates VS Code from inherited proxies and bypasses AI loopback', t => {
+  const f = fixture(t, '{ // preserved comment\n "editor.fontSize":14, "http.proxy":"http://old.example:8080", "http.noProxy":["*.lab.test"], "http.proxyStrictSSL":true, }');
+  assert.deepEqual(f.apply(), { configured: true });
+  const current = f.read();
+  assert.equal(Object.hasOwn(current, 'http.proxy'), false);
+  assert.equal(Object.hasOwn(current, 'http.proxyAuthorization'), false);
+  assert.equal(current['http.useLocalProxyConfiguration'], false);
+  assert.deepEqual(current['http.noProxy'], ['*.lab.test', 'localhost', '127.0.0.1', '::1']);
+  assert.equal(current['http.proxyStrictSSL'], true);
+  assert.equal(current['editor.fontSize'], 14);
+  assert.match(fs.readFileSync(f.file, 'utf8'), /preserved comment/);
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(f.file).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(f.journal).mode & 0o777, 0o600);
+  }
+});
+test('remote network updates and restores its keys without removing unrelated edits', t => {
+  const f = fixture(t, '{"http.proxy":"http://original:8080","http.proxyAuthorization":null,"http.noProxy":["lab.test"],"theme":"dark"}');
+  f.apply();
+  const edited = f.read(); edited.theme = 'light'; edited['new.setting'] = true;
+  fs.writeFileSync(f.file, JSON.stringify(edited));
+  f.apply();
+  assert.equal(Object.hasOwn(f.read(), 'http.proxy'), false);
+  assert.deepEqual(f.restore(), { restored: true });
+  assert.deepEqual(f.read(), { 'http.proxy':'http://original:8080','http.proxyAuthorization':null,'http.noProxy':['lab.test'],theme:'light','new.setting':true });
+  assert.equal(fs.existsSync(f.journal), false);
+  assert.deepEqual(f.restore(), { restored: true });
+});
+test('remote network rejects concurrent sessions and never overwrites user proxy changes', t => {
+  const f = fixture(t); f.apply();
+  assert.throws(() => f.apply({sessionId:'c'.repeat(32)}), /extensionContextChanged/);
+  assert.throws(() => f.restore({sessionId:'c'.repeat(32)}), /extensionContextChanged/);
+  const edited = f.read(); edited['http.proxy'] = 'http://user:9000';
+  fs.writeFileSync(f.file, JSON.stringify(edited));
+  assert.throws(() => f.apply(), /configConflict/);
+  assert.throws(() => f.restore(), /configConflict/);
+  assert.equal(f.read()['http.proxy'], 'http://user:9000');
+});
+test('remote network rejects malformed settings and invalid ownership without writing', t => {
+  const f = fixture(t, '{"http.proxy":"a","http.proxy":"b"}');
+  assert.throws(() => f.apply(), /configConflict/);
+  assert.throws(() => f.apply({sessionId:'not-a-session'}), /invalidRequest/);
+  assert.equal(fs.existsSync(f.journal), false);
+});
+test('remote network removes only its newly created empty settings file', t => {
+  const f = fixture(t); f.apply(); f.restore();
+  assert.equal(fs.existsSync(f.file), false);
+  f.apply();
+  const edited = f.read(); edited['editor.fontSize'] = 15;
+  fs.writeFileSync(f.file, JSON.stringify(edited));
+  f.restore(); assert.deepEqual(f.read(), { 'editor.fontSize':15 });
+});
+test('remote network rolls back a failed write and preserves the original settings', t => {
+  const initial = '{"theme":"dark"}';
+  const f = fixture(t, initial);
+  for (const stage of ['prepared', 'replaced']) {
+    assert.throws(() => f.apply({}, phase => { if (phase === stage) throw Error('fault'); }), /writeRolledBack/);
+    assert.equal(fs.readFileSync(f.file, 'utf8'), initial);
+    assert.equal(fs.existsSync(f.journal), false);
+  }
+});
+
+test('remote network preserves user comments even when no unrelated settings remain', t => {
+  const f = fixture(t); f.apply();
+  fs.writeFileSync(f.file, '// user note\n' + fs.readFileSync(f.file, 'utf8'));
+  f.apply(); f.restore();
+  assert.match(fs.readFileSync(f.file, 'utf8'), /user note/);
+  assert.deepEqual(f.read(), {});
+});
+test('remote network never rolls back over a concurrent file modification', t => {
+  const f = fixture(t, '{}');
+  assert.throws(() => f.apply({}, phase => {
+    if (phase === 'prepared') fs.writeFileSync(f.file, '{"concurrent":true}');
+  }), /rollbackConflict/);
+  assert.deepEqual(f.read(), {concurrent:true});
+});
+
+test('remote network recovers a prepared journal without losing the original values', t => {
+  const f = fixture(t, '{"http.proxy":"http://original:8080"}');
+  f.apply();
+  const record = JSON.parse(fs.readFileSync(f.journal, 'utf8'));
+  record.state = 'prepared';
+  fs.writeFileSync(f.journal, JSON.stringify(record));
+  f.restore();
+  assert.deepEqual(f.read(), { 'http.proxy':'http://original:8080' });
+});
+
+test('remote network restoration precedes a new session and never stores proxy credentials', t => {
+  const f = fixture(t, '{"http.proxy":"http://original:8080"}');
+  f.apply(); f.restore();
+  const result = f.apply({sessionId:'c'.repeat(32)});
+  assert.deepEqual(result, {configured:true});
+  assert.equal(Object.hasOwn(f.read(), 'http.proxy'), false);
+  const journal = fs.readFileSync(f.journal, 'utf8');
+  assert.doesNotMatch(journal, /sessionToken|Basic |proxyenv:/i);
+  assert.throws(() => f.restore(), /extensionContextChanged/);
+  f.restore({sessionId:'c'.repeat(32)});
+  assert.deepEqual(f.read(), { 'http.proxy':'http://original:8080' });
+});
+
+test('manual credentials remain a closed fallback in Advanced and VS Code uses managed setup', () => {
+  const page = fs.readFileSync('src/features/remote-bridge/components/RemoteBridgePage.vue', 'utf8');
+  assert.match(page, /v-show="advancedView"[\s\S]*<details class="remote-auth-fallback">/);
+  const fallback = page.slice(page.indexOf('<details class="remote-auth-fallback">'), page.indexOf('</details>', page.indexOf('<details class="remote-auth-fallback">')));
+  assert.match(fallback, /copyProxyPassword/);
+  assert.doesNotMatch(fallback, /\bopen(?:=|\s|>)/);
+  const commands = fs.readFileSync('src-tauri/src/commands/remote_bridge.rs', 'utf8');
+  assert.match(commands, /bridge::open_vscode\(target_id\)/);
+  const bridge = fs.readFileSync('src-tauri/src/features/remote_bridge/mod.rs', 'utf8');
+  assert.match(bridge, /vscode_network::apply\(/);
+  assert.match(bridge, /ai_relay[\s\S]*\.or\(state\.proxy_relay\.as_ref\(\)\)/);
+  assert.match(bridge, /state\.proxy_relay = None;\s*state\.ai_relay = None;\s*let vscode_restore_error = restore_vscode_network/);
+  const network = fs.readFileSync('src-tauri/src/features/remote_bridge/vscode_network.rs', 'utf8');
+  assert.doesNotMatch(network, /sessionToken|proxyAuthorization|relay\.token/);
+});

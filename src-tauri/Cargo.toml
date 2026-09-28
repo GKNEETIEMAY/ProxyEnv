@@ -40,6 +40,10 @@ zeroize = "1"
 [target.'cfg(windows)'.dependencies]
 netstat2 = "0.11"
 windows = { version = "0.61", features = [
+  "Foundation",
+  "Data_Xml_Dom",
+  "UI_Notifications",
+  "Win32_System_WinRT",
   "Win32_Globalization",
   "Win32_Foundation",
   "Win32_NetworkManagement_IpHelper",

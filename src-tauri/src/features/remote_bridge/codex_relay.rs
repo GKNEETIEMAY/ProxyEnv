@@ -16,6 +16,7 @@ use std::{
     thread::{self, JoinHandle},
     time::Duration,
 };
+use zeroize::Zeroizing;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
@@ -107,16 +108,45 @@ struct Request {
     body: Vec<u8>,
 }
 
-fn handle(mut downstream: TcpStream, upstream: ProxyEndpoint) {
+type TokenVerifier<'a> = &'a dyn Fn(&[u8]) -> bool;
+
+fn handle(downstream: TcpStream, upstream: ProxyEndpoint) {
+    let _ = handle_inner(downstream, upstream, None, Zeroizing::new(Vec::new()));
+}
+
+pub(super) fn handle_authenticated(
+    downstream: TcpStream,
+    upstream: ProxyEndpoint,
+    accepts: impl Fn(&[u8]) -> bool,
+) -> Result<(), &'static str> {
+    handle_authenticated_buffered(downstream, upstream, accepts, Zeroizing::new(Vec::new()))
+}
+
+pub(super) fn handle_authenticated_buffered(
+    downstream: TcpStream,
+    upstream: ProxyEndpoint,
+    accepts: impl Fn(&[u8]) -> bool,
+    received: Zeroizing<Vec<u8>>,
+) -> Result<(), &'static str> {
+    handle_inner(downstream, upstream, Some(&accepts), received)
+}
+
+fn handle_inner(
+    mut downstream: TcpStream,
+    upstream: ProxyEndpoint,
+    accepts: Option<TokenVerifier<'_>>,
+    received: Zeroizing<Vec<u8>>,
+) -> Result<(), &'static str> {
     let _ = downstream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = downstream.set_write_timeout(Some(IO_TIMEOUT));
     let result = downstream
         .set_nonblocking(false)
         .map_err(|_| "relayUnavailable")
-        .and_then(|_| read_request(&mut downstream))
+        .and_then(|_| read_buffered_request_with_auth(&mut downstream, accepts, received))
         .and_then(|request| forward(&mut downstream, upstream, request));
     if let Err(code) = result {
         let (status, message) = match code {
+            "relayUnauthorized" => (401, "the bridge session is not authorized"),
             "relayUnavailable" => (502, "the local CC Switch route is unavailable"),
             _ => (400, "the request could not be relayed safely"),
         };
@@ -130,11 +160,32 @@ fn handle(mut downstream: TcpStream, upstream: ProxyEndpoint) {
         let _ = downstream.flush();
     }
     let _ = downstream.shutdown(Shutdown::Write);
+    result
 }
 
 fn read_request(stream: &mut TcpStream) -> Result<Request, &'static str> {
-    let mut received = Vec::new();
+    read_request_with_auth(stream, None)
+}
+
+fn read_request_with_auth(
+    stream: &mut TcpStream,
+    accepts: Option<TokenVerifier<'_>>,
+) -> Result<Request, &'static str> {
+    read_buffered_request_with_auth(stream, accepts, Zeroizing::new(Vec::new()))
+}
+
+fn read_buffered_request_with_auth(
+    stream: &mut TcpStream,
+    accepts: Option<TokenVerifier<'_>>,
+    mut received: Zeroizing<Vec<u8>>,
+) -> Result<Request, &'static str> {
     let header_end = loop {
+        if let Some(index) = received.windows(4).position(|window| window == b"\r\n\r\n") {
+            if index + 4 > MAX_HEADER_BYTES {
+                return Err("invalidRequest");
+            }
+            break index + 4;
+        }
         if received.len() >= MAX_HEADER_BYTES {
             return Err("invalidRequest");
         }
@@ -144,9 +195,6 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, &'static str> {
             return Err("invalidRequest");
         }
         received.extend_from_slice(&chunk[..count]);
-        if let Some(index) = received.windows(4).position(|window| window == b"\r\n\r\n") {
-            break index + 4;
-        }
     };
     let head = std::str::from_utf8(&received[..header_end]).map_err(|_| "invalidRequest")?;
     let mut lines = head[..head.len() - 4].split("\r\n");
@@ -154,17 +202,12 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, &'static str> {
     let method = request_line.next().ok_or("invalidRequest")?;
     let target = request_line.next().ok_or("invalidRequest")?;
     let version = request_line.next().ok_or("invalidRequest")?;
-    if request_line.next().is_some()
-        || method != "POST"
-        || !matches!(version, "HTTP/1.0" | "HTTP/1.1")
-    {
-        return Err("invalidRequest");
-    }
-    let path = normalize_request_target(target)?;
     let mut headers = Vec::new();
     let mut content_length = None;
     let mut chunked = false;
     let mut expects_continue = false;
+    let mut authenticated = accepts.is_none();
+    let mut session_header_seen = false;
     for line in lines {
         if line.starts_with([' ', '\t']) {
             return Err("invalidRequest");
@@ -174,6 +217,16 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, &'static str> {
         let value = value.trim();
         if name.is_empty() || value.contains(['\r', '\n']) {
             return Err("invalidRequest");
+        }
+        if let Some(accepts) = accepts {
+            if name.eq_ignore_ascii_case(super::authenticated_relay::SESSION_HEADER) {
+                if session_header_seen {
+                    return Err("invalidRequest");
+                }
+                session_header_seen = true;
+                authenticated = accepts(value.as_bytes());
+                continue;
+            }
         }
         if name.eq_ignore_ascii_case("content-length") {
             let parsed = value.parse::<usize>().map_err(|_| "invalidRequest")?;
@@ -197,6 +250,16 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, &'static str> {
         }
         headers.push((name.to_owned(), value.to_owned()));
     }
+    if !authenticated {
+        return Err("relayUnauthorized");
+    }
+    if request_line.next().is_some()
+        || !matches!(method, "POST" | "GET" | "HEAD")
+        || !matches!(version, "HTTP/1.0" | "HTTP/1.1")
+    {
+        return Err("invalidRequest");
+    }
+    let path = normalize_request_target(target)?;
     if chunked && content_length.is_some() {
         return Err("invalidRequest");
     }
@@ -209,7 +272,11 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, &'static str> {
     let body = if chunked {
         decode_chunked(stream, received[header_end..].to_vec())?
     } else {
-        let content_length = content_length.ok_or("invalidRequest")?;
+        let content_length = match content_length {
+            Some(length) => length,
+            None if matches!(method, "GET" | "HEAD") => 0,
+            None => return Err("invalidRequest"),
+        };
         if content_length > MAX_REQUEST_BYTES {
             return Err("invalidRequest");
         }

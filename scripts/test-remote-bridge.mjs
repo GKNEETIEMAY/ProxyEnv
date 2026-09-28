@@ -118,7 +118,19 @@ test("managed remote environment is session-owned and removable",{skip:!availabl
     const content=readFileSync(file,"utf8");
     assert.match(content,/# ProxyEnv managed session 0123456789abcdef0123456789abcdef/);
     assert.match(content,/HTTP_PROXY='http:\/\/proxyenv:[0-9a-f]{64}@127\.0\.0\.1:17897'/);
-    assert.match(content,/NO_PROXY='localhost,127\.0\.0\.1,::1'/);
+    assert.match(content,/export NO_PROXY="localhost,127\.0\.0\.1,::1/);
+    const sourced=spawnSync(shell,["-s"],{encoding:"utf8",input:`
+export HTTP_PROXY=old HTTPS_PROXY=old ALL_PROXY=old http_proxy=stale https_proxy=stale all_proxy=stale
+export NO_PROXY=internal.example no_proxy=private.example
+. '${posix(file)}'
+[ "$HTTP_PROXY" = "$http_proxy" ] && [ "$HTTPS_PROXY" = "$https_proxy" ] || exit 11
+[ -z "\${ALL_PROXY:-}" ] && [ -z "\${all_proxy:-}" ] || exit 12
+[ "$NO_PROXY" = 'localhost,127.0.0.1,::1,internal.example,private.example' ] || exit 13
+[ "$NO_PROXY" = "$no_proxy" ] || exit 14
+printf 'environment-ok'
+`});
+    assert.equal(sourced.status,0,'session environment must clear stale variables and preserve bypasses');
+    assert.equal(sourced.stdout,'environment-ok');
     assert.ok(!JSON.stringify(applied).includes(token));
     assert.deepEqual(f.run("session-env-remove"),{sessionEnvironment:"removed"});
     assert.equal(existsSync(file),false);
@@ -135,6 +147,25 @@ test("managed remote environment refuses foreign same-name files",{skip:!availab
     assert.equal(f.run("session-env-remove").error,"configConflict");
     assert.equal(readFileSync(file,"utf8"),"export FOREIGN_VALUE=keep\n");
   } finally { f.cleanup(); }
+});
+
+test("external proxy password is explicitly copied, never included in the summary or exports",()=>{
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
+  assert.match(page,/@click="copyProxyPassword"/);
+  assert.match(page,/copyText\(await remoteBackend\.proxyPassword\(target, port\)\)/);
+  assert.doesNotMatch(page,/copyValue\(summary\.environment\)|\{\{ summary\.environment \}\}/);
+  assert.doesNotMatch(state.match(/export interface BridgeSummary[^\n]+/)[0],/token|password|secret/i);
+  const password=bridge.slice(bridge.indexOf("pub fn proxy_password("),bridge.indexOf("pub fn session_environment_command("));
+  assert.match(password,/capability_ready\(state\.child\.is_some\(\), state\.summary\.proxy_status\)/);
+  assert.match(password,/ssh::fingerprint\(&target_id\)/);
+  assert.match(password,/endpoint\.remote_port\)\s*!= Some\(remote_port\)/);
+  assert.match(password,/state\s*\.proxy_relay/);
+  assert.doesNotMatch(password,/ai_relay/);
+  const verify=bridge.slice(bridge.indexOf("pub fn verify_tool("),bridge.indexOf("#[cfg(test)]",bridge.indexOf("pub fn verify_tool(")));
+  assert.match(verify,/capability_ready\(state\.child\.is_some\(\), state\.summary\.cc_status\)/);
+  assert.doesNotMatch(verify,/summary\.status != Status::Connected/);
 });
 test("Claude request verification returns only an allowlisted state",{skip:!available || !python},()=>{
   const f=fixture();try {
@@ -363,13 +394,15 @@ test("managed proxy terminal loads a private authenticated session environment",
   assert.match(page,/@click="launchProxyTerminal"/);
   assert.match(page,/remoteBackend\.launchManualTerminal\(\)/);
   assert.match(page,/<div class="remote-advanced-panel">/);
-  assert.match(page,/v-if="summary\.environment"/);
+  assert.doesNotMatch(page,/v-if="summary\.environment"/);
+  assert.match(page,/remoteBackend\.sessionEnvironmentCommand\(\)/);
   const advancedStart=page.indexOf('<div class="remote-advanced-panel">');
   const advanced=page.slice(advancedStart,page.indexOf('</section>',advancedStart));
   assert.match(advanced,/remoteBackend\.launchMobaxterm\(summary\.target!\.id\)/);
   assert.match(advanced,/summary\.target\?\.source === 'mobaxterm'/);
-  assert.match(advanced,/v-if="summary\.environment" class="remote-hint"/);
-  assert.match(page,/remote-primary-actions[\s\S]*remoteBackend\.openVscode\(summary\.target!\.id\)/);
+  assert.match(page,/@click="copySessionEnvironment"/);
+  assert.match(page,/async function openVscode\(\)[\s\S]*remoteBackend\.openVscode\(props\.summary\.target!\.id\)/);
+  assert.match(page,/remote-primary-actions[\s\S]*@click="perform\(openVscode\)"/);
   assert.match(ssh,/fn launch_terminal/);
   assert.match(ssh,/launch_terminal\(target_id, fingerprint, None\)/);
 });
@@ -683,7 +716,7 @@ test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary"
   assert.doesNotMatch(dialog,/routeMappings|compatibilityRules|incomingModel|targetModel/);
 });
 
-test("Skills projection is effective-directory based, staged, owned and metadata-triggered",()=>{
+test("Skills projection is CC Switch-link based, staged, owned and metadata-triggered",()=>{
   const skills=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
   const remote=readFileSync("src-tauri/src/features/remote_bridge/skill-remote.sh","utf8");
@@ -693,6 +726,12 @@ test("Skills projection is effective-directory based, staged, owned and metadata
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(skills,/CODEX_HOME[\s\S]*\.codex/);
   assert.match(skills,/CLAUDE_CONFIG_DIR[\s\S]*\.claude/);
+  assert.match(skills,/\.cc-switch[\s\S]*skills/);
+  assert.match(skills,/is_link_or_reparse/);
+  assert.match(skills,/cc_switch_skill_target/);
+  assert.match(skills,/is_direct_cc_switch_target/);
+  assert.match(skills,/disabled: Vec<String>/);
+  assert.match(skills,/remove_projection\(id\.clone\(\), false\)/);
   assert.match(skills,/value == "\.system"/);
   assert.match(skills,/metadata_stamp_id/);
   assert.match(skills,/sleep\(Duration::from_secs\(2\)\)/);
@@ -712,6 +751,10 @@ test("Skills projection is effective-directory based, staged, owned and metadata
   assert.match(runtime,/remote_bridge_skills/);
   assert.match(state,/enableSkill/);
   assert.match(page,/rbSkillsTitle/);
+  assert.match(page,/const skillGroups = computed/);
+  assert.match(page,/group\.codex/);
+  assert.match(page,/group\.claude/);
+  assert.match(page,/scheduleSkillsPolling/);
 });
 
 test("connected bridge defaults to a concise overview and preserves advanced state in place",()=>{
@@ -727,7 +770,7 @@ test("connected bridge defaults to a concise overview and preserves advanced sta
   assert.match(page,/v-if="advancedView \|\| skills\.length > 0" class="remote-next-section remote-skills"/);
   assert.match(page,/remote-primary-actions/);
   assert.doesNotMatch(page,/v-if="advancedView" class="remote-next-section"/);
-  for(const key of ["rbSimpleView","rbAdvancedView","rbViewMode","rbToolsTitle","rbSkillsSummary"]) {
+  for(const key of ["rbSimpleView","rbAdvancedView","rbViewMode","rbToolsTitle","rbSkillsSummary","rbSkillNotLinked"]) {
     assert.equal(copy.match(new RegExp(`${key}:`,"g"))?.length,4,`${key} must exist in all four locales`);
   }
 });

@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build:remote": "node scripts/build-remote-extension.mjs",
-    "test:extensions": "node scripts/build-remote-extension.mjs --check && node --test scripts/test-remote-extension.mjs",
+    "test:extensions": "node scripts/build-remote-extension.mjs --check && node --test scripts/test-remote-extension.mjs scripts/test-remote-network.mjs",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
