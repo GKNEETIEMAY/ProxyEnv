@@ -37,7 +37,8 @@ ProxyEnv may:
 - contact the fixed official GitHub Releases API and pinned HTTPS updater manifest only when the user explicitly selects **Check for updates**;
 - after an explicit **Download and install** action, download only the manifest-selected installer, require Tauri signature verification, replace only the registered NSIS installation, and restart after successful installation.
 - in v0.2 development, after explicit selection and confirmation, establish owned SSH reverse forwards through loopback-only authenticated relays to fixed, reviewed local proxy/AI-route upstreams and revoke them on disconnect;
-- after the user enables a supported remote tool, validate, back up, atomically update and verify only allowlisted Codex/Claude user-profile fields, preserving unrelated content and refusing conflicting restore state. A remote Skill projection is planned but not yet enabled.
+- after the user enables a supported remote tool, validate, back up, atomically update and verify only allowlisted Codex/Claude user-profile fields, preserving unrelated content and refusing conflicting restore state;
+- project only CC Switch-managed Skill links explicitly selected for Codex or Claude through a staged, hash-verified and ownership-marked transaction, and remove only the remote files owned by that transaction.
 
 ## Prohibited capabilities
 
@@ -79,7 +80,7 @@ An eligible plain SSH server password may be retained **only during the current 
 
 Loopback binding of an SSH reverse forward does not isolate Unix UIDs: another user on the same Linux host may attempt to connect. M8 therefore generates fresh 256-bit credentials for backend-owned General Proxy and AI Route relays, authenticates before access to a fixed upstream, rotates on reconnect and revokes before disconnect cleanup. General Proxy credentials are delivered only through a mode-`0600` session environment; Codex and Claude receive a distinct transient header through their owned configuration transaction. Tokens stay out of the WebView, copied exports, logs, diagnostic reports, provider API-key fields, `auth.json` and process command lines. A different UID without the token is denied by design; real shared-host verification is still pending. The same UID is one trust domain; root is outside a user-space isolation guarantee. See the [M8 design](docs/remote-bridge/AUTHENTICATED_RELAY.md).
 
-Remote Skills projection is **not yet implemented**. Its planned upload staging, manifest/hash verification, ownership marker, foreign same-name conflict and owned-only removal must be implemented and tested before claiming Skills are synchronized. No remote user file may be overwritten merely because a name matches. Legacy extension recovery code remains while its callers and restore obligations exist.
+Remote Skills projection accepts only user-managed CC Switch links whose resolved source stays inside the CC Switch Skills directory. Native/system Skills are excluded. Upload staging, manifest/hash verification, an ownership marker, foreign same-name conflict handling and owned-only removal protect the remote account; no remote user file is overwritten merely because a name matches. Automated regression coverage exists, while real Codex/Claude Agent discovery on the release matrix remains pending. Legacy extension recovery code remains while its callers and restore obligations exist.
 
 ## Release security priorities
 

@@ -30,7 +30,7 @@ The connected UI defaults to a concise Overview and preserves detailed port, rou
 | Session authentication and shared-host threat model | [Authenticated relay](AUTHENTICATED_RELAY.md) |
 | Import, manual targets and Moba launch | [SSH connection manager](SSH_CONNECTION_MANAGER.md) |
 | Session-owned shell environment | [Managed remote environment](MANAGED_REMOTE_ENVIRONMENT.md) |
-| Effective local skills and remote projection | [Skills projection](SKILLS_REMOTE_PROJECTION.md) |
+| CC Switch-linked skills and remote projection | [Skills projection](SKILLS_REMOTE_PROJECTION.md) |
 | Progressive disclosure and status language | [UI/UX](UI_UX.md) |
 | Actual real-device and CI evidence | [Acceptance](ACCEPTANCE_V0.2.md) |
 | Deferred MCP research | [MCP v0.3](MCP_V0.3.md) |

@@ -165,6 +165,16 @@ Remote Bridge below describes implemented `v0.2.0dev` code, not stable-release s
 
 远程桥接部分描述 `v0.2.0dev` 已实现代码，并非稳定版承诺。M8 token 认证、远端会话环境、SSH 连接管理和受所有权保护的 Skills 投影已经实现，仍需完成对应实机验收；简易/高级界面仍待收口。共享 Linux 主机上的 loopback 监听不能隔离不同用户。
 
+An established bridge keeps one backend-owned recovery descriptor: target fingerprint, selected proxy revision, requested remote ports and live authenticated relays. The two-second monitor detects a terminated OpenSSH transport and retries a lightweight probe plus the same reverse forwards with bounded backoff. It never changes targets or ports, rotates credentials, rewrites remote configuration, or replays interrupted application traffic during silent recovery. Manual disconnect, target replacement and application exit invalidate the generation before cleanup, so an in-flight retry cannot resurrect the bridge. Authentication, fingerprint, SSH configuration or active-proxy changes pause recovery and surface one actionable notification; ordinary retry and success stay silent.
+
+已建立的桥接由后端保留一份恢复描述：目标指纹、活动代理版本、既定远端端口与仍然有效的认证中继。两秒监控发现 OpenSSH 传输退出后，以有上限的退避执行轻量探测并重建相同反向转发。静默恢复期间不会切换目标或端口、轮换凭据、重写远端配置，也不会重放中断的应用请求。手动断开、替换目标和退出程序会先让恢复代次失效，因此在途重试不能重新拉起桥接。只有认证、指纹、SSH 配置或活动代理发生变化时才暂停并发出一次可操作提醒；普通重试和成功恢复保持静默。
+
+Local Skill discovery follows only top-level links in the Codex or Claude Skill directory whose canonical, same-named target is a direct child of `~/.cc-switch/skills`. Native tool Skills, Codex `.system`, unrelated links and nested links/reparse points are excluded from remote projection.
+
+Equal Skill names are grouped into one UI row while Codex and Claude remain independent projections. A discovered CC Switch link is enabled by default unless the user explicitly opts that tool out. The bridge monitor detects link additions, content changes and removals; removal is debounced and deletes only the matching ownership-verified remote projection.
+
+本机 Skill 发现只接受 Codex 或 Claude Skill 目录中的顶层链接，且其规范目标必须是 `~/.cc-switch/skills` 下的同名直属目录。本机工具原生 Skills、Codex `.system`、无关链接以及内容中的嵌套链接/重解析点均不会投影到远端。同名 Skill 在界面中合并为一行，但 Codex 与 Claude 仍是彼此独立的投影；发现 CC Switch 链接后默认启用，除非用户明确停用该工具。桥接监控会检测新增、内容变化与链接移除；移除经过防抖后，只删除通过所有权校验的对应远端投影。
+
 Remote Bridge is a first-level product surface beside Local Environment. `AppShell.vue` owns the primary `local | remote` navigation context and keeps both primary surfaces mounted after first use, switching visibility without a cross-fade or keyed remount. The application assistant remains a Local Environment drill-down, while Settings returns to whichever primary surface opened it. `RemoteBridgePage.vue` owns one continuous setup/status workspace and uses dialogs only for OpenSSH interaction, reviewed Codex/Claude configuration, restore, and disconnect confirmation.
 
 远程桥接与本机环境并列为一级页面，两者首次打开后保持挂载，切换时不再交叉淡入淡出或按 `key` 重建。远程页在同一工作区内完成目标选择、SSH 检查、能力配置和连接；连接前仍调用后端预览与重校验，但不再展示独立且重复的“确认桥接配置”页面。连接后原位显示精简状态与后续操作。弹窗仅用于 OpenSSH 交互、配置写入、恢复和断开等独立任务。
