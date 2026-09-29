@@ -15,13 +15,13 @@ The user reported that, on their Windows → Linux target, Codex CLI, Codex VS C
 | Claude CLI and Claude VS Code extension request | User real-device report | Observed on one target; repeat after latest changes |
 | CC Switch-linked Skill transfer | User real-device report | Transfer observed; Agent discovery still pending |
 | Streaming and provider/model change | Not recorded as an acceptance run | Pending |
-| SSH host key, password/KBI, Moba launch, shared-host relay isolation | No release matrix recorded | Pending |
+| SSH host key, password/KBI, Moba launch, shared-host General Proxy exposure and AI Route isolation | No release matrix recorded | Pending |
 | Disconnect/reconnect and conflict-safe restore | Restart and one disconnect/reconnect succeeded on 2026-09-28; conflict restore not exercised | Partial; extended reconnect and restore run pending |
-| VS Code General Proxy isolation and restoration | Initial open reproduced a proxy-authentication loop until window reload; launch ordering was corrected and automated tests pass | Fixed in code; real-device retest pending |
+| VS Code General Proxy isolation and restoration | Initial open reproduced a proxy-authentication loop until window reload; General Proxy credentials were removed and automated tests pass | Fixed in code; real-device retest pending |
 | Codex stream continuity after reconnect | One request recovered on retry 1/5 after reconnect | Observe after VS Code ordering retest; repeated disconnects remain a blocker |
 
 ## Release matrix to complete
 
 Record date, Windows build, local proxy client/Active Proxy, VS Code build/Remote SSH, Linux distribution/kernel/UID context, Codex Extension/bundled Codex/CLI and Claude versions, CC Switch/provider/model, General Proxy and AI Route ports (redacted when shared), streaming, tool calls, file edit, disconnect/reconnect, ownership restore, expected/actual result and safe evidence. Keep credentials, raw paths, tokens and SSH transcripts out of this file.
 
-The release gate also requires Windows and Linux CI, RustSec and security audit green; live different-UID verification of the implemented M8 token isolation; all in-scope productization work; and explicit maintainer review of the full matrix. Local automated tests document implementation regressions only. The earlier `docs/REMOTE_BRIDGE.md` snapshots and mocked tests cannot substitute for live acceptance.
+The release gate also requires Windows and Linux CI, RustSec and security audit green; live verification that General Proxy exposure matches the documented no-isolation boundary and that AI Route tokens reject other UIDs; all in-scope productization work; and explicit maintainer review of the full matrix. Local automated tests document implementation regressions only. The earlier `docs/REMOTE_BRIDGE.md` snapshots and mocked tests cannot substitute for live acceptance.

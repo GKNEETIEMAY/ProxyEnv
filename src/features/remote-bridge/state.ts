@@ -90,7 +90,6 @@ export const remoteBackend = {
   disconnect: () => invoke<BridgeSummary>("remote_bridge_disconnect", { confirmed:true }),
   test: () => invoke<void>("remote_bridge_test"),
   launchProxyTerminal: () => invoke<void>("remote_bridge_launch_proxy_terminal"),
-  proxyPassword: (targetId: string, remotePort: number) => invoke<string>("remote_bridge_proxy_password", { targetId, remotePort }),
   sessionEnvironmentCommand: () => invoke<string>("remote_bridge_session_environment_command"),
   launchManualTerminal: () => invoke<void>("remote_bridge_launch_manual_terminal"),
   clearSessionCredential: () => invoke<void>("remote_bridge_clear_session_credential"),

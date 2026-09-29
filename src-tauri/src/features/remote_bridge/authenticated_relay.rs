@@ -15,7 +15,6 @@ use zeroize::Zeroizing;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
-const USERNAME: &str = "proxyenv";
 pub(super) const SESSION_HEADER: &str = "x-proxyenv-session";
 
 #[derive(Clone, Copy)]
@@ -328,17 +327,14 @@ fn handle_http(
         .and_then(|route| route.request_line(request_line));
     output.push_str(ai_request_line.as_deref().unwrap_or(request_line));
     output.push_str("\r\n");
-    let mut authenticated = false;
     for line in lines {
         if line.starts_with([' ', '\t']) {
             return Err("invalidRequest");
         }
-        let (name, value) = line.split_once(':').ok_or("invalidRequest")?;
+        let (name, _) = line.split_once(':').ok_or("invalidRequest")?;
         if name.trim().eq_ignore_ascii_case("proxy-authorization") {
-            if authenticated {
-                return Err("invalidRequest");
-            }
-            authenticated = valid_basic(value.trim(), &session);
+            // General proxy access is intentionally credential-free. Never
+            // forward stale or user-supplied proxy credentials upstream.
             continue;
         }
         // Never leak the AI session token to a general proxy/upstream site.
@@ -347,12 +343,6 @@ fn handle_http(
         }
         output.push_str(line);
         output.push_str("\r\n");
-    }
-    if !authenticated && ai_request_line.is_none() {
-        let _ = downstream.write_all(
-            b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"ProxyEnv\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        );
-        return Err("relayUnauthorized");
     }
     if session.revoked.load(Ordering::Acquire) {
         return Err("relayUnauthorized");
@@ -405,89 +395,22 @@ fn handle_http(
     result
 }
 
-fn valid_basic(value: &str, session: &Session) -> bool {
-    let Some((scheme, encoded)) = value.split_once(' ') else {
-        return false;
-    };
-    if !scheme.eq_ignore_ascii_case("basic") || encoded.contains(char::is_whitespace) {
-        return false;
-    }
-    let Some(decoded) = decode_base64(encoded.as_bytes()) else {
-        return false;
-    };
-    let decoded = Zeroizing::new(decoded);
-    let prefix = format!("{USERNAME}:");
-    decoded.starts_with(prefix.as_bytes()) && session.accepts(&decoded[prefix.len()..])
-}
-
-fn decode_base64(input: &[u8]) -> Option<Vec<u8>> {
-    if input.is_empty() || !input.len().is_multiple_of(4) {
-        return None;
-    }
-    let mut output = Vec::with_capacity(input.len() / 4 * 3);
-    for chunk in input.as_chunks::<4>().0 {
-        let mut values = [0u8; 4];
-        let mut padding = 0;
-        for (index, byte) in chunk.iter().copied().enumerate() {
-            values[index] = match byte {
-                b'A'..=b'Z' => byte - b'A',
-                b'a'..=b'z' => byte - b'a' + 26,
-                b'0'..=b'9' => byte - b'0' + 52,
-                b'+' => 62,
-                b'/' => 63,
-                b'=' if index >= 2 => {
-                    padding += 1;
-                    0
-                }
-                _ => return None,
-            };
-        }
-        if padding > 2 || (padding > 0 && chunk[3] != b'=') {
-            return None;
-        }
-        output.push((values[0] << 2) | (values[1] >> 4));
-        if padding < 2 {
-            output.push((values[1] << 4) | (values[2] >> 2));
-        }
-        if padding == 0 {
-            output.push((values[2] << 6) | values[3]);
-        }
-    }
-    Some(output)
-}
-
 fn handle_socks5(
     mut downstream: TcpStream,
     upstream: ProxyEndpoint,
     session: Arc<Session>,
 ) -> Result<(), &'static str> {
     let methods = read_socks_frame(&mut downstream, 2, |head| usize::from(head[1]))?;
-    if methods[0] != 5 || !methods[2..].contains(&2) {
+    if methods[0] != 5 || !methods[2..].contains(&0) {
         downstream
             .write_all(&[5, 0xff])
             .map_err(|_| "relayUnavailable")?;
-        return Err("relayUnauthorized");
-    }
-    downstream
-        .write_all(&[5, 2])
-        .map_err(|_| "relayUnavailable")?;
-    let username = read_socks_frame(&mut downstream, 2, |head| usize::from(head[1]))?;
-    if username[0] != 1 {
         return Err("invalidRequest");
     }
-    let mut password_head = [0u8; 1];
     downstream
-        .read_exact(&mut password_head)
-        .map_err(|_| "invalidRequest")?;
-    let mut password = Zeroizing::new(vec![0u8; usize::from(password_head[0])]);
-    downstream
-        .read_exact(password.as_mut_slice())
-        .map_err(|_| "invalidRequest")?;
-    let valid = username[2..] == *USERNAME.as_bytes() && session.accepts(password.as_slice());
-    downstream
-        .write_all(&[1, if valid { 0 } else { 1 }])
+        .write_all(&[5, 0])
         .map_err(|_| "relayUnavailable")?;
-    if !valid || session.revoked.load(Ordering::Acquire) {
+    if session.revoked.load(Ordering::Acquire) {
         return Err("relayUnauthorized");
     }
     let request = read_socks_request(&mut downstream)?;
@@ -594,32 +517,6 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
 
-    fn basic(token: &str) -> String {
-        const TABLE: &[u8; 64] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let input = format!("{USERNAME}:{token}");
-        let bytes = input.as_bytes();
-        let mut output = String::new();
-        for chunk in bytes.chunks(3) {
-            let a = chunk[0];
-            let b = *chunk.get(1).unwrap_or(&0);
-            let c = *chunk.get(2).unwrap_or(&0);
-            output.push(TABLE[(a >> 2) as usize] as char);
-            output.push(TABLE[((a & 3) << 4 | b >> 4) as usize] as char);
-            output.push(if chunk.len() > 1 {
-                TABLE[((b & 15) << 2 | c >> 6) as usize] as char
-            } else {
-                '='
-            });
-            output.push(if chunk.len() > 2 {
-                TABLE[(c & 63) as usize] as char
-            } else {
-                '='
-            });
-        }
-        output
-    }
-
     fn upstream() -> (ProxyEndpoint, mpsc::Receiver<Vec<u8>>) {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -708,10 +605,7 @@ mod tests {
         let (proxy, unused) = routed_proxy(&ai, 15721);
         for headers in [
             String::new(),
-            format!(
-                "Proxy-Authorization: Basic {}\r\n",
-                basic(proxy.token().as_str())
-            ),
+            "Proxy-Authorization: Basic ignored\r\n".into(),
             format!("X-ProxyEnv-Session: {}\r\n", proxy.token().as_str()),
         ] {
             let response = exchange(proxy.port(), &format!(
@@ -729,24 +623,11 @@ mod tests {
     }
 
     #[test]
-    fn ai_token_does_not_authorize_general_proxy_and_revoked_route_fails_closed() {
+    fn revoked_ai_route_fails_closed_even_when_general_proxy_remains_available() {
         let (endpoint, _receiver) = upstream();
         let ai = AuthenticatedRelay::start(endpoint, RelayMode::AiHttp).unwrap();
         let (proxy, unused) = routed_proxy(&ai, 15721);
         let token = ai.token();
-        for target in [
-            "http://example.com/v1/responses",
-            "http://127.0.0.1:15722/v1/responses",
-        ] {
-            let response = exchange(
-                proxy.port(),
-                &format!(
-                    "POST {target} HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 0\r\n\r\n",
-                    token.as_str()
-                ),
-            );
-            assert!(response.starts_with("HTTP/1.1 407"), "{response}");
-        }
         drop(ai);
         let response = exchange(proxy.port(), &format!(
             "POST http://127.0.0.1:15721/v1/responses HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 0\r\n\r\n", token.as_str()));
@@ -759,8 +640,10 @@ mod tests {
         let (endpoint, receiver) = upstream();
         let proxy =
             AuthenticatedRelay::start(endpoint, RelayMode::General(ProxyProtocol::Http)).unwrap();
-        let response = exchange(proxy.port(), &format!(
-            "GET http://example.com/ HTTP/1.1\r\nProxy-Authorization: Basic {}\r\nX-ProxyEnv-Session: private-ai-token\r\n\r\n", basic(proxy.token().as_str())));
+        let response = exchange(
+            proxy.port(),
+            "GET http://example.com/ HTTP/1.1\r\nProxy-Authorization: Basic ignored\r\nX-ProxyEnv-Session: private-ai-token\r\n\r\n",
+        );
         assert!(response.starts_with("HTTP/1.1 200"));
         let request =
             String::from_utf8(receiver.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
@@ -908,48 +791,29 @@ mod tests {
     }
 
     #[test]
-    fn general_http_relay_requires_session_credentials() {
+    fn general_http_relay_accepts_requests_without_credentials() {
         let (endpoint, receiver) = upstream();
         let relay =
             AuthenticatedRelay::start(endpoint, RelayMode::General(ProxyProtocol::Http)).unwrap();
-        let mut denied = TcpStream::connect((Ipv4Addr::LOCALHOST, relay.port())).unwrap();
-        denied
+        let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, relay.port())).unwrap();
+        client
             .write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n")
             .unwrap();
         let mut response = String::new();
-        denied.read_to_string(&mut response).unwrap();
-        assert!(response.starts_with("HTTP/1.1 407"));
-
-        let mut allowed = TcpStream::connect((Ipv4Addr::LOCALHOST, relay.port())).unwrap();
-        let request = format!(
-            "CONNECT example.com:443 HTTP/1.1\r\nProxy-Authorization: Basic {}\r\n\r\n",
-            basic(relay.token().as_str())
-        );
-        allowed.write_all(request.as_bytes()).unwrap();
-        let mut response = String::new();
-        allowed.read_to_string(&mut response).unwrap();
+        client.read_to_string(&mut response).unwrap();
         assert!(response.starts_with("HTTP/1.1 200"));
         let upstream_request = String::from_utf8(receiver.recv().unwrap()).unwrap();
-        assert!(!upstream_request
-            .to_ascii_lowercase()
-            .contains("proxy-authorization"));
+        assert!(upstream_request.starts_with("CONNECT example.com:443 HTTP/1.1"));
     }
 
     #[test]
-    fn configured_proxy_url_authenticates_without_a_password_prompt() {
+    fn configured_proxy_url_needs_no_username_or_password() {
         let (endpoint, receiver) = upstream();
         let relay =
             AuthenticatedRelay::start(endpoint, RelayMode::General(ProxyProtocol::Http)).unwrap();
         let client = reqwest::blocking::Client::builder()
             .no_proxy()
-            .proxy(
-                reqwest::Proxy::all(format!(
-                    "http://proxyenv:{}@127.0.0.1:{}",
-                    relay.token().as_str(),
-                    relay.port()
-                ))
-                .unwrap(),
-            )
+            .proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", relay.port())).unwrap())
             .timeout(Duration::from_secs(5))
             .build()
             .unwrap();
@@ -958,7 +822,28 @@ mod tests {
         let request =
             String::from_utf8(receiver.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
         assert!(!request.to_ascii_lowercase().contains("proxy-authorization"));
-        assert!(!request.contains(relay.token().as_str()));
+    }
+
+    #[test]
+    fn general_socks_relay_negotiates_no_authentication() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let relay = AuthenticatedRelay::start(
+            ProxyEndpoint {
+                host: "127.0.0.1".into(),
+                port,
+                protocol: ProxyProtocol::Socks5,
+            },
+            RelayMode::General(ProxyProtocol::Socks5),
+        )
+        .unwrap();
+        let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, relay.port())).unwrap();
+        client.write_all(&[5, 1, 0]).unwrap();
+        let mut method = [0u8; 2];
+        client.read_exact(&mut method).unwrap();
+        assert_eq!(method, [5, 0]);
+        drop(client);
+        drop(listener);
     }
 
     #[test]

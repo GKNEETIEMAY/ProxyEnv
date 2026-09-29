@@ -9,6 +9,8 @@ for candidate in /usr/bin/node /usr/local/bin/node "$(command -v node || :)" "$H
   [ -f "$candidate" ] && [ -x "$candidate" ] || continue
   # Resolve normal package-manager links (including /bin -> /usr/bin), then
   # validate every directory and the final executable before executing it.
+  # User-private groups commonly create NVM and VS Code Server paths as 775;
+  # accept that case only when owner, primary group and account name all match.
   candidate=$(readlink -f -- "$candidate") || continue
   case "$candidate" in /*) ;; *) continue;; esac
   bridge_safe=yes
@@ -16,9 +18,15 @@ for candidate in /usr/bin/node /usr/local/bin/node "$(command -v node || :)" "$H
   while [ "$bridge_parent" != / ]; do
     [ ! -L "$bridge_parent" ] || bridge_safe=no
     bridge_mode=$(stat -c %a "$bridge_parent") || bridge_safe=no
-    [ $((0$bridge_mode & 022)) -eq 0 ] || bridge_safe=no
     bridge_owner=$(stat -c %u "$bridge_parent") || bridge_safe=no
     [ "$bridge_owner" = 0 ] || [ "$bridge_owner" = "$(id -u)" ] || bridge_safe=no
+    [ $((0$bridge_mode & 002)) -eq 0 ] || bridge_safe=no
+    if [ $((0$bridge_mode & 020)) -ne 0 ]; then
+      bridge_group=$(stat -c %g "$bridge_parent") || bridge_safe=no
+      [ "$bridge_owner" = "$(id -u)" ] || bridge_safe=no
+      [ "$bridge_group" = "$(id -g)" ] || bridge_safe=no
+      [ "$(id -gn)" = "$(id -un)" ] || bridge_safe=no
+    fi
     bridge_parent=$(dirname "$bridge_parent")
   done
   if [ "$bridge_safe" != yes ]; then bridge_node_error=remoteNodeUnsafe; continue; fi

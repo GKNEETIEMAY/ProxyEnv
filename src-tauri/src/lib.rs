@@ -74,7 +74,6 @@ pub fn run() {
             commands::remote_bridge::remote_bridge_disconnect,
             commands::remote_bridge::remote_bridge_test,
             commands::remote_bridge::remote_bridge_launch_proxy_terminal,
-            commands::remote_bridge::remote_bridge_proxy_password,
             commands::remote_bridge::remote_bridge_session_environment_command,
             commands::remote_bridge::remote_bridge_launch_manual_terminal,
             commands::remote_bridge::remote_bridge_clear_session_credential,

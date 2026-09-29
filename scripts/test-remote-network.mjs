@@ -45,10 +45,13 @@ test('runtime launcher resolves installed executable paths and rejects unsafe or
   assert.match(source, /\.nvm\/versions\/node\/\*\/bin\/node/);
   // Mock only POSIX ownership/modes on Windows; run the real selection and
   // canonicalization control flow and a real executable with a version result.
-  const script = `stat() { if [ "$2" = '%a' ]; then printf '%s' "${'$'}{TEST_NODE_MODE:-755}"; else printf 0; fi; }\n` +
+  const script = `stat() { case "$2" in '%a') printf '%s' "${'$'}{TEST_NODE_MODE:-755}";; '%u') printf '%s' "${'$'}{TEST_NODE_OWNER:-0}";; '%g') printf '%s' "${'$'}{TEST_NODE_GROUP:-0}";; esac; }\n` +
+    `id() { case "$1" in -u) printf '%s' "${'$'}{TEST_UID:-1000}";; -g) printf '%s' "${'$'}{TEST_GID:-1000}";; -un) printf '%s' "${'$'}{TEST_USER:-user}";; -gn) printf '%s' "${'$'}{TEST_GROUP_NAME:-user}";; esac; }\n` +
     source.replace(/^for candidate in .*; do$/m, `for candidate in '${posix}'; do`) + '\nprintf "runtime-ready\\n"\n';
   const run = env => spawnSync(shell, ['-s'], {input:script, encoding:'utf8', timeout:10000, env:{...process.env,...env}});
   assert.match(run({}).stdout, /runtime-ready/);
+  assert.match(run({TEST_NODE_MODE:'775',TEST_NODE_OWNER:'1000',TEST_NODE_GROUP:'1000'}).stdout, /runtime-ready/);
+  assert.match(run({TEST_NODE_MODE:'775',TEST_NODE_OWNER:'1000',TEST_NODE_GROUP:'2000',TEST_GROUP_NAME:'lab'}).stdout, /remoteNodeUnsafe/);
   assert.match(run({TEST_NODE_MODE:'777'}).stdout, /remoteNodeUnsafe/);
   assert.match(run({TEST_NODE_VERSION:'v18.0.0'}).stdout, /remoteNodeUnsupported/);
 });
@@ -165,13 +168,11 @@ test('remote network restoration precedes a new session and never stores proxy c
   assert.deepEqual(f.read(), { 'http.proxy':'http://original:8080' });
 });
 
-test('manual credentials remain a closed fallback in Advanced and VS Code uses managed setup', () => {
+test('general proxy credentials are absent and VS Code uses managed setup', () => {
   const page = fs.readFileSync('src/features/remote-bridge/components/RemoteBridgePage.vue', 'utf8');
-  assert.match(page, /v-show="advancedView"[\s\S]*<details class="remote-auth-fallback">/);
-  const fallback = page.slice(page.indexOf('<details class="remote-auth-fallback">'), page.indexOf('</details>', page.indexOf('<details class="remote-auth-fallback">')));
-  assert.match(fallback, /copyProxyPassword/);
-  assert.doesNotMatch(fallback, /\bopen(?:=|\s|>)/);
+  assert.doesNotMatch(page, /remote-auth-fallback|copyProxyPassword|rbProxyAuth/);
   const commands = fs.readFileSync('src-tauri/src/commands/remote_bridge.rs', 'utf8');
+  assert.doesNotMatch(commands, /remote_bridge_proxy_password|proxyCredentialCopy/);
   assert.match(commands, /bridge::open_vscode\(target_id\)/);
   const bridge = fs.readFileSync('src-tauri/src/features/remote_bridge/mod.rs', 'utf8');
   assert.match(bridge, /vscode_network::apply\(/);

@@ -260,16 +260,6 @@ pub async fn remote_bridge_clear_session_credential() -> CommandResult<()> {
     .await
 }
 #[tauri::command]
-pub async fn remote_bridge_proxy_password(
-    target_id: String,
-    remote_port: u16,
-) -> CommandResult<String> {
-    run("proxyCredentialCopy", Some("proxy"), move || {
-        bridge::proxy_password(target_id, remote_port)
-    })
-    .await
-}
-#[tauri::command]
 pub async fn remote_bridge_session_environment_command() -> CommandResult<String> {
     run(
         "sessionEnvironment",

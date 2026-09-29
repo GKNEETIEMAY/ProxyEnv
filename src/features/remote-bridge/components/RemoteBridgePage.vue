@@ -654,17 +654,6 @@ function launchProxyTerminal() {
   });
 }
 
-function copyProxyPassword() {
-  const target = props.summary.target?.id;
-  const port = props.summary.proxy?.remotePort;
-  if (!target || !port) return;
-  void perform(async () => {
-    // On-demand IPC only: never put the password in reactive state or previews.
-    await copyText(await remoteBackend.proxyPassword(target, port));
-    feedback.value = "copied";
-  });
-}
-
 function copySessionEnvironment() {
   void perform(async () => {
     await copyText(await remoteBackend.sessionEnvironmentCommand());
@@ -900,16 +889,6 @@ onBeforeUnmount(() => {
                 <button class="secondary-action" type="button" :disabled="busy || summary.proxyStatus !== 'connected'" @click="copySessionEnvironment">{{ copy.rbCopySessionEnvironment }}</button>
               </div>
               <p class="remote-hint">{{ copy.rbVscodeEnvironmentScope }}</p>
-              <details class="remote-auth-fallback">
-              <summary>{{ copy.rbProxyAuthTitle }}</summary>
-              <p class="remote-hint">{{ copy.rbProxyAuthScope }} <code>127.0.0.1:{{ summary.proxy.remotePort }}</code></p>
-              <p class="remote-hint">{{ copy.rbProxyAuthUsername }} <code>proxyenv</code></p>
-              <p class="remote-hint">{{ copy.rbProxyAuthSafety }}</p>
-              <div class="remote-actions">
-                <button class="secondary-action" type="button" :disabled="busy || summary.proxyStatus !== 'connected'" @click="copyValue('proxyenv')">{{ copy.rbCopyProxyUsername }}</button>
-                <button class="secondary-action" type="button" :disabled="busy || summary.proxyStatus !== 'connected'" @click="copyProxyPassword">{{ copy.rbCopyProxyPassword }}</button>
-              </div>
-              </details>
               <div class="remote-advanced-panel">
                 <h4>{{ copy.rbAdvancedCopy }}</h4>
                 <div class="remote-actions">
@@ -1160,9 +1139,6 @@ onBeforeUnmount(() => {
 .remote-next-section ol { padding-left:22px; color:var(--muted); font-size:12px; line-height:1.8; }
 .remote-terminal-lead { max-width:68ch; margin:0; color:var(--ink); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
 .remote-advanced-panel { padding-top:14px; margin-top:14px; border-top:1px solid var(--line); }
-.remote-auth-fallback { margin-top:14px; }
-.remote-auth-fallback summary { cursor:pointer; color:var(--muted); font-size:12px; }
-.remote-auth-fallback summary:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
 .remote-advanced-panel h4 { margin:0 0 10px; color:var(--muted); font-size:11px; }
 .remote-next-section pre { padding:12px; overflow-wrap:anywhere; white-space:pre-wrap; border:1px solid var(--line); border-radius:8px; background:var(--surface-strong); font-size:11px; line-height:1.65; }
 .remote-bridge-dialog pre { padding:12px; overflow-wrap:anywhere; white-space:pre-wrap; border:1px solid var(--line); border-radius:8px; background:var(--surface); font-size:11px; line-height:1.65; }

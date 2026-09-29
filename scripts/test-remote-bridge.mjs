@@ -117,7 +117,8 @@ test("managed remote environment is session-owned and removable",{skip:!availabl
     const file=join(f.home,".proxyenv/sessions/0123456789abcdef0123456789abcdef/env.sh");
     const content=readFileSync(file,"utf8");
     assert.match(content,/# ProxyEnv managed session 0123456789abcdef0123456789abcdef/);
-    assert.match(content,/HTTP_PROXY='http:\/\/proxyenv:[0-9a-f]{64}@127\.0\.0\.1:17897'/);
+    assert.match(content,/HTTP_PROXY='http:\/\/127\.0\.0\.1:17897'/);
+    assert.doesNotMatch(content,/proxyenv:|session_token/i);
     assert.match(content,/export NO_PROXY="localhost,127\.0\.0\.1,::1/);
     const sourced=spawnSync(shell,["-s"],{encoding:"utf8",input:`
 export HTTP_PROXY=old HTTPS_PROXY=old ALL_PROXY=old http_proxy=stale https_proxy=stale all_proxy=stale
@@ -149,22 +150,20 @@ test("managed remote environment refuses foreign same-name files",{skip:!availab
   } finally { f.cleanup(); }
 });
 
-test("external proxy password is explicitly copied, never included in the summary or exports",()=>{
+test("general proxy exposes no credential command while AI verification remains session-authenticated",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
-  assert.match(page,/@click="copyProxyPassword"/);
-  assert.match(page,/copyText\(await remoteBackend\.proxyPassword\(target, port\)\)/);
+  const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
+  assert.doesNotMatch(page,/copyProxyPassword|rbCopyProxyPassword|rbProxyAuthUsername/);
+  assert.doesNotMatch(state,/proxyPassword|remote_bridge_proxy_password/);
+  assert.doesNotMatch(commands,/remote_bridge_proxy_password|proxyCredentialCopy/);
   assert.doesNotMatch(page,/copyValue\(summary\.environment\)|\{\{ summary\.environment \}\}/);
   assert.doesNotMatch(state.match(/export interface BridgeSummary[^\n]+/)[0],/token|password|secret/i);
-  const password=bridge.slice(bridge.indexOf("pub fn proxy_password("),bridge.indexOf("pub fn session_environment_command("));
-  assert.match(password,/capability_ready\(state\.child\.is_some\(\), state\.summary\.proxy_status\)/);
-  assert.match(password,/ssh::fingerprint\(&target_id\)/);
-  assert.match(password,/endpoint\.remote_port\)\s*!= Some\(remote_port\)/);
-  assert.match(password,/state\s*\.proxy_relay/);
-  assert.doesNotMatch(password,/ai_relay/);
+  assert.doesNotMatch(bridge,/pub fn proxy_password\(/);
   const verify=bridge.slice(bridge.indexOf("pub fn verify_tool("),bridge.indexOf("#[cfg(test)]",bridge.indexOf("pub fn verify_tool(")));
   assert.match(verify,/capability_ready\(state\.child\.is_some\(\), state\.summary\.cc_status\)/);
+  assert.match(verify,/sessionToken/);
   assert.doesNotMatch(verify,/summary\.status != Status::Connected/);
 });
 test("Claude request verification returns only an allowlisted state",{skip:!available || !python},()=>{

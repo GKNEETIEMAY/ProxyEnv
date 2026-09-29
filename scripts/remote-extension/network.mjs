@@ -72,9 +72,8 @@ export function networkTransaction({ file, root, uid, operation, sessionId }, in
       if (!Array.isArray(bypass) || bypass.some(value => typeof value !== 'string')) fail();
       applied = {
         'http.useLocalProxyConfiguration': { value: false },
-        // Never route the extension host through the authenticated General Proxy.
-        // Chromium and extension processes do not consume one shared credential
-        // source reliably, which otherwise causes login prompts and 407 loops.
+        // Never route the extension host through the General Proxy. Keeping
+        // loopback direct avoids stale inherited settings and proxy-dialog loops.
         // Codex and Claude use the separately authenticated AI Route directly.
         'http.proxy': {},
         'http.proxyAuthorization': {},

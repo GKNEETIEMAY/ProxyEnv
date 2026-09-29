@@ -7,7 +7,7 @@ Next: v0.2.0
 
 This policy covers Current Stable v0.1.4 and development changes planned for v0.2.0. The safe Diagnostic Report and unified ActiveProxyContext are shipped in v0.1.4. See the [Roadmap](docs/ROADMAP.md).
 
-Remote Bridge is unreleased development functionality. Its reverse forwards now terminate at M8 authenticated session relays rather than treating loopback binding as isolation. Real shared-host, different-UID acceptance remains a release gate before this protection is claimed for v0.2.0.
+Remote Bridge is unreleased development functionality. Its reverse forwards terminate at ProxyEnv-owned relays. The General Proxy is credential-free and offers no per-UID isolation on a shared host; the AI Route remains session-authenticated. Real shared-host acceptance remains a release gate for v0.2.0.
 
 Please report suspected vulnerabilities privately to the repository maintainers rather than opening a public issue. Include the affected version, operating system, reproduction steps, observed impact, and any relevant local logs with secrets removed.
 
@@ -36,7 +36,7 @@ ProxyEnv may:
 - create a local rule backup and restore it only when the current field still equals the value ProxyEnv applied;
 - contact the fixed official GitHub Releases API and pinned HTTPS updater manifest only when the user explicitly selects **Check for updates**;
 - after an explicit **Download and install** action, download only the manifest-selected installer, require Tauri signature verification, replace only the registered NSIS installation, and restart after successful installation.
-- in v0.2 development, after explicit selection and confirmation, establish owned SSH reverse forwards through loopback-only authenticated relays to fixed, reviewed local proxy/AI-route upstreams and revoke them on disconnect;
+- in v0.2 development, after explicit selection and confirmation, establish owned SSH reverse forwards through loopback-only relays to fixed, reviewed local proxy/AI-route upstreams, authenticate AI requests with a session header, and revoke both relays on disconnect;
 - after the user enables a supported remote tool, validate, back up, atomically update and verify only allowlisted Codex/Claude user-profile fields, preserving unrelated content and refusing conflicting restore state;
 - project only CC Switch-managed Skill links explicitly selected for Codex or Claude through a staged, hash-verified and ownership-marked transaction, and remove only the remote files owned by that transaction.
 
@@ -78,7 +78,7 @@ An eligible plain SSH server password may be retained **only during the current 
 
 ## Remote Bridge shared-host boundary (v0.2 development)
 
-Loopback binding of an SSH reverse forward does not isolate Unix UIDs: another user on the same Linux host may attempt to connect. M8 therefore generates fresh 256-bit credentials for backend-owned General Proxy and AI Route relays, authenticates before access to a fixed upstream, rotates on reconnect and revokes before disconnect cleanup. General Proxy credentials are delivered only through a mode-`0600` session environment; Codex and Claude receive a distinct transient header through their owned configuration transaction. Tokens stay out of the WebView, copied exports, logs, diagnostic reports, provider API-key fields, `auth.json` and process command lines. A different UID without the token is denied by design; real shared-host verification is still pending. The same UID is one trust domain; root is outside a user-space isolation guarantee. See the [M8 design](docs/remote-bridge/AUTHENTICATED_RELAY.md).
+Loopback binding of an SSH reverse forward does not isolate Unix UIDs: another user on the same Linux host may connect to the General Proxy while the bridge is active. This capability deliberately uses no proxy username or password and makes no different-UID isolation claim. It remains loopback-only, forwards to a fixed backend-selected upstream and is revoked before disconnect cleanup. Codex and Claude use a distinct transient `X-ProxyEnv-Session` header through their owned configuration transaction; missing, invalid, stale and cross-session AI tokens are rejected. AI tokens stay out of the WebView, copied proxy exports, logs, diagnostic reports, provider API-key fields, `auth.json` and process command lines. Root remains outside any user-space isolation guarantee. See the [relay boundary design](docs/remote-bridge/AUTHENTICATED_RELAY.md).
 
 Remote Skills projection accepts only user-managed CC Switch links whose resolved source stays inside the CC Switch Skills directory. Native/system Skills are excluded. Upload staging, manifest/hash verification, an ownership marker, foreign same-name conflict handling and owned-only removal protect the remote account; no remote user file is overwritten merely because a name matches. Automated regression coverage exists, while real Codex/Claude Agent discovery on the release matrix remains pending. Legacy extension recovery code remains while its callers and restore obligations exist.
 

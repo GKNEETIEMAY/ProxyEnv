@@ -32,9 +32,7 @@ case "$operation" in
   test)
     check_ports
     command -v curl >/dev/null 2>&1 || fail dependencyMissing
-    # Keep the session credential out of argv/process listings. curl reads the
-    # proxy URL from stdin and the local relay strips credentials upstream.
-    printf 'proxy = "%s://proxyenv:%s@127.0.0.1:%s"\n' "$scheme" "$session_token" "$port" |
+    printf 'proxy = "%s://127.0.0.1:%s"\n' "$scheme" "$port" |
       curl --disable --silent --fail --output /dev/null --max-time 12 --noproxy '' --config - https://www.gstatic.com/generate_204 >/dev/null 2>&1 || fail networkFailed
     printf '{"tested":true}\n'; exit 0;;
 esac
@@ -109,16 +107,16 @@ if [ "$operation" = session-env-apply ] || [ "$operation" = session-env-remove ]
     printf '%s\n' 'unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy'
     case "$protocol" in
       http)
-        printf "export HTTP_PROXY='http://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
-        printf "export HTTPS_PROXY='http://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
+        printf "export HTTP_PROXY='http://127.0.0.1:%s'\n" "$port"
+        printf "export HTTPS_PROXY='http://127.0.0.1:%s'\n" "$port"
         ;;
       socks5)
-        printf "export ALL_PROXY='socks5h://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
+        printf "export ALL_PROXY='socks5h://127.0.0.1:%s'\n" "$port"
         ;;
       mixed)
-        printf "export HTTP_PROXY='http://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
-        printf "export HTTPS_PROXY='http://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
-        printf "export ALL_PROXY='socks5h://proxyenv:%s@127.0.0.1:%s'\n" "$session_token" "$port"
+        printf "export HTTP_PROXY='http://127.0.0.1:%s'\n" "$port"
+        printf "export HTTPS_PROXY='http://127.0.0.1:%s'\n" "$port"
+        printf "export ALL_PROXY='socks5h://127.0.0.1:%s'\n" "$port"
         ;;
       *) fail invalidRequest;;
     esac

@@ -15,7 +15,7 @@ Current code supports separate local/remote pages, structured discovery, interac
 ## Limits and safety
 
 - General proxy and AI route are independent. SSH success, configuration readback and listener presence are not model-request verification.
-- The remote forwards bind loopback, but **current development code has no per-bridge token isolation between different Unix users**. Do not treat loopback binding as a shared-host security boundary. [Authenticated relay](AUTHENTICATED_RELAY.md) is a v0.2 release gate.
+- The remote forwards bind loopback, but General Proxy deliberately has no username/password or per-UID isolation: another account on the same host may use it while the bridge is active. Codex and Claude use the separate session-authenticated AI Route. Validate both boundaries on a real shared host before release; see [relay authentication boundaries](AUTHENTICATED_RELAY.md).
 - ProxyEnv does not read SSH private-key contents or Moba credentials. Interactive responses are session-scoped; only an eligible plain server password may be held as Windows-user DPAPI ciphertext for the current bridge.
 - Remote config writes are limited to reviewed Codex/Claude fields, with validation, backup, ownership and conflict-safe restore. Unknown or concurrently changed managed state fails closed. Secrets, provider URLs and `auth.json` are not projected.
 - MCP, additional AI tool adapters, macOS Remote Bridge and automatic runtime installation are out of scope. Session-managed remote environment, manual SSH additions, compatible first-level MobaXterm launch, owned Skills projection and the Overview/Advanced connected UI are implemented on `v0.2.0dev`; real-device release acceptance remains pending.
@@ -27,7 +27,7 @@ The connected UI defaults to a concise Overview and preserves detailed port, rou
 | Area | Document |
 | --- | --- |
 | Release boundary | [v0.2 scope](V0.2_SCOPE.md) |
-| Session authentication and shared-host threat model | [Authenticated relay](AUTHENTICATED_RELAY.md) |
+| Relay authentication boundaries and shared-host threat model | [Relay boundary design](AUTHENTICATED_RELAY.md) |
 | Import, manual targets and Moba launch | [SSH connection manager](SSH_CONNECTION_MANAGER.md) |
 | Session-owned shell environment | [Managed remote environment](MANAGED_REMOTE_ENVIRONMENT.md) |
 | CC Switch-linked skills and remote projection | [Skills projection](SKILLS_REMOTE_PROJECTION.md) |

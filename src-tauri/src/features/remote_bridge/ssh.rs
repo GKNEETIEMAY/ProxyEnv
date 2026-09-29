@@ -951,10 +951,8 @@ pub(super) fn remote_payload(
                 && session_token.bytes().all(|byte| byte.is_ascii_hexdigit())))
         || (!session_id.is_empty()
             && !(session_id.len() == 32 && session_id.bytes().all(|byte| byte.is_ascii_hexdigit())))
-        || (matches!(
-            operation,
-            "test" | "preview" | "status" | "apply" | "tool-verify" | "session-env-apply"
-        ) && session_token.is_empty())
+        || (matches!(operation, "preview" | "status" | "apply" | "tool-verify")
+            && session_token.is_empty())
         || (matches!(operation, "session-env-apply" | "session-env-remove")
             && session_id.is_empty())
         || (tool == "codex"
@@ -1437,16 +1435,13 @@ mod tests {
         assert!(!safe_host("bad host"));
     }
     #[test]
-    fn authenticated_remote_operations_require_bounded_hex_session_material() {
-        assert_eq!(
-            remote_payload(&serde_json::json!({
-                "operation": "test",
-                "port": 17897,
-                "protocol": "http"
-            }))
-            .unwrap_err(),
-            "invalidRequest"
-        );
+    fn general_proxy_operations_do_not_require_ai_session_material() {
+        assert!(remote_payload(&serde_json::json!({
+            "operation": "test",
+            "port": 17897,
+            "protocol": "http"
+        }))
+        .is_ok());
         assert!(remote_payload(&serde_json::json!({
             "operation": "test",
             "port": 17897,
@@ -1466,10 +1461,18 @@ mod tests {
             "operation": "session-env-apply",
             "port": 17897,
             "protocol": "mixed",
-            "sessionId": "0123456789abcdef0123456789abcdef",
-            "sessionToken": token
+            "sessionId": "0123456789abcdef0123456789abcdef"
         }))
         .is_ok());
+        assert_eq!(
+            remote_payload(&serde_json::json!({
+                "operation": "status",
+                "tool": "codex",
+                "port": 25721
+            }))
+            .unwrap_err(),
+            "invalidRequest"
+        );
     }
     #[test]
     fn openssh_parameters_keep_security_overrides_and_have_no_shell() {

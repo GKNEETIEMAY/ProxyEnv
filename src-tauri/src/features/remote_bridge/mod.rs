@@ -1334,13 +1334,11 @@ fn apply_session_environment(
         return Ok(());
     };
     let relay = relay.ok_or("relayUnavailable")?;
-    let token = relay.token();
     ssh::remote(
         target_id,
         json!({
             "operation": "session-env-apply",
             "sessionId": relay.session_id(),
-            "sessionToken": token.as_str(),
             "port": endpoint.remote_port,
             "protocol": endpoint.local.protocol,
         }),
@@ -1627,18 +1625,12 @@ pub fn test() -> BridgeResult<()> {
     if Some(ssh::fingerprint(target_id)?) != state.target_fingerprint {
         return Err("sshConfigChanged".into());
     }
-    let session_token = state
-        .proxy_relay
-        .as_ref()
-        .map(|relay| relay.token())
-        .ok_or("proxyUnavailable")?;
     ssh::remote(
         target_id,
         json!({
             "operation":"test",
             "port":endpoint.remote_port,
-            "protocol":endpoint.local.protocol,
-            "sessionToken":session_token.as_str()
+            "protocol":endpoint.local.protocol
         }),
     )?;
     Ok(())
@@ -1746,15 +1738,24 @@ fn open_vscode_with_setup(
             launch()?;
             Ok(None)
         }
-        // The first Remote SSH connection may need VS Code itself to install the
-        // server. Allow that bootstrap window, but keep the warning explicit so it
-        // is not mistaken for a configured session.
-        Err(code) if code == "vscodeServerMissing" => {
+        // Opening the reviewed SSH target is still useful when the optional
+        // pre-launch configuration connection cannot authenticate or is
+        // transiently unavailable. VS Code owns its Remote-SSH authentication,
+        // so surface the isolation failure as a warning instead of blocking the
+        // launch. Security and configuration validation failures remain fatal.
+        Err(code) if vscode_setup_allows_launch(&code) => {
             launch()?;
             Ok(Some(code))
         }
         Err(code) => Err(code),
     }
+}
+
+fn vscode_setup_allows_launch(code: &str) -> bool {
+    matches!(
+        code,
+        "vscodeServerMissing" | "sshAuth" | "sshFailed" | "sshTimeout"
+    )
 }
 
 #[cfg(test)]
@@ -1812,6 +1813,23 @@ mod vscode_launch_tests {
     }
 
     #[test]
+    fn setup_transport_failure_does_not_block_remote_ssh_launch() {
+        for code in ["sshAuth", "sshFailed", "sshTimeout"] {
+            let opened = std::cell::Cell::new(false);
+            let warning = open_vscode_with_setup(
+                || {
+                    opened.set(true);
+                    Ok(())
+                },
+                || Err(code.into()),
+            )
+            .unwrap();
+            assert!(opened.get(), "{code} should not block VS Code");
+            assert_eq!(warning.as_deref(), Some(code));
+        }
+    }
+
+    #[test]
     fn failed_launch_is_reported_after_successful_setup() {
         assert_eq!(
             open_vscode_with_setup(|| Err("vscodeMissing".into()), || Ok(())).unwrap_err(),
@@ -1821,35 +1839,6 @@ mod vscode_launch_tests {
 }
 fn capability_ready(ssh_running: bool, status: Option<Status>) -> bool {
     ssh_running && status == Some(Status::Connected)
-}
-
-/// Explicit user-triggered copy only. Never include this secret in Summary,
-/// diagnostics, Debug output, automatic polling, or command-line arguments.
-pub fn proxy_password(target_id: String, remote_port: u16) -> BridgeResult<String> {
-    let mut state = lock()?;
-    refresh(&mut state);
-    if !capability_ready(state.child.is_some(), state.summary.proxy_status)
-        || state
-            .summary
-            .proxy
-            .as_ref()
-            .map(|endpoint| endpoint.remote_port)
-            != Some(remote_port)
-        || state
-            .summary
-            .target
-            .as_ref()
-            .map(|target| target.id.as_str())
-            != Some(target_id.as_str())
-        || Some(ssh::fingerprint(&target_id)?) != state.target_fingerprint
-    {
-        return Err("bridgeUnavailable".into());
-    }
-    state
-        .proxy_relay
-        .as_ref()
-        .map(|relay| relay.token().to_string())
-        .ok_or_else(|| "proxyUnavailable".into())
 }
 
 pub fn session_environment_command() -> BridgeResult<String> {
@@ -2268,11 +2257,6 @@ mod tests {
         }
         assert!(!capability_ready(false, Some(Status::Connected)));
         assert!(!capability_ready(true, None));
-    }
-
-    #[test]
-    fn disconnected_session_cannot_export_a_proxy_password() {
-        assert!(proxy_password("unselected-target".into(), 17897).is_err());
     }
 
     #[test]
