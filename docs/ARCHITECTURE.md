@@ -161,13 +161,17 @@ The rule engine accepts only bundled, schema-versioned JSON. It rejects unknown 
 
 ## Remote Bridge / 远程环境桥接
 
-Remote Bridge below describes implemented `v0.2.0dev` code, not stable-release support. M8 token authentication, managed remote session environment, SSH connection-manager additions and owned Skills projection are implemented; their remaining real-device acceptance is tracked separately. Simple/Advanced presentation is still open. See [scope](remote-bridge/V0.2_SCOPE.md) and [acceptance](remote-bridge/ACCEPTANCE_V0.2.md). A loopback SSH listener alone does not isolate users on a shared Linux host.
+Remote Bridge below describes implemented `v0.2.0dev` code, not stable-release support. M8 token authentication, managed remote session environment, SSH connection-manager additions, owned Skills projection, grouped two-step setup and Simple/Advanced presentation are implemented; their remaining real-device acceptance is tracked separately. See [scope](remote-bridge/V0.2_SCOPE.md) and [acceptance](remote-bridge/ACCEPTANCE_V0.2.md). A loopback SSH listener alone does not isolate users on a shared Linux host.
 
-远程桥接部分描述 `v0.2.0dev` 已实现代码，并非稳定版承诺。M8 token 认证、远端会话环境、SSH 连接管理和受所有权保护的 Skills 投影已经实现，仍需完成对应实机验收；简易/高级界面仍待收口。共享 Linux 主机上的 loopback 监听不能隔离不同用户。
+远程桥接部分描述 `v0.2.0dev` 已实现代码，并非稳定版承诺。M8 token 认证、远端会话环境、SSH 连接管理、受所有权保护的 Skills 投影、分组两步连接流程和简易/高级界面已经实现，仍需完成对应实机验收。共享 Linux 主机上的 loopback 监听不能隔离不同用户。
 
 An established bridge keeps one backend-owned recovery descriptor: target fingerprint, selected proxy revision, requested remote ports and live authenticated relays. The two-second monitor detects a terminated OpenSSH transport and retries a lightweight probe plus the same reverse forwards with bounded backoff. It never changes targets or ports, rotates credentials, rewrites remote configuration, or replays interrupted application traffic during silent recovery. Manual disconnect, target replacement and application exit invalidate the generation before cleanup, so an in-flight retry cannot resurrect the bridge. Authentication, fingerprint, SSH configuration or active-proxy changes pause recovery and surface one actionable notification; ordinary retry and success stay silent.
 
 已建立的桥接由后端保留一份恢复描述：目标指纹、活动代理版本、既定远端端口与仍然有效的认证中继。两秒监控发现 OpenSSH 传输退出后，以有上限的退避执行轻量探测并重建相同反向转发。静默恢复期间不会切换目标或端口、轮换凭据、重写远端配置，也不会重放中断的应用请求。手动断开、替换目标和退出程序会先让恢复代次失效，因此在途重试不能重新拉起桥接。只有认证、指纹、SSH 配置或活动代理发生变化时才暂停并发出一次可操作提醒；普通重试和成功恢复保持静默。
+
+Connection completion is split into three explicit phases. Authentication owns the bounded OpenSSH PTY. Core Bridge then requires a live SSH process, all requested reverse forwards, live local relays and remote `ss` verification of every loopback listener; only this phase gates `Connected`. Post-connect jobs run after that snapshot is exposed: session environment, VS Code network isolation, Codex and Claude inspection/owned-route refresh, and Skills state. Independent jobs run concurrently and publish separate runtime states. A post-connect warning yields `Partial` without tearing down a verified core bridge. Phase timings are diagnostic metadata only and contain no credentials or target paths.
+
+连接完成分为三个明确阶段：认证阶段持有受限 OpenSSH PTY；核心桥接阶段要求 SSH 进程存活、反向转发已建立、本机 Relay 存活且远端 `ss` 已确认全部回环监听，只有该阶段决定 `Connected`；随后会话环境、VS Code 网络隔离、Codex/Claude 检查或受所有权保护的路由刷新以及 Skills 状态在后台并行执行并分别上报。后置任务警告只形成 `Partial`，不会拆除已经验证的核心桥接。阶段耗时仅用于本机诊断，不包含凭据和目标路径。
 
 Local Skill discovery follows only top-level links in the Codex or Claude Skill directory whose canonical, same-named target is a direct child of `~/.cc-switch/skills`. Native tool Skills, Codex `.system`, unrelated links and nested links/reparse points are excluded from remote projection.
 
@@ -203,7 +207,9 @@ Every target is represented by an opaque `RemoteTarget.id` plus a display name, 
 - the explicit `remote.SSH.configFile` from VS Code's default user settings, without duplicating the default OpenSSH config;
 - MobaXterm's active `-i` file, executable-adjacent file, user Documents file, and user configuration directory.
 
-MobaXterm discovery reads bookmark sections only. It never reads or decrypts password, credential, or master-password sections and never scans the whole disk. Only simple SSH sessions that can be converted deterministically into Windows OpenSSH arguments are connectable; unsupported authentication, key, jump, or session behavior stays visible as `Unsupported` with a reason. OpenSSH continues to resolve aliases, keys, agents, ports, and `ProxyJump`; private-key contents never enter ProxyEnv.
+MobaXterm discovery reads bookmark sections only. It never reads or decrypts password, credential, or master-password sections and never scans the whole disk. Only simple SSH sessions that can be converted deterministically into Windows OpenSSH arguments are connectable; unsupported authentication, key, jump, or session behavior stays visible as `Unsupported` with a reason. OpenSSH continues to resolve aliases, keys, agents, ports, and `ProxyJump`; user-selected identity files receive a bounded format-header check, while private-key bodies are never read, persisted or uploaded. The native picker and manual-connection save share the same path/header validator; OpenSSH retains responsibility for key decoding and authentication.
+
+The frontend groups targets by source without merging identities and renders source-specific capabilities from backend data. `canOpenVscode` and `canOpenMobaxterm` decide which launch actions appear; a target source string alone is not treated as authorization. Setup combines target and capability selection into one surface. One Connect action invokes backend preview and validation, and a successful interactive SSH authentication continues directly into bridge construction. A port race causes one fresh backend allocation and retry before surfacing an error.
 
 ### Session, ports, and errors / 会话、端口与错误
 
@@ -297,6 +303,7 @@ ProxyEnv does not read, persist, or manage proxy credentials, subscription token
 | `remote_bridge_preview` | Revalidate target, active proxy revision, capabilities, and ports | No | No |
 | `remote_bridge_connect` | Create one confirmed, loopback-only reverse-forward session | No | Owned SSH child process |
 | `remote_bridge_disconnect` | Stop the owned reverse-forward process after confirmation | No | Owned SSH child process |
+| `remote_bridge_retry_reconnect` | Resume recovery with the retained target, ports, relays and session after an actionable pause | No | Existing recovery descriptor only |
 | `remote_bridge_config_*` | Preview, apply, or restore remote CLI routing; Claude uses its standard user settings and plain launch command | Exact remote backup plus preview-bound state hash and rollback journal | Dedicated Codex profile or Claude `~/.claude/settings.json` managed fields |
 
 The Windows System Proxy and TUN observation are read-only sources. ProxyEnv never toggles either one.

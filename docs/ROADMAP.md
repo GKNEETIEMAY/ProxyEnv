@@ -24,9 +24,10 @@ Release work still open:
 
 - [x] M8 per-session authenticated local relay, credential delivery, rotation/revocation and automated security tests. Real different-UID shared-host acceptance remains open.
 - [x] SSH connection manager: bounded automatic import, manual add, automatic OpenSSH or selected identity file, and compatible first-level MobaXterm launch. Real-device acceptance remains pending.
+- [x] Grouped OpenSSH/VS Code/MobaXterm/Manual target selection, two-step setup, automatic post-auth bridge construction and capability-aware launch actions. Real-device UI and Moba launch acceptance remain pending.
 - [x] Managed remote session environment create/update/remove with ownership checks and no default shell-startup edits. Real-device lifecycle acceptance remains pending.
 - [x] CC Switch-linked Skills detection and conflict-safe remote projection/remove with staged per-file SCP, ownership verification and metadata-triggered resync. Native tool Skills remain local. Real-device Agent discovery acceptance remains pending.
-- [x] Simple default / Advanced UI with secure in-place progressive disclosure. Real-device release acceptance remains pending.
+- [x] Simple default / Advanced UI with stable authentication dialog, secure in-place progressive disclosure and reduced-motion behavior. Dark-theme and real-device release acceptance remain pending.
 - [ ] Real-device Claude and Codex matrix, provider changes, streaming, disconnect/reconnect and recovery.
 - [ ] Windows/Linux CI, RustSec/security audit, documentation and release acceptance.
 
