@@ -22,7 +22,7 @@ use serde_json::json;
 use std::{
     net::{SocketAddr, TcpStream},
     sync::{Mutex, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub type BridgeResult<T> = std::result::Result<T, String>;
@@ -86,10 +86,12 @@ pub struct RemoteTarget {
     pub user: Option<String>,
     pub port: Option<u16>,
     pub identity_file: Option<String>,
+    pub authentication_method: SshAuthMethod,
     pub available: bool,
     pub compatibility: RemoteTargetCompatibility,
     pub unavailable_reason: Option<String>,
     pub can_open_vscode: bool,
+    pub can_open_mobaxterm: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -111,6 +113,31 @@ pub enum Status {
     Stale,
     Unavailable,
     Error,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PostConnectStatus {
+    #[default]
+    Idle,
+    Preparing,
+    Ready,
+    Partial,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeState {
+    #[default]
+    Pending,
+    Preparing,
+    Ready,
+    Warning,
+}
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PhaseTiming {
+    pub phase: String,
+    pub duration_ms: u64,
+    pub outcome: String,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -144,6 +171,14 @@ pub struct Summary {
     pub claude_extension: Option<String>,
     pub error: Option<String>,
     pub ssh_auth: SshAuthState,
+    pub post_connect_status: PostConnectStatus,
+    pub session_environment_state: RuntimeState,
+    pub vscode_state: RuntimeState,
+    pub codex_state: RuntimeState,
+    pub claude_state: RuntimeState,
+    pub skills_state: RuntimeState,
+    pub post_connect_error: Option<String>,
+    pub timings: Vec<PhaseTiming>,
 }
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -302,6 +337,7 @@ struct Store {
     local_claude_profile: Option<local_model::LocalClaudeProfile>,
     profile_sync_state: settings::ProfileSyncState,
     profile_syncing: bool,
+    connect_started_at: Option<Instant>,
 }
 
 impl Default for Store {
@@ -327,6 +363,7 @@ impl Default for Store {
             local_claude_profile: None,
             profile_sync_state: settings::ProfileSyncState::NotStarted,
             profile_syncing: false,
+            connect_started_at: None,
         }
     }
 }
@@ -556,23 +593,57 @@ fn base64_bytes(bytes: &[u8]) -> String {
     output
 }
 
-fn refresh_tool_configuration(summary: &mut Summary, session_token: Option<&str>) {
+fn timing(phase: &str, started: Instant, success: bool) -> PhaseTiming {
+    PhaseTiming {
+        phase: phase.into(),
+        duration_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+        outcome: if success { "success" } else { "failed" }.into(),
+    }
+}
+
+fn refresh_tool_configuration(
+    summary: &mut Summary,
+    session_token: Option<&str>,
+) -> (Vec<PhaseTiming>, bool) {
     let Some(target_id) = summary.target.as_ref().map(|target| target.id.clone()) else {
-        return;
+        return (Vec::new(), false);
     };
     let Some(route_port) = summary.cc.as_ref().map(|endpoint| endpoint.remote_port) else {
         for adapter in tool_adapter::adapters() {
             adapter.restore(summary);
         }
         sync_tool_states(summary);
-        return;
+        return (Vec::new(), true);
     };
-    for adapter in tool_adapter::adapters() {
-        let status = ssh::remote(
-            &target_id,
-            remote_request("status", *adapter, route_port, None, session_token),
-        )
-        .ok();
+    let statuses = Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for adapter in tool_adapter::adapters().iter().copied() {
+            let target_id = &target_id;
+            let statuses = &statuses;
+            scope.spawn(move || {
+                let started = Instant::now();
+                let status = ssh::remote(
+                    target_id,
+                    remote_request("status", adapter, route_port, None, session_token),
+                );
+                if let Ok(mut entries) = statuses.lock() {
+                    entries.push((adapter, status, started.elapsed()));
+                }
+            });
+        }
+    });
+    let mut statuses = statuses.into_inner().unwrap_or_default();
+    statuses.sort_by_key(|(adapter, _, _)| adapter.id().as_str());
+    let mut timings = Vec::new();
+    let mut all_ready = true;
+    for (adapter, status, elapsed) in statuses {
+        let status_ok = status.is_ok();
+        timings.push(PhaseTiming {
+            phase: format!("{}.status", adapter.id().as_str()),
+            duration_ms: elapsed.as_millis().try_into().unwrap_or(u64::MAX),
+            outcome: if status_ok { "success" } else { "failed" }.into(),
+        });
+        let status = status.ok();
         let mut configured = status
             .as_ref()
             .and_then(|value| value["configured"].as_bool())
@@ -589,21 +660,27 @@ fn refresh_tool_configuration(summary: &mut Summary, session_token: Option<&str>
             if let (Some(session_token), Ok(profile)) =
                 (session_token, LocalToolProfile::inspect(adapter.id()))
             {
+                let preview_started = Instant::now();
                 let preview = ssh::remote(
                     &target_id,
                     remote_request(
                         "preview",
-                        *adapter,
+                        adapter,
                         route_port,
                         Some(&profile),
                         Some(session_token),
                     ),
                 );
+                timings.push(timing(
+                    &format!("{}.preview", adapter.id().as_str()),
+                    preview_started,
+                    preview.is_ok(),
+                ));
                 if let Ok(preview) = preview {
                     if let Some(expected_hash) = preview["expectedHash"].as_str() {
                         let mut apply = remote_request(
                             "apply",
-                            *adapter,
+                            adapter,
                             route_port,
                             Some(&profile),
                             Some(session_token),
@@ -611,7 +688,14 @@ fn refresh_tool_configuration(summary: &mut Summary, session_token: Option<&str>
                         apply["expectedHash"] = json!(expected_hash);
                         apply["repairPermissions"] =
                             json!(preview["permissionHardening"].as_bool().unwrap_or(false));
-                        configured = ssh::remote(&target_id, apply).is_ok();
+                        let apply_started = Instant::now();
+                        let result = ssh::remote(&target_id, apply);
+                        configured = result.is_ok();
+                        timings.push(timing(
+                            &format!("{}.apply", adapter.id().as_str()),
+                            apply_started,
+                            configured,
+                        ));
                     }
                 }
             }
@@ -620,9 +704,11 @@ fn refresh_tool_configuration(summary: &mut Summary, session_token: Option<&str>
             adapter.apply(summary);
         } else {
             adapter.restore(summary);
+            all_ready = false;
         }
     }
     sync_tool_states(summary);
+    (timings, all_ready)
 }
 
 fn invalidate_tool_verification(summary: &mut Summary) {
@@ -1027,6 +1113,13 @@ pub fn add_connection(input: connections::ManualConnectionInput) -> BridgeResult
     let connection = connections::add(input)?;
     Ok(connections::target(&connection))
 }
+pub fn update_connection(
+    id: String,
+    input: connections::ManualConnectionInput,
+) -> BridgeResult<RemoteTarget> {
+    let connection = connections::update(&id, input)?;
+    Ok(connections::target(&connection))
+}
 pub fn remove_connection(id: String) -> BridgeResult<()> {
     connections::remove(&id)
 }
@@ -1192,6 +1285,87 @@ pub fn detect_cc(local_port: u16) -> BridgeResult<CcDetection> {
     lock()?.cc_detected = state != CcDetectionState::NotDetected;
     Ok(CcDetection { state, local_port })
 }
+
+// Discovery is setup-only. Established tunnels retain their original endpoint.
+pub fn discover_cc(preferred_port: u16) -> BridgeResult<CcDetection> {
+    port(preferred_port)?;
+    let listeners = super::proxy::listeners::enumerate().map_err(|_| "stateUnavailable")?;
+    let processes = super::proxy::processes::enumerate();
+    let ports = cc_route_ports(&listeners, &processes, preferred_port);
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_millis(350))
+        .build()
+        .map_err(|_| "stateUnavailable")?;
+    let found = ports
+        .into_iter()
+        .take(8)
+        .find(|candidate| cc_route_healthy(&client, *candidate));
+    let result = CcDetection {
+        state: if found.is_some() {
+            CcDetectionState::Confirmed
+        } else if listeners
+            .iter()
+            .any(|listener| listener.port == preferred_port)
+        {
+            CcDetectionState::ListeningUnknown
+        } else {
+            CcDetectionState::NotDetected
+        },
+        local_port: found.unwrap_or(preferred_port),
+    };
+    lock()?.cc_detected = result.state == CcDetectionState::Confirmed;
+    Ok(result)
+}
+
+fn cc_route_ports(
+    listeners: &[super::proxy::listeners::TcpListener],
+    processes: &std::collections::HashMap<u32, super::proxy::processes::RunningProcess>,
+    preferred_port: u16,
+) -> Vec<u16> {
+    let mut ports: Vec<u16> = listeners
+        .iter()
+        .filter(|listener| listener.host == "127.0.0.1" && listener.port >= 1024)
+        .filter(|listener| {
+            listener.pids.iter().any(|pid| {
+                processes.get(pid).is_some_and(|process| {
+                    process
+                        .name
+                        .replace(['-', '_', ' '], "")
+                        .contains("ccswitch")
+                })
+            })
+        })
+        .map(|listener| listener.port)
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports.sort_by_key(|candidate| (*candidate != preferred_port, *candidate));
+    ports
+}
+
+fn cc_route_healthy(client: &reqwest::blocking::Client, local_port: u16) -> bool {
+    use std::io::Read;
+    let Ok(response) = client
+        .get(format!("http://127.0.0.1:{local_port}/health"))
+        .send()
+    else {
+        return false;
+    };
+    if response.status() != reqwest::StatusCode::OK {
+        return false;
+    }
+    let mut bytes = Vec::new();
+    if response.take(4097).read_to_end(&mut bytes).is_err() || bytes.len() > 4096 {
+        return false;
+    }
+    serde_json::from_slice::<serde_json::Value>(&bytes)
+        .ok()
+        .is_some_and(|body| {
+            body.get("status").and_then(|status| status.as_str()) == Some("healthy")
+        })
+}
 pub fn preview(request: &Request) -> BridgeResult<Summary> {
     let target = ssh::target(&request.target_id)?;
     if !target.available || target.compatibility != RemoteTargetCompatibility::Compatible {
@@ -1328,17 +1502,17 @@ fn forwarding_endpoints(
 fn apply_session_environment(
     target_id: &str,
     summary: &Summary,
-    relay: Option<&authenticated_relay::AuthenticatedRelay>,
+    session_id: Option<&str>,
 ) -> BridgeResult<()> {
     let Some(endpoint) = summary.proxy.as_ref() else {
         return Ok(());
     };
-    let relay = relay.ok_or("relayUnavailable")?;
+    let session_id = session_id.ok_or("relayUnavailable")?;
     ssh::remote(
         target_id,
         json!({
             "operation": "session-env-apply",
-            "sessionId": relay.session_id(),
+            "sessionId": session_id,
             "port": endpoint.remote_port,
             "protocol": endpoint.local.protocol,
         }),
@@ -1359,9 +1533,236 @@ fn remove_session_environment(target_id: &str, session_id: Option<&str>) {
     );
 }
 
+enum PostConnectResult {
+    Environment(BridgeResult<()>, PhaseTiming),
+    Vscode(BridgeResult<()>, PhaseTiming),
+    Tools(Box<Summary>, Vec<PhaseTiming>, bool),
+}
+
+fn prepare_post_connect(summary: &mut Summary) {
+    summary.post_connect_status = PostConnectStatus::Preparing;
+    summary.session_environment_state = if summary.proxy.is_some() {
+        RuntimeState::Preparing
+    } else {
+        RuntimeState::Ready
+    };
+    summary.vscode_state = if summary
+        .target
+        .as_ref()
+        .is_some_and(|target| target.can_open_vscode)
+    {
+        RuntimeState::Preparing
+    } else {
+        RuntimeState::Ready
+    };
+    let tool_state = if summary.cc.is_some() {
+        RuntimeState::Preparing
+    } else {
+        RuntimeState::Ready
+    };
+    summary.codex_state = tool_state;
+    summary.claude_state = tool_state;
+    // Skill discovery and sync use their own monitored transaction and never
+    // gate transport readiness.
+    summary.skills_state = RuntimeState::Ready;
+    summary.post_connect_error = None;
+}
+
+fn start_post_connect(generation: u64) {
+    std::thread::spawn(move || {
+        let post_connect_started = Instant::now();
+        let job = {
+            let Ok(state) = lock() else {
+                return;
+            };
+            if state.connection_generation != generation || state.child.is_none() {
+                return;
+            }
+            let Some(target_id) = state
+                .summary
+                .target
+                .as_ref()
+                .map(|target| target.id.clone())
+            else {
+                return;
+            };
+            (
+                target_id,
+                state.summary.clone(),
+                state
+                    .proxy_relay
+                    .as_ref()
+                    .map(|relay| relay.session_id().to_owned()),
+                state
+                    .ai_relay
+                    .as_ref()
+                    .or(state.proxy_relay.as_ref())
+                    .map(|relay| relay.session_id().to_owned()),
+                state
+                    .ai_relay
+                    .as_ref()
+                    .map(|relay| relay.token().to_owned()),
+                state.target_fingerprint.clone(),
+            )
+        };
+        let (target_id, summary, proxy_session, vscode_session, ai_token, fingerprint) = job;
+        let (sender, receiver) = std::sync::mpsc::channel();
+        {
+            if summary.proxy.is_some() {
+                let sender = sender.clone();
+                let target_id = target_id.clone();
+                let summary = summary.clone();
+                let proxy_session = proxy_session.clone();
+                std::thread::spawn(move || {
+                    let started = Instant::now();
+                    let result =
+                        apply_session_environment(&target_id, &summary, proxy_session.as_deref());
+                    let _ = sender.send(PostConnectResult::Environment(
+                        result.clone(),
+                        timing("sessionEnv.apply", started, result.is_ok()),
+                    ));
+                });
+            }
+            if summary
+                .target
+                .as_ref()
+                .is_some_and(|target| target.can_open_vscode)
+            {
+                let sender = sender.clone();
+                let target_id = target_id.clone();
+                let vscode_session = vscode_session.clone();
+                let fingerprint = fingerprint.clone();
+                std::thread::spawn(move || {
+                    let started = Instant::now();
+                    let result = match (vscode_session.as_deref(), fingerprint.as_deref()) {
+                        (Some(session_id), Some(fingerprint)) => {
+                            refresh_owned_vscode_network(&target_id, session_id, fingerprint)
+                        }
+                        _ => Err("relayUnavailable".into()),
+                    };
+                    let _ = sender.send(PostConnectResult::Vscode(
+                        result.clone(),
+                        timing("vscodeNetwork.refresh", started, result.is_ok()),
+                    ));
+                });
+            }
+            if summary.cc.is_some() {
+                let sender = sender.clone();
+                let mut tool_summary = summary.clone();
+                std::thread::spawn(move || {
+                    let (timings, ready) = refresh_tool_configuration(
+                        &mut tool_summary,
+                        ai_token.as_deref().map(|token| token.as_str()),
+                    );
+                    let _ = sender.send(PostConnectResult::Tools(
+                        Box::new(tool_summary),
+                        timings,
+                        ready,
+                    ));
+                });
+            }
+        }
+        drop(sender);
+
+        for result in receiver {
+            let Ok(mut state) = lock() else {
+                return;
+            };
+            if state.connection_generation != generation || state.child.is_none() {
+                return;
+            }
+            match result {
+                PostConnectResult::Environment(result, entry) => {
+                    state.summary.session_environment_state = if result.is_ok() {
+                        RuntimeState::Ready
+                    } else {
+                        RuntimeState::Warning
+                    };
+                    if let Err(code) = result {
+                        state.summary.post_connect_error.get_or_insert(code);
+                    }
+                    state.summary.timings.push(entry);
+                }
+                PostConnectResult::Vscode(result, entry) => {
+                    state.summary.vscode_state = if result.is_ok() {
+                        RuntimeState::Ready
+                    } else {
+                        RuntimeState::Warning
+                    };
+                    if let Err(code) = result {
+                        state.summary.post_connect_error.get_or_insert(code);
+                    }
+                    state.summary.timings.push(entry);
+                }
+                PostConnectResult::Tools(tool_summary, entries, ready) => {
+                    state.summary.codex_configured = tool_summary.codex_configured;
+                    state.summary.claude_configured = tool_summary.claude_configured;
+                    state.summary.codex_verification = tool_summary.codex_verification;
+                    state.summary.claude_verification = tool_summary.claude_verification;
+                    state.summary.codex_state = if tool_summary.codex_configured {
+                        RuntimeState::Ready
+                    } else {
+                        RuntimeState::Warning
+                    };
+                    state.summary.claude_state = if tool_summary.claude_configured {
+                        RuntimeState::Ready
+                    } else {
+                        RuntimeState::Warning
+                    };
+                    if !ready {
+                        state
+                            .summary
+                            .post_connect_error
+                            .get_or_insert_with(|| "toolSetupFailed".into());
+                    }
+                    state.summary.timings.extend(entries);
+                    sync_tool_states(&mut state.summary);
+                }
+            }
+        }
+
+        if let Ok(mut state) = lock() {
+            if state.connection_generation != generation || state.child.is_none() {
+                return;
+            }
+            let warning = [
+                state.summary.session_environment_state,
+                state.summary.vscode_state,
+                state.summary.codex_state,
+                state.summary.claude_state,
+                state.summary.skills_state,
+            ]
+            .into_iter()
+            .any(|value| value == RuntimeState::Warning);
+            state.summary.post_connect_status = if warning {
+                PostConnectStatus::Partial
+            } else {
+                PostConnectStatus::Ready
+            };
+            state
+                .summary
+                .timings
+                .push(timing("postConnect.total", post_connect_started, !warning));
+        }
+    });
+}
+
+pub(super) struct InteractiveConnectCompletion {
+    pub request: Request,
+    pub summary: Summary,
+    pub fingerprint: String,
+    pub process: ssh_auth::PtyProcess,
+    pub auth: SshAuthState,
+    pub auth_duration_ms: u64,
+    pub core_duration_ms: u64,
+    pub proxy_relay: Option<authenticated_relay::AuthenticatedRelay>,
+    pub ai_relay: Option<authenticated_relay::AuthenticatedRelay>,
+}
+
 pub(super) fn prepare_interactive_connect(
     request: &Request,
 ) -> BridgeResult<InteractiveConnectPlan> {
+    let started = Instant::now();
     {
         let state = lock()?;
         if state.child.is_some() {
@@ -1369,9 +1770,12 @@ pub(super) fn prepare_interactive_connect(
         }
     }
     let fingerprint = ssh::fingerprint(&request.target_id)?;
-    let summary = preview(request)?;
+    let mut summary = preview(request)?;
     let (proxy_relay, ai_relay) = relays_for(&summary)?;
     let endpoints = forwarding_endpoints(&summary, proxy_relay.as_ref(), ai_relay.as_ref())?;
+    summary
+        .timings
+        .push(timing("bridge.prepare", started, true));
     Ok(InteractiveConnectPlan {
         summary,
         fingerprint,
@@ -1391,6 +1795,7 @@ pub(super) fn mark_interactive_connecting() -> BridgeResult<()> {
     state.extension_pending = None;
     state.summary.status = Status::Connecting;
     state.summary.error = None;
+    state.connect_started_at = Some(Instant::now());
     Ok(())
 }
 
@@ -1404,37 +1809,51 @@ pub(super) fn cancel_interactive_connect() {
 }
 
 pub(super) fn complete_interactive_connect(
-    request: Request,
-    mut summary: Summary,
-    fingerprint: String,
-    process: ssh_auth::PtyProcess,
-    auth: SshAuthState,
-    proxy_relay: Option<authenticated_relay::AuthenticatedRelay>,
-    ai_relay: Option<authenticated_relay::AuthenticatedRelay>,
+    completion: InteractiveConnectCompletion,
 ) -> BridgeResult<Summary> {
+    let InteractiveConnectCompletion {
+        request,
+        mut summary,
+        fingerprint,
+        process,
+        auth,
+        auth_duration_ms,
+        core_duration_ms,
+        proxy_relay,
+        ai_relay,
+    } = completion;
     if ssh::fingerprint(&request.target_id)? != fingerprint {
         return Err("sshConfigChanged".into());
     }
     if request.proxy_port.is_some() {
         preview(&request)?;
     }
-    apply_session_environment(&request.target_id, &summary, proxy_relay.as_ref())?;
     summary.status = Status::Connected;
     summary.proxy_status = summary.proxy.as_ref().map(|_| Status::Connected);
     summary.cc_status = summary.cc.as_ref().map(|_| Status::Connected);
-    summary.error = refresh_owned_vscode_network(
-        &summary,
-        proxy_relay.as_ref(),
-        ai_relay.as_ref(),
-        &fingerprint,
-    )
-    .err();
     summary.ssh_auth = auth;
-    let ai_token = ai_relay.as_ref().map(|relay| relay.token());
-    refresh_tool_configuration(&mut summary, ai_token.as_ref().map(|token| token.as_str()));
+    summary.timings.push(PhaseTiming {
+        phase: "ssh.authenticate".into(),
+        duration_ms: auth_duration_ms,
+        outcome: "success".into(),
+    });
+    summary.timings.push(PhaseTiming {
+        phase: "coreBridge.total".into(),
+        duration_ms: core_duration_ms,
+        outcome: "success".into(),
+    });
+    summary.timings.push(PhaseTiming {
+        phase: "bridge.forwardReady".into(),
+        duration_ms: core_duration_ms,
+        outcome: "success".into(),
+    });
+    prepare_post_connect(&mut summary);
     let mut state = lock()?;
     if state.child.is_some() {
         return Err("alreadyConnected".into());
+    }
+    if let Some(started) = state.connect_started_at.take() {
+        summary.timings.push(timing("bridge.total", started, true));
     }
     state.summary = summary;
     state.last_request = Some(request);
@@ -1446,7 +1865,11 @@ pub(super) fn complete_interactive_connect(
     state.reachable = true;
     state.target_fingerprint = Some(fingerprint);
     state.ssh_auth = auth;
-    Ok(exposed_summary(&state.summary))
+    let generation = state.connection_generation;
+    let snapshot = exposed_summary(&state.summary);
+    drop(state);
+    start_post_connect(generation);
+    Ok(snapshot)
 }
 
 pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
@@ -1459,6 +1882,7 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
     }
     reconnect::cancel(&mut state);
     state.pending = None;
+    let connect_started = Instant::now();
     let result = (|| {
         state.extension_pending = None;
         let fingerprint = ssh::fingerprint(&request.target_id)?;
@@ -1471,6 +1895,7 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
             &request.target_id,
             json!({"operation":"check","ports":ports}),
         )?;
+        let forward_started = Instant::now();
         let mut child = ssh::tunnel(&request, &endpoints)?;
         let mut verified = false;
         for _ in 0..3 {
@@ -1505,19 +1930,14 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         if request.proxy_port.is_some() {
             preview(&request)?;
         }
-        apply_session_environment(&request.target_id, &next, proxy_relay.as_ref())?;
         next.status = Status::Connected;
         next.proxy_status = next.proxy.as_ref().map(|_| Status::Connected);
         next.cc_status = next.cc.as_ref().map(|_| Status::Connected);
-        next.error = refresh_owned_vscode_network(
-            &next,
-            proxy_relay.as_ref(),
-            ai_relay.as_ref(),
-            &fingerprint,
-        )
-        .err();
-        let ai_token = ai_relay.as_ref().map(|relay| relay.token());
-        refresh_tool_configuration(&mut next, ai_token.as_ref().map(|token| token.as_str()));
+        next.timings
+            .push(timing("bridge.forwardReady", forward_started, true));
+        next.timings
+            .push(timing("coreBridge.total", connect_started, true));
+        prepare_post_connect(&mut next);
         state.summary = next;
         state.last_request = Some(request.clone());
         state.proxy_status = Status::Connected;
@@ -1539,6 +1959,11 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
     if let Err(code) = &result {
         state.summary.status = Status::Error;
         state.summary.error = Some(code.clone());
+    }
+    let generation = state.connection_generation;
+    drop(state);
+    if result.is_ok() {
+        start_post_connect(generation);
     }
     result
 }
@@ -1588,6 +2013,13 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     invalidate_tool_verification(&mut state.summary);
     state.summary.error = vscode_restore_error;
     credential_cache::clear();
+    Ok(exposed_summary(&state.summary))
+}
+
+pub fn retry_reconnect() -> BridgeResult<Summary> {
+    let mut state = lock()?;
+    refresh(&mut state);
+    reconnect::resume(&mut state)?;
     Ok(exposed_summary(&state.summary))
 }
 pub fn clear_session_credential() {
@@ -1675,19 +2107,14 @@ fn restore_vscode_network(state: &mut Store) -> BridgeResult<()> {
 }
 
 fn refresh_owned_vscode_network(
-    summary: &Summary,
-    proxy_relay: Option<&authenticated_relay::AuthenticatedRelay>,
-    ai_relay: Option<&authenticated_relay::AuthenticatedRelay>,
+    target_id: &str,
+    session_id: &str,
     fingerprint: &str,
 ) -> BridgeResult<()> {
-    let target = summary.target.as_ref().ok_or("invalidTarget")?;
-    if !vscode_network::is_managed(&target.id)? {
+    if !vscode_network::is_managed(target_id)? {
         return Ok(());
     }
-    if let Some(relay) = ai_relay.or(proxy_relay) {
-        return vscode_network::apply(&target.id, relay.session_id(), fingerprint);
-    }
-    vscode_network::restore(&target.id)
+    vscode_network::apply(target_id, session_id, fingerprint)
 }
 
 /// Configure only the connected remote VS Code Server, never local user settings.
@@ -2246,6 +2673,83 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cc_route_discovery_tracks_changed_ports_and_excludes_foreign_listeners() {
+        use crate::features::proxy::{listeners::TcpListener, processes::RunningProcess};
+        let processes = std::collections::HashMap::from([
+            (
+                1,
+                RunningProcess {
+                    pid: 1,
+                    name: "cc-switch.exe".into(),
+                },
+            ),
+            (
+                2,
+                RunningProcess {
+                    pid: 2,
+                    name: "other.exe".into(),
+                },
+            ),
+        ]);
+        let listener = |port, pid| TcpListener {
+            host: "127.0.0.1".into(),
+            port,
+            pids: vec![pid],
+        };
+        let old = listener(15721, 1);
+        let new = listener(15722, 1);
+        let foreign = listener(7897, 2);
+        assert_eq!(
+            cc_route_ports(&[old.clone(), new.clone(), old], &processes, 15721),
+            vec![15721, 15722]
+        );
+        assert_eq!(
+            cc_route_ports(&[new, foreign.clone()], &processes, 15721),
+            vec![15722]
+        );
+        assert!(cc_route_ports(&[foreign], &processes, 15721).is_empty());
+    }
+
+    #[test]
+    fn cc_route_health_requires_bounded_healthy_json_without_redirects() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+        };
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        for (status, body, expected) in [
+            (200, r#"{"status":"healthy"}"#.to_owned(), true),
+            (200, r#"{"status":"unhealthy"}"#.to_owned(), false),
+            (200, "not json".to_owned(), false),
+            (200, " ".repeat(4097), false),
+            (302, r#"{"status":"healthy"}"#.to_owned(), false),
+        ] {
+            let server = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = server.local_addr().unwrap().port();
+            let worker = std::thread::spawn(move || {
+                let (mut stream, _) = server.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = [0; 4096];
+                assert!(stream.read(&mut request).unwrap() > 0);
+                let response = format!(
+                    "HTTP/1.1 {status} OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            });
+            assert_eq!(cc_route_healthy(&client, port), expected);
+            worker.join().unwrap();
+        }
+    }
     #[test]
     fn route_actions_depend_only_on_their_own_capability_and_ssh() {
         for unrelated in [Status::Stale, Status::Unavailable, Status::Connected] {

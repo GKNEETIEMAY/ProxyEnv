@@ -1,4 +1,5 @@
 //! No target names, ports or credentials in desktop notifications.
+#![allow(dead_code)] // Dormant until reconnect notifications return to the product surface.
 use crate::services::settings;
 use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter, Manager};
@@ -19,21 +20,16 @@ pub fn bridge_attention() {
         .get_webview_window("main")
         .is_some_and(|w| w.is_focused().unwrap_or(false));
     if focused {
-        let _ = app.emit("bridge-attention", ());
         return;
     }
     #[cfg(windows)]
-    if native_toast(
-        app,
-        preferences.clone().resolved_language(),
-        preferences.notification_sound,
-    )
-    .is_ok()
     {
-        return;
+        let sound = preferences.notification_sound;
+        let language = preferences.resolved_language();
+        let _ = native_toast(app, language, sound);
     }
-    // Permission/OS policy may suppress desktop toasts; retain an in-app notice.
-    let _ = app.emit("bridge-attention", ());
+    // Permission or OS policy may suppress desktop toasts. The bridge page
+    // remains the single in-app source of recovery status.
 }
 
 #[cfg(windows)]

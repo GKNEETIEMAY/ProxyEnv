@@ -1,6 +1,7 @@
 use super::{
-    connections, mobaxterm, BridgeResult, RemoteTarget, RemoteTargetCompatibility,
-    RemoteTargetSource, Request, SshAuthMethod,
+    connections::{self, ManualAuthentication},
+    mobaxterm, BridgeResult, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request,
+    SshAuthMethod,
 };
 use std::{
     fs,
@@ -125,18 +126,17 @@ pub fn aliases_from(text: &str) -> Vec<String> {
     aliases
 }
 
-fn aliases_at(path: &Path) -> BridgeResult<Vec<String>> {
+fn config_text_at(path: &Path) -> BridgeResult<String> {
     if !path.exists() {
-        return Ok(Vec::new());
+        return Ok(String::new());
     }
     let metadata = std::fs::metadata(path).map_err(|_| "sshConfigMissing")?;
     if metadata.len() > 1024 * 1024 {
         return Err("sshConfigUnsafe".into());
     }
-    Ok(aliases_from(
-        &std::fs::read_to_string(path).map_err(|_| "sshConfigMissing")?,
-    ))
+    std::fs::read_to_string(path).map_err(|_| "sshConfigMissing".into())
 }
+
 #[derive(Debug, Clone)]
 enum Connection {
     Config {
@@ -147,6 +147,7 @@ enum Connection {
         host: String,
         user: Option<String>,
         port: u16,
+        authentication: ManualAuthentication,
         identity_file: Option<PathBuf>,
     },
 }
@@ -182,42 +183,358 @@ fn display_path(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+#[derive(Debug, Default)]
+struct EffectiveTargetMetadata {
+    host: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
+    authentication_method: SshAuthMethod,
+}
+
+fn existing_identity_file(value: &str) -> Option<String> {
+    let value = value.trim().trim_matches('"');
+    if value.chars().any(char::is_control)
+        || value.starts_with(r"\\?\")
+        || value.starts_with("//?/")
+        || value.starts_with(r"\\.\")
+        || value.starts_with("//./")
+    {
+        return None;
+    }
+    let home = dirs::home_dir();
+    let path = if let Some(suffix) = value
+        .strip_prefix("~/")
+        .or_else(|| value.strip_prefix("~\\"))
+        .or_else(|| value.strip_prefix("%d/"))
+        .or_else(|| value.strip_prefix("%d\\"))
+    {
+        home?.join(suffix)
+    } else {
+        PathBuf::from(value)
+    };
+    if !path.is_file() {
+        return None;
+    }
+    let canonical = path.canonicalize().unwrap_or(path);
+    #[cfg(windows)]
+    let canonical = {
+        let value = canonical.to_str()?;
+        if let Some(unc) = value.strip_prefix(r"\\?\UNC\") {
+            PathBuf::from(format!(r"\\{unc}"))
+        } else if let Some(drive) = value.strip_prefix(r"\\?\") {
+            PathBuf::from(drive)
+        } else {
+            canonical
+        }
+    };
+    Some(canonical.to_string_lossy().into_owned())
+}
+
+fn default_identity_file() -> Option<String> {
+    let ssh = dirs::home_dir()?.join(".ssh");
+    ["id_ed25519", "id_ecdsa", "id_rsa"]
+        .into_iter()
+        .find_map(|name| existing_identity_file(&ssh.join(name).to_string_lossy()))
+}
+
+fn effective_target_metadata(text: &str) -> BridgeResult<EffectiveTargetMetadata> {
+    let mut metadata = EffectiveTargetMetadata::default();
+    let mut pubkey_authentication = true;
+    let mut password_authentication = true;
+    let mut keyboard_interactive = true;
+    let mut preferred_authentications: Option<Vec<String>> = None;
+
+    for line in text.lines() {
+        let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+        let value = value.trim();
+        match key {
+            "user" if value.eq_ignore_ascii_case("root") => return Err("rootForbidden".into()),
+            "user" if !safe_name(value) => return Err("sshConfigUnsafe".into()),
+            "user" => metadata.user = Some(value.to_owned()),
+            "hostname" if !(safe_name(value) || value.parse::<std::net::IpAddr>().is_ok()) => {
+                return Err("sshConfigUnsafe".into());
+            }
+            "hostname" => metadata.host = Some(value.to_owned()),
+            "port" => {
+                metadata.port = Some(
+                    value
+                        .parse::<u16>()
+                        .ok()
+                        .filter(|port| *port > 0)
+                        .ok_or("sshConfigUnsafe")?,
+                );
+            }
+            "identityfile" if metadata.identity_file.is_none() => {
+                metadata.identity_file = existing_identity_file(value);
+            }
+            "pubkeyauthentication" => pubkey_authentication = !value.eq_ignore_ascii_case("no"),
+            "passwordauthentication" => password_authentication = !value.eq_ignore_ascii_case("no"),
+            "kbdinteractiveauthentication" | "challengeresponseauthentication" => {
+                keyboard_interactive = !value.eq_ignore_ascii_case("no");
+            }
+            "preferredauthentications" => {
+                preferred_authentications = Some(
+                    value
+                        .split(',')
+                        .map(|method| method.trim().to_ascii_lowercase())
+                        .collect(),
+                );
+            }
+            "localforward" | "remoteforward" | "dynamicforward" => {
+                return Err("sshConfigUnsafe".into());
+            }
+            _ => (),
+        }
+    }
+
+    metadata.authentication_method = if metadata.identity_file.is_some() {
+        SshAuthMethod::IdentityFile
+    } else if let Some(preferred) = preferred_authentications {
+        if !preferred.iter().any(|method| method == "publickey")
+            && preferred.iter().any(|method| method == "password")
+        {
+            SshAuthMethod::Password
+        } else if !preferred.iter().any(|method| method == "publickey")
+            && preferred
+                .iter()
+                .any(|method| method == "keyboard-interactive")
+        {
+            SshAuthMethod::KeyboardInteractive
+        } else {
+            SshAuthMethod::Unknown
+        }
+    } else if !pubkey_authentication && password_authentication {
+        SshAuthMethod::Password
+    } else if !pubkey_authentication && keyboard_interactive {
+        SshAuthMethod::KeyboardInteractive
+    } else if std::env::var_os("SSH_AUTH_SOCK").is_some() {
+        SshAuthMethod::Agent
+    } else {
+        SshAuthMethod::Unknown
+    };
+    Ok(metadata)
+}
+
+fn host_pattern_matches(pattern: &str, alias: &str) -> bool {
+    let pattern = pattern.as_bytes();
+    let alias = alias.as_bytes();
+    let mut matched = vec![false; alias.len() + 1];
+    matched[0] = true;
+    for byte in pattern {
+        let mut next = vec![false; alias.len() + 1];
+        match byte.to_ascii_lowercase() {
+            b'*' => {
+                next[0] = matched[0];
+                for index in 1..=alias.len() {
+                    next[index] = matched[index] || next[index - 1];
+                }
+            }
+            b'?' => {
+                for index in 1..=alias.len() {
+                    next[index] = matched[index - 1];
+                }
+            }
+            expected => {
+                for index in 1..=alias.len() {
+                    next[index] =
+                        matched[index - 1] && alias[index - 1].to_ascii_lowercase() == expected;
+                }
+            }
+        }
+        matched = next;
+    }
+    matched[alias.len()]
+}
+
+fn host_block_matches(value: &str, alias: &str) -> bool {
+    let mut positive = false;
+    for pattern in value.split_whitespace() {
+        let (negated, pattern) = pattern
+            .strip_prefix('!')
+            .map_or((false, pattern), |pattern| (true, pattern));
+        if host_pattern_matches(pattern.trim_matches('"'), alias) {
+            if negated {
+                return false;
+            }
+            positive = true;
+        }
+    }
+    positive
+}
+
+fn config_line(line: &str) -> Option<(&str, &str)> {
+    let line = line.split('#').next()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let separator = line.find(|character: char| character.is_whitespace() || character == '=')?;
+    let key = &line[..separator];
+    let value = line[separator..]
+        .trim_start_matches(|character: char| character.is_whitespace() || character == '=')
+        .trim();
+    (!key.is_empty() && !value.is_empty()).then_some((key, value))
+}
+
+fn config_target_metadata(text: &str, alias: &str) -> BridgeResult<EffectiveTargetMetadata> {
+    let mut metadata = EffectiveTargetMetadata {
+        host: Some(alias.to_owned()),
+        port: Some(22),
+        ..EffectiveTargetMetadata::default()
+    };
+    let mut active = true;
+    let mut host_set = false;
+    let mut port_set = false;
+    let mut pubkey_authentication = None;
+    let mut password_authentication = None;
+    let mut keyboard_interactive = None;
+    let mut preferred_authentications: Option<Vec<String>> = None;
+    let mut identity_configured = false;
+
+    for line in text.lines() {
+        let Some((key, value)) = config_line(line) else {
+            continue;
+        };
+        if key.eq_ignore_ascii_case("host") {
+            active = host_block_matches(value, alias);
+            continue;
+        }
+        if !active {
+            continue;
+        }
+        if key.eq_ignore_ascii_case("hostname") && !host_set {
+            let value = value.trim_matches('"');
+            if !safe_host(value) {
+                return Err("sshConfigUnsafe".into());
+            }
+            metadata.host = Some(value.to_owned());
+            host_set = true;
+        } else if key.eq_ignore_ascii_case("user") && metadata.user.is_none() {
+            let value = value.trim_matches('"');
+            if value.eq_ignore_ascii_case("root") {
+                return Err("rootForbidden".into());
+            }
+            if !safe_name(value) {
+                return Err("sshConfigUnsafe".into());
+            }
+            metadata.user = Some(value.to_owned());
+        } else if key.eq_ignore_ascii_case("port") && !port_set {
+            metadata.port = Some(
+                value
+                    .parse::<u16>()
+                    .ok()
+                    .filter(|port| *port > 0)
+                    .ok_or("sshConfigUnsafe")?,
+            );
+            port_set = true;
+        } else if key.eq_ignore_ascii_case("identityfile") && metadata.identity_file.is_none() {
+            identity_configured = true;
+            metadata.identity_file = existing_identity_file(value);
+        } else if key.eq_ignore_ascii_case("pubkeyauthentication")
+            && pubkey_authentication.is_none()
+        {
+            pubkey_authentication = Some(!value.eq_ignore_ascii_case("no"));
+        } else if key.eq_ignore_ascii_case("passwordauthentication")
+            && password_authentication.is_none()
+        {
+            password_authentication = Some(!value.eq_ignore_ascii_case("no"));
+        } else if (key.eq_ignore_ascii_case("kbdinteractiveauthentication")
+            || key.eq_ignore_ascii_case("challengeresponseauthentication"))
+            && keyboard_interactive.is_none()
+        {
+            keyboard_interactive = Some(!value.eq_ignore_ascii_case("no"));
+        } else if key.eq_ignore_ascii_case("preferredauthentications")
+            && preferred_authentications.is_none()
+        {
+            preferred_authentications = Some(
+                value
+                    .split(',')
+                    .map(|method| method.trim().to_ascii_lowercase())
+                    .collect(),
+            );
+        }
+    }
+
+    if !identity_configured && pubkey_authentication != Some(false) {
+        metadata.identity_file = default_identity_file();
+    }
+
+    metadata.authentication_method = if metadata.identity_file.is_some() {
+        SshAuthMethod::IdentityFile
+    } else if let Some(preferred) = preferred_authentications {
+        if !preferred.iter().any(|method| method == "publickey")
+            && preferred.iter().any(|method| method == "password")
+        {
+            SshAuthMethod::Password
+        } else if !preferred.iter().any(|method| method == "publickey")
+            && preferred
+                .iter()
+                .any(|method| method == "keyboard-interactive")
+        {
+            SshAuthMethod::KeyboardInteractive
+        } else {
+            SshAuthMethod::Unknown
+        }
+    } else if pubkey_authentication == Some(false) && password_authentication != Some(false) {
+        SshAuthMethod::Password
+    } else if pubkey_authentication == Some(false) && keyboard_interactive != Some(false) {
+        SshAuthMethod::KeyboardInteractive
+    } else if std::env::var_os("SSH_AUTH_SOCK").is_some() {
+        SshAuthMethod::Agent
+    } else {
+        SshAuthMethod::Unknown
+    };
+    Ok(metadata)
+}
+
 fn config_targets(
     path: &Path,
     source: RemoteTargetSource,
     source_label: &str,
     can_open_vscode: bool,
+    can_open_mobaxterm: bool,
 ) -> BridgeResult<Vec<ResolvedTarget>> {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    Ok(aliases_at(path)?
+    let config_text = config_text_at(path)?;
+    Ok(aliases_from(&config_text)
         .into_iter()
-        .map(|alias| ResolvedTarget {
-            public: RemoteTarget {
-                id: target_id(source, &canonical, &alias),
-                display_name: alias.clone(),
-                source,
-                source_label: source_label.into(),
-                config_path: display_path(&canonical),
-                ssh_alias: Some(alias.clone()),
-                host: None,
-                user: None,
-                port: None,
-                identity_file: None,
-                available: true,
-                compatibility: RemoteTargetCompatibility::Compatible,
-                unavailable_reason: None,
-                can_open_vscode,
-            },
-            connection: Connection::Config {
-                alias,
-                config: (source == RemoteTargetSource::Vscode).then_some(canonical.clone()),
-            },
-            config_path: canonical.clone(),
+        .map(|alias| {
+            let config = (source == RemoteTargetSource::Vscode).then_some(canonical.clone());
+            let metadata = config_target_metadata(&config_text, &alias).unwrap_or_else(|_| {
+                EffectiveTargetMetadata {
+                    host: Some(alias.clone()),
+                    port: Some(22),
+                    ..EffectiveTargetMetadata::default()
+                }
+            });
+            ResolvedTarget {
+                public: RemoteTarget {
+                    id: target_id(source, &canonical, &alias),
+                    display_name: alias.clone(),
+                    source,
+                    source_label: source_label.into(),
+                    config_path: display_path(&canonical),
+                    ssh_alias: Some(alias.clone()),
+                    host: metadata.host,
+                    user: metadata.user,
+                    port: metadata.port,
+                    identity_file: metadata.identity_file,
+                    authentication_method: metadata.authentication_method,
+                    available: true,
+                    compatibility: RemoteTargetCompatibility::Compatible,
+                    unavailable_reason: None,
+                    can_open_vscode,
+                    can_open_mobaxterm,
+                },
+                connection: Connection::Config { alias, config },
+                config_path: canonical.clone(),
+            }
         })
         .collect())
 }
 
 fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
+    let can_open_mobaxterm = mobaxterm::available();
     let default = dirs::home_dir()
         .ok_or("sshConfigMissing")?
         .join(".ssh/config");
@@ -230,6 +547,7 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
         RemoteTargetSource::Openssh,
         "OpenSSH",
         vscode_uses_default,
+        can_open_mobaxterm,
     )?;
     if let Some(path) = vscode_config {
         if default_canonical.as_ref() != Some(&path) {
@@ -238,6 +556,7 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
                 RemoteTargetSource::Vscode,
                 "VS Code Remote",
                 true,
+                can_open_mobaxterm,
             )?);
         }
     }
@@ -260,6 +579,7 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
                 user: session.user.clone(),
                 port: session.port,
                 identity_file: None,
+                authentication_method: SshAuthMethod::Unknown,
                 available: compatible,
                 compatibility: if compatible {
                     RemoteTargetCompatibility::Compatible
@@ -268,6 +588,7 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
                 },
                 unavailable_reason: (!compatible).then(|| "mobaSessionUnsupported".into()),
                 can_open_vscode: false,
+                can_open_mobaxterm,
             };
             if let (Some(host), Some(user), Some(port)) = (session.host, session.user, session.port)
             {
@@ -277,6 +598,7 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
                         host,
                         user: Some(user),
                         port,
+                        authentication: ManualAuthentication::Automatic,
                         identity_file: None,
                     },
                     config_path: path.clone(),
@@ -288,6 +610,7 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
                         host: String::new(),
                         user: None,
                         port: 0,
+                        authentication: ManualAuthentication::Automatic,
                         identity_file: None,
                     },
                     config_path: path.clone(),
@@ -296,13 +619,15 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
         }
     }
     for connection in connections::all()? {
-        let public = connections::target(&connection);
+        let mut public = connections::target(&connection);
+        public.can_open_mobaxterm = can_open_mobaxterm;
         result.push(ResolvedTarget {
             public,
             connection: Connection::Direct {
                 host: connection.host,
                 user: connection.user,
                 port: connection.port,
+                authentication: connection.authentication,
                 identity_file: connection.identity_file.map(PathBuf::from),
             },
             config_path: PathBuf::new(),
@@ -363,6 +688,7 @@ fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Comman
             host,
             user,
             port,
+            authentication,
             identity_file,
         } => {
             if !safe_host(&host)
@@ -374,6 +700,12 @@ fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Comman
             cmd.arg("-p").arg(port.to_string());
             if let Some(user) = user {
                 cmd.arg("-l").arg(user);
+            }
+            if authentication == ManualAuthentication::Password {
+                cmd.args([
+                    "-oPubkeyAuthentication=no",
+                    "-oPreferredAuthentications=keyboard-interactive,password",
+                ]);
             }
             if let Some(identity_file) = identity_file {
                 let metadata =
@@ -394,13 +726,16 @@ fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Comman
 
 pub fn launch_mobaxterm_target(id: &str) -> BridgeResult<()> {
     let target = resolve(id)?;
-    if target.public.source != RemoteTargetSource::Mobaxterm
-        || !target.public.available
+    if !target.public.available
         || target.public.compatibility != RemoteTargetCompatibility::Compatible
     {
         return Err("mobaSessionUnsupported".into());
     }
-    mobaxterm::launch(&target.config_path, &target.public.display_name)
+    if target.public.source == RemoteTargetSource::Mobaxterm {
+        mobaxterm::launch(&target.config_path, &target.public.display_name)
+    } else {
+        mobaxterm::launch_application()
+    }
 }
 
 fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(Command, String)> {
@@ -677,54 +1012,18 @@ pub fn fingerprint(target_id: &str) -> BridgeResult<String> {
 }
 
 pub fn non_interactive_auth_method(target_id: &str) -> SshAuthMethod {
-    if std::env::var_os("SSH_AUTH_SOCK").is_some() {
-        return SshAuthMethod::Agent;
-    }
     let Ok(effective) = effective_target(target_id) else {
         return SshAuthMethod::Unknown;
     };
-    let home = dirs::home_dir();
-    if effective.lines().any(|line| {
-        let Some(path) = line.strip_prefix("identityfile ") else {
-            return false;
-        };
-        let path = path.trim();
-        let expanded = home.as_ref().and_then(|home| {
-            path.strip_prefix("~/")
-                .or_else(|| path.strip_prefix("~\\"))
-                .map(|suffix| home.join(suffix))
-        });
-        expanded
-            .as_deref()
-            .unwrap_or_else(|| Path::new(path))
-            .is_file()
-    }) {
-        SshAuthMethod::IdentityFile
-    } else {
-        SshAuthMethod::Unknown
-    }
+    effective_target_metadata(&effective)
+        .map(|metadata| metadata.authentication_method)
+        .unwrap_or_default()
 }
 fn effective_target(target_id: &str) -> BridgeResult<String> {
     let (mut cmd, destination) = target_command(target_id)?;
     cmd.args(["-G", &destination]);
     let text = output(cmd, None, 12)?;
-    for line in text.lines() {
-        let (key, value) = line.split_once(' ').unwrap_or((line, ""));
-        match key {
-            "user" if value.eq_ignore_ascii_case("root") => return Err("rootForbidden".into()),
-            "user" if !safe_name(value) => return Err("sshConfigUnsafe".into()),
-            "hostname" if !(safe_name(value) || value.parse::<std::net::IpAddr>().is_ok()) => {
-                return Err("sshConfigUnsafe".into())
-            }
-            "port" if value.parse::<u16>().ok().filter(|p| *p > 0).is_none() => {
-                return Err("sshConfigUnsafe".into())
-            }
-            "localforward" | "remoteforward" | "dynamicforward" => {
-                return Err("sshConfigUnsafe".into())
-            }
-            _ => (),
-        }
-    }
+    effective_target_metadata(&text)?;
     Ok(text)
 }
 
@@ -1200,6 +1499,7 @@ fn scp_target_command(id: &str) -> BridgeResult<(Command, String)> {
             host,
             user,
             port,
+            authentication,
             identity_file,
         } => {
             if !safe_host(&host)
@@ -1209,6 +1509,12 @@ fn scp_target_command(id: &str) -> BridgeResult<(Command, String)> {
                 return Err("targetUnsupported".into());
             }
             command.arg("-P").arg(port.to_string());
+            if authentication == ManualAuthentication::Password {
+                command.args([
+                    "-oPubkeyAuthentication=no",
+                    "-oPreferredAuthentications=keyboard-interactive,password",
+                ]);
+            }
             if let Some(identity_file) = identity_file {
                 let metadata =
                     fs::symlink_metadata(&identity_file).map_err(|_| "identityFileInvalid")?;
@@ -1320,20 +1626,6 @@ fn scp_local_path(path: &Path) -> BridgeResult<PathBuf> {
 #[cfg(not(windows))]
 fn scp_local_path(path: &Path) -> BridgeResult<PathBuf> {
     Ok(path.to_path_buf())
-}
-
-pub(super) fn reconnect_probe(target: &str) -> BridgeResult<()> {
-    let (mut command, destination) = remote_target_command(target)?;
-    command
-        .arg("-oClearAllForwardings=yes")
-        .arg(destination)
-        .arg("printf PROXYENV_RECONNECT_READY");
-    let result = output(command, None, 12)?;
-    if result.trim() == "PROXYENV_RECONNECT_READY" {
-        Ok(())
-    } else {
-        Err("remoteFailed".into())
-    }
 }
 
 pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResult<OwnedChild> {
@@ -1686,6 +1978,57 @@ mod tests {
         assert_ne!(open_ssh, other_alias);
         assert!(!open_ssh.contains("Users"));
         assert!(!other_path.contains("D:/SSH"));
+    }
+
+    #[test]
+    fn effective_target_metadata_exposes_endpoint_and_explicit_password_authentication() {
+        let metadata = effective_target_metadata(
+            "user student\nhostname lab.example.edu\nport 2222\n\
+             pubkeyauthentication no\npasswordauthentication yes\n\
+             kbdinteractiveauthentication yes\n\
+             preferredauthentications keyboard-interactive,password\n",
+        )
+        .unwrap();
+        assert_eq!(metadata.user.as_deref(), Some("student"));
+        assert_eq!(metadata.host.as_deref(), Some("lab.example.edu"));
+        assert_eq!(metadata.port, Some(2222));
+        assert_eq!(metadata.authentication_method, SshAuthMethod::Password);
+    }
+
+    #[test]
+    fn effective_target_metadata_rejects_forwarding_from_imported_config() {
+        assert_eq!(
+            effective_target_metadata(
+                "user student\nhostname lab.example.edu\nport 22\nlocalforward 8080 localhost:80\n"
+            )
+            .unwrap_err(),
+            "sshConfigUnsafe"
+        );
+    }
+
+    #[test]
+    fn config_target_metadata_reads_endpoint_and_auth_without_executing_ssh() {
+        let metadata = config_target_metadata(
+            "Host lab\n  HostName lab.example.edu\n  User student\n  Port 2222\n  PubkeyAuthentication no\n  PreferredAuthentications keyboard-interactive,password\nHost *\n  Port 22\n",
+            "lab",
+        )
+        .unwrap();
+        assert_eq!(metadata.user.as_deref(), Some("student"));
+        assert_eq!(metadata.host.as_deref(), Some("lab.example.edu"));
+        assert_eq!(metadata.port, Some(2222));
+        assert_eq!(metadata.authentication_method, SshAuthMethod::Password);
+    }
+
+    #[test]
+    fn config_target_metadata_applies_safe_wildcard_defaults() {
+        let metadata = config_target_metadata(
+            "Host lab\n  HostName 10.0.0.8\nHost *\n  User student\n  Port 2200\n",
+            "lab",
+        )
+        .unwrap();
+        assert_eq!(metadata.host.as_deref(), Some("10.0.0.8"));
+        assert_eq!(metadata.user.as_deref(), Some("student"));
+        assert_eq!(metadata.port, Some(2200));
     }
     #[test]
     fn skill_projection_payload_accepts_only_bounded_allowlisted_metadata() {

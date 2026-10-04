@@ -8,6 +8,31 @@ use std::{
 
 static NEXT_TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
 
+pub(crate) fn safe_read_first_line(path: &Path, max_bytes: u64) -> std::io::Result<Vec<u8>> {
+    let initial = safe_file_metadata(path)?.ok_or_else(|| unsafe_file_error("file is missing"))?;
+    if initial.len() == 0 || initial.len() > max_bytes {
+        return Err(size_limit_error());
+    }
+    let (file, opened) = open_regular_file(path)?;
+    if opened.len() == 0 || opened.len() > max_bytes {
+        return Err(size_limit_error());
+    }
+    let mut line = Vec::with_capacity(64);
+    // Do not buffer or read the private-key body; only its bounded format header is needed.
+    let mut reader = file.take(64);
+    let mut byte = [0_u8; 1];
+    for _ in 0..64 {
+        if reader.read(&mut byte)? == 0 {
+            break;
+        }
+        if byte[0] == b'\n' {
+            return Ok(line);
+        }
+        line.push(byte[0]);
+    }
+    Err(unsafe_file_error("format header is missing or too long"))
+}
+
 pub(crate) fn safe_read(path: &Path, max_bytes: u64) -> std::io::Result<Option<Vec<u8>>> {
     let Some(initial_metadata) = safe_file_metadata(path)? else {
         return Ok(None);

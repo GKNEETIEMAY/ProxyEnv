@@ -30,9 +30,21 @@ impl Retry {
         self.paused = !transient(code);
         self.due = Instant::now() + Duration::from_secs(delay(self.attempts));
     }
+    fn resume(&mut self) {
+        self.due = Instant::now();
+        self.attempts = 0;
+        self.paused = false;
+    }
 }
 fn delay(attempts: u32) -> u64 {
-    (2_u64 << attempts.min(5)).min(60)
+    match attempts {
+        0 | 1 => 1,
+        2 => 2,
+        3 => 4,
+        4 => 8,
+        5 => 15,
+        _ => 30,
+    }
 }
 fn transient(code: &str) -> bool {
     matches!(
@@ -130,8 +142,6 @@ pub(super) fn tick() {
                 if code == "sshAuth" {
                     credential_cache::clear_if_matches(&job.fingerprint);
                 }
-                drop(state);
-                crate::desktop::notifications::bridge_attention();
             }
         }
     }
@@ -152,19 +162,12 @@ fn restore_transport(job: &Job) -> BridgeResult<ssh::OwnedChild> {
             return Err("activeChanged".into());
         }
     }
-    // Auth probe returns classified auth/host-key errors without prompts. It
-    // does not require free ports: the old server-side sshd may still be exiting.
-    ssh::reconnect_probe(&job.request.target_id)?;
-    {
-        let state = lock()?;
-        if !current(&state, job.generation) {
-            return Err("cancelled".into());
-        }
-    }
+    // Start the replacement tunnel directly. A separate SSH probe doubled the
+    // outage penalty and made short network interruptions take minutes to heal.
     let mut child = ssh::tunnel(&job.request, &job.endpoints)?;
     let ports: Vec<_> = job.endpoints.iter().map(|entry| entry.0).collect();
-    for _ in 0..3 {
-        std::thread::sleep(Duration::from_millis(400));
+    for _ in 0..2 {
+        std::thread::sleep(Duration::from_millis(300));
         if child
             .child
             .try_wait()
@@ -199,6 +202,24 @@ pub(super) fn cancel(state: &mut Store) {
         state.proxy_relay = None;
         state.ai_relay = None;
     }
+}
+
+pub(super) fn resume(state: &mut Store) -> BridgeResult<()> {
+    if state.child.is_some() {
+        return Ok(());
+    }
+    if state.last_request.is_none()
+        || state.target_fingerprint.is_none()
+        || (state.proxy_relay.is_none() && state.ai_relay.is_none())
+    {
+        return Err("bridgeUnavailable".into());
+    }
+    let retry = state.reconnect.as_mut().ok_or("bridgeUnavailable")?;
+    retry.resume();
+    state.summary.reconnect_state = State::Waiting;
+    state.summary.status = Status::Connecting;
+    state.summary.error = None;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -263,7 +284,7 @@ mod tests {
     }
     #[test]
     fn backoff_is_bounded() {
-        assert_eq!([1, 2, 3, 4, 5, 99].map(delay), [4, 8, 16, 32, 60, 60]);
+        assert_eq!([1, 2, 3, 4, 5, 99].map(delay), [1, 2, 4, 8, 15, 30]);
     }
     #[test]
     fn only_transport_errors_retry() {
@@ -297,5 +318,41 @@ mod tests {
         let mut retry = Retry::new();
         retry.failed("sshAuth");
         assert!(retry.paused);
+    }
+
+    #[test]
+    fn explicit_resume_reuses_the_existing_session_and_clears_attention() {
+        let mut retry = Retry::new();
+        retry.failed("sshAuth");
+        let mut state = Store {
+            reconnect: Some(retry),
+            last_request: Some(Request {
+                target_id: "test".into(),
+                proxy_port: None,
+                cc_port: Some(15721),
+                cc_local_port: 9,
+                expected_revision: 0,
+            }),
+            target_fingerprint: Some("fingerprint".into()),
+            ai_relay: Some(
+                authenticated_relay::AuthenticatedRelay::start(
+                    ProxyEndpoint {
+                        host: "127.0.0.1".into(),
+                        port: 9,
+                        protocol: ProxyProtocol::Http,
+                    },
+                    authenticated_relay::RelayMode::AiHttp,
+                )
+                .unwrap(),
+            ),
+            ..Store::default()
+        };
+        state.summary.reconnect_state = State::AttentionRequired;
+        state.summary.error = Some("sshAuth".into());
+        resume(&mut state).unwrap();
+        assert_eq!(state.summary.reconnect_state, State::Waiting);
+        assert_eq!(state.summary.status, Status::Connecting);
+        assert!(state.summary.error.is_none());
+        assert!(!state.reconnect.as_ref().unwrap().paused);
     }
 }

@@ -809,10 +809,9 @@ pub fn state(session_id: &str) -> BridgeResult<Snapshot> {
     if session.status == SessionStatus::PromptUnavailable {
         // Preserve the actionable diagnostic state after terminating the stuck PTY.
     } else {
-        let completion_timed_out = matches!(session.completion, Completion::Check)
-            && session
-                .authenticated_at
-                .is_some_and(|started| started.elapsed() >= COMPLETION_WAIT_TIMEOUT);
+        let completion_timed_out = session
+            .authenticated_at
+            .is_some_and(|started| started.elapsed() >= COMPLETION_WAIT_TIMEOUT);
         match (&session.completion, exit, output_closed) {
             (Completion::Check, _, _) if authenticated && remote_result_ready => {
                 match parse_json_result(&session.output, "check") {
@@ -823,8 +822,14 @@ pub fn state(session_id: &str) -> BridgeResult<Snapshot> {
                     }
                 }
             }
-            (Completion::Connect { .. }, None, _) if authenticated => {
-                session.status = SessionStatus::Succeeded;
+            (Completion::Connect { .. }, None, _) if authenticated && remote_result_ready => {
+                match parse_json_result(&session.output, "verify") {
+                    Ok(()) => session.status = SessionStatus::Succeeded,
+                    Err(code) => {
+                        session.status = SessionStatus::Failed;
+                        session.error = Some(code);
+                    }
+                }
             }
             (_, Some(_), true) => {
                 session.status = SessionStatus::Failed;
@@ -1056,16 +1061,30 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
             proxy_relay,
             ai_relay,
         } => {
+            let authenticated_at = session.authenticated_at.unwrap_or_else(Instant::now);
+            let auth_duration_ms = authenticated_at
+                .duration_since(session.created_at)
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX);
+            let core_duration_ms = authenticated_at
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX);
             let process = session.process.take().ok_or("processFailed")?;
-            let summary = super::complete_interactive_connect(
-                request,
-                *summary,
-                fingerprint,
-                process,
-                session.auth,
-                *proxy_relay,
-                *ai_relay,
-            )?;
+            let summary =
+                super::complete_interactive_connect(super::InteractiveConnectCompletion {
+                    request,
+                    summary: *summary,
+                    fingerprint,
+                    process,
+                    auth: session.auth,
+                    auth_duration_ms,
+                    core_duration_ms,
+                    proxy_relay: *proxy_relay,
+                    ai_relay: *ai_relay,
+                })?;
             Ok(Outcome {
                 operation: Operation::Connect,
                 ports: None,

@@ -52,6 +52,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::remote_bridge::remote_bridge_targets,
             commands::remote_bridge::remote_bridge_add_connection,
+            commands::remote_bridge::remote_bridge_pick_identity_file,
+            commands::remote_bridge::remote_bridge_update_connection,
             commands::remote_bridge::remote_bridge_remove_connection,
             commands::remote_bridge::remote_bridge_summary,
             commands::remote_bridge::remote_bridge_skills,
@@ -72,6 +74,7 @@ pub fn run() {
             commands::remote_bridge::remote_bridge_preview,
             commands::remote_bridge::remote_bridge_connect,
             commands::remote_bridge::remote_bridge_disconnect,
+            commands::remote_bridge::remote_bridge_retry_reconnect,
             commands::remote_bridge::remote_bridge_test,
             commands::remote_bridge::remote_bridge_launch_proxy_terminal,
             commands::remote_bridge::remote_bridge_session_environment_command,

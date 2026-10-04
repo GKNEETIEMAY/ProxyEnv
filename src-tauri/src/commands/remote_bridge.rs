@@ -3,6 +3,7 @@ use crate::features::remote_bridge::{
     RemoteNetworkObservation, RemoteTarget, Request, Summary, ToolVerificationResult,
 };
 use serde::Serialize;
+use tauri_plugin_dialog::DialogExt;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,11 +64,37 @@ pub async fn remote_bridge_targets() -> CommandResult<Vec<RemoteTarget>> {
     run("targetDiscovery", Some("ssh"), bridge::targets).await
 }
 #[tauri::command]
+pub async fn remote_bridge_pick_identity_file(
+    app: tauri::AppHandle,
+) -> CommandResult<Option<String>> {
+    run("identitySelection", Some("ssh"), move || {
+        // No extension filter: standard id_ed25519/id_rsa files usually have no suffix.
+        let Some(file) = app.dialog().file().blocking_pick_file() else {
+            return Ok(None);
+        };
+        let path = file.into_path().map_err(|_| "identityFileInvalid")?;
+        let path = path.to_str().ok_or("identityFileInvalid")?;
+        bridge::connections::validate_identity_file(path).map(Some)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn remote_bridge_add_connection(
     input: bridge::connections::ManualConnectionInput,
 ) -> CommandResult<RemoteTarget> {
     run("targetWrite", Some("ssh"), move || {
         bridge::add_connection(input)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn remote_bridge_update_connection(
+    id: String,
+    input: bridge::connections::ManualConnectionInput,
+) -> CommandResult<RemoteTarget> {
+    run("targetWrite", Some("ssh"), move || {
+        bridge::update_connection(id, input)
     })
     .await
 }
@@ -205,9 +232,16 @@ pub async fn remote_bridge_allocate_ports(
     .await
 }
 #[tauri::command]
-pub async fn remote_bridge_detect_cc(local_port: u16) -> CommandResult<CcDetection> {
+pub async fn remote_bridge_detect_cc(
+    local_port: u16,
+    discover: Option<bool>,
+) -> CommandResult<CcDetection> {
     run("localDetection", Some("ccSwitch"), move || {
-        bridge::detect_cc(local_port)
+        if discover.unwrap_or(false) {
+            bridge::discover_cc(local_port)
+        } else {
+            bridge::detect_cc(local_port)
+        }
     })
     .await
 }
@@ -228,6 +262,10 @@ pub async fn remote_bridge_disconnect(confirmed: bool) -> CommandResult<Summary>
         bridge::disconnect(confirmed)
     })
     .await
+}
+#[tauri::command]
+pub async fn remote_bridge_retry_reconnect() -> CommandResult<Summary> {
+    run("bridgeReconnect", Some("ssh"), bridge::retry_reconnect).await
 }
 #[tauri::command]
 pub async fn remote_bridge_test() -> CommandResult<()> {

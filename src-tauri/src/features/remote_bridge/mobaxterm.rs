@@ -64,6 +64,92 @@ fn bookmark_arguments(config_path: &Path, bookmark_name: &str) -> Vec<OsString> 
 }
 
 #[cfg(windows)]
+fn application_path() -> Option<PathBuf> {
+    let system = System::new_all();
+    let mut candidates = system
+        .processes()
+        .values()
+        .filter(|process| {
+            process
+                .name()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .contains("mobaxterm")
+        })
+        .filter_map(|process| process.exe().map(Path::to_path_buf))
+        .collect::<Vec<_>>();
+    for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+        if let Some(root) = std::env::var_os(variable) {
+            let root = PathBuf::from(root);
+            candidates.push(root.join("Mobatek/MobaXterm/MobaXterm.exe"));
+            candidates.push(root.join("MobaXterm/MobaXterm.exe"));
+        }
+    }
+    if let Some(desktop) = dirs::desktop_dir() {
+        if let Ok(entries) = std::fs::read_dir(desktop) {
+            candidates.extend(entries.flatten().filter_map(|entry| {
+                let path = entry.path();
+                let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+                (path.is_file()
+                    && name.starts_with("mobaxterm")
+                    && (name.ends_with(".exe") || name.ends_with(".lnk")))
+                .then_some(path)
+            }));
+        }
+    }
+    for variable in ["APPDATA", "ProgramData"] {
+        if let Some(root) = std::env::var_os(variable) {
+            candidates.push(
+                PathBuf::from(root)
+                    .join("Microsoft/Windows/Start Menu/Programs/MobaXterm/MobaXterm.lnk"),
+            );
+        }
+    }
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_absolute() && candidate.is_file())
+}
+
+#[cfg(windows)]
+pub fn available() -> bool {
+    application_path().is_some()
+}
+
+#[cfg(not(windows))]
+pub fn available() -> bool {
+    false
+}
+
+#[cfg(windows)]
+pub fn launch_application() -> BridgeResult<()> {
+    use std::process::{Command, Stdio};
+
+    let application = application_path().ok_or("mobaSessionUnsupported")?;
+    let mut command = if application
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("lnk"))
+    {
+        let mut command = Command::new("explorer.exe");
+        command.arg(application);
+        command
+    } else {
+        Command::new(application)
+    };
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "processFailed")?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn launch_application() -> BridgeResult<()> {
+    Err("processFailed".into())
+}
+
+#[cfg(windows)]
 pub fn launch(config_path: &Path, bookmark_name: &str) -> BridgeResult<()> {
     use std::process::{Command, Stdio};
 
@@ -111,17 +197,18 @@ pub fn launch(config_path: &Path, bookmark_name: &str) -> BridgeResult<()> {
             .into_iter()
             .filter_map(|process| process.exe().map(Path::to_path_buf)),
     );
-    for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
-        if let Some(root) = std::env::var_os(variable) {
-            let root = PathBuf::from(root);
-            candidates.push(root.join("Mobatek/MobaXterm/MobaXterm.exe"));
-            candidates.push(root.join("MobaXterm/MobaXterm.exe"));
-        }
+    if let Some(executable) = application_path().filter(|path| {
+        path.extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+    }) {
+        candidates.push(executable);
     }
     let executable = candidates
         .into_iter()
-        .find(|candidate| candidate.is_absolute() && candidate.is_file())
-        .ok_or("mobaSessionUnsupported")?;
+        .find(|candidate| candidate.is_absolute() && candidate.is_file());
+    let Some(executable) = executable else {
+        return launch_application();
+    };
     Command::new(executable)
         .args(bookmark_arguments(&configured, bookmark_name))
         .stdin(Stdio::null())
