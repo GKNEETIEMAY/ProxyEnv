@@ -4,11 +4,13 @@ import { nextTick, onBeforeUnmount, ref, useId } from "vue";
 defineProps<{
   label: string;
   text?: string;
+  tone?: "help" | "error";
 }>();
 
 const tooltipId = `help-${useId().replaceAll(":", "")}`;
 const trigger = ref<HTMLElement>();
 const tooltip = ref<HTMLElement>();
+const tooltipTarget = ref<string | HTMLElement>("body");
 const visible = ref(false);
 const positioned = ref(false);
 const position = ref({ top: "0px", left: "0px", width: "0px" });
@@ -33,6 +35,8 @@ function placeTooltip() {
 }
 
 async function showTooltip() {
+  // Native modal dialogs are in the top layer; body-level tooltips would be inert behind them.
+  tooltipTarget.value = trigger.value?.closest<HTMLElement>("dialog[open]") ?? "body";
   positioned.value = false;
   const triggerRect = trigger.value?.getBoundingClientRect();
   const width = Math.min(390, window.innerWidth - 32);
@@ -64,6 +68,7 @@ onBeforeUnmount(hideTooltip);
   <span
     ref="trigger"
     class="help-tooltip"
+    :class="{ 'help-tooltip-error': tone === 'error' }"
     tabindex="0"
     :aria-label="label"
     :aria-describedby="visible ? tooltipId : undefined"
@@ -75,10 +80,15 @@ onBeforeUnmount(hideTooltip);
   >
     <svg viewBox="0 0 20 20" aria-hidden="true">
       <circle cx="10" cy="10" r="7.5" />
-      <path d="M7.9 7.8a2.25 2.25 0 0 1 4.3.9c0 1.55-2.2 1.75-2.2 3.2M10 14.6v.01" />
+      <path v-if="tone === 'error'" d="M10 5.8v5.5M10 14v.01" />
+      <path v-else d="M7.9 7.8a2.25 2.25 0 0 1 4.3.9c0 1.55-2.2 1.75-2.2 3.2M10 14.6v.01" />
     </svg>
   </span>
-  <Teleport to="body">
+  <Teleport :to="tooltipTarget">
     <span v-if="visible" :id="tooltipId" ref="tooltip" class="help-tooltip-content" :class="{ positioned }" role="tooltip" :style="position"><slot>{{ text }}</slot></span>
   </Teleport>
 </template>
+
+<style scoped>
+.help-tooltip-error,.help-tooltip-error:hover,.help-tooltip-error:focus { color:var(--danger); }
+</style>

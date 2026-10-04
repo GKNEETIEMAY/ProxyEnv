@@ -3,6 +3,11 @@ const extensionEn = {
   rbNotificationsHint: 'Alert only when the bridge needs your attention. Automatic reconnection stays quiet.',
   rbNotificationSound: 'Notification sound',
   rbNotificationSoundHint: 'Play a sound with alerts. Requires notifications to be enabled.',
+  rbPostConnectTitle: 'Finishing setup',
+  rbPostConnectPreparing: 'The bridge is ready. Optional setup continues in the background.',
+  rbPostConnectReady: 'Background setup complete.',
+  rbPostConnectPartial: 'The bridge is ready. Some optional setup needs attention.',
+  rbPostEnvironment: 'Shell environment', rbPostVscode: 'VS Code network', rbPostCodex: 'Codex', rbPostClaude: 'Claude Code', rbPostSkills: 'Skills',
   rbReconnectWaiting: 'Connection interrupted. Restoring this bridge automatically; no setup is needed.',
   rbReconnectAttention: 'Automatic reconnection paused. Review authentication or connection settings to continue.',
   rbReconnectAction: 'Reconnect',
@@ -64,6 +69,11 @@ const extensionZh: ExtensionLabels = {
   rbNotificationsHint: '仅在桥接需要你处理时提醒，自动重连成功不会打扰。',
   rbNotificationSound: '通知声音',
   rbNotificationSoundHint: '弹出通知时播放提示音；需先开启通知提醒。',
+  rbPostConnectTitle: '正在完成配置',
+  rbPostConnectPreparing: '桥接已可用，可选配置正在后台完成。',
+  rbPostConnectReady: '后台配置已完成。',
+  rbPostConnectPartial: '桥接已可用，部分可选配置需要处理。',
+  rbPostEnvironment: 'Shell 环境', rbPostVscode: 'VS Code 网络', rbPostCodex: 'Codex', rbPostClaude: 'Claude Code', rbPostSkills: 'Skills',
   rbReconnectWaiting: '连接暂时中断，正在自动恢复本次桥接，无需重新配置。',
   rbReconnectAttention: '自动重连已暂停，请检查认证或连接设置后继续。',
   rbReconnectAction: '重新连接',
@@ -124,6 +134,11 @@ const extensionJa: ExtensionLabels = {
   rbNotificationsHint: '操作が必要な場合のみ通知します。自動再接続の成功は通知しません。',
   rbNotificationSound: '通知音',
   rbNotificationSoundHint: '通知時に音を鳴らします。通知を有効にしてください。',
+  rbPostConnectTitle: '設定を完了中',
+  rbPostConnectPreparing: 'ブリッジは利用可能です。任意設定をバックグラウンドで続行しています。',
+  rbPostConnectReady: 'バックグラウンド設定が完了しました。',
+  rbPostConnectPartial: 'ブリッジは利用可能ですが、一部の任意設定に確認が必要です。',
+  rbPostEnvironment: 'Shell 環境', rbPostVscode: 'VS Code ネットワーク', rbPostCodex: 'Codex', rbPostClaude: 'Claude Code', rbPostSkills: 'Skills',
   rbReconnectWaiting: '接続が切れました。このブリッジを自動復旧しています。再設定は不要です。',
   rbReconnectAttention: '自動再接続を一時停止しました。認証や接続設定を確認してください。',
   rbReconnectAction: '再接続',
@@ -184,6 +199,11 @@ const extensionKo: ExtensionLabels = {
   rbNotificationsHint: '조치가 필요한 경우에만 알립니다. 자동 재연결 성공은 알리지 않습니다.',
   rbNotificationSound: '알림 소리',
   rbNotificationSoundHint: '알림과 함께 소리를 재생합니다. 알림을 먼저 켜세요.',
+  rbPostConnectTitle: '설정 마무리 중',
+  rbPostConnectPreparing: '브리지는 사용할 수 있습니다. 선택 설정을 백그라운드에서 마무리합니다.',
+  rbPostConnectReady: '백그라운드 설정이 완료되었습니다.',
+  rbPostConnectPartial: '브리지는 사용할 수 있지만 일부 선택 설정을 확인해야 합니다.',
+  rbPostEnvironment: 'Shell 환경', rbPostVscode: 'VS Code 네트워크', rbPostCodex: 'Codex', rbPostClaude: 'Claude Code', rbPostSkills: 'Skills',
   rbReconnectWaiting: '연결이 끊어졌습니다. 현재 브리지를 자동 복구 중이며 다시 설정할 필요가 없습니다.',
   rbReconnectAttention: '자동 재연결이 일시 중지되었습니다. 인증 또는 연결 설정을 확인하세요.',
   rbReconnectAction: '다시 연결',
@@ -240,12 +260,12 @@ const extensionKo: ExtensionLabels = {
   rbSkillsTitle:'원격 Skills',rbSkillsHint:'CC Switch 링크는 해당 원격 Agent에 기본으로 동기화됩니다. 연결 중에 동적으로 확인하며 링크가 제거되면 해당 Agent의 투영만 안전하게 제거합니다.',rbSkillsEmpty:'CC Switch가 관리하는 연결된 Skill을 찾지 못했습니다.',rbSkillEnable:'활성화',rbSkillDisable:'비활성화',rbSkillNotLinked:'연결 안 됨',rbSkillNotSynced:'동기화 안 됨',rbSkillSynced:'동기화됨',rbSkillChanged:'로컬 변경 감지',rbSkillConflict:'원격 이름 충돌',rbSkillUnavailable:'사용 불가',rbSkillRestart:'원격 도구가 Skill을 즉시 찾지 못하면 새 Agent 세션을 시작하세요.',rbSkillError:'Skill을 안전하게 투영할 수 없습니다. ProxyEnv는 원격의 관리되지 않은 내용을 덮어쓰지 않았습니다.',
 };
 const flowEn = {
-  rbSimpleView: "Overview", rbAdvancedView: "Advanced", rbViewMode: "Bridge detail level", rbToolsTitle: "Tools", rbSkillsSummary: "{synced} of {total} synchronized",
+  rbSimpleView: "Overview", rbAdvancedView: "Advanced", rbViewMode: "Bridge detail level", rbToolsTitle: "AI tools", rbSkillsSummary: "{synced} of {total} synchronized", rbTargetAvailable: "Available", rbTargetUnavailableShort: "Unavailable", rbConnections: "Remote connections", rbCapabilitySelection: "Connection capabilities", rbCapabilitySelectionHint: "Choose what this SSH bridge should provide. Available capabilities are enabled by default.", rbOpenTerminal: "Open terminal", rbDiagnostics: "Diagnostics",
   rbRuntimeSetting: "VS Code user proxy setting", rbRuntimeMatched: "The bridge port matches this user setting; the extension runtime and real requests are not yet verified.", rbRuntimeConflict: "The VS Code port is occupied remotely. The fallback bridge is usable in a managed terminal, but the extension may still use its original port.", rbRuntimeMismatch: "The VS Code user proxy port differs from the remote bridge. The extension runtime is not ready; check its actual proxy and restart it if needed.", rbRuntimeUnknown: "The VS Code runtime proxy is unknown. Check the active profile, remote/workspace settings and the extension host; a tunnel alone does not verify extension access.",
   navLocal: "Local environment", navRemote: "Remote bridge", rbPageIntro: "Choose an SSH environment, bridge only the capabilities you need, then follow the verified next steps.",
   rbTargetSource: "Source", rbTargetConfig: "Configuration", rbSourceOpenSsh: "Local OpenSSH", rbSourceVscode: "VS Code Remote", rbSourceMoba: "MobaXterm", rbTargetUnsupported: "Detected · unavailable for bridging", rbMobaUnsupported: "This MobaXterm session cannot be safely converted to OpenSSH. ProxyEnv will not guess its authentication or jump-host settings.",
   rbRegeneratePorts: "Use alternate ports", rbPortsGenerated: "Stable remote loopback ports selected", rbRemotePortAuto: "General proxy: prefer a known VS Code user proxy port, otherwise the active local proxy port. AI routing selects its port independently. Availability is checked before connecting.", rbPortRace: "A selected remote port became occupied before connection. Alternate ports were selected; review them and connect again.",
-  rbCcConfirmed: "CC Switch routing detected", rbCcUnknown: "The port is listening, but the service identity could not be confirmed", rbCcMissing: "CC Switch routing was not detected", rbCcOpenHint: "Open CC Switch → Settings → Advanced → Routing Service, enable Codex / Claude Code routing, then detect again.",
+  rbCcConfirmed: "CC Switch routing detected", rbCcUnknown: "The port is listening, but the service identity could not be confirmed", rbCcMissing: "CC Switch routing was not detected", rbCcOpenHint: "Open CC Switch → Settings → Routing → Local routing → Master routing switch, then enable Claude/Codex routing. ProxyEnv checks the local route every 2 seconds; once detected, this switch becomes available.",
   rbConnectedTitle: "Bridge established", rbNextSteps: "What to do next", rbProxyUseTitle: "General network proxy", rbCcUseTitle: "CC Switch AI routing", rbConfigureBeforeLaunch: "Configure and verify this CLI before using its launch command.", rbStepTerminal: "Open a terminal on the remote server.", rbStepCopy: "Copy the proxy environment variables below.", rbStepPaste: "Paste and run them in the current shell.", rbStepTest: "Test that the remote host can reach the network through your local proxy.", rbStepRun: "Run the CLI that needs network access in that shell.", rbShellScope: "These variables affect only the current shell and its child processes. ProxyEnv does not modify .bashrc, .profile, or other startup files.",
   rbSshHealth: "SSH connection", rbLocalProxyHealth: "Local proxy", rbRemoteProxyHealth: "Remote proxy entry", rbLocalCcHealth: "AI route", rbRemoteCcHealth: "Remote AI route", rbHealthy: "Available", rbPending: "Pending verification", rbNotConfigured: "Not configured", rbAccessEnabled: "Enabled", rbAccessDisabled: "Disabled", rbDisconnectDetails: "Disconnecting immediately closes the SSH reverse forwards, so the remote loopback ports stop working. Enabled Codex and Claude access remains configured and is detected again after reconnect; use its switch to restore the previous configuration.",
   rbCcError: "CC Switch routing was not detected on this port. Enable Routing Service in CC Switch and check the local routing port, then try again.", rbBridgeUnavailableError: "The bridge is not currently available. Recheck the SSH target and establish the bridge before using this action.", rbNoCapabilityError: "Select at least one bridge capability before continuing.", rbAlreadyConnectedError: "A bridge is already connected. Disconnect it before creating another one.", rbStateError: "ProxyEnv could not read the bridge state. No settings were changed; close and reopen the page, then retry.", rbProcessError: "The SSH process could not be started or monitored. Check that Windows OpenSSH is installed, then retry.", rbRemoteError: "The remote helper did not return a valid result. Check the remote Linux account and required tools, then retry.", rbNetworkError: "The remote proxy test could not reach the test target. The tunnel remains unchanged; check the local proxy and remote network policy.", rbTargetError: "This remote target is detected but cannot be bridged safely with its current configuration.", rbPortAllocationError: "ProxyEnv could not find two available remote loopback ports. Refresh the target and try again.",
@@ -254,12 +274,12 @@ const flowEn = {
 };
 type FlowLabels = { [K in keyof typeof flowEn]: string };
 const flowZh: FlowLabels = {
-  rbSimpleView:"概览",rbAdvancedView:"高级",rbViewMode:"桥接信息层级",rbToolsTitle:"工具",rbSkillsSummary:"已同步 {synced} / {total}",
+  rbSimpleView:"概览",rbAdvancedView:"高级",rbViewMode:"桥接信息层级",rbToolsTitle:"AI 工具",rbSkillsSummary:"已同步 {synced} / {total}",rbTargetAvailable:"可用",rbTargetUnavailableShort:"不可用",rbConnections:"远程连接",rbCapabilitySelection:"连接能力",rbCapabilitySelectionHint:"选择本次 SSH 桥接提供的能力；本机可用的能力默认开启。",rbOpenTerminal:"打开终端",rbDiagnostics:"诊断",
   rbRuntimeSetting:"VS Code 用户代理设置",rbRuntimeMatched:"远端桥接端口与该用户设置一致；尚未验证扩展实际运行环境或真实请求。",rbRuntimeConflict:"VS Code 对应远端端口已被占用。备用桥接可供受管终端使用，但扩展可能仍访问原端口。",rbRuntimeMismatch:"VS Code 用户代理端口与远端桥接不一致。不能认定扩展可用；请检查实际运行代理，必要时重启扩展。",rbRuntimeUnknown:"无法确定 VS Code 运行时代理。请检查当前 Profile、远端/工作区设置和扩展宿主；仅建立隧道不等于扩展可用。",
   navLocal:"本机环境",navRemote:"远程桥接",rbPageIntro:"选择 SSH 远程环境，只桥接所需能力，并按验证后的步骤继续使用。",
   rbTargetSource:"来源",rbTargetConfig:"配置来源",rbSourceOpenSsh:"本机 OpenSSH",rbSourceVscode:"VS Code Remote",rbSourceMoba:"MobaXterm",rbTargetUnsupported:"已识别 · 当前无法桥接",rbMobaUnsupported:"该 MobaXterm 会话无法安全转换为 OpenSSH。ProxyEnv 不会猜测认证方式或跳板配置。",
   rbRegeneratePorts:"使用备用端口",rbPortsGenerated:"已选择稳定的远端 Loopback 端口",rbRemotePortAuto:"普通代理优先匹配明确的 VS Code 用户代理端口，否则优先使用当前活动代理端口；AI 路由独立选端口。连接前会检查远端占用。",rbPortRace:"所选远端端口在连接前被占用。已选择备用端口，请确认后再次连接。",
-  rbCcConfirmed:"已检测到 CC Switch 路由",rbCcUnknown:"端口正在监听，但无法确认服务身份",rbCcMissing:"未检测到 CC Switch 本地路由服务",rbCcOpenHint:"请打开 CC Switch → 设置 → 高级 → Routing Service，开启 Codex / Claude Code Routing 后重新检测。",
+  rbCcConfirmed:"已检测到 CC Switch 路由",rbCcUnknown:"端口正在监听，但无法确认服务身份",rbCcMissing:"未检测到 CC Switch 本地路由服务",rbCcOpenHint:"请打开 CC Switch → 设置 → 路由 → 本地路由 → 路由总开关，再开启 Claude/Codex 的路由。ProxyEnv 每 2 秒检查本机路由，检测到后此开关即可使用。",
   rbConnectedTitle:"桥接已建立",rbNextSteps:"接下来怎么使用",rbProxyUseTitle:"普通网络代理",rbCcUseTitle:"CC Switch AI 路由",rbConfigureBeforeLaunch:"请先配置并验证该 CLI，完成后才可使用启动命令。",rbStepTerminal:"在远程服务器打开终端。",rbStepCopy:"复制下方代理环境变量。",rbStepPaste:"粘贴到当前 Shell 并执行。",rbStepTest:"测试远端能否通过本机代理访问网络。",rbStepRun:"在当前 Shell 运行需要联网的 CLI。",rbShellScope:"环境变量只对当前 Shell 及其子进程生效。ProxyEnv 不修改 .bashrc、.profile 等启动文件。",
   rbSshHealth:"SSH 连接",rbLocalProxyHealth:"本机代理",rbRemoteProxyHealth:"远端代理入口",rbLocalCcHealth:"AI 路由",rbRemoteCcHealth:"远端 AI 路由",rbHealthy:"可用",rbPending:"待验证",rbNotConfigured:"未配置",rbAccessEnabled:"已启用",rbAccessDisabled:"已停用",rbDisconnectDetails:"断开后 SSH Reverse Forward 会立即关闭，远端 Loopback 端口将不可访问。已启用的 Codex / Claude 接入会保留，重新连接后自动识别；如需还原原配置，请关闭对应开关。",
   rbCcError:"未在此端口检测到 CC Switch 本地路由。请在 CC Switch 中开启 Routing Service，并检查本地路由端口后重试。",rbBridgeUnavailableError:"当前桥接不可用。请重新检查 SSH 目标并建立桥接后再执行此操作。",rbNoCapabilityError:"请至少选择一种桥接能力后继续。",rbAlreadyConnectedError:"已有桥接正在运行。请先断开，再建立新的桥接。",rbStateError:"ProxyEnv 无法读取桥接状态。没有修改任何设置；请重新打开页面后重试。",rbProcessError:"无法启动或监控 SSH 进程。请确认已安装 Windows OpenSSH 后重试。",rbRemoteError:"远端辅助程序未返回有效结果。请检查远端 Linux 账户与必需工具后重试。",rbNetworkError:"远端代理测试无法访问测试目标。隧道未被修改；请检查本机代理与远端网络策略。",rbTargetError:"已识别该远程目标，但当前配置无法安全桥接。",rbPortAllocationError:"无法找到两个可用的远端 Loopback 端口。请刷新远程环境后重试。",
@@ -267,18 +287,18 @@ const flowZh: FlowLabels = {
   rbVerifyClaude:"验证 Claude 请求",rbVerifyClaudeHint:"通过桥接发送一次固定且不含敏感信息的模型请求，可能消耗少量额度。工具、MCP 服务和会话持久化均已禁用，响应内容会被丢弃。",rbToolVerifyPending:"已配置 · 尚未验证请求",rbToolVerified:"模型请求已验证",rbToolAuthRequired:"路由已配置 · Claude 仍需完成认证",rbToolRouteUnavailable:"路由已配置 · 模型网关不可用",rbToolVerifyTimedOut:"路由已配置 · 请求验证超时",rbToolVerifyFailed:"路由已配置 · 请求验证失败",
 };
 const flowJa: FlowLabels = {
-  rbSimpleView:"概要",rbAdvancedView:"詳細",rbViewMode:"ブリッジ情報レベル",rbToolsTitle:"ツール",rbSkillsSummary:"{synced} / {total} 同期済み",
+  rbSimpleView:"概要",rbAdvancedView:"詳細",rbViewMode:"ブリッジ情報レベル",rbToolsTitle:"AI ツール",rbSkillsSummary:"{synced} / {total} 同期済み",rbTargetAvailable:"利用可能",rbTargetUnavailableShort:"利用不可",rbConnections:"リモート接続",rbCapabilitySelection:"接続機能",rbCapabilitySelectionHint:"この SSH ブリッジで使用する機能を選択します。利用可能な機能は既定で有効です。",rbOpenTerminal:"ターミナルを開く",rbDiagnostics:"診断",
   rbRuntimeSetting:"VS Code ユーザープロキシ設定",rbRuntimeMatched:"ブリッジポートはこのユーザー設定と一致します。拡張の実行環境と実際の要求は未検証です。",rbRuntimeConflict:"VS Code のリモート側ポートは使用中です。代替ブリッジは管理端末で使えますが、拡張は元のポートを参照する可能性があります。",rbRuntimeMismatch:"VS Code のユーザープロキシポートとリモートブリッジが一致しません。拡張を利用可能とは判断できません。",rbRuntimeUnknown:"VS Code の実行時プロキシは不明です。Profile、リモート/ワークスペース設定、拡張ホストを確認してください。",
   rbAccessEnabled:"有効",rbAccessDisabled:"無効",
-  navLocal:"ローカル環境",navRemote:"リモートブリッジ",rbPageIntro:"SSH 環境を選び、必要な機能だけをブリッジして、確認済みの手順で利用します。",rbTargetSource:"ソース",rbTargetConfig:"設定元",rbSourceOpenSsh:"ローカル OpenSSH",rbSourceVscode:"VS Code Remote",rbSourceMoba:"MobaXterm",rbTargetUnsupported:"検出済み・現在ブリッジ不可",rbMobaUnsupported:"この MobaXterm セッションは OpenSSH に安全に変換できません。認証や踏み台設定を推測しません。",rbRegeneratePorts:"ポートを再生成",rbPortsGenerated:"利用可能なリモート Loopback ポートを生成しました",rbRemotePortAuto:"SSH 確認後に自動生成し、接続直前に再確認します。",rbPortRace:"接続前にリモートポートが使用されました。新しいポートを生成したので、確認して再接続してください。",rbCcConfirmed:"CC Switch ルーティングを検出",rbCcUnknown:"ポートは待機中ですが、サービスを確認できません",rbCcMissing:"CC Switch ルーティングを検出できません",rbCcOpenHint:"CC Switch → 設定 → 詳細 → Routing Service で Codex / Claude Code Routing を有効にして再確認してください。",rbConnectedTitle:"ブリッジを確立しました",rbNextSteps:"次の操作",rbProxyUseTitle:"通常のネットワークプロキシ",rbCcUseTitle:"CC Switch AI ルーティング",rbConfigureBeforeLaunch:"先にこの CLI を設定して検証してください。完了後に起動コマンドを使用できます。",rbStepTerminal:"リモートサーバーでターミナルを開きます。",rbStepCopy:"下のプロキシ環境変数をコピーします。",rbStepPaste:"現在の Shell に貼り付けて実行します。",rbStepTest:"ローカルプロキシ経由の接続をテストします。",rbStepRun:"同じ Shell でネットワークが必要な CLI を実行します。",rbShellScope:"環境変数は現在の Shell と子プロセスだけに有効です。.bashrc や .profile は変更しません。",rbSshHealth:"SSH 接続",rbLocalProxyHealth:"ローカルプロキシ",rbRemoteProxyHealth:"リモートプロキシ入口",rbLocalCcHealth:"AI ルート",rbRemoteCcHealth:"リモート AI ルート",rbHealthy:"利用可能",rbPending:"確認待ち",rbNotConfigured:"未設定",rbDisconnectDetails:"切断すると SSH Reverse Forward は直ちに終了し、リモート Loopback ポートは利用できなくなります。Codex / Claude 設定は残り、別途復元が必要です。",rbCcError:"このポートで CC Switch ルーティングを検出できません。Routing Service とローカルポートを確認して再試行してください。",rbBridgeUnavailableError:"ブリッジは現在利用できません。SSH 接続を再確認してから実行してください。",rbNoCapabilityError:"少なくとも 1 つの機能を選択してください。",rbAlreadyConnectedError:"既にブリッジが接続中です。切断してから新規接続してください。",rbStateError:"ブリッジ状態を読み取れません。設定は変更されていません。ページを開き直して再試行してください。",rbProcessError:"SSH プロセスを開始または監視できません。Windows OpenSSH を確認してください。",rbRemoteError:"リモートヘルパーから有効な結果が返りません。Linux アカウントと必要ツールを確認してください。",rbNetworkError:"リモート接続テストに失敗しました。トンネルは変更していません。プロキシとネットワークポリシーを確認してください。",rbTargetError:"対象は検出されましたが、現在の設定では安全にブリッジできません。",rbPortAllocationError:"利用可能な 2 つのリモート Loopback ポートを取得できません。更新して再試行してください。",
+  navLocal:"ローカル環境",navRemote:"リモートブリッジ",rbPageIntro:"SSH 環境を選び、必要な機能だけをブリッジして、確認済みの手順で利用します。",rbTargetSource:"ソース",rbTargetConfig:"設定元",rbSourceOpenSsh:"ローカル OpenSSH",rbSourceVscode:"VS Code Remote",rbSourceMoba:"MobaXterm",rbTargetUnsupported:"検出済み・現在ブリッジ不可",rbMobaUnsupported:"この MobaXterm セッションは OpenSSH に安全に変換できません。認証や踏み台設定を推測しません。",rbRegeneratePorts:"ポートを再生成",rbPortsGenerated:"利用可能なリモート Loopback ポートを生成しました",rbRemotePortAuto:"SSH 確認後に自動生成し、接続直前に再確認します。",rbPortRace:"接続前にリモートポートが使用されました。新しいポートを生成したので、確認して再接続してください。",rbCcConfirmed:"CC Switch ルーティングを検出",rbCcUnknown:"ポートは待機中ですが、サービスを確認できません",rbCcMissing:"CC Switch ルーティングを検出できません",rbCcOpenHint:"CC Switch → 設定 → ルーティング → ローカルルーティング → 全体スイッチで、Claude/Codex のルーティングを有効にしてください。ProxyEnv はローカルルートを 2 秒ごとに確認し、検出するとこのスイッチを使用できます。",rbConnectedTitle:"ブリッジを確立しました",rbNextSteps:"次の操作",rbProxyUseTitle:"通常のネットワークプロキシ",rbCcUseTitle:"CC Switch AI ルーティング",rbConfigureBeforeLaunch:"先にこの CLI を設定して検証してください。完了後に起動コマンドを使用できます。",rbStepTerminal:"リモートサーバーでターミナルを開きます。",rbStepCopy:"下のプロキシ環境変数をコピーします。",rbStepPaste:"現在の Shell に貼り付けて実行します。",rbStepTest:"ローカルプロキシ経由の接続をテストします。",rbStepRun:"同じ Shell でネットワークが必要な CLI を実行します。",rbShellScope:"環境変数は現在の Shell と子プロセスだけに有効です。.bashrc や .profile は変更しません。",rbSshHealth:"SSH 接続",rbLocalProxyHealth:"ローカルプロキシ",rbRemoteProxyHealth:"リモートプロキシ入口",rbLocalCcHealth:"AI ルート",rbRemoteCcHealth:"リモート AI ルート",rbHealthy:"利用可能",rbPending:"確認待ち",rbNotConfigured:"未設定",rbDisconnectDetails:"切断すると SSH Reverse Forward は直ちに終了し、リモート Loopback ポートは利用できなくなります。Codex / Claude 設定は残り、別途復元が必要です。",rbCcError:"このポートで CC Switch ルーティングを検出できません。Routing Service とローカルポートを確認して再試行してください。",rbBridgeUnavailableError:"ブリッジは現在利用できません。SSH 接続を再確認してから実行してください。",rbNoCapabilityError:"少なくとも 1 つの機能を選択してください。",rbAlreadyConnectedError:"既にブリッジが接続中です。切断してから新規接続してください。",rbStateError:"ブリッジ状態を読み取れません。設定は変更されていません。ページを開き直して再試行してください。",rbProcessError:"SSH プロセスを開始または監視できません。Windows OpenSSH を確認してください。",rbRemoteError:"リモートヘルパーから有効な結果が返りません。Linux アカウントと必要ツールを確認してください。",rbNetworkError:"リモート接続テストに失敗しました。トンネルは変更していません。プロキシとネットワークポリシーを確認してください。",rbTargetError:"対象は検出されましたが、現在の設定では安全にブリッジできません。",rbPortAllocationError:"利用可能な 2 つのリモート Loopback ポートを取得できません。更新して再試行してください。",
   rbLaunchProxyTerminal:"プロキシターミナルを起動",rbTerminalLaunched:"PowerShell プロキシターミナルを起動しました",rbTerminalLaunchHint:"新しい PowerShell ウィンドウを開き、OpenSSH でこのリモート環境に接続して、現在のブリッジプロキシを自動で設定します。",rbTerminalAuthHint:"通常のパスワード認証では、このブリッジ中だけパスワードを再利用します。Windows のユーザー暗号化で保護し、ディスクには保存せず、接続先の切替・切断・終了時に消去します。",rbAdvancedCopy:"詳細：外部ターミナルとクライアント",rbExternalClientHint:"これらの起動方法ではプロキシ変数を設定しません。ターミナルまたはクライアントで同じリモート環境に接続し、上の export をコピーして実行してください。",rbManagedShellScope:"環境変数を適用すると、その Shell と子プロセスだけに有効です。.bashrc、.profile、/etc/environment などは変更しません。",
   rbVerifyClaude:"Claude リクエストを検証",rbVerifyClaudeHint:"固定された機密性のないモデルリクエストをブリッジ経由で 1 回送信します。少量のクォータを消費する場合があります。ツール、MCP、セッション保存は無効で、応答内容は破棄します。",rbToolVerifyPending:"設定済み・リクエスト未検証",rbToolVerified:"モデルリクエスト検証済み",rbToolAuthRequired:"経路設定済み・Claude 認証が必要",rbToolRouteUnavailable:"経路設定済み・モデルゲートウェイ利用不可",rbToolVerifyTimedOut:"経路設定済み・検証タイムアウト",rbToolVerifyFailed:"経路設定済み・リクエスト検証失敗",
 };
 const flowKo: FlowLabels = {
-  rbSimpleView:"개요",rbAdvancedView:"고급",rbViewMode:"브리지 정보 수준",rbToolsTitle:"도구",rbSkillsSummary:"{synced} / {total} 동기화됨",
+  rbSimpleView:"개요",rbAdvancedView:"고급",rbViewMode:"브리지 정보 수준",rbToolsTitle:"AI 도구",rbSkillsSummary:"{synced} / {total} 동기화됨",rbTargetAvailable:"사용 가능",rbTargetUnavailableShort:"사용 불가",rbConnections:"원격 연결",rbCapabilitySelection:"연결 기능",rbCapabilitySelectionHint:"이 SSH 브리지에서 제공할 기능을 선택하세요. 사용 가능한 기능은 기본으로 켜집니다.",rbOpenTerminal:"터미널 열기",rbDiagnostics:"진단",
   rbRuntimeSetting:"VS Code 사용자 프록시 설정",rbRuntimeMatched:"브리지 포트가 이 사용자 설정과 일치하지만 확장 런타임과 실제 요청은 아직 확인되지 않았습니다.",rbRuntimeConflict:"VS Code 원격 포트가 사용 중입니다. 대체 브리지는 관리 터미널에서 사용할 수 있지만 확장은 기존 포트에 연결할 수 있습니다.",rbRuntimeMismatch:"VS Code 사용자 프록시 포트와 원격 브리지가 다릅니다. 확장을 사용할 수 있다고 판단할 수 없습니다.",rbRuntimeUnknown:"VS Code 런타임 프록시를 알 수 없습니다. 활성 Profile, 원격/작업 공간 설정과 확장 호스트를 확인하세요.",
   rbAccessEnabled:"사용",rbAccessDisabled:"사용 안 함",
-  navLocal:"로컬 환경",navRemote:"원격 브리지",rbPageIntro:"SSH 환경을 선택하고 필요한 기능만 브리지한 뒤 확인된 다음 단계를 따르세요.",rbTargetSource:"출처",rbTargetConfig:"설정 출처",rbSourceOpenSsh:"로컬 OpenSSH",rbSourceVscode:"VS Code Remote",rbSourceMoba:"MobaXterm",rbTargetUnsupported:"감지됨 · 현재 브리지 불가",rbMobaUnsupported:"이 MobaXterm 세션은 OpenSSH로 안전하게 변환할 수 없습니다. 인증이나 점프 호스트 설정을 추측하지 않습니다.",rbRegeneratePorts:"포트 다시 생성",rbPortsGenerated:"사용 가능한 원격 Loopback 포트를 생성했습니다",rbRemotePortAuto:"SSH 확인 후 자동 생성하고 연결 직전에 다시 확인합니다.",rbPortRace:"연결 전에 원격 포트가 사용되었습니다. 새 포트를 생성했으니 검토 후 다시 연결하세요.",rbCcConfirmed:"CC Switch 라우팅 감지됨",rbCcUnknown:"포트가 수신 중이지만 서비스 신원을 확인할 수 없음",rbCcMissing:"CC Switch 라우팅을 감지하지 못함",rbCcOpenHint:"CC Switch → 설정 → 고급 → Routing Service에서 Codex / Claude Code Routing을 켠 뒤 다시 감지하세요.",rbConnectedTitle:"브리지가 연결되었습니다",rbNextSteps:"다음 사용 방법",rbProxyUseTitle:"일반 네트워크 프록시",rbCcUseTitle:"CC Switch AI 라우팅",rbConfigureBeforeLaunch:"먼저 이 CLI를 설정하고 검증하세요. 완료된 후 실행 명령을 사용할 수 있습니다.",rbStepTerminal:"원격 서버에서 터미널을 여세요.",rbStepCopy:"아래 프록시 환경 변수를 복사하세요.",rbStepPaste:"현재 Shell에 붙여 넣어 실행하세요.",rbStepTest:"로컬 프록시를 통한 원격 연결을 테스트하세요.",rbStepRun:"같은 Shell에서 네트워크가 필요한 CLI를 실행하세요.",rbShellScope:"환경 변수는 현재 Shell과 하위 프로세스에만 적용됩니다. .bashrc, .profile 등은 수정하지 않습니다.",rbSshHealth:"SSH 연결",rbLocalProxyHealth:"로컬 프록시",rbRemoteProxyHealth:"원격 프록시 입구",rbLocalCcHealth:"AI 라우팅",rbRemoteCcHealth:"원격 AI 라우팅",rbHealthy:"사용 가능",rbPending:"검증 대기",rbNotConfigured:"미설정",rbDisconnectDetails:"연결을 끊으면 SSH Reverse Forward가 즉시 종료되어 원격 Loopback 포트를 사용할 수 없습니다. Codex / Claude 설정은 유지되며 별도로 복원해야 합니다.",rbCcError:"이 포트에서 CC Switch 라우팅을 감지하지 못했습니다. Routing Service와 로컬 포트를 확인한 뒤 다시 시도하세요.",rbBridgeUnavailableError:"현재 브리지를 사용할 수 없습니다. SSH 대상을 다시 확인하고 브리지를 연결한 뒤 실행하세요.",rbNoCapabilityError:"하나 이상의 브리지 기능을 선택하세요.",rbAlreadyConnectedError:"이미 브리지가 연결되어 있습니다. 먼저 연결을 끊으세요.",rbStateError:"브리지 상태를 읽을 수 없습니다. 설정은 변경되지 않았습니다. 페이지를 다시 열고 시도하세요.",rbProcessError:"SSH 프로세스를 시작하거나 감시할 수 없습니다. Windows OpenSSH 설치를 확인하세요.",rbRemoteError:"원격 도우미가 유효한 결과를 반환하지 않았습니다. Linux 계정과 필수 도구를 확인하세요.",rbNetworkError:"원격 프록시 테스트에 실패했습니다. 터널은 변경되지 않았습니다. 로컬 프록시와 네트워크 정책을 확인하세요.",rbTargetError:"대상을 감지했지만 현재 설정으로는 안전하게 브리지할 수 없습니다.",rbPortAllocationError:"사용 가능한 원격 Loopback 포트 두 개를 찾지 못했습니다. 새로 고침 후 다시 시도하세요.",
+  navLocal:"로컬 환경",navRemote:"원격 브리지",rbPageIntro:"SSH 환경을 선택하고 필요한 기능만 브리지한 뒤 확인된 다음 단계를 따르세요.",rbTargetSource:"출처",rbTargetConfig:"설정 출처",rbSourceOpenSsh:"로컬 OpenSSH",rbSourceVscode:"VS Code Remote",rbSourceMoba:"MobaXterm",rbTargetUnsupported:"감지됨 · 현재 브리지 불가",rbMobaUnsupported:"이 MobaXterm 세션은 OpenSSH로 안전하게 변환할 수 없습니다. 인증이나 점프 호스트 설정을 추측하지 않습니다.",rbRegeneratePorts:"포트 다시 생성",rbPortsGenerated:"사용 가능한 원격 Loopback 포트를 생성했습니다",rbRemotePortAuto:"SSH 확인 후 자동 생성하고 연결 직전에 다시 확인합니다.",rbPortRace:"연결 전에 원격 포트가 사용되었습니다. 새 포트를 생성했으니 검토 후 다시 연결하세요.",rbCcConfirmed:"CC Switch 라우팅 감지됨",rbCcUnknown:"포트가 수신 중이지만 서비스 신원을 확인할 수 없음",rbCcMissing:"CC Switch 라우팅을 감지하지 못함",rbCcOpenHint:"CC Switch → 설정 → 라우팅 → 로컬 라우팅 → 전체 라우팅 스위치에서 Claude/Codex 라우팅을 켜세요. ProxyEnv는 2초마다 로컬 라우팅을 확인하며, 감지되면 이 스위치를 사용할 수 있습니다.",rbConnectedTitle:"브리지가 연결되었습니다",rbNextSteps:"다음 사용 방법",rbProxyUseTitle:"일반 네트워크 프록시",rbCcUseTitle:"CC Switch AI 라우팅",rbConfigureBeforeLaunch:"먼저 이 CLI를 설정하고 검증하세요. 완료된 후 실행 명령을 사용할 수 있습니다.",rbStepTerminal:"원격 서버에서 터미널을 여세요.",rbStepCopy:"아래 프록시 환경 변수를 복사하세요.",rbStepPaste:"현재 Shell에 붙여 넣어 실행하세요.",rbStepTest:"로컬 프록시를 통한 원격 연결을 테스트하세요.",rbStepRun:"같은 Shell에서 네트워크가 필요한 CLI를 실행하세요.",rbShellScope:"환경 변수는 현재 Shell과 하위 프로세스에만 적용됩니다. .bashrc, .profile 등은 수정하지 않습니다.",rbSshHealth:"SSH 연결",rbLocalProxyHealth:"로컬 프록시",rbRemoteProxyHealth:"원격 프록시 입구",rbLocalCcHealth:"AI 라우팅",rbRemoteCcHealth:"원격 AI 라우팅",rbHealthy:"사용 가능",rbPending:"검증 대기",rbNotConfigured:"미설정",rbDisconnectDetails:"연결을 끊으면 SSH Reverse Forward가 즉시 종료되어 원격 Loopback 포트를 사용할 수 없습니다. Codex / Claude 설정은 유지되며 별도로 복원해야 합니다.",rbCcError:"이 포트에서 CC Switch 라우팅을 감지하지 못했습니다. Routing Service와 로컬 포트를 확인한 뒤 다시 시도하세요.",rbBridgeUnavailableError:"현재 브리지를 사용할 수 없습니다. SSH 대상을 다시 확인하고 브리지를 연결한 뒤 실행하세요.",rbNoCapabilityError:"하나 이상의 브리지 기능을 선택하세요.",rbAlreadyConnectedError:"이미 브리지가 연결되어 있습니다. 먼저 연결을 끊으세요.",rbStateError:"브리지 상태를 읽을 수 없습니다. 설정은 변경되지 않았습니다. 페이지를 다시 열고 시도하세요.",rbProcessError:"SSH 프로세스를 시작하거나 감시할 수 없습니다. Windows OpenSSH 설치를 확인하세요.",rbRemoteError:"원격 도우미가 유효한 결과를 반환하지 않았습니다. Linux 계정과 필수 도구를 확인하세요.",rbNetworkError:"원격 프록시 테스트에 실패했습니다. 터널은 변경되지 않았습니다. 로컬 프록시와 네트워크 정책을 확인하세요.",rbTargetError:"대상을 감지했지만 현재 설정으로는 안전하게 브리지할 수 없습니다.",rbPortAllocationError:"사용 가능한 원격 Loopback 포트 두 개를 찾지 못했습니다. 새로 고침 후 다시 시도하세요.",
   rbLaunchProxyTerminal:"프록시 터미널 시작",rbTerminalLaunched:"PowerShell 프록시 터미널을 시작했습니다",rbTerminalLaunchHint:"새 PowerShell 창을 열고 OpenSSH로 이 원격 환경에 연결한 뒤 현재 브리지 프록시를 자동으로 설정합니다.",rbTerminalAuthHint:"일반 비밀번호 로그인은 현재 브리지 동안에만 비밀번호를 재사용합니다. Windows 사용자 암호화로 보호하고 디스크에 저장하지 않으며 대상 전환, 연결 해제 또는 종료 시 삭제합니다.",rbAdvancedCopy:"고급: 외부 터미널 및 클라이언트",rbExternalClientHint:"이 실행 방식은 프록시 변수를 주입하지 않습니다. 터미널이나 클라이언트에서 동일한 원격 환경에 연결한 뒤 위의 export를 복사하여 실행하세요.",rbManagedShellScope:"환경 변수를 적용하면 해당 Shell과 하위 프로세스에만 적용됩니다. .bashrc, .profile, /etc/environment 등의 시작 파일은 수정하지 않습니다.",
   rbVerifyClaude:"Claude 요청 검증",rbVerifyClaudeHint:"고정된 비민감 모델 요청을 브리지로 한 번 전송하며 소량의 할당량을 사용할 수 있습니다. 도구, MCP 서버와 세션 저장은 비활성화되고 응답 내용은 폐기됩니다.",rbToolVerifyPending:"설정됨 · 요청 미검증",rbToolVerified:"모델 요청 검증됨",rbToolAuthRequired:"경로 설정됨 · Claude 인증 필요",rbToolRouteUnavailable:"경로 설정됨 · 모델 게이트웨이 사용 불가",rbToolVerifyTimedOut:"경로 설정됨 · 검증 시간 초과",rbToolVerifyFailed:"경로 설정됨 · 요청 검증 실패",
 };
@@ -332,7 +352,8 @@ const foundationKo: FoundationLabels = {
   rbCcHelpCheck:"CC Switch 라우팅 포트가 수신 중인지, 가능한 경우 프로세스도 확인합니다.",rbCcHelpSuccess:"일반 프록시와 별도로 AI 라우트를 브리지할 수 있습니다.",rbCcHelpFailure:"Routing Service가 꺼졌거나 포트가 틀렸거나 프로세스를 확인할 수 없습니다.",rbCcHelpNext:"CC Switch에서 Routing Service와 포트를 확인한 뒤 다시 검사하세요.",
 };
 const authEn = {
-  rbAuthTitle: "OpenSSH authentication", rbAuthPrompt: "OpenSSH prompt", rbAuthCancel: "Cancel authentication",
+  rbAuthCopyPrompt: "Copy prompt", rbAuthCopyFailed: "Copy failed, try again",
+  rbAuthTitle: "OpenSSH authentication", rbAuthPrompt: "OpenSSH prompt", rbAuthCancel: "Cancel authentication", rbAuthBuildingBridge: "Building bridge", rbAuthBridgeReady: "Remote bridge ready", rbAuthBridgeFailed: "Bridge setup failed",
   rbAuthWaitingPrompt: "Waiting for server", rbAuthWaitingUser: "Waiting for input", rbAuthVerifying: "Verifying", rbAuthCompleting: "Completing remote check", rbAuthCompletingTitle: "Signed in, checking the remote environment", rbAuthCompletingDescription: "OpenSSH authentication succeeded. ProxyEnv is waiting for the remote check result.", rbAuthRemoteCheckFailure: "Remote check failed", rbAuthRemoteCheckFailureTitle: "The remote check did not complete", rbAuthSuccess: "SSH authentication succeeded", rbAuthFailure: "Authentication failed",
   rbAuthWaitingPromptMessage: "Waiting for the server authentication request…", rbAuthInteractionError: "Interaction error", rbAuthPromptUnavailableTitle: "Could not read the authentication prompt", rbAuthPromptUnavailableDescription: "ProxyEnv started OpenSSH but did not receive a recognizable authentication request.", rbAuthPromptUnavailableHint: "This usually indicates a local OpenSSH or ConPTY interaction problem. It does not mean your server password is wrong.",
   rbAuthRetry: "Try again", rbAuthOpenDiagnostic: "Open diagnostics", rbAuthHideDiagnostic: "Hide diagnostics", rbAuthDiagnosticBytes: "PTY bytes received", rbAuthDiagnosticPrintable: "Printable bytes", rbAuthDiagnosticCpr: "Cursor queries", rbAuthDiagnosticPrompt: "Prompt detected", rbAuthDiagnosticMarker: "Authentication marker", rbAuthDiagnosticResult: "Remote result detected", rbAuthDiagnosticClosed: "PTY output closed", rbAuthDiagnosticYes: "Yes", rbAuthDiagnosticNo: "No", rbAuthCompletionTimeout: "Authentication succeeded, but the remote check did not return a result in time. Open diagnostics and retry.",
@@ -349,7 +370,8 @@ const authEn = {
 };
 type AuthLabels = { [K in keyof typeof authEn]: string };
 const authZh: AuthLabels = {
-  rbAuthTitle:"OpenSSH 认证",rbAuthPrompt:"OpenSSH 提示",rbAuthCancel:"取消认证",
+  rbAuthCopyPrompt:"复制提示",rbAuthCopyFailed:"复制失败，请重试",
+  rbAuthTitle:"OpenSSH 认证",rbAuthPrompt:"OpenSSH 提示",rbAuthCancel:"取消认证",rbAuthBuildingBridge:"正在建立桥接",rbAuthBridgeReady:"远程桥接已建立",rbAuthBridgeFailed:"桥接建立失败",
   rbAuthWaitingPrompt:"等待服务器",rbAuthWaitingUser:"等待输入",rbAuthVerifying:"正在验证",rbAuthCompleting:"正在完成远端检查",rbAuthCompletingTitle:"认证通过，正在检查远端环境",rbAuthCompletingDescription:"OpenSSH 已完成登录，ProxyEnv 正在等待远端检查结果。",rbAuthRemoteCheckFailure:"远端检查失败",rbAuthRemoteCheckFailureTitle:"远端检查未完成",rbAuthSuccess:"SSH 认证成功",rbAuthFailure:"认证失败",rbAuthWaitingPromptMessage:"正在等待服务器的认证请求……",rbAuthInteractionError:"交互异常",rbAuthPromptUnavailableTitle:"未能读取认证提示",rbAuthPromptUnavailableDescription:"ProxyEnv 已启动 OpenSSH，但没有收到可以识别的认证请求。",rbAuthPromptUnavailableHint:"这通常属于本机 OpenSSH 或 ConPTY 交互异常，并不表示服务器密码错误。",
   rbAuthRetry:"重新尝试",rbAuthOpenDiagnostic:"打开诊断",rbAuthHideDiagnostic:"收起诊断",rbAuthDiagnosticBytes:"PTY 接收字节",rbAuthDiagnosticPrintable:"可显示字节",rbAuthDiagnosticCpr:"光标查询",rbAuthDiagnosticPrompt:"识别到提示",rbAuthDiagnosticMarker:"认证标记",rbAuthDiagnosticResult:"识别到远端结果",rbAuthDiagnosticClosed:"PTY 输出已关闭",rbAuthDiagnosticYes:"是",rbAuthDiagnosticNo:"否",rbAuthCompletionTimeout:"SSH 认证已通过，但远端检查未在限定时间内返回结果。请打开诊断后重试。",
   rbAuthPasswordTitle:"SSH 密码认证",rbAuthPasswordDescription:"此服务器要求使用账户密码完成 SSH 登录。",rbAuthPasswordLabel:"服务器密码",
@@ -363,7 +385,8 @@ const authZh: AuthLabels = {
   rbAuthError:"未能完成 SSH 交互认证。请检查提示内容、账户策略与主机指纹后重试。",
 };
 const authJa: AuthLabels = {
-  rbAuthTitle:"OpenSSH 認証",rbAuthPrompt:"OpenSSH の確認",rbAuthCancel:"認証をキャンセル",
+  rbAuthCopyPrompt:"プロンプトをコピー",rbAuthCopyFailed:"コピー失敗、再試行",
+  rbAuthTitle:"OpenSSH 認証",rbAuthPrompt:"OpenSSH の確認",rbAuthCancel:"認証をキャンセル",rbAuthBuildingBridge:"ブリッジを構築中",rbAuthBridgeReady:"リモートブリッジ準備完了",rbAuthBridgeFailed:"ブリッジ構築に失敗",
   rbAuthWaitingPrompt:"サーバーを待機",rbAuthWaitingUser:"入力待ち",rbAuthVerifying:"確認中",rbAuthCompleting:"リモート確認を完了中",rbAuthCompletingTitle:"認証済み、リモート環境を確認中",rbAuthCompletingDescription:"OpenSSH の認証が完了しました。ProxyEnv はリモート確認結果を待っています。",rbAuthRemoteCheckFailure:"リモート確認に失敗",rbAuthRemoteCheckFailureTitle:"リモート確認を完了できませんでした",rbAuthSuccess:"SSH 認証に成功しました",rbAuthFailure:"認証に失敗しました",rbAuthWaitingPromptMessage:"サーバーの認証要求を待っています…",rbAuthInteractionError:"対話エラー",rbAuthPromptUnavailableTitle:"認証プロンプトを読み取れませんでした",rbAuthPromptUnavailableDescription:"ProxyEnv は OpenSSH を起動しましたが、識別可能な認証要求を受信できませんでした。",rbAuthPromptUnavailableHint:"通常はローカル OpenSSH または ConPTY の対話問題であり、サーバーパスワードの誤りを意味しません。",
   rbAuthRetry:"再試行",rbAuthOpenDiagnostic:"診断を開く",rbAuthHideDiagnostic:"診断を閉じる",rbAuthDiagnosticBytes:"PTY 受信バイト",rbAuthDiagnosticPrintable:"表示可能バイト",rbAuthDiagnosticCpr:"カーソル照会",rbAuthDiagnosticPrompt:"プロンプト検出",rbAuthDiagnosticMarker:"認証マーカー",rbAuthDiagnosticResult:"リモート結果を検出",rbAuthDiagnosticClosed:"PTY 出力終了",rbAuthDiagnosticYes:"はい",rbAuthDiagnosticNo:"いいえ",rbAuthCompletionTimeout:"SSH 認証は成功しましたが、リモート確認結果が時間内に返りませんでした。診断を開いて再試行してください。",
   rbAuthPasswordTitle:"SSH パスワード認証",rbAuthPasswordDescription:"このサーバーではアカウントのパスワードによる SSH ログインが必要です。",rbAuthPasswordLabel:"サーバーパスワード",
@@ -377,7 +400,8 @@ const authJa: AuthLabels = {
   rbAuthError:"SSH 対話認証を完了できませんでした。表示内容、アカウントポリシー、ホスト鍵を確認して再試行してください。",
 };
 const authKo: AuthLabels = {
-  rbAuthTitle:"OpenSSH 인증",rbAuthPrompt:"OpenSSH 요청",rbAuthCancel:"인증 취소",
+  rbAuthCopyPrompt:"요청 복사",rbAuthCopyFailed:"복사 실패, 다시 시도",
+  rbAuthTitle:"OpenSSH 인증",rbAuthPrompt:"OpenSSH 요청",rbAuthCancel:"인증 취소",rbAuthBuildingBridge:"브리지 연결 중",rbAuthBridgeReady:"원격 브리지 준비됨",rbAuthBridgeFailed:"브리지 연결 실패",
   rbAuthWaitingPrompt:"서버 대기 중",rbAuthWaitingUser:"입력 대기",rbAuthVerifying:"확인 중",rbAuthCompleting:"원격 확인 완료 중",rbAuthCompletingTitle:"인증됨, 원격 환경 확인 중",rbAuthCompletingDescription:"OpenSSH 인증이 완료되었습니다. ProxyEnv가 원격 확인 결과를 기다리고 있습니다.",rbAuthRemoteCheckFailure:"원격 확인 실패",rbAuthRemoteCheckFailureTitle:"원격 확인을 완료하지 못했습니다",rbAuthSuccess:"SSH 인증 성공",rbAuthFailure:"인증 실패",rbAuthWaitingPromptMessage:"서버의 인증 요청을 기다리는 중…",rbAuthInteractionError:"상호 작용 오류",rbAuthPromptUnavailableTitle:"인증 요청을 읽지 못했습니다",rbAuthPromptUnavailableDescription:"ProxyEnv가 OpenSSH를 시작했지만 인식 가능한 인증 요청을 받지 못했습니다.",rbAuthPromptUnavailableHint:"일반적으로 로컬 OpenSSH 또는 ConPTY 상호 작용 문제이며 서버 비밀번호가 틀렸다는 의미는 아닙니다.",
   rbAuthRetry:"다시 시도",rbAuthOpenDiagnostic:"진단 열기",rbAuthHideDiagnostic:"진단 닫기",rbAuthDiagnosticBytes:"PTY 수신 바이트",rbAuthDiagnosticPrintable:"표시 가능 바이트",rbAuthDiagnosticCpr:"커서 조회",rbAuthDiagnosticPrompt:"요청 감지",rbAuthDiagnosticMarker:"인증 마커",rbAuthDiagnosticResult:"원격 결과 감지",rbAuthDiagnosticClosed:"PTY 출력 종료",rbAuthDiagnosticYes:"예",rbAuthDiagnosticNo:"아니요",rbAuthCompletionTimeout:"SSH 인증은 성공했지만 원격 확인 결과가 제한 시간 내에 반환되지 않았습니다. 진단을 열고 다시 시도하세요.",
   rbAuthPasswordTitle:"SSH 비밀번호 인증",rbAuthPasswordDescription:"이 서버는 계정 비밀번호로 SSH 로그인을 완료해야 합니다.",rbAuthPasswordLabel:"서버 비밀번호",
@@ -391,34 +415,112 @@ const authKo: AuthLabels = {
   rbAuthError:"SSH 대화형 인증을 완료하지 못했습니다. 요청 내용, 계정 정책 및 호스트 키를 확인한 뒤 다시 시도하세요.",
 };
 const connectionEn = {
+  rbConnectionNameInvalid: "Use a name of 1–32 characters without control characters.",
+  rbConnectionPortInvalid: "Enter a whole-number SSH port from 1 to 65535.",
+  rbConnectionIdentityRequired: "Choose an available local private-key file using Browse.",
+  rbConnectionLimitError: "The limit of 64 saved connections has been reached. Remove an unused connection and try again.",
+  rbBackendRestartRequired: "The running backend does not contain this command. Rebuild and restart ProxyEnv, then try again; reloading the interface alone is not enough.",
+  rbConnectionIdentityBrowse: "Browse", rbConnectionIdentityEmpty: "Select a private-key file", rbConnectionIdentityChecking: "Selecting…",
+  rbConnectionIdentityUnavailable: "The file is unavailable, unreadable or unsafe. Select a regular local private-key file.",
+  rbConnectionIdentityUnsupported: "Select an OpenSSH or PEM private key, not a public key or PuTTY .ppk file. OpenSSH verifies whether the key can be used to sign in.",
   rbSourceManual: "ProxyEnv connection",
   rbAddConnection: "Add SSH connection",
   rbConnectionTitle: "Add SSH connection",
   rbConnectionDisplayName: "Display name",
   rbConnectionDestination: "Host or user@host",
   rbConnectionDestinationHint: "Examples: lab.example.edu or student@lab.example.edu",
+  rbConnectionDestinationInvalid: "Enter a valid hostname, IPv4 address, IPv6 address, or user@host. Put the SSH port in the separate port field.",
   rbConnectionPort: "SSH port",
   rbConnectionAuthentication: "Authentication",
   rbConnectionAuthAutomatic: "Use OpenSSH automatically",
   rbConnectionAuthAutomaticHint: "Uses your SSH configuration, default keys, ssh-agent, password, keyboard-interactive authentication and explicit first-use host-key confirmation.",
+  rbConnectionAuthPassword: "Use password authentication",
+  rbConnectionAuthPasswordHint: "OpenSSH asks for the password during connection. ProxyEnv does not save the password in this connection.",
   rbConnectionAuthIdentity: "Use a specific identity file",
   rbConnectionIdentityFile: "Identity file path",
-  rbConnectionIdentityHint: "Enter an absolute path to an existing private-key file. ProxyEnv stores only the path and never reads or copies the key contents.",
+  rbConnectionIdentityHint: "Choose an existing OpenSSH or PEM private key. ProxyEnv checks only its format header and stores the path; it never saves or uploads key contents. OpenSSH handles key unlocking and login.",
+  rbConnectionIdentityInvalidPath: "Use an ordinary absolute local path without device prefixes, control characters or Windows filename metacharacters.",
   rbConnectionSave: "Add connection",
+  rbConnectionEdit: "Edit connection",
+  rbConnectionUpdate: "Save changes",
+  rbConnectionEditTitle: "Edit connection",
+  rbConnectionEditHint: "Update the saved name, destination, SSH port and authentication method. The existing connection ID is preserved.",
+  rbConnectionCopyTitle: "Edit as a ProxyEnv connection",
+  rbConnectionCopySave: "Save ProxyEnv copy",
+  rbConnectionCopyEditHint: "Save an independent ProxyEnv connection with this name, destination, port and authentication method. The original OpenSSH, VS Code or MobaXterm configuration remains unchanged.",
+  rbTargetAuthAutomatic: "OpenSSH decides",
+  rbTargetAuthPassword: "Password authentication",
+  rbTargetAuthIdentity: "Identity authentication",
+  rbTargetAuthAgent: "SSH Agent",
   rbConnectionRemove: "Remove connection",
-  rbConnectionRemoveTitle: "Remove saved connection?",
-  rbConnectionRemoveHint: "This removes only the ProxyEnv connection definition. SSH keys, known_hosts and remote files are not changed.",
+  rbConnectionRemoveTitle: "Remove this connection copy?",
+  rbConnectionRemoveHint: "This removes only the connection saved or shown by ProxyEnv. Original configuration, SSH keys, known_hosts and remote files are not changed.",
+  rbWorkspaceTitle: "Remote bridge",
+  rbLocalNetworkTitle: "Bridge local network",
+  rbCcRouteReminder: "Ensure routing is enabled for the Claude/Codex apps you use.",
+  rbCcRouteDetected: "Routing detected",
+  rbEstablishingBridge: "Establishing bridge…",
+  rbLocalNetworkHelp: "Uses the active proxy selected under Local environment. After connection, the remote host sends traffic through SSH to this local proxy. This does not share every network connection on this computer. Local proxy availability and remote bridge connectivity are checked separately.",
+  rbWorkspaceSubtitle: "Select an SSH connection and choose the capabilities for this remote environment.",
+  rbConnectionList: "SSH connections",
+  rbRefreshShort: "Refresh",
+  rbCurrentConnection: "Current connection",
+  rbNoSelectionTitle: "No SSH connection selected",
+  rbNoSelectionHint: "Select or add an SSH connection from the left.",
+  rbConnectionMoreActions: "Connection actions",
+  rbConnectionHide: "Hide from list",
+  rbConnectionHideTitle: "Hide this SSH connection?",
+  rbConnectionHideHint: "ProxyEnv will hide this automatically discovered connection. The original OpenSSH, VS Code or MobaXterm configuration will not be changed.",
   rbConnectionInvalid: "Check the display name, destination, SSH port and identity-file path. No connection was saved.",
 };
 type ConnectionLabels = { [K in keyof typeof connectionEn]: string };
 const connectionZh: ConnectionLabels = {
-  rbSourceManual:"ProxyEnv 连接",rbAddConnection:"添加 SSH 连接",rbConnectionTitle:"添加 SSH 连接",rbConnectionDisplayName:"显示名称",rbConnectionDestination:"主机或 user@host",rbConnectionDestinationHint:"例如：lab.example.edu 或 student@lab.example.edu",rbConnectionPort:"SSH 端口",rbConnectionAuthentication:"认证方式",rbConnectionAuthAutomatic:"自动使用 OpenSSH",rbConnectionAuthAutomaticHint:"复用 SSH 配置、默认密钥、ssh-agent、密码、Keyboard Interactive，并在首次连接时明确确认主机密钥。",rbConnectionAuthIdentity:"指定身份文件",rbConnectionIdentityFile:"身份文件路径",rbConnectionIdentityHint:"请输入现有私钥文件的绝对路径。ProxyEnv 只保存路径，不读取或复制密钥内容。",rbConnectionSave:"添加连接",rbConnectionRemove:"移除连接",rbConnectionRemoveTitle:"移除已保存的连接？",rbConnectionRemoveHint:"只移除 ProxyEnv 保存的连接定义，不修改 SSH 密钥、known_hosts 或远端文件。",rbConnectionInvalid:"请检查显示名称、目标主机、SSH 端口和身份文件路径。连接未保存。",
+  rbConnectionNameInvalid:"名称需为 1–32 个字符，不能包含控制字符。",
+  rbConnectionPortInvalid:"SSH 端口需为 1–65535 之间的整数。",
+  rbConnectionIdentityRequired:"请点击「浏览」选择本机可用的私钥文件。",
+  rbConnectionLimitError:"已达到 64 个已保存连接的上限，请移除不再使用的连接后重试。",
+  rbBackendRestartRequired:"当前运行的后端尚未包含此命令。请重新构建并重启 ProxyEnv 后重试，仅刷新界面不会更新后端。",
+  rbConnectionIdentityBrowse:"浏览",rbConnectionIdentityEmpty:"请选择私钥文件",rbConnectionIdentityChecking:"正在选择…",
+  rbConnectionIdentityUnavailable:"文件不存在、无法读取或路径不安全。请选择本机的普通私钥文件。",
+  rbConnectionIdentityUnsupported:"请选择 OpenSSH 或 PEM 私钥，不要选择公钥或 PuTTY .ppk 文件。能否用于登录由 OpenSSH 验证。",
+  rbCcRouteReminder:"请确保已开启需要使用的 Claude/Codex 路由。",
+  rbCcRouteDetected:"已检测到路由",
+  rbEstablishingBridge:"正在建立桥接…",
+  rbLocalNetworkTitle:"桥接本机网络",rbLocalNetworkHelp:"复用「本机环境」中选中的当前活动代理。连接后，远端通过 SSH 使用这个本机代理联网，并非共享本机全部网络。本机代理是否可用与远端桥接是否连通会分别检查。",
+  rbSourceManual:"ProxyEnv 连接",rbAddConnection:"添加 SSH 连接",rbConnectionTitle:"添加 SSH 连接",rbConnectionDisplayName:"显示名称",rbConnectionDestination:"主机或 user@host",rbConnectionDestinationHint:"例如：lab.example.edu、192.168.1.20、[2001:db8::1] 或 student@lab.example.edu",rbConnectionDestinationInvalid:"请输入有效的主机名、IPv4、IPv6 或 user@host；SSH 端口请填写在下方端口字段。",rbConnectionPort:"SSH 端口",rbConnectionAuthentication:"认证方式",rbConnectionAuthAutomatic:"自动使用 OpenSSH",rbConnectionAuthAutomaticHint:"复用 SSH 配置、默认密钥、ssh-agent、密码、Keyboard Interactive，并在首次连接时明确确认主机密钥。",rbConnectionAuthPassword:"使用密码认证",rbConnectionAuthPasswordHint:"连接时由 OpenSSH 请求密码；ProxyEnv 不会把密码保存在该连接中。",rbConnectionAuthIdentity:"指定身份文件",rbConnectionIdentityFile:"身份文件路径",rbConnectionIdentityHint:"选择本机的 OpenSSH 或 PEM 私钥。ProxyEnv 只检查格式首行并保存路径，不保存或上传密钥内容；密钥解锁与登录由 OpenSSH 处理。",rbConnectionIdentityInvalidPath:"请使用普通的本机绝对路径，不要包含设备路径前缀、控制字符或 Windows 文件名非法字符。",rbConnectionSave:"添加连接",rbConnectionEdit:"修改连接",rbConnectionUpdate:"保存修改",rbConnectionEditTitle:"修改连接",rbConnectionEditHint:"可以修改已保存的名称、目标地址、SSH 端口和认证方式，原连接标识保持不变。",rbConnectionCopyTitle:"编辑为 ProxyEnv 连接",rbConnectionCopySave:"保存 ProxyEnv 副本",rbConnectionCopyEditHint:"使用当前名称、目标地址、端口和认证方式保存独立的 ProxyEnv 连接；原始 OpenSSH、VS Code 或 MobaXterm 配置保持不变。",rbTargetAuthAutomatic:"由 OpenSSH 决定",rbTargetAuthPassword:"密码认证",rbTargetAuthIdentity:"身份认证",rbTargetAuthAgent:"SSH Agent",rbConnectionRemove:"移除连接",rbConnectionRemoveTitle:"移除这个连接副本？",rbConnectionRemoveHint:"只移除 ProxyEnv 保存或当前显示的连接副本，不修改 SSH 密钥、known_hosts、原始配置或远端文件。",rbConnectionInvalid:"请检查显示名称、目标主机、SSH 端口和身份文件路径。连接未保存。",
+  rbWorkspaceTitle:"远程桥接",rbWorkspaceSubtitle:"选择 SSH 连接，并配置本次远程环境需要使用的能力。",rbConnectionList:"SSH 连接",rbRefreshShort:"刷新",rbCurrentConnection:"当前连接",rbNoSelectionTitle:"未选择 SSH 连接",rbNoSelectionHint:"请从左侧选择或添加一个 SSH 连接。",rbConnectionMoreActions:"连接操作",rbConnectionHide:"从列表隐藏",rbConnectionHideTitle:"隐藏这个 SSH 连接？",rbConnectionHideHint:"ProxyEnv 只会隐藏这个自动发现的连接，不会修改原始 OpenSSH、VS Code 或 MobaXterm 配置。",
 };
 const connectionJa: ConnectionLabels = {
-  rbSourceManual:"ProxyEnv 接続",rbAddConnection:"SSH 接続を追加",rbConnectionTitle:"SSH 接続を追加",rbConnectionDisplayName:"表示名",rbConnectionDestination:"ホストまたは user@host",rbConnectionDestinationHint:"例：lab.example.edu または student@lab.example.edu",rbConnectionPort:"SSH ポート",rbConnectionAuthentication:"認証",rbConnectionAuthAutomatic:"OpenSSH を自動使用",rbConnectionAuthAutomaticHint:"SSH 設定、既定キー、ssh-agent、パスワード、対話認証、初回ホストキー確認を使用します。",rbConnectionAuthIdentity:"特定の秘密鍵を使用",rbConnectionIdentityFile:"秘密鍵ファイルのパス",rbConnectionIdentityHint:"既存の秘密鍵への絶対パスを入力します。ProxyEnv はパスだけを保存し、鍵の内容を読み取りません。",rbConnectionSave:"接続を追加",rbConnectionRemove:"接続を削除",rbConnectionRemoveTitle:"保存済み接続を削除しますか？",rbConnectionRemoveHint:"ProxyEnv の接続定義だけを削除します。SSH キー、known_hosts、リモートファイルは変更しません。",rbConnectionInvalid:"表示名、接続先、SSH ポート、秘密鍵パスを確認してください。接続は保存されていません。",
+  rbConnectionNameInvalid:"名前は制御文字を含まない 1～32 文字にしてください。",
+  rbConnectionPortInvalid:"SSH ポートは 1～65535 の整数で入力してください。",
+  rbConnectionIdentityRequired:"「参照」で利用可能なローカル秘密鍵ファイルを選択してください。",
+  rbConnectionLimitError:"保存できる接続は 64 件までです。不要な接続を削除して再試行してください。",
+  rbBackendRestartRequired:"実行中のバックエンドにこのコマンドがありません。ProxyEnv を再ビルドして再起動してください。画面の再読み込みだけでは更新されません。",
+  rbConnectionIdentityBrowse:"参照",rbConnectionIdentityEmpty:"秘密鍵ファイルを選択",rbConnectionIdentityChecking:"選択中…",
+  rbConnectionIdentityUnavailable:"ファイルが存在しない、読み取れない、または安全ではありません。ローカルの通常の秘密鍵ファイルを選択してください。",
+  rbConnectionIdentityUnsupported:"公開鍵や PuTTY .ppk ではなく、OpenSSH または PEM の秘密鍵を選択してください。ログインに使えるかは OpenSSH が確認します。",
+  rbCcRouteReminder:"利用する Claude/Codex のルーティングを有効にしてください。",
+  rbCcRouteDetected:"ルーティングを検出",
+  rbEstablishingBridge:"ブリッジを接続中…",
+  rbLocalNetworkTitle:"ローカルネットワークをブリッジ",rbLocalNetworkHelp:"ローカル環境で選択した現在のプロキシを使用します。接続後、リモート側は SSH 経由でこのローカルプロキシに通信します。このコンピューターのすべての接続を共有する機能ではありません。ローカルプロキシとリモートブリッジの接続状態は個別に確認します。",
+  rbSourceManual:"ProxyEnv 接続",rbAddConnection:"SSH 接続を追加",rbConnectionTitle:"SSH 接続を追加",rbConnectionDisplayName:"表示名",rbConnectionDestination:"ホストまたは user@host",rbConnectionDestinationHint:"例：lab.example.edu、192.168.1.20、[2001:db8::1]、student@lab.example.edu",rbConnectionDestinationInvalid:"有効なホスト名、IPv4、IPv6、または user@host を入力してください。SSH ポートは別のポート欄に入力します。",rbConnectionPort:"SSH ポート",rbConnectionAuthentication:"認証",rbConnectionAuthAutomatic:"OpenSSH を自動使用",rbConnectionAuthAutomaticHint:"SSH 設定、既定キー、ssh-agent、パスワード、対話認証、初回ホストキー確認を使用します。",rbConnectionAuthPassword:"パスワード認証を使用",rbConnectionAuthPasswordHint:"接続時に OpenSSH がパスワードを要求します。ProxyEnv はこの接続にパスワードを保存しません。",rbConnectionAuthIdentity:"特定の秘密鍵を使用",rbConnectionIdentityFile:"秘密鍵ファイルのパス",rbConnectionIdentityHint:"ローカルの OpenSSH または PEM 秘密鍵を選択します。形式ヘッダーだけを確認しパスを保存します。鍵の内容は保存・送信せず、解除とログインは OpenSSH が処理します。",rbConnectionIdentityInvalidPath:"デバイス接頭辞、制御文字、Windows の禁止文字を含まない通常のローカル絶対パスを使用してください。",rbConnectionSave:"接続を追加",rbConnectionEdit:"接続を編集",rbConnectionUpdate:"変更を保存",rbConnectionEditTitle:"接続を編集",rbConnectionEditHint:"保存済みの名前、接続先、SSH ポート、認証方法を変更できます。接続 ID は維持されます。",rbConnectionCopyTitle:"ProxyEnv 接続として編集",rbConnectionCopySave:"ProxyEnv コピーを保存",rbConnectionCopyEditHint:"現在の名前、接続先、ポート、認証方法で独立した ProxyEnv 接続を保存します。元の OpenSSH、VS Code、MobaXterm 設定は変更しません。",rbTargetAuthAutomatic:"OpenSSH が決定",rbTargetAuthPassword:"パスワード認証",rbTargetAuthIdentity:"鍵認証",rbTargetAuthAgent:"SSH Agent",rbConnectionRemove:"接続を削除",rbConnectionRemoveTitle:"この接続コピーを削除しますか？",rbConnectionRemoveHint:"ProxyEnv の接続コピーだけを削除します。元の設定、SSH キー、known_hosts、リモートファイルは変更しません。",rbConnectionInvalid:"表示名、接続先、SSH ポート、秘密鍵パスを確認してください。接続は保存されていません。",
+  rbWorkspaceTitle:"リモートブリッジ",rbWorkspaceSubtitle:"SSH 接続を選択し、このリモート環境で使用する機能を設定します。",rbConnectionList:"SSH 接続",rbRefreshShort:"更新",rbCurrentConnection:"現在の接続",rbNoSelectionTitle:"SSH 接続が選択されていません",rbNoSelectionHint:"左側から SSH 接続を選択するか追加してください。",rbConnectionMoreActions:"接続操作",rbConnectionHide:"一覧から非表示",rbConnectionHideTitle:"この SSH 接続を非表示にしますか？",rbConnectionHideHint:"ProxyEnv の一覧からだけ非表示にします。元の OpenSSH、VS Code、MobaXterm 設定は変更しません。",
 };
 const connectionKo: ConnectionLabels = {
-  rbSourceManual:"ProxyEnv 연결",rbAddConnection:"SSH 연결 추가",rbConnectionTitle:"SSH 연결 추가",rbConnectionDisplayName:"표시 이름",rbConnectionDestination:"호스트 또는 user@host",rbConnectionDestinationHint:"예: lab.example.edu 또는 student@lab.example.edu",rbConnectionPort:"SSH 포트",rbConnectionAuthentication:"인증",rbConnectionAuthAutomatic:"OpenSSH 자동 사용",rbConnectionAuthAutomaticHint:"SSH 설정, 기본 키, ssh-agent, 비밀번호, 대화형 인증 및 최초 호스트 키 확인을 사용합니다.",rbConnectionAuthIdentity:"지정된 키 파일 사용",rbConnectionIdentityFile:"키 파일 경로",rbConnectionIdentityHint:"기존 개인 키 파일의 절대 경로를 입력하세요. ProxyEnv는 경로만 저장하고 키 내용을 읽거나 복사하지 않습니다.",rbConnectionSave:"연결 추가",rbConnectionRemove:"연결 삭제",rbConnectionRemoveTitle:"저장된 연결을 삭제할까요?",rbConnectionRemoveHint:"ProxyEnv 연결 정의만 삭제합니다. SSH 키, known_hosts 및 원격 파일은 변경하지 않습니다.",rbConnectionInvalid:"표시 이름, 대상, SSH 포트 및 키 파일 경로를 확인하세요. 연결이 저장되지 않았습니다.",
+  rbConnectionNameInvalid:"이름은 제어 문자를 제외한 1~32자로 입력하세요.",
+  rbConnectionPortInvalid:"SSH 포트는 1~65535 사이의 정수로 입력하세요.",
+  rbConnectionIdentityRequired:"「찾아보기」로 사용 가능한 로컬 개인 키 파일을 선택하세요.",
+  rbConnectionLimitError:"저장된 연결이 64개 한도에 도달했습니다. 사용하지 않는 연결을 삭제하고 다시 시도하세요.",
+  rbBackendRestartRequired:"실행 중인 백엔드에 이 명령이 없습니다. ProxyEnv를 다시 빌드하고 재시작하세요. 화면 새로 고침만으로는 백엔드가 갱신되지 않습니다.",
+  rbConnectionIdentityBrowse:"찾아보기",rbConnectionIdentityEmpty:"개인 키 파일 선택",rbConnectionIdentityChecking:"선택 중…",
+  rbConnectionIdentityUnavailable:"파일이 없거나 읽을 수 없거나 경로가 안전하지 않습니다. 로컬의 일반 개인 키 파일을 선택하세요.",
+  rbConnectionIdentityUnsupported:"공개 키나 PuTTY .ppk 대신 OpenSSH 또는 PEM 개인 키를 선택하세요. 로그인 가능 여부는 OpenSSH가 확인합니다.",
+  rbCcRouteReminder:"사용할 Claude/Codex의 라우팅을 켜 주세요.",
+  rbCcRouteDetected:"라우팅 감지됨",
+  rbEstablishingBridge:"브리지 연결 중…",
+  rbLocalNetworkTitle:"로컬 네트워크 브리지",rbLocalNetworkHelp:"로컬 환경에서 선택한 활성 프록시를 사용합니다. 연결 후 원격 호스트는 SSH를 통해 이 로컬 프록시로 통신합니다. 이 컴퓨터의 모든 네트워크 연결을 공유하지는 않습니다. 로컬 프록시 상태와 원격 브리지 연결 상태는 별도로 확인합니다.",
+  rbSourceManual:"ProxyEnv 연결",rbAddConnection:"SSH 연결 추가",rbConnectionTitle:"SSH 연결 추가",rbConnectionDisplayName:"표시 이름",rbConnectionDestination:"호스트 또는 user@host",rbConnectionDestinationHint:"예: lab.example.edu, 192.168.1.20, [2001:db8::1] 또는 student@lab.example.edu",rbConnectionDestinationInvalid:"올바른 호스트 이름, IPv4, IPv6 또는 user@host를 입력하세요. SSH 포트는 별도 포트 입력란에 입력합니다.",rbConnectionPort:"SSH 포트",rbConnectionAuthentication:"인증",rbConnectionAuthAutomatic:"OpenSSH 자동 사용",rbConnectionAuthAutomaticHint:"SSH 설정, 기본 키, ssh-agent, 비밀번호, 대화형 인증 및 최초 호스트 키 확인을 사용합니다.",rbConnectionAuthPassword:"비밀번호 인증 사용",rbConnectionAuthPasswordHint:"연결할 때 OpenSSH가 비밀번호를 요청합니다. ProxyEnv는 이 연결에 비밀번호를 저장하지 않습니다.",rbConnectionAuthIdentity:"지정된 키 파일 사용",rbConnectionIdentityFile:"키 파일 경로",rbConnectionIdentityHint:"로컬 OpenSSH 또는 PEM 개인 키를 선택하세요. 형식 헤더만 확인하고 경로만 저장합니다. 키 내용은 저장하거나 업로드하지 않으며 잠금 해제와 로그인은 OpenSSH가 처리합니다.",rbConnectionIdentityInvalidPath:"장치 경로 접두사, 제어 문자 또는 Windows 파일 이름 금지 문자가 없는 일반 로컬 절대 경로를 사용하세요.",rbConnectionSave:"연결 추가",rbConnectionEdit:"연결 수정",rbConnectionUpdate:"변경 저장",rbConnectionEditTitle:"연결 수정",rbConnectionEditHint:"저장된 이름, 대상, SSH 포트와 인증 방법을 변경할 수 있으며 연결 ID는 유지됩니다.",rbConnectionCopyTitle:"ProxyEnv 연결로 수정",rbConnectionCopySave:"ProxyEnv 복사본 저장",rbConnectionCopyEditHint:"현재 이름, 대상, 포트, 인증 방법으로 독립된 ProxyEnv 연결을 저장합니다. 원본 OpenSSH, VS Code, MobaXterm 설정은 변경하지 않습니다.",rbTargetAuthAutomatic:"OpenSSH에서 결정",rbTargetAuthPassword:"비밀번호 인증",rbTargetAuthIdentity:"키 인증",rbTargetAuthAgent:"SSH Agent",rbConnectionRemove:"연결 삭제",rbConnectionRemoveTitle:"이 연결 복사본을 삭제할까요?",rbConnectionRemoveHint:"ProxyEnv의 연결 복사본만 삭제합니다. 원본 설정, SSH 키, known_hosts 및 원격 파일은 변경하지 않습니다.",rbConnectionInvalid:"표시 이름, 대상, SSH 포트 및 키 파일 경로를 확인하세요. 연결이 저장되지 않았습니다.",
+  rbWorkspaceTitle:"원격 브리지",rbWorkspaceSubtitle:"SSH 연결을 선택하고 이 원격 환경에 제공할 기능을 설정하세요.",rbConnectionList:"SSH 연결",rbRefreshShort:"새로 고침",rbCurrentConnection:"현재 연결",rbNoSelectionTitle:"선택한 SSH 연결이 없습니다",rbNoSelectionHint:"왼쪽에서 SSH 연결을 선택하거나 추가하세요.",rbConnectionMoreActions:"연결 작업",rbConnectionHide:"목록에서 숨기기",rbConnectionHideTitle:"이 SSH 연결을 숨길까요?",rbConnectionHideHint:"ProxyEnv 목록에서만 숨기며 원본 OpenSSH, VS Code 또는 MobaXterm 설정은 변경하지 않습니다.",
 };
 const en = {
   ...extensionEn,
@@ -547,13 +649,17 @@ export const remoteBridgeMessages = { en, "zh-CN": zh, ja, ko };
 export type RemoteBridgeCopy = Labels;
 
 export function bridgeErrorCode(error: unknown): string {
-  if (typeof error === "string") return error;
+  if (typeof error === "string") return /^Command [a-z_]+ not found$/.test(error) ? "backendCommandMissing" : error;
   if (error && typeof error === "object" && "code" in error && typeof error.code === "string") return error.code;
   return "";
 }
 
 export function bridgeError(code: unknown, copy: Labels): string {
   const value = bridgeErrorCode(code);
+  if (value === "backendCommandMissing") return copy.rbBackendRestartRequired;
+  if (value === "invalidConnectionName") return copy.rbConnectionNameInvalid;
+  if (value === "invalidConnectionDestination") return copy.rbConnectionDestinationInvalid;
+  if (value === "invalidConnectionPort") return copy.rbConnectionPortInvalid;
   if (value === "ccUnavailable") return copy.rbCcError;
   if (value === "bridgeUnavailable") return copy.rbBridgeUnavailableError;
   if (value === "toolNotConfigured") return copy.rbConfigureBeforeLaunch;
@@ -579,7 +685,9 @@ export function bridgeError(code: unknown, copy: Labels): string {
   if (value === "portRace") return copy.rbPortRace;
   if (["extensionMissing","extensionUnsupported","extensionContextChanged","extensionLocationRequired"].includes(value)) return copy.rbExtError;
   if (["vscodeMissing","vscodeConfigInvalid","vscodeConfigMismatch"].includes(value)) return copy.rbVscodeError;
-  if (["identityFileInvalid","connectionLimitReached"].includes(value)) return copy.rbConnectionInvalid;
+  if (value === "identityFileInvalid") return copy.rbConnectionIdentityUnavailable;
+  if (value === "identityFileUnsupported") return copy.rbConnectionIdentityUnsupported;
+  if (value === "connectionLimitReached") return copy.rbConnectionLimitError;
   if (["localSkillUnsafe","localSkillChanged","localSkillMissing","skillConflict","skillBusy","skillVerifyFailed"].includes(value)) return copy.rbSkillError;
   if (["sshConfigChanged","sshMissing","sshConfigMissing","sshConfigUnsafe","sshTimeout","hostKey","sshAuth","sshFailed","invalidTarget"].includes(value)) return copy.rbSshError;
   if (["forwardDenied","relayUnavailable"].includes(value)) return copy.rbForwardError;

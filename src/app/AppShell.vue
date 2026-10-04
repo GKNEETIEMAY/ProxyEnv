@@ -25,7 +25,6 @@ import AppHeader from "./components/AppHeader.vue";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 
 import RemoteBridgePage from "../features/remote-bridge/components/RemoteBridgePage.vue";
-import BridgeReconnectNotice from "../features/remote-bridge/components/BridgeReconnectNotice.vue";
 import { useRemoteBridge, type BridgeSummary } from "../features/remote-bridge/state";
 const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge } = useRemoteBridge();
 
@@ -54,9 +53,7 @@ const settingsError = ref("");
 const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
 const instanceNoticeVisible = ref(false);
-const bridgeNoticeVisible = ref(false);
-watch(() => remoteBridgeSummary.value.reconnectState, state => { if (state !== "attentionRequired") bridgeNoticeVisible.value = false; });
-function openBridgeNotice() { bridgeNoticeVisible.value = false; openRemote(); void refreshRemoteBridge(); }
+function openBridgeNotice() { openRemote(); void refreshRemoteBridge(); }
 const appVersion = ref("0.2.0");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
@@ -79,7 +76,6 @@ const environment = ref<EnvironmentStatus>({
 const candidates = ref<ProxyCandidate[]>([]);
 const tun = ref<TunObservation>({ state: "unknown", evidence: [] });
 const draftSettings = ref<AppSettings>({ ...defaultSettings });
-watch(() => draftSettings.value.notificationsEnabled, enabled => { if (!enabled) bridgeNoticeVisible.value = false; });
 const maximized = ref(false);
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 const reviewPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has("impeccable-review");
@@ -609,11 +605,11 @@ onMounted(async () => {
       settingsTab.value = preview === "about" ? "about" : "general";
     } else if (preview === "assistant" || preview === "assistant-result") {
       view.value = "assistant";
-    } else if (["remote", "remote-connected", "remote-connected-advanced", "remote-auth", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(preview ?? "")) {
+    } else if (["remote", "remote-connected", "remote-connected-advanced", "remote-auth", "remote-auth-rejected", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(preview ?? "")) {
       openRemote();
       if (["remote-connected", "remote-connected-advanced"].includes(preview ?? "")) remoteBridgeSummary.value = {
         status: "connected",
-        target: { id: "openssh|preview|aliyun-dev", displayName: "aliyun-dev", source: "openssh", sourceLabel: "OpenSSH", configPath: "~\\.ssh\\config", sshAlias: "aliyun-dev", host: null, user: null, port: null, identityFile: null, available: true, compatibility: "compatible", unavailableReason: null, canOpenVscode: true },
+        target: { id: "openssh|preview|aliyun-dev", displayName: "aliyun-dev", source: "openssh", sourceLabel: "OpenSSH", configPath: "~\\.ssh\\config", sshAlias: "aliyun-dev", host: "8.138.152.49", user: "lxl", port: 22, identityFile: null, authenticationMethod: "password", available: true, compatibility: "compatible", unavailableReason: null, canOpenVscode: true, canOpenMobaxterm: false },
         proxy: { local: { host: "127.0.0.1", port: 10809, protocol: "mixed" }, remotePort: 23841 },
         cc: { local: { host: "127.0.0.1", port: 15721, protocol: "http" }, remotePort: 31472 },
         proxyStatus: "connected",
@@ -649,7 +645,6 @@ onMounted(async () => {
     listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { acceptEnvironmentStatus(payload); }),
     listen<string>("operation-error", ({ payload }) => { error.value = payload; }),
     listen("second-instance-opened", showSecondInstanceNotice),
-    listen("bridge-attention", () => { if (draftSettings.value.notificationsEnabled) bridgeNoticeVisible.value = true; }),
     listen("bridge-notification-open", openBridgeNotice)
   ]);
   await refresh();
@@ -725,6 +720,7 @@ onBeforeUnmount(() => {
 
     <div v-if="remoteViewMounted" v-show="view === 'remote'" class="view-pane">
     <RemoteBridgePage
+      :visible="view === 'remote'"
       :copy="copy"
       :active-proxy="activeProxyContext"
       :summary="remoteBridgeSummary"
@@ -770,6 +766,5 @@ onBeforeUnmount(() => {
     </div>
     </div>
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
-    <BridgeReconnectNotice :visible="bridgeNoticeVisible" :sound="draftSettings.notificationSound" :copy="copy" @dismiss="bridgeNoticeVisible = false" @open="openBridgeNotice" />
   </div>
 </template>

@@ -83,17 +83,6 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
           <input v-model="settings.closeToTray" class="switch-input" type="checkbox" />
         </label>
       </section>
-      <section class="settings-group">
-        <div class="group-heading"><h2>{{ copy.rbNotifications }}</h2></div>
-        <label class="setting-row boolean-row">
-          <span><strong>{{ copy.rbNotifications }}</strong><small>{{ copy.rbNotificationsHint }}</small></span>
-          <input v-model="settings.notificationsEnabled" class="switch-input" type="checkbox" />
-        </label>
-        <label class="setting-row boolean-row" :class="{ muted: !settings.notificationsEnabled }">
-          <span><strong>{{ copy.rbNotificationSound }}</strong><small>{{ copy.rbNotificationSoundHint }}</small></span>
-          <input v-model="settings.notificationSound" class="switch-input" type="checkbox" :disabled="!settings.notificationsEnabled" />
-        </label>
-      </section>
     </template>
 
     <section v-else class="about-panel">
