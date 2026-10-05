@@ -1096,10 +1096,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             expected
         );
+        // Discovered files use canonical paths, including Windows path prefixes.
+        let canonical_managed_skill = fs::canonicalize(&managed_skill).unwrap();
         assert!(skills.iter().all(|skill| skill
             .files
             .iter()
-            .all(|file| file.local_path.starts_with(&managed_skill))));
+            .all(|file| file.local_path.starts_with(&canonical_managed_skill))));
         assert!(!missing_claude_root.exists());
         if links_supported {
             unlink_directory(&codex_root.join("impeccable")).unwrap();
