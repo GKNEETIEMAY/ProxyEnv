@@ -11,6 +11,7 @@ import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 import FieldValidation from "../../../shared/components/FieldValidation.vue";
 import RemoteToolDialog from "./RemoteToolDialog.vue";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
+import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import { remoteToolAdapters, type RemoteToolAdapter, type RemoteToolId } from "../tool-adapters";
 import {
   remoteBackend,
@@ -1290,6 +1291,7 @@ onBeforeUnmount(() => {
               <span class="remote-server-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><circle cx="8" cy="7" r="1"/><circle cx="8" cy="17" r="1"/></svg></span>
               <strong>{{ copy.rbNoSelectionTitle }}</strong>
               <p>{{ copy.rbNoSelectionHint }}</p>
+              <RemoteEmptyMascot :paused="visible === false" />
             </div>
 
             <footer class="remote-setup-actions">
