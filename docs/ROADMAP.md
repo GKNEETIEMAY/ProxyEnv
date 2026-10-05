@@ -5,7 +5,7 @@ Current Stable: v0.1.4
 Next: v0.2.0
 ```
 
-Checked **Current** items are shipped. The development branch `v0.2.0dev` is not a stable release; implemented code and a single successful user test do not make every target supported. See the [Remote Bridge scope](remote-bridge/V0.2_SCOPE.md) and [acceptance record](remote-bridge/ACCEPTANCE_V0.2.md). No release date or Linux/macOS desktop-adapter schedule is promised.
+Checked **Current** items are shipped. The development branch `v0.2.0dev` is not a stable release; implemented code and a single successful user test do not make every target supported. See the [Remote Bridge scope](remote-bridge/V0.2_SCOPE.md), [acceptance record](remote-bridge/ACCEPTANCE_V0.2.md) and [latest closeout comparison](remote-bridge/CLOSEOUT_STATUS_V0.2.md). No release date or Linux/macOS desktop-adapter schedule is promised.
 
 ## Current — v0.1.4
 
@@ -31,7 +31,7 @@ Release work still open:
 - [ ] Real-device Claude and Codex matrix, provider changes, streaming, disconnect/reconnect and recovery.
 - [ ] Windows/Linux CI, RustSec/security audit, documentation and release acceptance.
 
-The Codex VS Code Remote observation is **accepted for those three behaviors on one target**; Claude Extension remains pending. Moba launch, managed-environment lifecycle, M8 shared-host isolation, Skills and the Overview/Advanced UI still need real-device acceptance. Do not describe both extensions as wholly untested or either as universally accepted.
+The Codex VS Code Remote observation is **accepted for those three behaviors on one target**; Claude CLI/Extension requests, Skills Agent discovery, one-password automatic bridging and shared-account checks were also reported on the tested target. These are not universal compatibility or root-isolation claims. Latest-build Moba launch, managed-environment lifecycle, full reconnect/restore and Overview/Advanced/display-scaling regression still need release acceptance. Do not describe both extensions as wholly untested or either as universally accepted.
 
 ## Future — v0.3 research
 

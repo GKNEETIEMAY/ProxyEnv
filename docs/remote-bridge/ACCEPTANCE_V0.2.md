@@ -1,6 +1,6 @@
 # v0.2 Remote Bridge acceptance record
 
-This records **observed evidence**, not implementation or design intent. Last documentation review: 2026-09-29. Stable remains v0.1.4; no v0.2 release decision has been made.
+This records **observed evidence**, not implementation or design intent. Last documentation review: 2026-10-05. Stable remains v0.1.4; no v0.2 release decision has been made. See the [latest closeout comparison](CLOSEOUT_STATUS_V0.2.md) for plan differences, performance gaps and actual historical CI state.
 
 ## Recorded real-device observation
 
@@ -16,7 +16,7 @@ The user reported that, on their Windows → Linux target, Codex CLI, Codex VS C
 | CC Switch-linked Skill transfer and Agent discovery | User real-device report on 2026-09-29 | Completed on the tested target; broader matrix still required |
 | Streaming and provider/model change | Not recorded as an acceptance run | Pending |
 | Shared-host account boundary | User reported dual-user verification on 2026-09-29 | AI Route/account-owned files observed isolated; General Proxy remains intentionally unauthenticated and root remains a privileged administrator |
-| SSH host key and password/KBI automatic bridge construction | Implementation and automated coverage present | Real-device acceptance still pending |
+| SSH host key and password/KBI automatic bridge construction | User subsequently reported one password input automatically completed the bridge; implementation and automated coverage present | Observed on one target; complete host-key/key/Agent/KBI matrix pending |
 | MobaXterm launch | Application-level detection exposes a connected-Overview action for imported bookmarks and compatible non-Moba targets; setup remains selection-only | Real-device launch from the latest build still pending |
 | Disconnect/reconnect and conflict-safe restore | Restart and one disconnect/reconnect succeeded on 2026-09-28; the 2026-09-29 several-minute recovery regression led to direct tunnel recovery and a bounded 1/2/4/8/15/30-second backoff | Partial; repeat outage/recovery and restore run pending |
 | Dark theme and narrow-window layout | User real-device report on 2026-09-29 | Completed for the tested build |
@@ -29,6 +29,10 @@ The 2026-09-29 UI/UX closeout adds grouped targets, remembered target selection,
 
 ## Release matrix to complete
 
+Responsive repairs on 2026-10-05 remove the fixed 880px app-shell cap and viewport-minus-header setup height, contain short/narrow panel scrolling, retain the current-connection actions, and protect authentication terminal height. The optional browser layout regression uses mock review data only. Its CSS viewport sizes include 125%/150%-equivalent compact sizes, not actual Windows DPI changes; it does not establish a real bridge or complete live scaling acceptance.
+
+Revalidation on 2026-10-06 passed the production frontend build, 16 targeted remote UI/source tests and 216 browser geometry cases across 12 review states, nine viewport sizes and light/dark themes. Browser checks also covered cached startup frames, 16 solo and five paired mascot scenes, natural action completion, stable transitions, reduced motion, hidden-page pause and selection cleanup. The running Windows app was also inspected in its normal and maximized states during the layout review: title-bar controls stayed at the window edge and the two-column workspace expanded without losing the selected target or capability controls. Automated browser cases exercise large-to-small viewport transitions; they are not native restore/DPI acceptance. No SSH connection or authentication was submitted by this layout check. Actual Windows DPI changes and live bridge lifecycle tests remain pending. The existing Vite large-chunk warning remains non-fatal.
+
 Record date, Windows build, local proxy client/Active Proxy, VS Code build/Remote SSH, Linux distribution/kernel/UID context, Codex Extension/bundled Codex/CLI and Claude versions, CC Switch/provider/model, General Proxy and AI Route ports (redacted when shared), streaming, tool calls, file edit, disconnect/reconnect, ownership restore, expected/actual result and safe evidence. Keep credentials, raw paths, tokens and SSH transcripts out of this file.
 
-The release gate still requires Windows and Linux CI, RustSec and security audit green; a real MobaXterm launch from setup and connected Overview; password/KBI authentication flowing directly into bridge construction; full disconnect/restore and reconnect cycles; repeatable timing evidence from an actual SSH target; and explicit maintainer review of the full matrix. The tested Skills discovery, shared-account boundary, dark theme and narrow layout observations remain scoped to the reported target/build. Local automated tests document implementation regressions only. The earlier `docs/REMOTE_BRIDGE.md` snapshots and mocked tests cannot substitute for live acceptance.
+The release gate still requires Windows and Linux CI, RustSec and security audit green; a real MobaXterm launch from connected Overview; password/KBI authentication flowing directly into bridge construction; full disconnect/restore and reconnect cycles; repeatable timing evidence from an actual SSH target; and explicit maintainer review of the full matrix. The tested Skills discovery, shared-account boundary, dark theme and narrow layout observations remain scoped to the reported target/build. Local automated tests document implementation regressions only. The earlier `docs/REMOTE_BRIDGE.md` snapshots and mocked tests cannot substitute for live acceptance.
