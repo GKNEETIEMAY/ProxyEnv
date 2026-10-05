@@ -600,11 +600,10 @@ for(const code of ["sshAuth","sshAuthRejected","sshAuthPromptChanged","sshAuthCo
 test("CC Switch setup observes its local service without claiming per-agent route status",async()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(page,/const ccUsable = computed\(\(\) => ccDetection\.value\.state === "confirmed"\)/);
-  assert.match(page,/props\.visible !== false && !live\.value && !busy\.value/);
-  assert.match(page,/await initializeCapabilities\(false\)/);
-  assert.match(page,/remoteBackend\.detectCc\(ccLocalPort\.value, true\)/);
+  assert.match(page,/watch\(\[\(\) => props\.ccDetection, live, establishingBridge\], \(\) => initializeCapabilities\(false\), \{ immediate: true \}\)/);
+  assert.doesNotMatch(page,/scheduleCapabilityPolling|capabilityChecking/);
+  assert.doesNotMatch(page,/remoteBackend\.detectCc\(ccLocalPort\.value, true\)/);
   assert.match(page,/ccLocalPort\.value = result\.localPort/);
-  assert.match(page,/if \(capabilityChecking\) return/);
   assert.match(page,/cc\.value = result\.state === "confirmed" && ccPreferred\.value/);
   assert.match(page,/v-if="ccUsable" class="remote-capability-reminder"/);
   assert.match(page,/copy\.rbCcRouteDetected/);
@@ -623,26 +622,24 @@ test("CC Switch setup observes its local service without claiming per-agent rout
 
 test("CC Switch detection defaults on and preserves an explicit off choice",async()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  const body=page.match(/async function initializeCapabilities\(autoEnable = true\) \{([\s\S]*?)\n\}\n\nfunction scheduleCapabilityPolling/)[1];
-  let result={state:"confirmed",localPort:15721};
+  const body=page.match(/function initializeCapabilities\(autoEnable = true\) \{([\s\S]*?)\n\}\n\nfunction rememberCcChoice/)[1];
   const value=initial=>({value:initial});
   const context={
-    props:{reviewPreview:false,visible:true},proxyAvailable:value(true),proxy:value(true),
+    props:{reviewPreview:false,visible:false,ccDetection:{state:"confirmed",localPort:15721}},proxyAvailable:value(true),proxy:value(true),
     cc:value(false),ccPreferred:value(true),ccLocalPort:value(15721),ccDetection:value(null),ccCheck:value(null),
     live:value(false),busy:value(true),establishingBridge:value(false),
-    remoteBackend:{detectCc:async()=>result},nextTick:async()=>{},
   };
-  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-  const initialize=new AsyncFunction("autoEnable","context",`const {${Object.keys(context).join(",")}}=context; let capabilityChecking=false; ${body}`);
+  const compiled=ts.transpileModule(`function initialize(autoEnable,context) { const {${Object.keys(context).join(",")}}=context; ${body} }`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+  const initialize=new Function(`${compiled}; return initialize;`)();
   await initialize(true,context);
-  assert.equal(context.cc.value,false,"Initial loading may defer the detection result");
+  assert.equal(context.cc.value,true,"Cached routing must render even during SSH list loading or while hidden");
   context.busy.value=false;
   await initialize(false,context);
   assert.equal(context.cc.value,true,"A later polling result must still enable the default choice");
-  result={state:"notDetected",localPort:15721};
+  context.props.ccDetection={state:"notDetected",localPort:15721};
   await initialize(false,context);
   assert.equal(context.cc.value,false,"Unavailable routing cannot stay enabled");
-  result={state:"confirmed",localPort:15822};
+  context.props.ccDetection={state:"confirmed",localPort:15822};
   await initialize(false,context);
   assert.equal(context.cc.value,true,"Routing recovery restores the default on choice");
   assert.equal(context.ccLocalPort.value,15822);
@@ -651,8 +648,59 @@ test("CC Switch detection defaults on and preserves an explicit off choice",asyn
   await initialize(false,context);
   await initialize(true,context);
   assert.equal(context.cc.value,false,"Neither polling nor refresh may override the user's off choice");
+  context.live.value=true;
+  context.props.ccDetection={state:"confirmed",localPort:15999};
+  await initialize(false,context);
+  assert.equal(context.ccLocalPort.value,15822,"Established bridges keep their original port");
+  assert.doesNotMatch(page,/watch\(ccLocalPort,[\s\S]*?ccDetection\.value = \{ state: "notDetected"/);
   assert.match(page,/@change="rememberCcChoice"/);
   assert.match(page,/ccPreferred\.value = \(event\.target as HTMLInputElement\)\.checked/);
+});
+
+test("CC Switch discovery starts with the app, caches results and serializes background refresh",async()=>{
+  const {ref}=await import("vue");
+  const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
+  const source=state.slice(state.indexOf("export function useRemoteBridge()"));
+  const compiled=ts.transpileModule(source.replace("export function","function"),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+  const mounted=[],unmounted=[],timers=new Map();
+  let resolveDetection,calls=0,lastPort,discover;
+  const factory=new Function("ref","onMounted","onBeforeUnmount","isTauri","remoteBackend","emptySummary","setTimeout","clearTimeout",`${compiled}; return useRemoteBridge();`);
+  const bridge=factory(ref,callback=>mounted.push(callback),callback=>unmounted.push(callback),()=>true,{
+    summary:()=>new Promise(()=>{}), // A slow SSH summary must not delay local discovery.
+    detectCc:(port,find)=>{calls++;lastPort=port;discover=find;return new Promise(resolve=>{resolveDetection=resolve;});},
+  },()=>({status:"disconnected"}),(callback,delay)=>{const id=timers.size+1;timers.set(id,{callback,delay});return id;},id=>timers.delete(id));
+  mounted.forEach(callback=>callback());
+  assert.equal(calls,1,"Startup must detect CC Switch before the remote page exists");
+  assert.equal(discover,true);
+  assert.equal(lastPort,15721);
+  assert.equal(bridge.ccDetection.value,null,"Unfinished detection is not a negative result");
+  const first=bridge.refreshCcDetection();
+  assert.equal(first,bridge.refreshCcDetection());
+  assert.equal(calls,1,"Overlapping refreshes share the same request");
+  resolveDetection({state:"confirmed",localPort:15822});
+  await first;
+  await Promise.resolve();
+  assert.equal(bridge.ccDetection.value.localPort,15822);
+  const cached=bridge.ccDetection.value;
+  const next=bridge.refreshCcDetection();
+  assert.equal(lastPort,15822,"Discovery follows a changed CC Switch port");
+  assert.equal(bridge.ccDetection.value,cached,"Do not clear the route while refreshing");
+  resolveDetection({state:"confirmed",localPort:15822});
+  await next;
+  assert.equal(bridge.ccDetection.value,cached,"Unchanged observations do not churn the UI");
+  assert.equal([...timers.values()][0].delay,2000);
+  const changed=bridge.refreshCcDetection();
+  resolveDetection({state:"notDetected",localPort:15822});
+  await changed;
+  assert.equal(bridge.ccDetection.value.state,"notDetected");
+  const pending=bridge.refreshCcDetection();
+  unmounted.forEach(callback=>callback());
+  assert.equal(timers.size,0,"Shutdown stops background discovery");
+  resolveDetection({state:"confirmed",localPort:15999});
+  await pending;
+  assert.equal(bridge.ccDetection.value.state,"notDetected","Late results after shutdown are ignored");
+  const shell=readFileSync("src/app/AppShell.vue","utf8");
+  assert.match(shell,/:cc-detection="ccDetection"/);
 });
 
 test("CLI launch commands are hidden until their remote configuration is applied",()=>{
@@ -1013,6 +1061,54 @@ test("core bridge becomes usable before optional setup and reconnect retries the
   assert.match(page,/remote-post-connect/);
 });
 
+test("remote workspace adapts to the remaining window area without clipping connection actions",()=>{
+  const shell=readFileSync("src/shared/styles/index.css","utf8");
+  const app=readFileSync("src/app/AppShell.vue","utf8");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(shell,/\.app-frame \{[^}]*width: 100%;[^}]*height: 100dvh/);
+  assert.doesNotMatch(shell,/width: min\(880px, 100%\)/);
+  assert.match(shell,/\.view-stage \{[^}]*min-height: 0;[^}]*flex: 1;[^}]*overflow: auto/);
+  assert.match(app,/class="view-pane remote-view-pane"/);
+  assert.match(page,/\.remote-bridge-page\.remote-setup-page \{ height:100%;/);
+  assert.doesNotMatch(page,/100dvh - 71px|minmax\(326px|minmax\(342px/);
+  assert.match(page,/class="remote-current-content"/);
+  assert.match(page,/\.remote-current-content \{[^}]*min-height:0;[^}]*overflow-y:auto/);
+  assert.match(page,/\.remote-setup-actions \{[^}]*flex:none/);
+  assert.match(page,/grid-template-columns:minmax\(0,\.9fr\) minmax\(0,1\.1fr\)/);
+});
+
+test("remote SSH empty state finishes actions before random scenes and duets with bounded motion",()=>{
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const mascot=readFileSync("src/features/remote-bridge/components/RemoteEmptyMascot.vue","utf8");
+  const sprite=readFileSync("src/features/remote-bridge/components/PixelMascotSprite.vue","utf8");
+  assert.match(page,/<div v-else class="remote-current-empty">[\s\S]*?copy\.rbNoSelectionHint[\s\S]*?<RemoteEmptyMascot :paused="visible === false" \/>/);
+  assert.match(mascot,/const scene = ref\(randomChoice\(soloScenes\)\)/);
+  assert.match(mascot,/sceneId\.value % 3 === 2 \? duoScenes/);
+  assert.match(mascot,/mode="out-in"/);
+  assert.match(mascot,/@complete="index === scene\.kinds\.length - 1 && advanceScene\(\)"/);
+  assert.match(sprite,/@animationend\.self="emit\('complete'\)"/);
+  assert.match(sprite,/animation-iteration-count:var\(--mascot-iterations\)/);
+  assert.match(mascot,/height:clamp\(100px,18dvh,144px\)/);
+  assert.doesNotMatch(mascot,/setInterval|setTimeout|requestAnimationFrame|fetch\(/);
+  assert.match(mascot,/new IntersectionObserver/);
+  assert.match(mascot,/observer\?\.disconnect\(\)/);
+  assert.match(mascot,/document\.removeEventListener\("visibilitychange"/);
+  assert.match(mascot,/aria-hidden="true"/);
+  assert.match(mascot,/animation-play-state:paused !important/);
+  assert.match(mascot,/prefers-reduced-motion:reduce[\s\S]*animation:none !important/);
+  assert.match(sprite,/shape-rendering:crispEdges; image-rendering:pixelated/);
+  assert.match(sprite,/--claude-body:#e5a08a/);
+  assert.match(sprite,/--codex-body:#91a8df/);
+  assert.match(sprite,/class="claude-silhouette"/);
+  assert.match(sprite,/H32v12h-8V68H12V44h12Z/); // Left short limb ends at the same height as the right.
+  assert.match(sprite,/<path class="codex-outline"/);
+  assert.match(sprite,/<path class="codex-blob"/);
+  assert.doesNotMatch(mascot,/M18 4h4v6h6v4h-6v6h-4v-6h-6v-4h6Z/);
+  assert.match(mascot,/scene\.action === 'game'/);
+  assert.match(mascot,/@keyframes pixel-duet-play/);
+  assert.match(sprite,/data-theme="dark"/);
+});
+
 test("SSH connection manager keeps credentials out and promotes edited imports to full ProxyEnv copies",()=>{
   const store=readFileSync("src-tauri/src/features/remote_bridge/connections.rs","utf8");
   const moba=readFileSync("src-tauri/src/features/remote_bridge/mobaxterm.rs","utf8");
@@ -1059,7 +1155,7 @@ test("SSH connection manager keeps credentials out and promotes edited imports t
 test("SSH connection explanations reuse question-mark tooltips without hiding validation",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const dialog=page.slice(page.indexOf('<dialog ref="connectionDialog"'),page.indexOf('<dialog ref="removeConnectionDialog"'));
-  for(const hint of ["rbConnectionDestinationHint","rbConnectionAuthPasswordHint","rbConnectionAuthAutomaticHint","rbConnectionIdentityHint"]) {
+  for(const hint of ["rbConnectionDestinationHint","rbConnectionPortHint","rbConnectionAuthPasswordHint","rbConnectionAuthAutomaticHint","rbConnectionIdentityHint"]) {
     assert.match(dialog,new RegExp(`<HelpTooltip[^>]*:text="copy\\.${hint}"`));
     assert.doesNotMatch(dialog,new RegExp(`<small[^>]*>\\{\\{ copy\\.${hint} \\}\\}`));
   }
@@ -1090,9 +1186,13 @@ test("SSH identity selection uses a native picker and validates without copying 
   assert.doesNotMatch(page,/v-model="newConnection.identityFile"/);
   assert.match(page,/if \(selected && connectionDialog\.value\?\.open/);
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
-  assert.match(state,/invoke<string \| null>\("remote_bridge_pick_identity_file"\)/);
+  assert.match(page,/remoteBackend\.pickIdentityFile\(newConnection\.value\.identityFile\)/);
+  assert.match(state,/invoke<string \| null>\("remote_bridge_pick_identity_file", \{ initialPath \}\)/);
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
-  assert.match(commands,/app\.dialog\(\)\.file\(\)\.blocking_pick_file\(\)/);
+  assert.match(commands,/dialog\.blocking_pick_file\(\)/);
+  assert.match(commands,/validate_identity_file\(path\)\.ok\(\)/);
+  assert.match(commands,/dialog\.set_directory\(parent\)/);
+  assert.match(commands,/dialog\.set_file_name\(name\)/);
   assert.match(commands,/validate_identity_file\(path\)\.map\(Some\)/);
   const backend=readFileSync("src-tauri/src/features/remote_bridge/connections.rs","utf8");
   assert.match(backend,/safe_read_first_line\(&path, 1024 \* 1024\)/);
