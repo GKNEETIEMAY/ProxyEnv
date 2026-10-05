@@ -26,7 +26,7 @@ import DiagnosticReportDialog from "../features/diagnostic-report/components/Dia
 
 import RemoteBridgePage from "../features/remote-bridge/components/RemoteBridgePage.vue";
 import { useRemoteBridge, type BridgeSummary } from "../features/remote-bridge/state";
-const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge } = useRemoteBridge();
+const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge, ccDetection } = useRemoteBridge();
 
 const reportDialog = ref<InstanceType<typeof DiagnosticReportDialog>>();
 const reportApplicationId = ref<string>();
@@ -718,12 +718,13 @@ onBeforeUnmount(() => {
     />
     </div>
 
-    <div v-if="remoteViewMounted" v-show="view === 'remote'" class="view-pane">
+    <div v-if="remoteViewMounted" v-show="view === 'remote'" class="view-pane remote-view-pane">
     <RemoteBridgePage
       :visible="view === 'remote'"
       :copy="copy"
       :active-proxy="activeProxyContext"
       :summary="remoteBridgeSummary"
+      :cc-detection="ccDetection"
       :review-preview="reviewPreview"
       @refresh="refreshRemoteBridge"
       @connected="acceptRemoteBridgeSummary"

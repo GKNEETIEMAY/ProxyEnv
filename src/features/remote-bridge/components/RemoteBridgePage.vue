@@ -30,7 +30,7 @@ import {
   type SshAuthSnapshot,
 } from "../state";
 
-const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; reviewPreview?: boolean; visible?: boolean }>();
+const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; ccDetection: CcDetection | null; reviewPreview?: boolean; visible?: boolean }>();
 const emit = defineEmits<{ refresh: []; connected: [summary: BridgeSummary] }>();
 const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
 const confirmation = ref<HTMLDialogElement>();
@@ -78,8 +78,8 @@ const proxyPort = ref(0);
 const ccPort = ref(0);
 const runtimeExpectedPort = ref<number | null>(null);
 const runtimePortConflict = ref(false);
-const ccLocalPort = ref(15721);
-const ccDetection = ref<CcDetection>({ state: "notDetected", localPort: 15721 });
+const ccLocalPort = ref(props.summary.cc?.local.port ?? props.ccDetection?.localPort ?? 15721);
+const ccDetection = ref<CcDetection>(props.ccDetection ?? { state: "notDetected", localPort: ccLocalPort.value });
 type CheckSnapshot = { state: CheckState; checkedAt: number | null };
 const sshCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
 const serverInternetCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
@@ -114,9 +114,6 @@ type ConnectionField = "displayName" | "destination" | "port" | "identityFile";
 const connectionTouched = ref<Record<ConnectionField, boolean>>({ displayName: false, destination: false, port: false, identityFile: false });
 let authPollTimer: ReturnType<typeof setTimeout> | undefined;
 let skillsPollTimer: ReturnType<typeof setTimeout> | undefined;
-let capabilityPollTimer: ReturnType<typeof setTimeout> | undefined;
-let capabilityPolling = false;
-let capabilityChecking = false;
 let authBeginRevision = 0;
 const remoteTools = computed(() => remoteToolAdapters.map((adapter) => ({
   adapter,
@@ -682,41 +679,19 @@ function usePorts(ports: PortAllocation) {
   feedback.value = "ports";
 }
 
-async function initializeCapabilities(autoEnable = true) {
-  if (capabilityChecking) return;
+function initializeCapabilities(autoEnable = true) {
   if (autoEnable || !proxyAvailable.value) proxy.value = proxyAvailable.value;
-  if (props.reviewPreview) {
-    ccDetection.value = { state: "confirmed", localPort: ccLocalPort.value };
-    cc.value = ccPreferred.value;
-    ccCheck.value = { state: "healthy", checkedAt: Date.now() };
+  if (live.value || establishingBridge.value) return;
+  const result = props.reviewPreview ? { state: "confirmed" as const, localPort: ccLocalPort.value } : props.ccDetection;
+  if (!result) {
+    ccCheck.value = { state: "checking", checkedAt: null };
     return;
   }
-  capabilityChecking = true;
-  try {
-    const result = await remoteBackend.detectCc(ccLocalPort.value, true);
-    if (live.value || busy.value || establishingBridge.value || props.visible === false) return;
-    if (result.state === "confirmed" && result.localPort !== ccLocalPort.value) {
-      ccLocalPort.value = result.localPort;
-      await nextTick();
-    }
-    ccDetection.value = result;
-    cc.value = result.state === "confirmed" && ccPreferred.value;
-    ccCheck.value = { state: result.state === "confirmed" ? "healthy" : result.state === "listeningUnknown" ? "warning" : "failed", checkedAt: Date.now() };
-  } catch {
-    ccDetection.value = { state: "notDetected", localPort: ccLocalPort.value };
-    cc.value = false;
-    ccCheck.value = { state: "failed", checkedAt: Date.now() };
-  } finally {
-    capabilityChecking = false;
-  }
-}
-
-function scheduleCapabilityPolling() {
-  if (!capabilityPolling || props.reviewPreview) return;
-  capabilityPollTimer = setTimeout(async () => {
-    if (props.visible !== false && !live.value && !busy.value && !establishingBridge.value) await initializeCapabilities(false);
-    scheduleCapabilityPolling();
-  }, 2000);
+  // Apply the cached observation in one render; never clear it during a port refresh.
+  if (result.state === "confirmed") ccLocalPort.value = result.localPort;
+  ccDetection.value = result;
+  cc.value = result.state === "confirmed" && ccPreferred.value;
+  ccCheck.value = { state: result.state === "confirmed" ? "healthy" : result.state === "listeningUnknown" ? "warning" : "failed", checkedAt: Date.now() };
 }
 
 function rememberCcChoice(event: Event) {
@@ -805,7 +780,7 @@ async function pickIdentityFile() {
   identitySelectionError.value = undefined;
   connectionSaveError.value = undefined;
   try {
-    const selected = await remoteBackend.pickIdentityFile();
+    const selected = await remoteBackend.pickIdentityFile(newConnection.value.identityFile);
     if (selected && connectionDialog.value?.open && newConnection.value.authentication === "identityFile") {
       newConnection.value.identityFile = selected;
       connectionTouched.value.identityFile = true;
@@ -1130,10 +1105,7 @@ watch(targetId, (nextTarget, previousTarget) => {
   sshCheck.value = { state: "idle", checkedAt: null };
   serverInternetCheck.value = { state: "idle", checkedAt: null };
 });
-watch(ccLocalPort, () => {
-  ccDetection.value = { state: "notDetected", localPort: ccLocalPort.value };
-  ccCheck.value = cc.value ? { state: "idle", checkedAt: null } : { state: "disabled", checkedAt: null };
-});
+watch([() => props.ccDetection, live, establishingBridge], () => initializeCapabilities(false), { immediate: true });
 watch(proxyAvailable, updateLocalProxyCheck);
 watch(cc, (enabled) => {
   if (enabled && (checked.value || live.value)) void refreshNetworkChecks();
@@ -1159,8 +1131,6 @@ watch(() => props.visible, (visible) => {
 });
 
 onMounted(() => {
-  capabilityPolling = true;
-  scheduleCapabilityPolling();
   void initializeCapabilities();
   updateLocalProxyCheck();
   void perform(load);
@@ -1191,8 +1161,6 @@ onMounted(() => {
   }
 });
 onBeforeUnmount(() => {
-  capabilityPolling = false;
-  if (capabilityPollTimer) clearTimeout(capabilityPollTimer);
   authBeginRevision += 1;
   const sessionId = authSession.value?.sessionId;
   clearAuthPoll();
@@ -1257,6 +1225,7 @@ onBeforeUnmount(() => {
               </span>
             </header>
 
+            <div class="remote-current-content">
             <template v-if="selectedTarget">
               <div class="remote-current-summary">
                 <span class="remote-server-icon" aria-hidden="true">
@@ -1294,6 +1263,7 @@ onBeforeUnmount(() => {
               <RemoteEmptyMascot :paused="visible === false" />
             </div>
 
+            </div>
             <footer class="remote-setup-actions">
             <button class="secondary-action" type="button" :disabled="busy || !selectedTarget" @click="cancelSetup">{{ copy.rbCancel }}</button>
             <button class="primary-action remote-connect-action" :class="{ 'is-loading': establishingBridge }" type="button" :aria-busy="establishingBridge" :disabled="busy || establishingBridge || !canStartConnection" @click="startConnection"><span>{{ establishingBridge ? copy.rbEstablishingBridge : copy.rbConnect }}</span><svg v-if="establishingBridge" class="remote-button-spinner" aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 3a7 7 0 0 1 7 7"/></svg><svg v-else aria-hidden="true" viewBox="0 0 20 20"><path d="M4 10h11M11 6l4 4-4 4" /></svg></button>
@@ -1447,7 +1417,7 @@ onBeforeUnmount(() => {
       <div class="remote-connection-fields">
         <label><span class="remote-connection-label">{{ copy.rbConnectionDisplayName }}<span class="remote-name-count" :class="{ invalid: connectionFieldErrors.displayName }">{{ connectionNameCount }}/{{ connectionNameLimit }}</span><FieldValidation id="remote-name-error" :message="connectionFieldErrors.displayName" /></span><input v-model="newConnection.displayName" type="text" :maxlength="connectionNameLimit * 2" autocomplete="off" required :aria-invalid="!!connectionFieldErrors.displayName" :aria-describedby="connectionFieldErrors.displayName ? 'remote-name-error' : undefined" @input="limitConnectionName" @compositionend="limitConnectionName" @blur="connectionTouched.displayName = true" /></label>
         <label><span class="remote-connection-label">{{ copy.rbConnectionDestination }}<HelpTooltip :label="copy.rbConnectionDestination" :text="copy.rbConnectionDestinationHint" /><FieldValidation id="remote-destination-error" :message="connectionFieldErrors.destination" /></span><input v-model="newConnection.destination" type="text" maxlength="320" autocomplete="off" placeholder="student@lab.example.edu" required :aria-describedby="connectionFieldErrors.destination ? 'remote-destination-error' : undefined" :aria-invalid="!!connectionFieldErrors.destination" @blur="connectionTouched.destination = true" /></label>
-        <label><span class="remote-connection-label">{{ copy.rbConnectionPort }}<FieldValidation id="remote-port-error" :message="connectionFieldErrors.port" /></span><input v-model.number="newConnection.port" type="number" min="1" max="65535" step="1" required :aria-invalid="!!connectionFieldErrors.port" :aria-describedby="connectionFieldErrors.port ? 'remote-port-error' : undefined" /></label>
+        <label><span class="remote-connection-label">{{ copy.rbConnectionPort }}<HelpTooltip :label="copy.rbConnectionPort" :text="copy.rbConnectionPortHint" /><FieldValidation id="remote-port-error" :message="connectionFieldErrors.port" /></span><input v-model.number="newConnection.port" type="number" min="1" max="65535" step="1" required :aria-invalid="!!connectionFieldErrors.port" :aria-describedby="connectionFieldErrors.port ? 'remote-port-error' : undefined" /></label>
         <fieldset class="remote-auth-choice">
           <legend>{{ copy.rbConnectionAuthentication }}</legend>
           <label><input v-model="newConnection.authentication" type="radio" value="password" /><span class="remote-auth-option-label"><strong>{{ copy.rbConnectionAuthPassword }}</strong><HelpTooltip :label="copy.rbConnectionAuthPassword" :text="copy.rbConnectionAuthPasswordHint" /></span></label>
@@ -1528,7 +1498,7 @@ onBeforeUnmount(() => {
 
 <style>
 .remote-bridge-page { display:grid; gap:24px; }
-.remote-bridge-page.remote-setup-page { height:calc(100dvh - 71px); min-height:0; padding:20px 24px; gap:0; }
+.remote-bridge-page.remote-setup-page { height:100%; min-height:0; padding:20px 24px; gap:0; overflow:hidden; }
 .remote-setup-page .remote-workspace-configure { display:flex; min-height:0; flex-direction:column; }
 .remote-setup-page .remote-fields { display:flex; min-height:0; flex:1; }
 .remote-setup-page .remote-setup-grid { width:100%; min-height:0; flex:1; }
@@ -1539,10 +1509,12 @@ onBeforeUnmount(() => {
 .remote-page-intro { margin:0 6px 14px; }
 .remote-page-intro h1 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:23px; letter-spacing:-.028em; }
 .remote-page-intro p { margin:5px 0 0; color:var(--muted); font-size:12px; line-height:1.55; }
-.remote-setup-grid { display:grid; min-width:0; align-items:stretch; grid-template-columns:minmax(300px,.9fr) minmax(340px,1.1fr); gap:14px 12px; }
+.remote-setup-grid { display:grid; min-width:0; align-items:stretch; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); gap:14px 12px; }
 .remote-connections-panel,.remote-current-panel { min-width:0; border:1px solid var(--line); border-radius:13px; background:var(--surface); box-shadow:0 4px 16px rgba(45,39,33,.035); }
 .remote-connections-panel { display:flex; min-height:0; padding:16px; flex-direction:column; }
 .remote-current-panel { display:flex; min-height:0; padding:16px 18px; flex-direction:column; }
+.remote-current-content { min-height:0; flex:1; overflow-y:auto; scrollbar-width:thin; scrollbar-color:color-mix(in srgb,var(--muted) 16%,transparent) transparent; }
+.remote-current-content:hover { scrollbar-color:color-mix(in srgb,var(--muted) 52%,transparent) transparent; }
 .remote-panel-heading { display:flex; min-height:32px; margin-bottom:14px; align-items:center; justify-content:space-between; gap:14px; }
 .remote-panel-heading h2 { margin:0; font-size:14px; font-weight:720; letter-spacing:-.01em; }
 .remote-panel-heading h2 span { color:var(--muted); font-weight:560; }
@@ -1610,7 +1582,7 @@ onBeforeUnmount(() => {
 .remote-capability-choice.unavailable .remote-capability-icon,.remote-capability-choice.unavailable .switch-input { opacity:.58; }
 .remote-capability-choice .switch-input { flex:none; }
 .remote-requirements { padding:12px 0 2px; margin:0; }
-.remote-setup-actions { display:flex; padding-top:16px; margin-top:auto; align-items:center; justify-content:flex-end; gap:9px; }
+.remote-setup-actions { display:flex; flex:none; padding-top:16px; margin-top:auto; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:9px; }
 .remote-setup-actions .remote-actions { margin:0; }
 .remote-connect-action { display:inline-flex; min-width:144px; align-items:center; justify-content:center; gap:7px; }
 .remote-connect-action svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
@@ -1736,7 +1708,7 @@ onBeforeUnmount(() => {
 .remote-auth-heading h2 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
 .remote-auth-heading .check-status { flex:none; }
 .remote-auth-dialog { -webkit-user-select:text; user-select:text; }
-.remote-auth-terminal { margin:24px 0 16px; overflow:hidden; border-radius:12px; background:#1a1a19; color:#f1ece4; box-shadow:0 10px 28px rgba(20,20,19,.12); user-select:text; }
+.remote-auth-terminal { flex:none; margin:24px 0 16px; overflow:hidden; border-radius:12px; background:#1a1a19; color:#f1ece4; box-shadow:0 10px 28px rgba(20,20,19,.12); user-select:text; }
 .remote-auth-terminal > header { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:33px; padding:3px 10px 3px 12px; border-bottom:1px solid #403b35; color:#b5ada2; font-size:10px; font-weight:650; }
 .remote-auth-copy { display:inline-flex; align-items:center; gap:5px; min-height:26px; padding:3px 6px; border:0; border-radius:5px; color:#ded7cd; background:transparent; font:inherit; cursor:pointer; }
 .remote-auth-copy:hover { background:#35332f; color:#fff; }
@@ -1763,7 +1735,8 @@ onBeforeUnmount(() => {
 .remote-auth-diagnostic dd { margin:0; color:var(--text); font:600 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; }
 @media (max-width:760px) {
   .remote-bridge-page.remote-setup-page { --ssh-row-height:60px; padding:14px 20px; }
-  .remote-setup-grid { grid-template-columns:1fr; grid-template-rows:minmax(110px,.65fr) minmax(326px,1.35fr); }
+  /* Reserve two complete SSH rows, their gap, and the panel heading/padding. */
+  .remote-setup-grid { grid-template-columns:1fr; grid-template-rows:minmax(calc(var(--ssh-row-height) * 2 + 66px),1fr) minmax(0,2fr); }
   .remote-connections-panel,.remote-current-panel { padding:10px 14px; }
   .remote-panel-heading { min-height:26px; margin-bottom:8px; }
   .remote-current-summary { padding:6px 10px; grid-template-columns:32px minmax(0,1fr) auto; gap:9px; }
@@ -1777,13 +1750,16 @@ onBeforeUnmount(() => {
 @media (max-height:680px) and (min-width:761px) {
   .remote-bridge-page.remote-setup-page { --ssh-row-height:60px; padding:14px 24px; }
   .remote-workspace-configure { padding:14px 16px; }
+  .remote-current-summary { padding:8px 10px; grid-template-columns:36px minmax(0,1fr) auto; gap:9px; }
+  .remote-server-icon { width:36px; height:36px; }
+  .remote-setup-panel { padding-top:10px; margin-top:10px; }
+  .remote-capability-choice { padding:8px 10px; }
 }
 @media (max-width:760px) and (max-height:680px) {
   .remote-bridge-page.remote-setup-page { padding-block:8px; }
   .remote-setup-page .remote-workspace-configure { padding:8px; }
   .remote-page-intro { margin-bottom:8px; }
   .remote-page-intro h1 { line-height:1.3; }
-  .remote-setup-grid { grid-template-rows:minmax(110px,.65fr) minmax(342px,1.35fr); }
   .remote-connections-panel,.remote-current-panel { padding:8px 12px; }
   .remote-panel-heading { margin-bottom:4px; }
   .remote-current-summary { line-height:1.35; }

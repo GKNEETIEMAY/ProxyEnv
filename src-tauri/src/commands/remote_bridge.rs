@@ -66,10 +66,24 @@ pub async fn remote_bridge_targets() -> CommandResult<Vec<RemoteTarget>> {
 #[tauri::command]
 pub async fn remote_bridge_pick_identity_file(
     app: tauri::AppHandle,
+    initial_path: Option<String>,
 ) -> CommandResult<Option<String>> {
     run("identitySelection", Some("ssh"), move || {
         // No extension filter: standard id_ed25519/id_rsa files usually have no suffix.
-        let Some(file) = app.dialog().file().blocking_pick_file() else {
+        let mut dialog = app.dialog().file();
+        if let Some(path) = initial_path
+            .as_deref()
+            .and_then(|path| bridge::connections::validate_identity_file(path).ok())
+            .map(std::path::PathBuf::from)
+        {
+            if let Some(parent) = path.parent() {
+                dialog = dialog.set_directory(parent);
+            }
+            if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                dialog = dialog.set_file_name(name);
+            }
+        }
+        let Some(file) = dialog.blocking_pick_file() else {
             return Ok(None);
         };
         let path = file.into_path().map_err(|_| "identityFileInvalid")?;

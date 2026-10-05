@@ -73,7 +73,7 @@ export const remoteBackend = {
   extensionApply: (id: string) => invoke<void>("remote_bridge_extension_apply", { id, confirmed: true }),
   targets: () => invoke<RemoteTarget[]>("remote_bridge_targets"),
   addConnection: (input:ManualConnectionInput) => invoke<RemoteTarget>("remote_bridge_add_connection", { input }),
-  pickIdentityFile: () => invoke<string | null>("remote_bridge_pick_identity_file"),
+  pickIdentityFile: (initialPath: string | null = null) => invoke<string | null>("remote_bridge_pick_identity_file", { initialPath }),
   updateConnection: (id:string, input:ManualConnectionInput) => invoke<RemoteTarget>("remote_bridge_update_connection", { id, input }),
   removeConnection: (id:string) => invoke<void>("remote_bridge_remove_connection", { id }),
   summary: () => invoke<BridgeSummary>("remote_bridge_summary"),
@@ -112,7 +112,10 @@ export const remoteBackend = {
 };
 export function useRemoteBridge() {
   const summary = ref<BridgeSummary>(emptySummary());
+  const ccDetection = ref<CcDetection | null>(null);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let ccTimer: ReturnType<typeof setTimeout> | undefined;
+  let ccPending: Promise<void> | undefined;
   let disposed=false;
   async function refresh() {
     if (!isTauri()) return;
@@ -120,7 +123,23 @@ export function useRemoteBridge() {
     catch { if (!disposed) summary.value={...summary.value,status:"unavailable"}; }
   }
   async function poll() { await refresh(); if (!disposed) timer=setTimeout(poll,2000); }
-  onMounted(() => { void poll(); });
-  onBeforeUnmount(() => { disposed=true; clearTimeout(timer); });
-  return { summary, refresh };
+  function refreshCcDetection(): Promise<void> {
+    if (!isTauri() || disposed) return Promise.resolve();
+    if (ccPending) return ccPending;
+    ccPending = (async () => {
+      const localPort = ccDetection.value?.localPort ?? 15721;
+      try {
+        const next = await remoteBackend.detectCc(localPort, true);
+        if (!disposed && (next.state !== ccDetection.value?.state || next.localPort !== ccDetection.value?.localPort)) ccDetection.value = next;
+      } catch {
+        if (!disposed) ccDetection.value = { state: "notDetected", localPort };
+      }
+    })().finally(() => { ccPending = undefined; });
+    return ccPending;
+  }
+  // Local discovery starts with the app, independently of SSH summary polling or page navigation.
+  async function pollCc() { await refreshCcDetection(); if (!disposed) ccTimer=setTimeout(pollCc,2000); }
+  onMounted(() => { void poll(); void pollCc(); });
+  onBeforeUnmount(() => { disposed=true; clearTimeout(timer); clearTimeout(ccTimer); });
+  return { summary, refresh, ccDetection, refreshCcDetection };
 }

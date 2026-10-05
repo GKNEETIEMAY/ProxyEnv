@@ -417,6 +417,7 @@ const authKo: AuthLabels = {
 const connectionEn = {
   rbConnectionNameInvalid: "Use a name of 1–32 characters without control characters.",
   rbConnectionPortInvalid: "Enter a whole-number SSH port from 1 to 65535.",
+  rbConnectionPortHint: "The port used to log in to the remote server over SSH. The default is 22; if your administrator changed it, enter the actual SSH port, such as 2222. This is not the network proxy or AI routing port.",
   rbConnectionIdentityRequired: "Choose an available local private-key file using Browse.",
   rbConnectionLimitError: "The limit of 64 saved connections has been reached. Remove an unused connection and try again.",
   rbBackendRestartRequired: "The running backend does not contain this command. Rebuild and restart ProxyEnv, then try again; reloading the interface alone is not enough.",
@@ -477,6 +478,7 @@ type ConnectionLabels = { [K in keyof typeof connectionEn]: string };
 const connectionZh: ConnectionLabels = {
   rbConnectionNameInvalid:"名称需为 1–32 个字符，不能包含控制字符。",
   rbConnectionPortInvalid:"SSH 端口需为 1–65535 之间的整数。",
+  rbConnectionPortHint:"用于通过 SSH 登录远程服务器，默认是 22。如果管理员修改过，请填写实际 SSH 端口，例如 2222。这里不是网络代理或 AI 路由的端口。",
   rbConnectionIdentityRequired:"请点击「浏览」选择本机可用的私钥文件。",
   rbConnectionLimitError:"已达到 64 个已保存连接的上限，请移除不再使用的连接后重试。",
   rbBackendRestartRequired:"当前运行的后端尚未包含此命令。请重新构建并重启 ProxyEnv 后重试，仅刷新界面不会更新后端。",
@@ -493,6 +495,7 @@ const connectionZh: ConnectionLabels = {
 const connectionJa: ConnectionLabels = {
   rbConnectionNameInvalid:"名前は制御文字を含まない 1～32 文字にしてください。",
   rbConnectionPortInvalid:"SSH ポートは 1～65535 の整数で入力してください。",
+  rbConnectionPortHint:"SSH でリモートサーバーにログインするためのポートです。既定は 22 です。管理者が変更した場合は、2222 など実際の SSH ポートを入力してください。ネットワークプロキシや AI ルートのポートではありません。",
   rbConnectionIdentityRequired:"「参照」で利用可能なローカル秘密鍵ファイルを選択してください。",
   rbConnectionLimitError:"保存できる接続は 64 件までです。不要な接続を削除して再試行してください。",
   rbBackendRestartRequired:"実行中のバックエンドにこのコマンドがありません。ProxyEnv を再ビルドして再起動してください。画面の再読み込みだけでは更新されません。",
@@ -509,6 +512,7 @@ const connectionJa: ConnectionLabels = {
 const connectionKo: ConnectionLabels = {
   rbConnectionNameInvalid:"이름은 제어 문자를 제외한 1~32자로 입력하세요.",
   rbConnectionPortInvalid:"SSH 포트는 1~65535 사이의 정수로 입력하세요.",
+  rbConnectionPortHint:"SSH로 원격 서버에 로그인할 때 사용하는 포트입니다. 기본값은 22이며, 관리자가 변경했다면 2222처럼 실제 SSH 포트를 입력하세요. 네트워크 프록시나 AI 라우팅 포트가 아닙니다.",
   rbConnectionIdentityRequired:"「찾아보기」로 사용 가능한 로컬 개인 키 파일을 선택하세요.",
   rbConnectionLimitError:"저장된 연결이 64개 한도에 도달했습니다. 사용하지 않는 연결을 삭제하고 다시 시도하세요.",
   rbBackendRestartRequired:"실행 중인 백엔드에 이 명령이 없습니다. ProxyEnv를 다시 빌드하고 재시작하세요. 화면 새로 고침만으로는 백엔드가 갱신되지 않습니다.",
