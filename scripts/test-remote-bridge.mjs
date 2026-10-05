@@ -297,7 +297,7 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   assert.match(shell,/<div class="view-stage">/);
   assert.match(shell,/<div class="view-outlet">/);
   assert.match(shell,/<div v-show="view === 'local'" class="view-pane">/);
-  assert.match(shell,/<div v-if="remoteViewMounted" v-show="view === 'remote'" class="view-pane">/);
+  assert.match(shell,/<div v-if="remoteViewMounted" v-show="view === 'remote'" class="view-pane remote-view-pane">/);
   assert.doesNotMatch(shell,/view-fade/);
   assert.match(shell,/@connected="acceptRemoteBridgeSummary"/);
   assert.doesNotMatch(page,/remote-steps|reviewedRequest|authPromptCopy\.notice/);
@@ -361,12 +361,13 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
     assert.match(runtime,new RegExp(`remote_bridge::${command}`));
   }
   assert.match(page,/bridgeErrorCode\(cause\) === "sshAuth"/);
-  assert.match(page,/authPrompt\?\.secret \? 'password' : 'text'/);
+  assert.match(page,/visibleAuthPrompt\?\.secret !== false \? 'password' : 'text'/);
   assert.match(page,/remoteBackend\.sshAuthSubmit/);
   assert.match(page,/remoteBackend\.sshAuthConfirmHost/);
   assert.match(page,/authPromptUnavailable/);
   assert.match(page,/authCompleting/);
-  assert.match(page,/!authPromptUnavailable && !authSession\?\.auth\.authenticated/);
+  assert.match(page,/authSession\.value\?\.status === "waitingUser" && !!authPrompt\.value/);
+  assert.match(page,/:disabled="authIsHostConfirmation \|\| !authCanRespond \|\| authSubmitting"/);
   assert.match(page,/retryInteractiveAuth/);
   assert.match(page,/authSession\.diagnostic\.cprRequests/);
   assert.doesNotMatch(page,/Authentication response|认证响应/);
@@ -622,7 +623,12 @@ test("CC Switch setup observes its local service without claiming per-agent rout
 
 test("CC Switch detection defaults on and preserves an explicit off choice",async()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  const body=page.match(/function initializeCapabilities\(autoEnable = true\) \{([\s\S]*?)\n\}\n\nfunction rememberCcChoice/)[1];
+  const initializer=/function initializeCapabilities\(autoEnable = true\) \{([\s\S]*?)\r?\n\}\r?\n\r?\nfunction rememberCcChoice/;
+  const match=page.match(initializer);
+  assert.ok(match,"Capability initialization must be extractable with LF or CRLF source lines");
+  const body=match[1];
+  const lf=page.replaceAll("\r\n","\n");
+  assert.equal(lf.match(initializer)?.[1],lf.replaceAll("\n","\r\n").match(initializer)?.[1].replaceAll("\r\n","\n"));
   const value=initial=>({value:initial});
   const context={
     props:{reviewPreview:false,visible:false,ccDetection:{state:"confirmed",localPort:15721}},proxyAvailable:value(true),proxy:value(true),
@@ -729,12 +735,12 @@ test("remote bridge resolves consumer and AI ports independently and restores en
   assert.match(bridge,/DEFAULT_CC_REMOTE_PORT: u16 = 15_721/);
   assert.match(bridge,/resolve_port_pair\(\s*&fingerprint,\s*local_port,\s*runtime_expected_proxy_port/);
   assert.match(bridge,/first_available_port\(/);
-  assert.match(bridge,/remote_request\(\s*"status",\s*\*adapter,\s*route_port,\s*None/);
-  assert.match(bridge,/refresh_tool_configuration\([\s\S]*&mut summary,[\s\S]*ai_token/);
-  assert.match(bridge,/refresh_tool_configuration\([\s\S]*&mut next,[\s\S]*ai_token/);
+  assert.match(bridge,/remote_request\(\s*"status",\s*adapter,\s*route_port,\s*None,\s*session_token/);
+  assert.match(bridge,/refresh_tool_configuration\(\s*&mut tool_summary,\s*ai_token/);
+  assert.equal(bridge.match(/start_post_connect\(generation\);/g)?.length,2,"Initial connection and resumed transport both restore tool state through post-connect work");
   assert.match(auth,/super::allocate_ports\(session\.target_id, true\)/);
   assert.match(state,/allocatePorts: \(targetId: string, preferDefaults = true\)/);
-  assert.match(page,/remoteBackend\.allocatePorts\(targetId\.value, false\)/);
+  assert.match(page,/remoteBackend\.allocatePorts\(selected\.targetId, false\)/);
 });
 
 test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debounced before parsing",()=>{
@@ -941,10 +947,14 @@ test("M7 keeps VS Code Server context and extension location conservative",()=>{
   assert.match(vscode,/ssh::target_config_path/);
   assert.match(vscode,/System::new_all/);
   assert.match(vscode,/process\.exe\(\)/);
-  const targetSelection=page.slice(page.indexOf('<template v-if="!live">'),page.indexOf('<template v-else>'));
+  const setupStart=page.indexOf('<div v-if="!live" class="remote-setup-grid">');
+  const connectedStart=page.indexOf('<template v-else>',setupStart);
+  assert.ok(setupStart>=0 && connectedStart>setupStart,"Setup and connected workspace boundaries must both exist");
+  const targetSelection=page.slice(setupStart,connectedStart);
   assert.doesNotMatch(targetSelection,/launchSshTerminal/);
   assert.doesNotMatch(targetSelection,/remoteBackend\.openVscode\(/);
-  assert.match(targetSelection,/@open-moba="perform\(\(\) => remoteBackend\.launchMobaxterm\(\$event\)\)"/);
+  assert.doesNotMatch(targetSelection,/launchMobaxterm/);
+  assert.match(page.slice(connectedStart),/v-if="summary\.target\?\.canOpenMobaxterm"[\s\S]*?:disabled="busy \|\| !sshConnected"[\s\S]*?remoteBackend\.launchMobaxterm\(summary\.target!\.id\)/);
 });
 
 test("two-step setup auto-connects after interactive authentication and keeps one stable modal shell",()=>{
