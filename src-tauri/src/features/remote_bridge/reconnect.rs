@@ -138,10 +138,8 @@ pub(super) fn tick() {
                 Status::Connecting
             };
             state.summary.error = Some(code.clone());
-            if paused {
-                if code == "sshAuth" {
-                    credential_cache::clear_if_matches(&job.fingerprint);
-                }
+            if paused && code == "sshAuth" {
+                credential_cache::clear_if_matches(&job.fingerprint);
             }
         }
     }

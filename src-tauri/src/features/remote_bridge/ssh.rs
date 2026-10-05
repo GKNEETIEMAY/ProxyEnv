@@ -331,9 +331,7 @@ fn host_pattern_matches(pattern: &str, alias: &str) -> bool {
                 }
             }
             b'?' => {
-                for index in 1..=alias.len() {
-                    next[index] = matched[index - 1];
-                }
+                next[1..].copy_from_slice(&matched[..alias.len()]);
             }
             expected => {
                 for index in 1..=alias.len() {

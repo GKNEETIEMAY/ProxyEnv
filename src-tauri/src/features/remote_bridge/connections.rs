@@ -9,18 +9,13 @@ const MAX_STORE_BYTES: u64 = 64 * 1024;
 const MAX_CONNECTIONS: usize = 64;
 const MAX_DISPLAY_NAME_CHARS: usize = 32;
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ManualAuthentication {
+    #[default]
     Automatic,
     Password,
     IdentityFile,
-}
-
-impl Default for ManualAuthentication {
-    fn default() -> Self {
-        Self::Automatic
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
