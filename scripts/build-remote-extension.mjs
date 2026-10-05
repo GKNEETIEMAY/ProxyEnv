@@ -6,6 +6,9 @@ const result = await build({
   entryPoints: ['scripts/remote-extension/main.mjs'],
   outfile: 'src-tauri/src/features/remote_bridge/extension-helper.cjs',
   bundle: true, platform: 'node', target: 'node20', format: 'cjs',
+  // jsonc-parser's UMD entry aliases require, hiding its relative imports from
+  // the bundler. Prefer ESM so the stdin-delivered helper is self-contained.
+  mainFields: ['module', 'main'],
   minify: true, legalComments: 'external',
   write: !checking,
   banner: { js: '/*! Bundled parser licenses:\n' + licenses + '\n*/' },

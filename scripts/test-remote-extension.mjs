@@ -76,6 +76,27 @@ function fixture(tool) {
   const run = (operation, extra = {}, inject) => transaction({file,root,uid,tool,port:25721,contextHash:'context',operation,...extra},inject);
   return {root,file,run,uid,cleanup(){ assert.ok(root.startsWith(base+path.sep));fs.rmSync(root,{recursive:true,force:true}); }};
 }
+test('bundled helper starts from stdin without external parser modules on every platform', () => {
+  const f = fixture('codex');
+  try {
+    const source = fs.readFileSync('src-tauri/src/features/remote_bridge/extension-helper.cjs', 'utf8');
+    const result = spawnSync(process.execPath, ['-'], {
+      input: `globalThis.bridgeExtensionRequest={operation:'inspect'};\n${source}`,
+      encoding: 'utf8', timeout: 10000,
+      env: { HOME: f.root, USERPROFILE: f.root, PATH: '/usr/bin:/bin' },
+    });
+    // A minified source line is not useful error evidence and can overwhelm CI logs.
+    const error = result.stderr?.split(/\r?\n/).filter(line => line.length < 1000).join('\n');
+    assert.equal(result.status, 0, error || result.error?.message);
+    const outcome = JSON.parse(result.stdout);
+    if (process.platform !== 'linux' || process.getuid?.() === 0) {
+      assert.deepEqual(outcome, { error: 'remoteUnsupported' });
+    } else {
+      assert.equal(outcome.vscode.status, 'unsupported');
+      assert.ok(outcome.extensions.every(entry => !entry.detected));
+    }
+  } finally { f.cleanup(); }
+});
 for (const tool of ['codex','claude']) {
   test(`${tool}: preview is read-only, apply/update/restore preserve original bytes`, () => {
     const f=fixture(tool);
