@@ -31,6 +31,62 @@ test('network setup distinguishes absent and ambiguous servers and honors explic
 
 const sessionId = 'b'.repeat(32);
 
+test('new VS Code terminals inherit the actual bridge port and restore original environment', t => {
+  const initial = { 'terminal.integrated.env.linux': { CUSTOM: 'keep', HTTP_PROXY: 'http://old:8080', NO_PROXY: 'lab.test' } };
+  const f = fixture(t, JSON.stringify(initial));
+  f.apply({ proxyPort: 17897, proxyProtocol: 'mixed' });
+  const env = f.read()['terminal.integrated.env.linux'];
+  assert.equal(env.CUSTOM, 'keep');
+  assert.equal(env.HTTP_PROXY, 'http://127.0.0.1:17897');
+  assert.equal(env.http_proxy, env.HTTP_PROXY);
+  assert.equal(env.HTTPS_PROXY, env.HTTP_PROXY);
+  assert.equal(env.ALL_PROXY, 'socks5h://127.0.0.1:17897');
+  assert.equal(env.all_proxy, env.ALL_PROXY);
+  assert.equal(env.NO_PROXY, 'localhost,127.0.0.1,::1,lab.test');
+  assert.equal(env.no_proxy, env.NO_PROXY);
+  f.apply({ proxyPort: 17898, proxyProtocol: 'http' });
+  assert.equal(f.read()['terminal.integrated.env.linux'].HTTP_PROXY, 'http://127.0.0.1:17898');
+  assert.equal(f.read()['terminal.integrated.env.linux'].ALL_PROXY, null);
+  f.restore();
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.file, 'utf8')), initial);
+});
+
+test('terminal bridge supports SOCKS and never replaces concurrent user environment edits', t => {
+  const f = fixture(t);
+  f.apply({ proxyPort: 10809, proxyProtocol: 'socks5' });
+  const edited = f.read();
+  assert.equal(edited['terminal.integrated.env.linux'].HTTP_PROXY, null);
+  assert.equal(edited['terminal.integrated.env.linux'].ALL_PROXY, 'socks5h://127.0.0.1:10809');
+  edited['terminal.integrated.env.linux'].CUSTOM = 'user changed';
+  fs.writeFileSync(f.file, JSON.stringify(edited));
+  assert.throws(() => f.restore(), /configConflict/);
+  assert.deepEqual(f.read(), edited);
+});
+
+test('legacy network journals preserve previously unmanaged terminal settings', t => {
+  const f = fixture(t, '{}');
+  f.apply();
+  const record = JSON.parse(fs.readFileSync(f.journal, 'utf8'));
+  record.schema = 1;
+  for (const values of [record.original, record.applied, record.before]) delete values['terminal.integrated.env.linux'];
+  fs.writeFileSync(f.journal, JSON.stringify(record));
+  const edited = f.read();
+  edited['terminal.integrated.env.linux'] = { CUSTOM: 'not previously managed' };
+  fs.writeFileSync(f.file, JSON.stringify(edited));
+  f.apply({ proxyPort: 7897, proxyProtocol: 'http' });
+  f.restore();
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.file, 'utf8')), { 'terminal.integrated.env.linux': { CUSTOM: 'not previously managed' } });
+});
+
+test('invalid terminal bridge endpoints fail before any write', t => {
+  const f = fixture(t, '{}');
+  for (const extra of [{proxyPort:80,proxyProtocol:'http'}, {proxyPort:7897,proxyProtocol:'unknown'}, {proxyPort:7897}, {proxyProtocol:'http'}]) {
+    assert.throws(() => f.apply(extra), /invalidRequest/);
+    assert.equal(fs.readFileSync(f.file, 'utf8'), '{}');
+    assert.equal(fs.existsSync(f.journal), false);
+  }
+});
+
 test('runtime launcher resolves installed executable paths and rejects unsafe or old runtimes', t => {
   const git = process.platform === 'win32' ? spawnSync('where.exe', ['git'], {encoding:'utf8'}).stdout?.trim().split(/\r?\n/)[0] : null;
   const shell = git ? path.resolve(path.dirname(git), '../bin/bash.exe') : '/bin/sh';

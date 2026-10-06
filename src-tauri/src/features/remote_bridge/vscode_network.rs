@@ -1,5 +1,5 @@
 //! Token-free cleanup ownership survives an application crash. Session secrets do not.
-use super::{ssh, BridgeResult};
+use super::{ssh, BridgeResult, Endpoint};
 use crate::services::local_file;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -70,7 +70,12 @@ pub(super) fn restore(target: &str) -> BridgeResult<()> {
     owners.remove(index);
     save(&owners)
 }
-pub(super) fn apply(target: &str, session: &str, fingerprint: &str) -> BridgeResult<()> {
+pub(super) fn apply(
+    target: &str,
+    session: &str,
+    fingerprint: &str,
+    proxy: Option<&Endpoint>,
+) -> BridgeResult<()> {
     let mut owners = load()?;
     if let Some(index) = owners.iter().position(|owner| owner.target == target) {
         let owner = &owners[index];
@@ -97,7 +102,9 @@ pub(super) fn apply(target: &str, session: &str, fingerprint: &str) -> BridgeRes
     }
     ssh::extension_remote(
         target,
-        &json!({"operation":"network-apply", "sessionId":session}),
+        &json!({"operation":"network-apply", "sessionId":session,
+            "proxyPort":proxy.map(|endpoint| endpoint.remote_port),
+            "proxyProtocol":proxy.map(|endpoint| endpoint.local.protocol)}),
     )?;
     Ok(())
 }

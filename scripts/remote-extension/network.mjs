@@ -5,7 +5,9 @@ import { getNodeValue, modify, applyEdits } from 'jsonc-parser';
 import { fail, jsonTree } from './config.mjs';
 import { safe, read, atomic, hash } from './files.mjs';
 
-const keys = ['http.useLocalProxyConfiguration', 'http.proxy', 'http.proxyAuthorization', 'http.noProxy'];
+const legacyKeys = ['http.useLocalProxyConfiguration', 'http.proxy', 'http.proxyAuthorization', 'http.noProxy'];
+const terminalKey = 'terminal.integrated.env.linux';
+const keys = [...legacyKeys, terminalKey];
 // Network settings do not depend on an AI extension or its installed versions.
 export function networkSettingsPath(root, uid, agentFolder) {
   const roots = agentFolder ? [agentFolder] : ['.vscode-server', '.vscode-server-insiders', '.vscode-remote'].map(name => path.join(root, name));
@@ -30,15 +32,34 @@ function patch(text, values) {
   jsonTree(result);
   return result;
 }
-function validSnapshot(value) {
-  return value && Object.keys(value).length === keys.length && keys.every(key =>
+function validSnapshot(value, expectedKeys = keys) {
+  return value && Object.keys(value).length === expectedKeys.length && expectedKeys.every(key =>
     own(value, key) && value[key] && typeof value[key] === 'object' && !Array.isArray(value[key]) &&
     Object.keys(value[key]).every(name => name === 'value'));
 }
 
-export function networkTransaction({ file, root, uid, operation, sessionId }, inject = () => {}) {
+function terminalEnvironment(original, proxyPort, proxyProtocol) {
+  if (proxyPort == null && proxyProtocol == null) return original;
+  if (!Number.isInteger(proxyPort) || proxyPort < 1024 || proxyPort > 65535 || !['http', 'mixed', 'socks5'].includes(proxyProtocol)) fail('invalidRequest');
+  const previous = original.value ?? {};
+  if (!previous || typeof previous !== 'object' || Array.isArray(previous) || Object.values(previous).some(value => value !== null && typeof value !== 'string')) fail();
+  const env = { ...previous };
+  const http = proxyProtocol === 'socks5' ? null : `http://127.0.0.1:${proxyPort}`;
+  const socks = proxyProtocol === 'http' ? null : `socks5h://127.0.0.1:${proxyPort}`;
+  for (const [upper, value] of [['HTTP_PROXY', http], ['HTTPS_PROXY', http], ['ALL_PROXY', socks]]) {
+    env[upper] = value;
+    env[upper.toLowerCase()] = value;
+  }
+  const bypass = ['localhost', '127.0.0.1', '::1', ...(previous.NO_PROXY || '').split(','), ...(previous.no_proxy || '').split(',')];
+  env.NO_PROXY = [...new Set(bypass.map(value => value.trim()).filter(Boolean))].join(',');
+  env.no_proxy = env.NO_PROXY;
+  return { value: env };
+}
+
+export function networkTransaction({ file, root, uid, operation, sessionId, proxyPort, proxyProtocol }, inject = () => {}) {
   if (!['network-apply', 'network-restore'].includes(operation) || !/^[a-f0-9]{32}$/.test(sessionId || '')) fail('invalidRequest');
   const restoring = operation === 'network-restore';
+  if (!restoring) terminalEnvironment({}, proxyPort, proxyProtocol);
   const journal = file + '.proxyenv-network-state';
   const lock = file + '.proxyenv-network-lock';
   safe(path.dirname(file), root, uid);
@@ -54,12 +75,18 @@ export function networkTransaction({ file, root, uid, operation, sessionId }, in
     let record = null;
     if (raw !== null) {
       try { record = JSON.parse(raw); } catch { fail(); }
-      if (record.schema !== 1 || !['prepared', 'applied'].includes(record.state) ||
-          !validSnapshot(record.original) || !validSnapshot(record.applied) || !validSnapshot(record.before) ||
+      const expectedKeys = record.schema === 1 ? legacyKeys : keys;
+      if (![1, 2].includes(record.schema) || !['prepared', 'applied'].includes(record.state) ||
+          !validSnapshot(record.original, expectedKeys) || !validSnapshot(record.applied, expectedKeys) || !validSnapshot(record.before, expectedKeys) ||
           typeof record.originalAbsent !== 'boolean' || typeof record.preserveFile !== 'boolean' ||
           !/^(absent|[a-f0-9]{64})$/.test(record.appliedFileHash || '')) fail();
       // Do not steal another bridge session or overwrite a user's proxy edits.
       if (record.sessionId !== sessionId) fail('extensionContextChanged');
+      if (record.schema === 1) {
+        // Previous releases did not own terminal settings. Preserve their current
+        // value as the baseline, including during legacy restoration.
+        for (const values of [record.original, record.applied, record.before]) values[terminalKey] = before[terminalKey];
+      }
       if (!equal(before, record.applied) && !(record.state === 'prepared' && equal(before, record.before))) fail();
     }
     if (restoring && !record) return { restored: true };
@@ -78,11 +105,12 @@ export function networkTransaction({ file, root, uid, operation, sessionId }, in
         'http.proxy': {},
         'http.proxyAuthorization': {},
         'http.noProxy': { value: [...new Set([...bypass, 'localhost', '127.0.0.1', '::1'])] },
+        [terminalKey]: terminalEnvironment(original[terminalKey], proxyPort, proxyProtocol),
       };
     }
     let next = patch(current, applied);
     if (restoring && originalAbsent && !preserveFile && Object.keys(getNodeValue(jsonTree(next))).length === 0) next = null;
-    const pending = { schema: 1, state: 'prepared', sessionId, original, originalAbsent, preserveFile, before, applied, appliedFileHash: hash(next) };
+    const pending = { schema: 2, state: 'prepared', sessionId, original, originalAbsent, preserveFile, before, applied, appliedFileHash: hash(next) };
     atomic(journal, JSON.stringify(pending), root, uid);
     try {
       inject('prepared');

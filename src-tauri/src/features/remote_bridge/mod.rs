@@ -1632,12 +1632,16 @@ fn start_post_connect(generation: u64) {
                 let target_id = target_id.clone();
                 let vscode_session = vscode_session.clone();
                 let fingerprint = fingerprint.clone();
+                let proxy = summary.proxy.clone();
                 std::thread::spawn(move || {
                     let started = Instant::now();
                     let result = match (vscode_session.as_deref(), fingerprint.as_deref()) {
-                        (Some(session_id), Some(fingerprint)) => {
-                            refresh_owned_vscode_network(&target_id, session_id, fingerprint)
-                        }
+                        (Some(session_id), Some(fingerprint)) => refresh_owned_vscode_network(
+                            &target_id,
+                            session_id,
+                            fingerprint,
+                            proxy.as_ref(),
+                        ),
                         _ => Err("relayUnavailable".into()),
                     };
                     let _ = sender.send(PostConnectResult::Vscode(
@@ -2110,11 +2114,12 @@ fn refresh_owned_vscode_network(
     target_id: &str,
     session_id: &str,
     fingerprint: &str,
+    proxy: Option<&Endpoint>,
 ) -> BridgeResult<()> {
     if !vscode_network::is_managed(target_id)? {
         return Ok(());
     }
-    vscode_network::apply(target_id, session_id, fingerprint)
+    vscode_network::apply(target_id, session_id, fingerprint, proxy)
 }
 
 /// Configure only the connected remote VS Code Server, never local user settings.
@@ -2150,7 +2155,12 @@ pub fn open_vscode(target: String) -> BridgeResult<Option<String>> {
                 .as_ref()
                 .or(state.proxy_relay.as_ref())
                 .ok_or("bridgeUnavailable")?;
-            vscode_network::apply(&target, relay.session_id(), &fingerprint)?;
+            vscode_network::apply(
+                &target,
+                relay.session_id(),
+                &fingerprint,
+                state.summary.proxy.as_ref(),
+            )?;
             Ok(())
         },
     )
@@ -2181,7 +2191,12 @@ fn open_vscode_with_setup(
 fn vscode_setup_allows_launch(code: &str) -> bool {
     matches!(
         code,
-        "vscodeServerMissing" | "sshAuth" | "sshFailed" | "sshTimeout"
+        "vscodeServerMissing"
+            | "remoteNodeMissing"
+            | "remoteNodeUnsupported"
+            | "sshAuth"
+            | "sshFailed"
+            | "sshTimeout"
     )
 }
 
@@ -2241,7 +2256,13 @@ mod vscode_launch_tests {
 
     #[test]
     fn setup_transport_failure_does_not_block_remote_ssh_launch() {
-        for code in ["sshAuth", "sshFailed", "sshTimeout"] {
+        for code in [
+            "sshAuth",
+            "sshFailed",
+            "sshTimeout",
+            "remoteNodeMissing",
+            "remoteNodeUnsupported",
+        ] {
             let opened = std::cell::Cell::new(false);
             let warning = open_vscode_with_setup(
                 || {
