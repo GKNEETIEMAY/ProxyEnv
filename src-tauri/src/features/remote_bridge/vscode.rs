@@ -177,6 +177,7 @@ fn executable() -> Option<PathBuf> {
     }
     if let Some(paths) = std::env::var_os("PATH") {
         for entry in std::env::split_paths(&paths) {
+            candidates.push(entry.join("Code.exe"));
             if entry.join("code.cmd").is_file() {
                 if let Some(parent) = entry.parent() {
                     candidates.push(parent.join("Code.exe"));
@@ -184,9 +185,90 @@ fn executable() -> Option<PathBuf> {
             }
         }
     }
+    #[cfg(windows)]
+    candidates.extend(shortcut_executables());
     candidates
         .into_iter()
         .find(|path| path.is_absolute() && path.is_file())
+}
+
+#[cfg(windows)]
+fn shortcut_executables() -> Vec<PathBuf> {
+    let mut directories = Vec::new();
+    if let Some(desktop) = dirs::desktop_dir() {
+        directories.push(desktop);
+    }
+    for variable in ["APPDATA", "ProgramData"] {
+        if let Some(root) = std::env::var_os(variable) {
+            let programs = PathBuf::from(root).join("Microsoft/Windows/Start Menu/Programs");
+            directories.push(programs.join("Visual Studio Code"));
+            directories.push(programs);
+        }
+    }
+    directories
+        .into_iter()
+        .flat_map(|directory| {
+            std::fs::read_dir(directory)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .take(256)
+                .filter_map(|entry| {
+                    let path = entry.path();
+                    path.extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("lnk"))
+                        .then(|| shortcut_executable(&path))
+                        .flatten()
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn shortcut_executable(shortcut: &Path) -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{
+        core::{Interface, PCWSTR},
+        Win32::{
+            Foundation::RPC_E_CHANGED_MODE,
+            System::Com::{
+                CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile,
+                CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, STGM_READ,
+            },
+            UI::Shell::{IShellLinkW, ShellLink},
+        },
+    };
+    struct Apartment(bool);
+    impl Drop for Apartment {
+        fn drop(&mut self) {
+            if self.0 {
+                unsafe {
+                    CoUninitialize();
+                }
+            }
+        }
+    }
+    unsafe {
+        let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        if initialized.is_err() && initialized != RPC_E_CHANGED_MODE {
+            return None;
+        }
+        let _apartment = Apartment(initialized.is_ok());
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
+        let file: IPersistFile = link.cast().ok()?;
+        let name: Vec<u16> = shortcut.as_os_str().encode_wide().chain(Some(0)).collect();
+        file.Load(PCWSTR(name.as_ptr()), STGM_READ).ok()?;
+        let mut target = vec![0u16; 32768];
+        // Read the stored target only: do not resolve, execute or change the shortcut.
+        link.GetPath(&mut target, std::ptr::null_mut(), 0).ok()?;
+        let length = target.iter().position(|word| *word == 0)?;
+        let path = PathBuf::from(String::from_utf16(&target[..length]).ok()?);
+        (path.is_absolute()
+            && path.is_file()
+            && path.file_name().is_some_and(is_vscode_process_name))
+        .then_some(path)
+    }
 }
 
 fn is_vscode_process_name(name: &std::ffi::OsStr) -> bool {
@@ -307,6 +389,51 @@ pub fn reveal_target_config(target: String) -> BridgeResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn desktop_shortcut_finds_portable_vscode_without_running_or_using_path() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::{
+            core::{Interface, PCWSTR},
+            Win32::{
+                System::Com::{
+                    CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile,
+                    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+                },
+                UI::Shell::{IShellLinkW, ShellLink},
+            },
+        };
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).unwrap();
+        let root =
+            std::env::temp_dir().join(format!("proxyenv-vscode-shortcut-{}", hex::encode(nonce)));
+        std::fs::create_dir_all(root.join("VS Code 便携")).unwrap();
+        let executable = root.join("VS Code 便携/Code.exe");
+        let shortcut = root.join("Code.exe - 快捷方式.lnk");
+        std::fs::write(&executable, b"fixture only, never executed").unwrap();
+        unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap();
+            {
+                let link: IShellLinkW =
+                    CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).unwrap();
+                let target: Vec<u16> = executable
+                    .as_os_str()
+                    .encode_wide()
+                    .chain(Some(0))
+                    .collect();
+                link.SetPath(PCWSTR(target.as_ptr())).unwrap();
+                let file: IPersistFile = link.cast().unwrap();
+                let name: Vec<u16> = shortcut.as_os_str().encode_wide().chain(Some(0)).collect();
+                file.Save(PCWSTR(name.as_ptr()), true).unwrap();
+            }
+            CoUninitialize();
+        }
+        assert_eq!(shortcut_executable(&shortcut), Some(executable.clone()));
+        std::fs::remove_file(&executable).unwrap();
+        assert_eq!(shortcut_executable(&shortcut), None);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn jsonc_keeps_strings_and_accepts_comments_and_trailing_commas() {
         let data = parse_settings(
