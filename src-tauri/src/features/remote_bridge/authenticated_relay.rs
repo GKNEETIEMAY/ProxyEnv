@@ -503,11 +503,25 @@ fn tunnel(mut left: TcpStream, mut right: TcpStream) -> Result<(), &'static str>
         .map_err(|_| "relayUnavailable")?;
     let mut left_reader = left.try_clone().map_err(|_| "relayUnavailable")?;
     let mut right_writer = right.try_clone().map_err(|_| "relayUnavailable")?;
-    let upload = thread::spawn(move || std::io::copy(&mut left_reader, &mut right_writer));
+    let upload = thread::spawn(move || {
+        let result = std::io::copy(&mut left_reader, &mut right_writer);
+        // EOF closes only this direction; the peer can still send a response.
+        let _ = right_writer.shutdown(Shutdown::Write);
+        if result.is_err() {
+            let _ = left_reader.shutdown(Shutdown::Both);
+            let _ = right_writer.shutdown(Shutdown::Both);
+        }
+        result
+    });
     let download = std::io::copy(&mut right, &mut left).map_err(|_| "relayUnavailable");
+    let _ = left.shutdown(Shutdown::Write);
+    if download.is_err() {
+        let _ = left.shutdown(Shutdown::Both);
+        let _ = right.shutdown(Shutdown::Both);
+    }
+    let upload = upload.join().map_err(|_| "relayUnavailable")?;
     let _ = left.shutdown(Shutdown::Both);
     let _ = right.shutdown(Shutdown::Both);
-    let upload = upload.join().map_err(|_| "relayUnavailable")?;
     download?;
     upload.map(|_| ()).map_err(|_| "relayUnavailable")
 }
@@ -516,6 +530,56 @@ fn tunnel(mut left: TcpStream, mut right: TcpStream) -> Result<(), &'static str>
 mod tests {
     use super::*;
     use std::sync::mpsc;
+
+    fn tunnel_pair() -> (TcpStream, TcpStream, JoinHandle<Result<(), &'static str>>) {
+        let left_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let right_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let client = TcpStream::connect(left_listener.local_addr().unwrap()).unwrap();
+        let (left, _) = left_listener.accept().unwrap();
+        let right = TcpStream::connect(right_listener.local_addr().unwrap()).unwrap();
+        let (server, _) = right_listener.accept().unwrap();
+        for stream in [&client, &server] {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+        }
+        (client, server, thread::spawn(move || tunnel(left, right)))
+    }
+
+    #[test]
+    fn proxy_tunnel_propagates_upload_eof_without_losing_the_response() {
+        let (mut client, mut server, relay) = tunnel_pair();
+        client.write_all(b"request").unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        let mut request = Vec::new();
+        server.read_to_end(&mut request).unwrap();
+        assert_eq!(request, b"request");
+        server.write_all(b"response").unwrap();
+        server.shutdown(Shutdown::Write).unwrap();
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).unwrap();
+        assert_eq!(response, b"response");
+        assert!(relay.join().unwrap().is_ok());
+    }
+
+    #[test]
+    fn proxy_tunnel_preserves_upload_after_the_response_eof() {
+        let (mut client, mut server, relay) = tunnel_pair();
+        server.write_all(b"response").unwrap();
+        server.shutdown(Shutdown::Write).unwrap();
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).unwrap();
+        assert_eq!(response, b"response");
+        client.write_all(b"remaining upload").unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        let mut request = Vec::new();
+        server.read_to_end(&mut request).unwrap();
+        assert_eq!(request, b"remaining upload");
+        assert!(relay.join().unwrap().is_ok());
+    }
 
     fn upstream() -> (ProxyEndpoint, mpsc::Receiver<Vec<u8>>) {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
