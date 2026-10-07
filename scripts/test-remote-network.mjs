@@ -7,6 +7,60 @@ import { spawnSync } from 'node:child_process';
 import { getNodeValue } from 'jsonc-parser';
 import { jsonTree } from './remote-extension/config.mjs';
 import { networkTransaction, networkSettingsPath } from './remote-extension/network.mjs';
+import { privateGroupFromRecords, unsafeWriteMode } from './remote-extension/permissions.mjs';
+import { safe, read } from './remote-extension/files.mjs';
+
+test('network permissions require a verified sole-user private group, not matching uid/gid alone', () => {
+  const user = 'lxl:x:1000:1000::/home/lxl:/bin/bash';
+  const group = 'lxl:x:1000:';
+  const nss = 'passwd: files systemd\ngroup: files systemd\n';
+  const resolve = (passwd = user, groups = group, sources = nss) => privateGroupFromRecords(1000, 1000, passwd, groups, sources);
+  assert.equal(resolve(), 1000);
+  assert.equal(resolve(user, group + 'lxl'), 1000);
+  assert.equal(resolve(user + '\nother:x:1001:1000::/home/other:/bin/bash'), null);
+  assert.equal(resolve(user, group + 'other'), null);
+  assert.equal(resolve(user, 'lab-users:x:1000:lxl'), null);
+  assert.equal(resolve(user + '\nalias:x:1000:1000::/home/alias:/bin/bash'), null);
+  assert.equal(resolve(user, group + '\nlxl:x:1001:'), null);
+  assert.equal(resolve(user, group, 'passwd: files ldap\ngroup: files ldap'), null);
+  assert.equal(resolve(user, group, 'passwd: files'), null);
+  assert.equal(resolve('invalid'), null);
+  assert.equal(privateGroupFromRecords(0, 0, user, group, nss), null);
+});
+
+test('network write permissions accept private-group 775/664 but reject shared and world write', () => {
+  for (const mode of [0o775, 0o664]) {
+    assert.equal(unsafeWriteMode({mode, gid:1000}, 1000, 'linux'), false);
+    assert.equal(unsafeWriteMode({mode, gid:1000}, null, 'linux'), true);
+    assert.equal(unsafeWriteMode({mode, gid:1001}, 1000, 'linux'), true);
+  }
+  for (const mode of [0o777, 0o666]) assert.equal(unsafeWriteMode({mode, gid:1000}, 1000, 'linux'), true);
+});
+
+test('Linux private-group VS Code settings apply and restore without changing parent permissions', {skip:process.platform !== 'linux'}, t => {
+  const f = fixture(t, '{"editor.fontSize":14}');
+  const root = path.dirname(f.file), uid = fs.statSync(root).uid, gid = fs.statSync(root).gid;
+  const server = path.join(root, '.vscode-server'), machine = path.join(server, 'data/Machine');
+  fs.mkdirSync(machine, {recursive:true, mode:0o700});
+  fs.chmodSync(server, 0o775);
+  const file = path.join(machine, 'settings.json');
+  const original = '{"editor.fontSize":14}';
+  fs.writeFileSync(file, original, {mode:0o664});
+  fs.chmodSync(file, 0o664);
+  assert.throws(() => safe(file, root, uid), /unsafePath/);
+  assert.equal(networkSettingsPath(root, uid, undefined, gid), file);
+  const run = operation => networkTransaction({file, root, uid, sessionId, operation, proxyPort:7897, proxyProtocol:'mixed'}, undefined, gid);
+  assert.equal(run('network-apply').configured, true);
+  assert.equal(fs.statSync(server).mode & 0o777, 0o775);
+  assert.equal(JSON.parse(read(file, root, uid, gid))['terminal.integrated.env.linux'].HTTP_PROXY, 'http://127.0.0.1:7897');
+  assert.equal(run('network-restore').restored, true);
+  assert.equal(fs.readFileSync(file, 'utf8'), original);
+  fs.chmodSync(file, 0o666);
+  assert.throws(() => run('network-apply'), /unsafePath/);
+  fs.chmodSync(file, 0o600);
+  fs.chmodSync(server, 0o777);
+  assert.throws(() => run('network-apply'), /unsafePath/);
+});
 
 test('network setup does not inspect extension installations or stale server version directories', t => {
   const f = fixture(t);
@@ -224,6 +278,17 @@ test('remote network rejects malformed settings and invalid ownership without wr
   assert.throws(() => f.apply(), /configConflict/);
   assert.throws(() => f.apply({sessionId:'not-a-session'}), /invalidRequest/);
   assert.equal(fs.existsSync(f.journal), false);
+});
+test('an existing network lock has a distinct error and leaves settings, recovery, and lock untouched', t => {
+  const f = fixture(t); f.apply();
+  const lock = f.file + '.proxyenv-network-lock';
+  fs.mkdirSync(lock, { mode: 0o700 });
+  const current = fs.readFileSync(f.file, 'utf8'), journal = fs.readFileSync(f.journal, 'utf8');
+  assert.throws(() => f.apply(), /vscodeNetworkBusy/);
+  assert.throws(() => f.restore(), /vscodeNetworkBusy/);
+  assert.equal(fs.readFileSync(f.file, 'utf8'), current);
+  assert.equal(fs.readFileSync(f.journal, 'utf8'), journal);
+  assert.equal(fs.existsSync(lock), true);
 });
 test('remote network removes only its newly created empty settings file', t => {
   const f = fixture(t); f.apply(); f.restore();

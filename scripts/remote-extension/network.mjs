@@ -9,14 +9,14 @@ const legacyKeys = ['http.useLocalProxyConfiguration', 'http.proxy', 'http.proxy
 const terminalKey = 'terminal.integrated.env.linux';
 const keys = [...legacyKeys, terminalKey];
 // Network settings do not depend on an AI extension or its installed versions.
-export function networkSettingsPath(root, uid, agentFolder) {
+export function networkSettingsPath(root, uid, agentFolder, privateGid = null) {
   const roots = agentFolder ? [agentFolder] : ['.vscode-server', '.vscode-server-insiders', '.vscode-remote'].map(name => path.join(root, name));
   if (agentFolder && (!path.isAbsolute(agentFolder) || agentFolder === root || !agentFolder.startsWith(root + path.sep))) fail('customHome');
   const existing = roots.filter(candidate => fs.existsSync(candidate));
   if (!existing.length) fail('vscodeServerMissing');
   if (existing.length !== 1) fail('vscodeServerAmbiguous');
   const selected = existing[0];
-  safe(selected, root, uid);
+  safe(selected, root, uid, privateGid);
   if (!fs.lstatSync(selected).isDirectory()) fail('unsafePath');
   return path.join(selected, 'data/Machine/settings.json');
 }
@@ -63,21 +63,26 @@ function terminalEnvironment(original, proxyPort, proxyProtocol) {
   return { value: env };
 }
 
-export function networkTransaction({ file, root, uid, operation, sessionId, proxyPort, proxyProtocol }, inject = () => {}) {
+export function networkTransaction({ file, root, uid, operation, sessionId, proxyPort, proxyProtocol }, inject = () => {}, privateGid = null) {
+  // This policy is computed by the helper, never accepted from an IPC request.
+  const readNetwork = file => read(file, root, uid, privateGid);
+  const writeNetwork = (file, text) => atomic(file, text, root, uid, privateGid);
   if (!['network-apply', 'network-restore'].includes(operation) || !/^[a-f0-9]{32}$/.test(sessionId || '')) fail('invalidRequest');
   const restoring = operation === 'network-restore';
   if (!restoring) terminalEnvironment({}, proxyPort, proxyProtocol);
   const journal = file + '.proxyenv-network-state';
   const lock = file + '.proxyenv-network-lock';
-  safe(path.dirname(file), root, uid);
+  safe(path.dirname(file), root, uid, privateGid);
   if (!fs.existsSync(path.dirname(file))) {
     if (restoring) return { restored: true };
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   }
-  safe(lock, root, uid);
-  try { fs.mkdirSync(lock, { mode: 0o700 }); } catch { fail('configConflict'); }
+  safe(lock, root, uid, privateGid);
+  try { fs.mkdirSync(lock, { mode: 0o700 }); } catch (error) {
+    fail(error.code === 'EEXIST' ? 'vscodeNetworkBusy' : 'unsafePath');
+  }
   try {
-    const current = read(file, root, uid), raw = read(journal, root, uid);
+    const current = readNetwork(file), raw = readNetwork(journal);
     const before = snapshot(current);
     let record = null;
     if (raw !== null) {
@@ -121,19 +126,19 @@ export function networkTransaction({ file, root, uid, operation, sessionId, prox
     let next = patch(current, applied);
     if (restoring && originalAbsent && !preserveFile && Object.keys(getNodeValue(jsonTree(next))).length === 0) next = null;
     const pending = { schema: 2, state: 'prepared', sessionId, original, originalAbsent, preserveFile, before, applied, appliedFileHash: hash(next) };
-    atomic(journal, JSON.stringify(pending), root, uid);
+    writeNetwork(journal, JSON.stringify(pending));
     try {
       inject('prepared');
-      if (read(file, root, uid) !== current) fail();
-      atomic(file, next, root, uid);
+      if (readNetwork(file) !== current) fail();
+      writeNetwork(file, next);
       inject('replaced');
-      if (read(file, root, uid) !== next) fail('verifyFailed');
-      atomic(journal, restoring ? null : JSON.stringify({ ...pending, state: 'applied' }), root, uid);
+      if (readNetwork(file) !== next) fail('verifyFailed');
+      writeNetwork(journal, restoring ? null : JSON.stringify({ ...pending, state: 'applied' }));
     } catch {
-      const now = read(file, root, uid);
+      const now = readNetwork(file);
       if (now !== current && now !== next) fail('rollbackConflict');
-      atomic(file, current, root, uid);
-      atomic(journal, raw, root, uid);
+      writeNetwork(file, current);
+      writeNetwork(journal, raw);
       fail('writeRolledBack');
     }
     // Never serialize credentials, configuration values or backups to stdout.

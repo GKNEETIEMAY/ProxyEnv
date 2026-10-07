@@ -2,10 +2,11 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { fail, patch, claudeLoginPromptState } from './config.mjs';
+import { unsafeWriteMode } from './permissions.mjs';
 
 export const digest = text => createHash('sha256').update(text).digest('hex');
 export const hash = text => text === null ? 'absent' : digest(text);
-export function safe(file, root, uid) {
+export function safe(file, root, uid, privateGid = null) {
   if (file !== root && !file.startsWith(root + path.sep)) fail('unsafePath');
   const relative = path.relative(root, file);
   let current = root;
@@ -13,16 +14,16 @@ export function safe(file, root, uid) {
     if (part) current = path.join(current, part);
     let s;
     try { s = fs.lstatSync(current); } catch (e) { if (e.code === 'ENOENT') continue; throw e; }
-    if (s.isSymbolicLink() || s.uid !== uid || (process.platform !== 'win32' && s.mode & 0o022) || (!s.isDirectory() && (!s.isFile() || s.nlink !== 1 || s.size > 1024 * 1024))) fail('unsafePath');
+    if (s.isSymbolicLink() || s.uid !== uid || unsafeWriteMode(s, privateGid) || (!s.isDirectory() && (!s.isFile() || s.nlink !== 1 || s.size > 1024 * 1024))) fail('unsafePath');
   }
 }
-export function read(file, root, uid) {
-  safe(file, root, uid);
+export function read(file, root, uid, privateGid = null) {
+  safe(file, root, uid, privateGid);
   try {
     const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
     try {
       const s = fs.fstatSync(fd);
-      if (!s.isFile() || s.uid !== uid || s.nlink !== 1 || s.size > 1024 * 1024 || (process.platform !== 'win32' && s.mode & 0o022)) fail('unsafePath');
+      if (!s.isFile() || s.uid !== uid || s.nlink !== 1 || s.size > 1024 * 1024 || unsafeWriteMode(s, privateGid)) fail('unsafePath');
       // Bound the actual read as well as fstat: another editor may grow the file.
       const buffer = Buffer.alloc(1024 * 1024 + 1);
       let length = 0;
@@ -39,14 +40,14 @@ export function read(file, root, uid) {
     } finally { fs.closeSync(fd); }
   } catch(e) { if(e.code === 'ENOENT') return null; throw e; }
 }
-export function atomic(file, text, root, uid) {
-  safe(file, root, uid);
+export function atomic(file, text, root, uid, privateGid = null) {
+  safe(file, root, uid, privateGid);
   if (text === null) { if (fs.existsSync(file)) fs.unlinkSync(file); return; }
   const temporary = file + '.tmp-' + randomBytes(12).toString('hex');
   const fd = fs.openSync(temporary, 'wx', 0o600);
   try { fs.writeFileSync(fd, text); fs.fsyncSync(fd); }
   finally { fs.closeSync(fd); }
-  try { safe(file, root, uid); fs.renameSync(temporary, file); }
+  try { safe(file, root, uid, privateGid); fs.renameSync(temporary, file); }
   finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
   if (process.platform !== 'win32') {
     const directory = fs.openSync(path.dirname(file), 'r');

@@ -5,8 +5,10 @@ import { execFileSync } from 'node:child_process';
 import { fail, checkClaudeShared } from './config.mjs';
 import { safe, read, hash, digest, transaction } from './files.mjs';
 import { networkTransaction, networkSettingsPath } from './network.mjs';
+import { networkPrivateGroup } from './permissions.mjs';
 
 const codes = new Set(['configConflict','unsafePath','invalidPort','invalidRequest','noBackup','verifyFailed','rollbackConflict','rollbackFailed','writeRolledBack','extensionMissing','extensionUnsupported','extensionContextChanged','customHome','remoteUnsupported','vscodeServerMissing','vscodeServerAmbiguous']);
+for (const code of ['vscodeNetworkBusy', 'vscodeNetworkConflict', 'vscodeNetworkUnsafe']) codes.add(code);
 const version = value => typeof value === 'string' && /^\d+(?:\.\d+){1,3}(?:-[a-zA-Z0-9.-]+)?$/.test(value) && value.length < 48 ? value : '';
 const safeSegment = value => typeof value === 'string' && /^[a-zA-Z0-9._-]{1,96}$/.test(value);
 const displayPath = (root, value) => value === root ? '~' : `~/${path.relative(root, value).split(path.sep).join('/')}`;
@@ -125,11 +127,19 @@ function configurationState({ tool, root, uid, vscode }) {
 function run(request) {
   if (process.platform !== 'linux' || process.getuid() === 0 || Number(process.versions.node.split('.')[0]) < 20) fail('remoteUnsupported');
   const root = os.homedir(), uid = process.getuid();
-  safe(root, root, uid);
   if (['network-apply', 'network-restore'].includes(request.operation)) {
-    const file = networkSettingsPath(root, uid, process.env.VSCODE_AGENT_FOLDER);
-    return networkTransaction({ ...request, file, root, uid });
+    try {
+      const privateGid = networkPrivateGroup(uid);
+      safe(root, root, uid, privateGid);
+      const file = networkSettingsPath(root, uid, process.env.VSCODE_AGENT_FOLDER, privateGid);
+      return networkTransaction({ ...request, file, root, uid }, undefined, privateGid);
+    } catch (error) {
+      if (error.message === 'unsafePath') fail('vscodeNetworkUnsafe');
+      if (error.message === 'configConflict') fail('vscodeNetworkConflict');
+      throw error;
+    }
   }
+  safe(root, root, uid);
   const vscode = vscodeContexts(root, uid);
   const installed = [];
   for (const tool of ['codex','claude']) {

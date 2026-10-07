@@ -1682,6 +1682,9 @@ pub(super) fn extension_remote(
             | "remoteNodeUnsupported"
             | "vscodeServerMissing"
             | "vscodeServerAmbiguous"
+            | "vscodeNetworkBusy"
+            | "vscodeNetworkConflict"
+            | "vscodeNetworkUnsafe"
             | "extensionContextChanged"
             | "customHome"
             | "remoteUnsupported" => error,
