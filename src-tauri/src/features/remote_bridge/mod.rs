@@ -1124,6 +1124,10 @@ pub fn remove_connection(id: String) -> BridgeResult<()> {
     connections::remove(&id)
 }
 pub fn launch_mobaxterm(target_id: String) -> BridgeResult<()> {
+    let (connected_target, _) = connected_terminal_context()?;
+    if connected_target != target_id {
+        return Err("bridgeUnavailable".into());
+    }
     ssh::launch_mobaxterm_target(&target_id)
 }
 pub fn check(target_id: String) -> BridgeResult<PortAllocation> {
@@ -2071,11 +2075,11 @@ pub fn test() -> BridgeResult<()> {
     )?;
     Ok(())
 }
-fn proxy_terminal_context() -> BridgeResult<(String, String, String)> {
-    let (target_id, session_id, target_fingerprint) = {
+fn connected_terminal_context() -> BridgeResult<(String, String)> {
+    let (target_id, target_fingerprint) = {
         let mut state = lock()?;
         refresh(&mut state);
-        if !capability_ready(state.child.is_some(), state.summary.proxy_status) {
+        if state.child.is_none() {
             return Err("bridgeUnavailable".into());
         }
         let target_id = state
@@ -2084,18 +2088,46 @@ fn proxy_terminal_context() -> BridgeResult<(String, String, String)> {
             .as_ref()
             .map(|target| target.id.clone())
             .ok_or("invalidTarget")?;
-        state.summary.proxy.as_ref().ok_or("proxyUnavailable")?;
-        let session_id = state
-            .proxy_relay
-            .as_ref()
-            .map(|relay| relay.session_id().to_owned())
-            .ok_or("relayUnavailable")?;
-        (target_id, session_id, state.target_fingerprint.clone())
+        (target_id, state.target_fingerprint.clone())
     };
     if Some(ssh::fingerprint(&target_id)?) != target_fingerprint {
         return Err("sshConfigChanged".into());
     }
     let fingerprint = target_fingerprint.ok_or("sshConfigChanged")?;
+    Ok((target_id, fingerprint))
+}
+fn proxy_terminal_context() -> BridgeResult<(String, String, String)> {
+    let (target_id, fingerprint) = connected_terminal_context()?;
+    let mut state = lock()?;
+    refresh(&mut state);
+    if !capability_ready(state.child.is_some(), state.summary.proxy_status)
+        || state
+            .summary
+            .target
+            .as_ref()
+            .map(|target| target.id.as_str())
+            != Some(target_id.as_str())
+        || state.target_fingerprint.as_deref() != Some(fingerprint.as_str())
+    {
+        return Err("bridgeUnavailable".into());
+    }
+    state.summary.proxy.as_ref().ok_or("proxyUnavailable")?;
+    let session_id = state
+        .proxy_relay
+        .as_ref()
+        .map(|relay| relay.session_id().to_owned())
+        .ok_or("relayUnavailable")?;
+    // The core bridge is shown before optional background setup completes.
+    // Never hand a terminal a source command for an unprepared env.sh.
+    if state.summary.session_environment_state != RuntimeState::Ready {
+        let result = apply_session_environment(&target_id, &state.summary, Some(&session_id));
+        state.summary.session_environment_state = if result.is_ok() {
+            RuntimeState::Ready
+        } else {
+            RuntimeState::Warning
+        };
+        result?;
+    }
     Ok((target_id, session_id, fingerprint))
 }
 pub fn launch_proxy_terminal() -> BridgeResult<()> {
@@ -2296,7 +2328,8 @@ pub fn session_environment_command() -> BridgeResult<String> {
     ))
 }
 pub fn launch_manual_terminal() -> BridgeResult<()> {
-    let (target_id, _, fingerprint) = proxy_terminal_context()?;
+    // AI-only bridges also need a plain remote terminal, not proxy exports.
+    let (target_id, fingerprint) = connected_terminal_context()?;
     ssh::launch_manual_terminal(&target_id, &fingerprint)
 }
 pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {

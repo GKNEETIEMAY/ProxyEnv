@@ -403,7 +403,7 @@ test("managed proxy terminal loads a private authenticated session environment",
   assert.doesNotMatch(page,/v-if="summary\.environment"/);
   assert.match(page,/remoteBackend\.sessionEnvironmentCommand\(\)/);
   assert.match(page,/summary\.target\?\.canOpenMobaxterm/);
-  assert.match(page,/remoteBackend\.launchMobaxterm\(summary\.target!\.id\)/);
+  assert.match(page,/remoteBackend\.launchMobaxterm\(props\.summary\.target!\.id\)/);
   assert.match(page,/@click="copySessionEnvironment"/);
   assert.match(page,/async function openVscode\(\)[\s\S]*remoteBackend\.openVscode\(props\.summary\.target!\.id\)/);
   assert.match(page,/remote-primary-actions[\s\S]*@click="perform\(openVscode\)"/);
@@ -595,6 +595,10 @@ for(const code of ["sshAuth","sshAuthRejected","sshAuthPromptChanged","sshAuthCo
       bridgeError({code:"ccUnavailable",phase:"localDetection",target:"ccSwitch",retryable:true},copy),
       copy.rbCcError,
     );
+    for (const [code, key] of [['vscodeNetworkBusy','rbVscodeNetworkBusy'], ['vscodeNetworkConflict','rbVscodeNetworkConflict'], ['vscodeNetworkUnsafe','rbVscodeNetworkUnsafe']]) {
+      assert.equal(bridgeError({code,phase:'vscodeOpen',target:'vscode'},copy),copy[key],`${locale}:${code}`);
+      assert.notEqual(copy[key],copy.rbConfigError);
+    }
   }
 });
 
@@ -954,7 +958,7 @@ test("M7 keeps VS Code Server context and extension location conservative",()=>{
   assert.doesNotMatch(targetSelection,/launchSshTerminal/);
   assert.doesNotMatch(targetSelection,/remoteBackend\.openVscode\(/);
   assert.doesNotMatch(targetSelection,/launchMobaxterm/);
-  assert.match(page.slice(connectedStart),/v-if="summary\.target\?\.canOpenMobaxterm"[\s\S]*?:disabled="busy \|\| !sshConnected"[\s\S]*?remoteBackend\.launchMobaxterm\(summary\.target!\.id\)/);
+  assert.match(page.slice(connectedStart),/v-if="summary\.target\?\.canOpenMobaxterm"[\s\S]*?:disabled="busy \|\| !sshConnected"[\s\S]*?@click="perform\(openMobaxterm\)"/);
 });
 
 test("two-step setup auto-connects after interactive authentication and keeps one stable modal shell",()=>{
@@ -1052,6 +1056,41 @@ test("MobaXterm launch is available only from the connected overview",()=>{
   const advancedStart=page.indexOf('<section v-if="summary.proxy" v-show="advancedView"');
   const advancedEnd=page.indexOf('</section>',advancedStart);
   assert.doesNotMatch(page.slice(advancedStart,advancedEnd),/launchMobaxterm/);
+});
+
+test("MobaXterm handoff exposes the shared environment action without claiming AI activation",()=>{
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(page,/async function openMobaxterm\(\)[\s\S]*await remoteBackend\.launchMobaxterm[\s\S]*mobaOpened\.value = true/);
+  assert.match(page,/@click="perform\(openMobaxterm\)"/);
+  const start=page.indexOf('<section v-if="mobaOpened && sshConnected"');
+  const handoff=page.slice(start,page.indexOf('</section>',start));
+  assert.match(handoff,/summary\.proxy/);
+  assert.match(handoff,/@click="copySessionEnvironment"/);
+  assert.match(handoff,/summary\.cc[\s\S]*rbMobaAiHint/);
+  assert.doesNotMatch(handoff,/configApply|configPreview|sessionToken|export/);
+  assert.match(page,/watch\(sshConnected[\s\S]*mobaOpened\.value = false/);
+});
+
+test("terminal handoff prepares pending environment and allows AI-only plain terminals",()=>{
+  const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const context=bridge.slice(bridge.indexOf('fn proxy_terminal_context()'),bridge.indexOf('pub fn launch_proxy_terminal()'));
+  assert.match(context,/session_environment_state != RuntimeState::Ready[\s\S]*apply_session_environment[\s\S]*result\?;/);
+  const manual=bridge.slice(bridge.indexOf('pub fn launch_manual_terminal()'),bridge.indexOf('pub fn config_preview('));
+  assert.match(manual,/connected_terminal_context\(\)/);
+  assert.doesNotMatch(manual,/proxy_terminal_context\(\)/);
+  const moba=bridge.slice(bridge.indexOf('pub fn launch_mobaxterm('),bridge.indexOf('pub fn check('));
+  assert.match(moba,/connected_terminal_context\(\)[\s\S]*connected_target != target_id[\s\S]*ssh::launch_mobaxterm_target/);
+});
+
+test("VS Code network error categories cross the helper and SSH boundary without configuration values",()=>{
+  const helper=readFileSync('scripts/remote-extension/main.mjs','utf8');
+  const ssh=readFileSync('src-tauri/src/features/remote_bridge/ssh.rs','utf8');
+  for (const code of ['vscodeNetworkBusy','vscodeNetworkConflict','vscodeNetworkUnsafe']) {
+    assert.ok(helper.includes(code));
+    assert.ok(ssh.includes(`"${code}"`));
+  }
+  assert.match(helper,/error\.message === 'unsafePath'[\s\S]*fail\('vscodeNetworkUnsafe'\)/);
+  assert.match(helper,/error\.message === 'configConflict'[\s\S]*fail\('vscodeNetworkConflict'\)/);
 });
 
 test("core bridge becomes usable before optional setup and reconnect retries the retained session",()=>{

@@ -90,6 +90,7 @@ const busy = ref(false);
 const error = ref<unknown>();
 const feedback = ref<"copied" | "tested" | "ports" | "terminal">();
 const vscodeOpened = ref(false);
+const mobaOpened = ref(false);
 const authSession = ref<SshAuthSnapshot>();
 const lastAuthPrompt = ref<SshAuthSnapshot["prompt"]>(null);
 const authResponse = ref("");
@@ -435,6 +436,10 @@ async function openVscode() {
   const warning = await remoteBackend.openVscode(props.summary.target!.id);
   vscodeOpened.value = true;
   vscodeSetupWarning.value = warning ?? undefined;
+}
+async function openMobaxterm() {
+  await remoteBackend.launchMobaxterm(props.summary.target!.id);
+  mobaOpened.value = true;
 }
 async function perform(action: () => Promise<void>, onError?: (cause: unknown) => void) {
   if (busy.value) return;
@@ -1102,6 +1107,7 @@ watch(targetId, (nextTarget, previousTarget) => {
   runtimeExpectedPort.value = null;
   runtimePortConflict.value = false;
   vscodeOpened.value = false;
+  mobaOpened.value = false;
   sshCheck.value = { state: "idle", checkedAt: null };
   serverInternetCheck.value = { state: "idle", checkedAt: null };
 });
@@ -1124,6 +1130,7 @@ watch(sshConnected, (connected) => {
   } else {
     stopSkillsPolling();
     skills.value = [];
+    mobaOpened.value = false;
   }
 });
 watch(() => props.visible, (visible) => {
@@ -1329,11 +1336,20 @@ onBeforeUnmount(() => {
           <header v-show="!advancedView" class="remote-next-heading"><h3>{{ copy.rbNextSteps }}</h3></header>
           <div v-show="!advancedView" class="remote-primary-actions">
             <button v-if="summary.target?.canOpenVscode" class="secondary-action" type="button" :disabled="busy || !sshConnected" @click="perform(openVscode)">{{ copy.rbVscodeOpen }}</button>
-            <button v-if="summary.target?.canOpenMobaxterm" class="secondary-action" type="button" :disabled="busy || !sshConnected" @click="perform(() => remoteBackend.launchMobaxterm(summary.target!.id))">{{ copy.rbLaunchMobaxterm }}</button>
+            <button v-if="summary.target?.canOpenMobaxterm" class="secondary-action" type="button" :disabled="busy || !sshConnected" @click="perform(openMobaxterm)">{{ copy.rbLaunchMobaxterm }}</button>
             <button class="primary-action" type="button" :disabled="busy || !sshConnected" @click="launchTerminal">{{ copy.rbOpenTerminal }}</button>
           </div>
           <p v-if="!advancedView && summary.proxy && summary.target?.canOpenVscode" class="remote-hint">{{ copy.rbVscodeAutoAuth }}</p>
           <p v-if="vscodeOpened" class="remote-success" role="status">{{ copy.rbExtOpened }}</p>
+          <section v-if="mobaOpened && sshConnected" class="remote-external-client" aria-labelledby="remote-moba-heading">
+            <h4 id="remote-moba-heading">MobaXterm</h4>
+            <p class="remote-hint">{{ copy.rbMobaConnectionHint }}</p>
+            <template v-if="summary.proxy">
+              <p class="remote-hint">{{ copy.rbMobaProxyHint }}</p>
+              <button class="secondary-action" type="button" :disabled="busy || summary.proxyStatus !== 'connected'" @click="copySessionEnvironment">{{ copy.rbCopySessionEnvironment }}</button>
+            </template>
+            <p v-if="summary.cc" class="remote-hint">{{ copy.rbMobaAiHint }}</p>
+          </section>
 
           <section v-if="summary.proxy" v-show="advancedView" class="remote-next-section remote-advanced-group">
               <h3>{{ copy.rbProxyUseTitle }}</h3>
@@ -1642,6 +1658,9 @@ onBeforeUnmount(() => {
 .remote-health h3,.remote-next-section h3 { margin:0 0 14px; font-size:16px; }
 .remote-workspace-simple .remote-health .last-checked { display:none; }
 .remote-primary-actions { display:flex; padding:14px 0 4px; flex-wrap:wrap; gap:8px; }
+.remote-external-client { padding:12px 0; border-bottom:1px solid var(--line); }
+.remote-external-client h4 { margin:0; font-size:13px; }
+.remote-external-client .secondary-action { margin-top:8px; }
 .remote-section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
 .remote-section-heading > div { min-width:0; }
 .remote-section-heading h3 { margin-bottom:4px; }

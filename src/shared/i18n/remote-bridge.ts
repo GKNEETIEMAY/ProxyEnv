@@ -21,6 +21,12 @@ const extensionEn = {
   rbVscodeAutoAuth: 'ProxyEnv temporarily prevents the remote VS Code Server from inheriting local proxy settings and keeps loopback AI routes direct. The General Proxy requires no username or password; Codex and Claude keep their separate automatic session authentication. Original settings are restored when the bridge disconnects.',
   rbVscodeProxyUnsupported: 'VS Code network isolation does not depend on the General Proxy protocol. Use the managed terminal for ordinary HTTP, Mixed or SOCKS proxy access.',
   rbCopySessionEnvironment: 'Copy terminal setup command',
+  rbVscodeNetworkBusy: 'Remote VS Code network setup is locked by another operation or an interrupted setup. Retry when setup finishes; an abandoned lock needs inspection, not deletion of your settings.',
+  rbVscodeNetworkConflict: 'Remote VS Code settings or the ProxyEnv network recovery record no longer match the managed transaction. No conflicting changes were overwritten. Check these network settings and their recovery record, not the Codex/Claude access files.',
+  rbVscodeNetworkUnsafe: 'Remote VS Code settings, their parent directories, or the network recovery files failed ownership, permission, or symlink checks. Automatic network setup stopped without changing them.',
+  rbMobaConnectionHint: 'MobaXterm was opened. Connect to the same SSH host and account shown above; this does not create a second bridge.',
+  rbMobaProxyHint: 'To use the network proxy, copy the terminal setup command and run it in the connected MobaXterm terminal before starting your tools. Repeat this for each new terminal.',
+  rbMobaAiHint: 'For AI routing, enable Codex or Claude Code access below, then start a new codex or claude process in this remote terminal. Opening MobaXterm does not enable AI access.',
   rbVscodeEnvironmentScope: 'For an external terminal, run the setup command before launching CLI tools. The General Proxy uses the loopback address without credentials. Open in VS Code keeps AI traffic on the separately authenticated AI Route.',
   rbExtCodexRouteImpact: 'Backs up the shared remote Codex config, then synchronizes the local selected model and opaque model catalog with the ProxyEnv provider route. Credentials, provider URLs, MCP settings and unrelated fields are never copied.',
   rbModelFollowCurrent: 'Follow the current CC Switch model', rbModelCurrentCc: 'Current CC Switch model', rbModelNativeHint: 'Remote Codex keeps its native model name. For each request, ProxyEnv resolves the current local model again and changes only request.model before forwarding to CC Switch.',
@@ -87,6 +93,12 @@ const extensionZh: ExtensionLabels = {
   rbVscodeAutoAuth: 'ProxyEnv 会临时阻止远端 VS Code Server 继承本地代理设置，并让回环 AI 路由保持直连。普通代理无需账号密码；Codex 与 Claude 仍使用独立的自动会话鉴权。断开桥接时会恢复原设置。',
   rbVscodeProxyUnsupported: 'VS Code 网络隔离不依赖普通代理协议；普通 HTTP、Mixed 或 SOCKS 代理请通过受管终端使用。',
   rbCopySessionEnvironment: '复制终端配置命令',
+  rbVscodeNetworkBusy: '远端 VS Code 网络配置被其它操作或中断遗留的锁占用。请等待配置完成后重试；遗留锁需要检查，不要删除你的设置文件。',
+  rbVscodeNetworkConflict: '远端 VS Code 设置或 ProxyEnv 网络恢复记录与受管理事务不一致，未覆盖冲突修改。需要检查这组网络设置与恢复记录，不是 Codex／Claude 接入文件。',
+  rbVscodeNetworkUnsafe: '远端 VS Code 设置、上级目录或网络恢复文件未通过所有者、权限或符号链接检查。已停止自动网络配置，未修改这些文件。',
+  rbMobaConnectionHint: '已打开 MobaXterm。请连接上方显示的同一 SSH 主机与账户；此操作不会再建立一条桥接。',
+  rbMobaProxyHint: '要使用桥接网络，请复制终端配置命令，在已连接的 MobaXterm 终端执行后再启动应用。每个新终端都需要执行一次。',
+  rbMobaAiHint: '要使用 AI 路由，请先启用下方 Codex 或 Claude Code 接入，再在此远端终端启动新的 codex 或 claude 进程。打开 MobaXterm 不会自动启用 AI 接入。',
   rbVscodeEnvironmentScope: '使用外部终端时，先执行配置命令再启动 CLI。普通代理直接使用回环地址，不需要账号密码；“在 VS Code 中打开”会让 AI 流量继续使用独立鉴权的 AI 路由。',
   rbExtCodexRouteImpact:'先备份远端共享 Codex 配置，再同步本机选中模型、原样模型目录与 ProxyEnv Provider 路由。不会复制凭据、Provider 地址、MCP 设置或其它无关字段。',
   rbModelFollowCurrent:'跟随本机 CC Switch 当前模型',rbModelCurrentCc:'当前 CC Switch 模型',rbModelNativeHint:'远端 Codex 保留原生模型名称。每次请求时，ProxyEnv 都会重新解析本机当前模型，只修改 request.model 后转发给 CC Switch。',
@@ -152,6 +164,12 @@ const extensionJa: ExtensionLabels = {
   rbVscodeAutoAuth: 'ProxyEnv はリモート VS Code Server がローカルプロキシ設定を継承しないよう一時的に分離し、ループバックの AI ルートを直接接続します。General Proxy は資格情報不要で、Codex と Claude は別の自動セッション認証を維持します。切断時に元の設定を復元します。',
   rbVscodeProxyUnsupported: 'VS Code のネットワーク分離は General Proxy の方式に依存しません。通常の HTTP、Mixed、SOCKS 接続には管理対象ターミナルを使用してください。',
   rbCopySessionEnvironment: '端末の設定コマンドをコピー',
+  rbVscodeNetworkBusy: 'リモート VS Code のネットワーク設定が別の操作または中断した設定のロックで使用中です。完了後に再試行してください。残ったロックは調査が必要で、設定ファイルは削除しないでください。',
+  rbVscodeNetworkConflict: 'リモート VS Code の設定または ProxyEnv のネットワーク復元記録が管理対象の状態と一致しません。競合した変更は上書きしていません。Codex／Claude の接続ファイルではなく、このネットワーク設定と復元記録を確認してください。',
+  rbVscodeNetworkUnsafe: 'リモート VS Code の設定、親ディレクトリ、またはネットワーク復元ファイルが所有者・権限・シンボリックリンクの検証に失敗しました。自動設定を停止し、ファイルは変更していません。',
+  rbMobaConnectionHint: 'MobaXterm を開きました。上に表示された同じ SSH ホストとアカウントに接続してください。新しいブリッジは作成しません。',
+  rbMobaProxyHint: 'ネットワークプロキシを使うには、端末の設定コマンドをコピーし、接続済みの MobaXterm 端末で実行してからツールを起動してください。新しい端末ごとに実行が必要です。',
+  rbMobaAiHint: 'AI ルートを使うには、下の Codex または Claude Code 接続を有効にし、このリモート端末で新しい codex または claude プロセスを起動してください。MobaXterm を開くだけでは有効になりません。',
   rbVscodeEnvironmentScope: '外部ターミナルでは CLI 起動前に設定コマンドを実行します。General Proxy は資格情報なしのループバック URL を使い、「VS Code で開く」の AI 通信は別認証の AI ルートを維持します。',
   rbExtCodexRouteImpact:'リモート共有 Codex 設定をバックアップし、ローカルで選択されたモデル、モデルカタログの原文、ProxyEnv Provider 経路を同期します。認証情報、Provider URL、MCP 設定、無関係な項目はコピーしません。',
   rbModelFollowCurrent:'現在の CC Switch モデルに追従',rbModelCurrentCc:'現在の CC Switch モデル',rbModelNativeHint:'リモート Codex はネイティブのモデル名を保持します。ProxyEnv は要求ごとに現在のローカルモデルを解決し、request.model だけを変更して CC Switch に転送します。',
@@ -217,6 +235,12 @@ const extensionKo: ExtensionLabels = {
   rbVscodeAutoAuth: 'ProxyEnv는 원격 VS Code Server가 로컬 프록시 설정을 상속하지 않도록 일시적으로 분리하고 루프백 AI 경로를 직접 연결합니다. General Proxy에는 자격 증명이 필요 없으며 Codex와 Claude는 별도의 자동 세션 인증을 유지합니다. 브리지 연결 해제 시 원래 설정을 복원합니다.',
   rbVscodeProxyUnsupported: 'VS Code 네트워크 격리는 General Proxy 프로토콜에 의존하지 않습니다. 일반 HTTP, Mixed 또는 SOCKS 프록시는 관리형 터미널에서 사용하세요.',
   rbCopySessionEnvironment: '터미널 설정 명령 복사',
+  rbVscodeNetworkBusy: '원격 VS Code 네트워크 설정이 다른 작업 또는 중단된 설정의 잠금으로 사용 중입니다. 완료 후 다시 시도하세요. 남은 잠금은 확인이 필요하며 설정 파일을 삭제하지 마세요.',
+  rbVscodeNetworkConflict: '원격 VS Code 설정 또는 ProxyEnv 네트워크 복구 기록이 관리 상태와 일치하지 않습니다. 충돌한 변경을 덮어쓰지 않았습니다. Codex／Claude 연결 파일이 아닌 이 네트워크 설정과 복구 기록을 확인하세요.',
+  rbVscodeNetworkUnsafe: '원격 VS Code 설정, 상위 디렉터리 또는 네트워크 복구 파일이 소유자, 권한 또는 심볼릭 링크 검사에 실패했습니다. 자동 네트워크 설정을 중단했으며 파일은 변경하지 않았습니다.',
+  rbMobaConnectionHint: 'MobaXterm을 열었습니다. 위에 표시된 동일한 SSH 호스트와 계정에 연결하세요. 새 브리지는 만들지 않습니다.',
+  rbMobaProxyHint: '네트워크 프록시를 사용하려면 터미널 설정 명령을 복사해 연결된 MobaXterm 터미널에서 실행한 뒤 도구를 시작하세요. 새 터미널마다 실행해야 합니다.',
+  rbMobaAiHint: 'AI 라우팅을 사용하려면 아래 Codex 또는 Claude Code 연결을 활성화하고 이 원격 터미널에서 새 codex 또는 claude 프로세스를 시작하세요. MobaXterm을 여는 것만으로 AI 연결은 활성화되지 않습니다.',
   rbVscodeEnvironmentScope: '외부 터미널에서는 CLI를 시작하기 전에 설정 명령을 실행하세요. General Proxy는 자격 증명 없는 루프백 URL을 사용하고, “VS Code에서 열기”의 AI 트래픽은 별도 인증 AI 경로를 유지합니다.',
   rbExtCodexRouteImpact:'원격 공유 Codex 설정을 백업한 뒤 로컬 선택 모델, 원본 모델 카탈로그와 ProxyEnv Provider 경로를 동기화합니다. 자격 증명, Provider URL, MCP 설정 및 무관한 필드는 복사하지 않습니다.',
   rbModelFollowCurrent:'현재 CC Switch 모델 따르기',rbModelCurrentCc:'현재 CC Switch 모델',rbModelNativeHint:'원격 Codex는 기본 모델 이름을 유지합니다. ProxyEnv는 요청마다 현재 로컬 모델을 다시 확인하고 request.model만 변경해 CC Switch로 전달합니다.',
@@ -683,6 +707,9 @@ export function bridgeError(code: unknown, copy: Labels): string {
   if (value === "remoteNodeUnsafe") return copy.rbRemoteNodeUnsafe;
   if (value === "vscodeServerMissing") return copy.rbVscodeServerMissing;
   if (value === "vscodeServerAmbiguous") return copy.rbVscodeServerAmbiguous;
+  if (value === "vscodeNetworkBusy") return copy.rbVscodeNetworkBusy;
+  if (value === "vscodeNetworkConflict") return copy.rbVscodeNetworkConflict;
+  if (value === "vscodeNetworkUnsafe") return copy.rbVscodeNetworkUnsafe;
   if (value === "remoteFailed") return copy.rbRemoteError;
   if (["mobaSessionUnsupported","targetUnsupported","mobaConfigInvalid"].includes(value)) return copy.rbTargetError;
   if (value === "portAllocationFailed") return copy.rbPortAllocationError;
