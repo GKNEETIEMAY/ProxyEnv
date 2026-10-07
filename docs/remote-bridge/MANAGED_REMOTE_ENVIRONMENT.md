@@ -14,6 +14,12 @@ Both uppercase and lowercase proxy names are set consistently. Unsupported proto
 
 ### Usage
 
+Remote VS Code network setup accepts group-write permissions only for a verified user-private primary group: the group name matches the user, no other account has that primary group, and no other explicit group member exists. Bounded NSS lookups support local `files`/`systemd` sources; lookup failures, directory-backed sources, and shared groups retain strict rejection. The exception is scoped to network apply/restore and is not supplied by the client. Owner, symlink, hardlink, size, and world-write checks remain enforced, including readback and replacement. Parent directory permissions are not changed; new transaction files retain private modes. AI configuration transactions keep their existing strict policy.
+
+Core bridge readiness does not imply background shell setup has finished. Before launching a managed proxy terminal or returning its setup command, ProxyEnv prepares the session environment if it is still pending or failed; setup errors are returned instead of handing off an unusable command. AI-only bridges can launch a plain remote terminal without requiring General Proxy.
+
+Open in MobaXterm starts the selected supported bookmark, or opens the application for other SSH sources; it does not inject into an existing MobaXterm shell or copy SSH credentials. The connected overview now keeps the shared Copy terminal setup command action beside the MobaXterm instructions. Connect the same host and account, source the command in each new terminal, then launch tools. Codex/Claude access must be enabled independently for AI routing; opening a terminal does not enable or verify it.
+
 | Mode | Enable | Next step |
 | --- | --- | --- |
 | AI only | AI Route; leave General Proxy off | Enable Codex/Claude access and use its managed configuration. Existing unrelated proxy environment in the consumer still needs loopback bypass. |

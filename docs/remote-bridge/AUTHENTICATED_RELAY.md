@@ -68,6 +68,8 @@ Acceptance: retain the user's local `http.proxy`, rebuild ProxyEnv, reconnect, o
 
 ## Acceptance coverage
 
+Network-only setup distinguishes a held/interrupted lock (`vscodeNetworkBusy`), inconsistent managed settings or recovery data (`vscodeNetworkConflict`), and unsafe ownership/permissions/symlinks (`vscodeNetworkUnsafe`). These allowlisted categories cross SSH and IPC without configuration values or credentials. They do not bypass safety checks, delete unknown locks, or force recovery over user edits. Device-specific failures still require inspection before remediation.
+
 ### Codex VS Code loopback requests through `http.proxy`
 
 The inspected Codex extension (`26.901.22334`) copies VS Code's `http.proxy` into its spawned Codex process's `HTTP_PROXY`/`HTTPS_PROXY` without adding a loopback bypass in that function. An AI request can therefore arrive at the General Proxy even though the provider configuration already contains valid AI session authentication.
