@@ -174,6 +174,12 @@ impl AuthenticatedRelay {
                 while !worker_session.revoked.load(Ordering::Acquire) {
                     match listener.accept() {
                         Ok((downstream, _)) => {
+                            // Windows inherits the listener's nonblocking mode.
+                            // Protocol handlers and tunnel copies use blocking IO.
+                            if downstream.set_nonblocking(false).is_err() {
+                                let _ = downstream.shutdown(Shutdown::Both);
+                                continue;
+                            }
                             let endpoint = upstream.clone();
                             let connection_session = Arc::clone(&worker_session);
                             let route = ai_route.clone();
@@ -530,6 +536,203 @@ fn tunnel(mut left: TcpStream, mut right: TcpStream) -> Result<(), &'static str>
 mod tests {
     use super::*;
     use std::sync::mpsc;
+
+    fn accept_test_upstream(listener: TcpListener) -> TcpStream {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    // The fake upstream must not reproduce the Relay's socket
+                    // mode bug itself when this test runs on Windows.
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    stream
+                        .set_write_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    return stream;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "Relay did not connect upstream"
+                    );
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("Fake upstream accept failed: {error}"),
+            }
+        }
+    }
+
+    fn test_relay_client(relay: &AuthenticatedRelay) -> TcpStream {
+        let client = TcpStream::connect((Ipv4Addr::LOCALHOST, relay.port())).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        client
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        client
+    }
+
+    // Opaque TLS-record-shaped bytes prove CONNECT payloads are forwarded as
+    // bytes, not parsed or buffered as HTTP. Real HTTPS is checked separately.
+    const CLIENT_RECORD: &[u8] = b"\x16\x03\x03\x00\x05hello";
+    const SERVER_RECORD: &[u8] = b"\x17\x03\x03\x00\x05world";
+
+    fn test_upstream_payload(mut stream: TcpStream) {
+        for _ in 0..2 {
+            let mut received = vec![0; CLIENT_RECORD.len()];
+            stream.read_exact(&mut received).unwrap();
+            assert_eq!(received, CLIENT_RECORD);
+            thread::sleep(Duration::from_millis(100));
+            stream.write_all(SERVER_RECORD).unwrap();
+        }
+        let mut tail = Vec::new();
+        stream.read_to_end(&mut tail).unwrap();
+        assert!(tail.is_empty());
+        stream.shutdown(Shutdown::Write).unwrap();
+    }
+
+    fn test_client_payload(client: &mut TcpStream) {
+        for _ in 0..2 {
+            thread::sleep(Duration::from_millis(100));
+            client.write_all(CLIENT_RECORD).unwrap();
+            let mut received = vec![0; SERVER_RECORD.len()];
+            client.read_exact(&mut received).unwrap();
+            assert_eq!(received, SERVER_RECORD);
+        }
+        client.shutdown(Shutdown::Write).unwrap();
+        let mut tail = Vec::new();
+        client.read_to_end(&mut tail).unwrap();
+        assert!(tail.is_empty());
+    }
+
+    fn assert_http_relay_idle_tunnel(delay_first_request: bool) {
+        const REQUEST: &[u8] = b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n";
+        const RESPONSE: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let relay = AuthenticatedRelay::start(
+            ProxyEndpoint {
+                host: "127.0.0.1".into(),
+                port: listener.local_addr().unwrap().port(),
+                protocol: ProxyProtocol::Mixed,
+            },
+            RelayMode::General(ProxyProtocol::Mixed),
+        )
+        .unwrap();
+        let upstream = thread::spawn(move || {
+            let mut stream = accept_test_upstream(listener);
+            assert_eq!(read_head(&mut stream).unwrap().as_slice(), REQUEST);
+            stream.write_all(RESPONSE).unwrap();
+            test_upstream_payload(stream);
+        });
+        let mut client = test_relay_client(&relay);
+        if delay_first_request {
+            thread::sleep(Duration::from_millis(100));
+            client.write_all(&REQUEST[..16]).unwrap();
+            thread::sleep(Duration::from_millis(100));
+            client.write_all(&REQUEST[16..]).unwrap();
+        } else {
+            client.write_all(REQUEST).unwrap();
+        }
+        let mut response = vec![0; RESPONSE.len()];
+        client.read_exact(&mut response).unwrap();
+        assert_eq!(response, RESPONSE);
+        test_client_payload(&mut client);
+        upstream.join().unwrap();
+    }
+
+    #[test]
+    fn accepted_relay_waits_for_delayed_and_fragmented_http_connect() {
+        assert_http_relay_idle_tunnel(true);
+    }
+
+    #[test]
+    fn accepted_relay_http_connect_preserves_bidirectional_payload_after_idle() {
+        assert_http_relay_idle_tunnel(false);
+    }
+
+    #[test]
+    fn accepted_relay_socks_connect_preserves_bidirectional_payload_after_idle() {
+        const CONNECT: &[u8] = b"\x05\x01\x00\x03\x0bexample.com\x01\xbb";
+        const RESPONSE: &[u8] = b"\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x00";
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let relay = AuthenticatedRelay::start(
+            ProxyEndpoint {
+                host: "127.0.0.1".into(),
+                port: listener.local_addr().unwrap().port(),
+                protocol: ProxyProtocol::Mixed,
+            },
+            RelayMode::General(ProxyProtocol::Mixed),
+        )
+        .unwrap();
+        let upstream = thread::spawn(move || {
+            let mut stream = accept_test_upstream(listener);
+            let mut greeting = [0; 3];
+            stream.read_exact(&mut greeting).unwrap();
+            assert_eq!(greeting, [5, 1, 0]);
+            stream.write_all(&[5, 0]).unwrap();
+            assert_eq!(read_socks_request(&mut stream).unwrap(), CONNECT);
+            stream.write_all(RESPONSE).unwrap();
+            test_upstream_payload(stream);
+        });
+        let mut client = test_relay_client(&relay);
+        thread::sleep(Duration::from_millis(100));
+        client.write_all(&[5, 1]).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        client.write_all(&[0]).unwrap();
+        let mut greeting = [0; 2];
+        client.read_exact(&mut greeting).unwrap();
+        assert_eq!(greeting, [5, 0]);
+        thread::sleep(Duration::from_millis(100));
+        client.write_all(CONNECT).unwrap();
+        let mut response = vec![0; RESPONSE.len()];
+        client.read_exact(&mut response).unwrap();
+        assert_eq!(response, RESPONSE);
+        test_client_payload(&mut client);
+        upstream.join().unwrap();
+    }
+
+    #[test]
+    fn accepted_relay_ai_waits_for_fragmented_authenticated_headers() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let relay = AuthenticatedRelay::start(
+            ProxyEndpoint {
+                host: "127.0.0.1".into(),
+                port: listener.local_addr().unwrap().port(),
+                protocol: ProxyProtocol::Http,
+            },
+            RelayMode::AiHttp,
+        )
+        .unwrap();
+        let upstream = thread::spawn(move || {
+            let mut stream = accept_test_upstream(listener);
+            let head = read_head(&mut stream).unwrap();
+            assert!(!String::from_utf8_lossy(&head)
+                .to_ascii_lowercase()
+                .contains(SESSION_HEADER));
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .unwrap();
+        });
+        let request = format!(
+            "POST /v1/responses HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 0\r\n\r\n",
+            relay.token().as_str()
+        );
+        let mut client = test_relay_client(&relay);
+        thread::sleep(Duration::from_millis(100));
+        client.write_all(&request.as_bytes()[..24]).unwrap();
+        thread::sleep(Duration::from_millis(100));
+        client.write_all(&request.as_bytes()[24..]).unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.ends_with("ok"));
+        upstream.join().unwrap();
+    }
 
     fn tunnel_pair() -> (TcpStream, TcpStream, JoinHandle<Result<(), &'static str>>) {
         let left_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
