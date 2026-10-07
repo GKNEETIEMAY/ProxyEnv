@@ -21,7 +21,14 @@ export function networkSettingsPath(root, uid, agentFolder) {
   return path.join(selected, 'data/Machine/settings.json');
 }
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
-const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// JSON object order is not a configuration change. Array order and the
+// distinction between absent settings and explicit null values still matter.
+function equal(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+  const names = Object.keys(a);
+  return names.length === Object.keys(b).length && names.every(name => own(b, name) && equal(a[name], b[name]));
+}
 function snapshot(text) {
   const values = getNodeValue(jsonTree(text || '{}'));
   return Object.fromEntries(keys.map(key => [key, own(values, key) ? { value: values[key] } : {}]));
@@ -108,6 +115,9 @@ export function networkTransaction({ file, root, uid, operation, sessionId, prox
         [terminalKey]: terminalEnvironment(original[terminalKey], proxyPort, proxyProtocol),
       };
     }
+    // Reopening VS Code or refreshing the same bridge is a read-only check.
+    // A prepared transaction still needs recovery; endpoint changes still write.
+    if (!restoring && record?.schema === 2 && record.state === 'applied' && equal(before, applied)) return { configured: true };
     let next = patch(current, applied);
     if (restoring && originalAbsent && !preserveFile && Object.keys(getNodeValue(jsonTree(next))).length === 0) next = null;
     const pending = { schema: 2, state: 'prepared', sessionId, original, originalAbsent, preserveFile, before, applied, appliedFileHash: hash(next) };

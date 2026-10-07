@@ -48,14 +48,17 @@ ProxyEnv attempts the remote configuration transaction before launching the edit
 
 Network-only setup selects the remote Server settings directory without scanning AI extension manifests or server version directories. An explicit in-home `VSCODE_AGENT_FOLDER` takes precedence; otherwise exactly one default server root must exist. The helper discovers existing Node 20+ through system paths, SSH PATH, native user paths, nvm and bundled VS Code Server runtimes. Package-manager symlinks are canonicalized before validating executable and ancestor ownership/write permissions. No shell profiles are sourced and no runtime is installed. Missing/old runtime, unsafe runtime paths, absent server and ambiguous server roots have distinct safe error codes instead of an AI-extension compatibility error.
 
-Four managed fields form one reversible isolation boundary:
+Five managed fields form one reversible isolation boundary:
 
 - `http.useLocalProxyConfiguration = false` separates the remote setting from the user's local network proxy.
 - `http.proxy` is temporarily removed instead of storing a General Proxy credential in VS Code.
 - `http.proxyAuthorization` is temporarily removed because Chromium and extension processes do not consume one shared credential source reliably.
 - `http.noProxy` preserves existing exclusions and adds loopback. Codex and Claude reach the separately authenticated AI Route directly.
+- `terminal.integrated.env.linux` supplies new terminals with the actual remote General Proxy port, protocol-specific uppercase/lowercase variables and loopback bypasses, preserving the original environment for restoration.
 
 These settings and their ownership journal are written atomically as user-owned mode 0600 files over SSH stdin, never shell arguments. The journal retains original managed fields, not an entire unrelated settings backup. Apply and restore preserve unrelated JSONC fields and comments, reject edits to managed fields, and roll back write failures without overwriting concurrent changes. The transaction contains no proxy password or AI session token.
+
+Within the same applied session, reopening VS Code or refreshing an unchanged endpoint checks the managed values without rewriting either settings or the journal. Object-key order is ignored; actual value changes, array order and absent versus null settings remain distinct. A changed endpoint still updates the transaction, a prepared journal still requires recovery, and a new explicit session still restores the previous owned session before applying the new one. This is not a permanent one-time edit of the user's local VS Code configuration.
 
 Normal disconnect revokes both relays first, then restores the original remote fields. Failed cleanup is reported. Exit/crash revokes the relays but does not wait for SSH cleanup; a token-free local ownership ledger lets the next connection or Open in VS Code recover the previous session before applying the current isolation state. Only previously managed targets receive this reconnect update; unrelated remote settings are not automatically enrolled. Fingerprint changes, unknown session owners and conflicting user edits fail closed.
 

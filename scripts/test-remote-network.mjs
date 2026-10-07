@@ -63,6 +63,47 @@ test('terminal bridge supports SOCKS and never replaces concurrent user environm
   assert.deepEqual(f.read(), edited);
 });
 
+test('remote network accepts reordered settings and journals without treating formatting as a conflict', t => {
+  const initial = { 'terminal.integrated.env.linux': { CUSTOM: 'keep', NO_PROXY: 'lab.test' } };
+  const f = fixture(t, JSON.stringify(initial));
+  const reorder = value => {
+    if (Array.isArray(value)) return value.map(reorder);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reorder(item)]));
+    return value;
+  };
+  const reformat = () => {
+    fs.writeFileSync(f.file, JSON.stringify(reorder(f.read()), null, 2));
+    fs.writeFileSync(f.journal, JSON.stringify(reorder(JSON.parse(fs.readFileSync(f.journal, 'utf8'))), null, 2));
+  };
+  f.apply({ proxyPort: 7897, proxyProtocol: 'mixed' });
+  reformat();
+  assert.deepEqual(f.apply({ proxyPort: 17897, proxyProtocol: 'http' }), { configured: true });
+  assert.equal(f.read()['terminal.integrated.env.linux'].HTTP_PROXY, 'http://127.0.0.1:17897');
+  reformat();
+  assert.deepEqual(f.restore(), { restored: true });
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.file, 'utf8')), initial);
+});
+
+test('reordered snapshots still reject changed managed values, arrays, and absent settings', t => {
+  for (const change of [
+    values => { values['terminal.integrated.env.linux'].HTTP_PROXY = 'http://user:9000'; },
+    values => { values['http.noProxy'].reverse(); },
+    values => { values['http.proxy'] = null; },
+  ]) {
+    const f = fixture(t);
+    f.apply({ proxyPort: 7897, proxyProtocol: 'mixed' });
+    const edited = f.read();
+    edited['terminal.integrated.env.linux'] = Object.fromEntries(Object.entries(edited['terminal.integrated.env.linux']).reverse());
+    change(edited);
+    fs.writeFileSync(f.file, JSON.stringify(edited));
+    const current = fs.readFileSync(f.file, 'utf8'), journal = fs.readFileSync(f.journal, 'utf8');
+    assert.throws(() => f.apply({ proxyPort: 17897, proxyProtocol: 'http' }), /configConflict/);
+    assert.throws(() => f.restore(), /configConflict/);
+    assert.equal(fs.readFileSync(f.file, 'utf8'), current);
+    assert.equal(fs.readFileSync(f.journal, 'utf8'), journal);
+  }
+});
+
 test('legacy network journals preserve previously unmanaged terminal settings', t => {
   const f = fixture(t, '{}');
   f.apply();
@@ -85,6 +126,22 @@ test('invalid terminal bridge endpoints fail before any write', t => {
     assert.equal(fs.readFileSync(f.file, 'utf8'), '{}');
     assert.equal(fs.existsSync(f.journal), false);
   }
+});
+
+test('unchanged VS Code setup is read-only while a changed bridge port updates its transaction', t => {
+  const f = fixture(t, '{ // user comment\n }');
+  f.apply({ proxyPort: 7897, proxyProtocol: 'mixed' });
+  const current = fs.readFileSync(f.file, 'utf8'), journal = fs.readFileSync(f.journal, 'utf8');
+  const phases = [];
+  assert.deepEqual(f.apply({ proxyPort: 7897, proxyProtocol: 'mixed' }, phase => phases.push(phase)), { configured: true });
+  assert.deepEqual(phases, []);
+  assert.equal(fs.readFileSync(f.file, 'utf8'), current);
+  assert.equal(fs.readFileSync(f.journal, 'utf8'), journal);
+  f.apply({ proxyPort: 17897, proxyProtocol: 'http' }, phase => phases.push(phase));
+  assert.deepEqual(phases, ['prepared', 'replaced']);
+  assert.equal(f.read()['terminal.integrated.env.linux'].HTTP_PROXY, 'http://127.0.0.1:17897');
+  f.restore();
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.file, 'utf8').replace('// user comment', '')), {});
 });
 
 test('runtime launcher resolves installed executable paths and rejects unsafe or old runtimes', t => {
