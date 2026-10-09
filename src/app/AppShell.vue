@@ -44,7 +44,6 @@ const defaultSettings: AppSettings = {
 
 const primaryView = ref<"local" | "remote">("local");
 const view = ref<"local" | "remote" | "assistant" | "settings">("local");
-const remoteViewMounted = ref(false);
 const settingsTab = ref<SettingsTab>("general");
 const loading = ref(true);
 const toggling = ref(false);
@@ -298,7 +297,6 @@ function openLocal() {
 }
 
 function openRemote() {
-  remoteViewMounted.value = true;
   primaryView.value = "remote";
   view.value = "remote";
 }
@@ -718,7 +716,7 @@ onBeforeUnmount(() => {
     />
     </div>
 
-    <div v-if="remoteViewMounted" v-show="view === 'remote'" class="view-pane remote-view-pane">
+    <div v-show="view === 'remote'" class="view-pane remote-view-pane">
     <RemoteBridgePage
       :visible="view === 'remote'"
       :copy="copy"

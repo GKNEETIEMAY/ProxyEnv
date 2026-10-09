@@ -550,7 +550,69 @@ const connectionKo: ConnectionLabels = {
   rbSourceManual:"ProxyEnv 연결",rbAddConnection:"SSH 연결 추가",rbConnectionTitle:"SSH 연결 추가",rbConnectionDisplayName:"표시 이름",rbConnectionDestination:"호스트 또는 user@host",rbConnectionDestinationHint:"예: lab.example.edu, 192.168.1.20, [2001:db8::1] 또는 student@lab.example.edu",rbConnectionDestinationInvalid:"올바른 호스트 이름, IPv4, IPv6 또는 user@host를 입력하세요. SSH 포트는 별도 포트 입력란에 입력합니다.",rbConnectionPort:"SSH 포트",rbConnectionAuthentication:"인증",rbConnectionAuthAutomatic:"OpenSSH 자동 사용",rbConnectionAuthAutomaticHint:"SSH 설정, 기본 키, ssh-agent, 비밀번호, 대화형 인증 및 최초 호스트 키 확인을 사용합니다.",rbConnectionAuthPassword:"비밀번호 인증 사용",rbConnectionAuthPasswordHint:"연결할 때 OpenSSH가 비밀번호를 요청합니다. ProxyEnv는 이 연결에 비밀번호를 저장하지 않습니다.",rbConnectionAuthIdentity:"지정된 키 파일 사용",rbConnectionIdentityFile:"키 파일 경로",rbConnectionIdentityHint:"로컬 OpenSSH 또는 PEM 개인 키를 선택하세요. 형식 헤더만 확인하고 경로만 저장합니다. 키 내용은 저장하거나 업로드하지 않으며 잠금 해제와 로그인은 OpenSSH가 처리합니다.",rbConnectionIdentityInvalidPath:"장치 경로 접두사, 제어 문자 또는 Windows 파일 이름 금지 문자가 없는 일반 로컬 절대 경로를 사용하세요.",rbConnectionSave:"연결 추가",rbConnectionEdit:"연결 수정",rbConnectionUpdate:"변경 저장",rbConnectionEditTitle:"연결 수정",rbConnectionEditHint:"저장된 이름, 대상, SSH 포트와 인증 방법을 변경할 수 있으며 연결 ID는 유지됩니다.",rbConnectionCopyTitle:"ProxyEnv 연결로 수정",rbConnectionCopySave:"ProxyEnv 복사본 저장",rbConnectionCopyEditHint:"현재 이름, 대상, 포트, 인증 방법으로 독립된 ProxyEnv 연결을 저장합니다. 원본 OpenSSH, VS Code, MobaXterm 설정은 변경하지 않습니다.",rbTargetAuthAutomatic:"OpenSSH에서 결정",rbTargetAuthPassword:"비밀번호 인증",rbTargetAuthIdentity:"키 인증",rbTargetAuthAgent:"SSH Agent",rbConnectionRemove:"연결 삭제",rbConnectionRemoveTitle:"이 연결 복사본을 삭제할까요?",rbConnectionRemoveHint:"ProxyEnv의 연결 복사본만 삭제합니다. 원본 설정, SSH 키, known_hosts 및 원격 파일은 변경하지 않습니다.",rbConnectionInvalid:"표시 이름, 대상, SSH 포트 및 키 파일 경로를 확인하세요. 연결이 저장되지 않았습니다.",
   rbWorkspaceTitle:"원격 브리지",rbWorkspaceSubtitle:"SSH 연결을 선택하고 이 원격 환경에 제공할 기능을 설정하세요.",rbConnectionList:"SSH 연결",rbRefreshShort:"새로 고침",rbCurrentConnection:"현재 연결",rbNoSelectionTitle:"선택한 SSH 연결이 없습니다",rbNoSelectionHint:"왼쪽에서 SSH 연결을 선택하거나 추가하세요.",rbConnectionMoreActions:"연결 작업",rbConnectionHide:"목록에서 숨기기",rbConnectionHideTitle:"이 SSH 연결을 숨길까요?",rbConnectionHideHint:"ProxyEnv 목록에서만 숨기며 원본 OpenSSH, VS Code 또는 MobaXterm 설정은 변경하지 않습니다.",
 };
+const overviewEn = {
+  rbCapabilityBusy: "Bridge setup or configuration is still running. Wait a moment and retry.",
+  rbCapabilityPartialFailure: "The capability change did not finish. Some managed configuration may have been restored. Check the tool states and retry; conflicting edits were not overwritten.",
+  rbOverviewServerDirectNetwork: "Server direct network", rbOverviewDirectAvailable: "Available", rbOverviewDirectUnavailable: "Unavailable", rbOverviewDirectUnknown: "Unknown",
+  rbOverviewRestartRequired: "Restart required",
+  rbOverviewLocalProxy: "Local proxy", rbOverviewAiTitle: "AI tools & Skills", rbOverviewAiTools: "AI tools", rbOverviewManage: "Manage",
+  rbOverviewConfigured: "Configured", rbOverviewSynced: "Configured · Synced", rbOverviewNotEnabled: "Not enabled",
+  rbOverviewServerHelp: "Checks the server's own internet access, without the bridged proxy. An unavailable direct connection does not mean the SSH bridge has failed.",
+  rbOverviewCapabilityHelp: "Enable or pause this capability independently. Pausing closes its current connections while reserving its port; the other capability remains enabled. AI routing restores managed tool settings before pausing, and reapplies previously enabled tools when resumed. Restart running tools after configuration changes.",
+  rbOverviewAiHelp: "Forwards AI requests to the local CC Switch route through SSH. Independent of the network proxy. Enable Claude/Codex routing in CC Switch → Settings → Routing → Local routing → Master switch.",
+  rbOverviewToolHelp: "Enable or restore this tool's shared remote CLI and extension configuration using the existing backup-protected transaction. Configured does not guarantee a successful AI request. Restart running tools after changing access.",
+  rbOverviewSkillsHelp: "Shows automatically synchronized local linked Skills for each agent. Change agent enablement in Manage. Restart the agent to discover changed Skills.",
+  rbOverviewSkillsAuto: "Auto sync · {synced} / {total} synced", rbOverviewVscodeUnavailable: "This SSH target cannot currently be opened in VS Code. Check VS Code and Remote - SSH under Advanced.",
+  rbOverviewMobaUnavailable: "MobaXterm is unavailable for this target. Check its installation and connection settings under Advanced.",
+};
+type OverviewLabels = { [K in keyof typeof overviewEn]: string };
+const overviewZh: OverviewLabels = {
+  rbCapabilityBusy: "桥接初始化或配置操作尚未完成，请稍后再试。",
+  rbCapabilityPartialFailure: "能力切换未完成，部分管理配置可能已恢复。请检查工具状态后重试；未覆盖冲突修改。",
+  rbOverviewServerDirectNetwork: "服务器直连网络", rbOverviewDirectAvailable: "可用", rbOverviewDirectUnavailable: "不可用", rbOverviewDirectUnknown: "未知",
+  rbOverviewRestartRequired: "需要重启",
+  rbOverviewLocalProxy: "本机代理", rbOverviewAiTitle: "AI 工具与 Skills", rbOverviewAiTools: "AI 工具", rbOverviewManage: "管理",
+  rbOverviewConfigured: "已配置", rbOverviewSynced: "已配置 · 已同步", rbOverviewNotEnabled: "未启用",
+  rbOverviewServerHelp: "检查服务器自身的外网连接，不经过桥接代理。服务器直连不可用不代表 SSH 桥接失败。",
+  rbOverviewCapabilityHelp: "可独立启用或暂停此能力。暂停会关闭该项当前连接并保留端口，不关闭另一项能力。暂停 AI 路由前会恢复管理中的工具配置，重新开启时恢复之前启用的工具。配置变更后请重启正在运行的工具。",
+  rbOverviewAiHelp: "通过 SSH 将 AI 请求转发到本机 CC Switch 路由，与网络代理相互独立。请在 CC Switch → 设置 → 路由 → 本地路由 → 路由总开关中开启 Claude/Codex 路由。",
+  rbOverviewToolHelp: "使用现有备份与恢复机制，启用或还原此工具的远端 CLI 与插件共用配置。已配置不代表 AI 请求已验证成功；更改后请重启正在运行的工具。",
+  rbOverviewSkillsHelp: "按智能体显示本机已链接 Skills 的自动同步状态。点击管理调整启用范围；变更后请重启智能体以发现 Skills。",
+  rbOverviewSkillsAuto: "自动同步 · 已同步 {synced} / {total}", rbOverviewVscodeUnavailable: "此 SSH 目标暂时无法在 VS Code 中打开，请在高级页检查 VS Code 与 Remote - SSH。",
+  rbOverviewMobaUnavailable: "此目标暂时无法使用 MobaXterm，请在高级页检查安装与连接设置。",
+};
+const overviewJa: OverviewLabels = {
+  rbCapabilityBusy: "ブリッジの初期化または設定処理中です。少し待って再試行してください。",
+  rbCapabilityPartialFailure: "機能の切り替えが完了しませんでした。一部の管理設定が復元された可能性があります。ツールの状態を確認し再試行してください。競合する変更は上書きしていません。",
+  rbOverviewServerDirectNetwork: "サーバー直接接続", rbOverviewDirectAvailable: "利用可能", rbOverviewDirectUnavailable: "利用不可", rbOverviewDirectUnknown: "不明",
+  rbOverviewRestartRequired: "再起動が必要",
+  rbOverviewLocalProxy: "ローカルプロキシ", rbOverviewAiTitle: "AI ツールと Skills", rbOverviewAiTools: "AI ツール", rbOverviewManage: "管理",
+  rbOverviewConfigured: "設定済み", rbOverviewSynced: "設定済み · 同期済み", rbOverviewNotEnabled: "無効",
+  rbOverviewServerHelp: "ブリッジプロキシを使わず、サーバー自身の外部接続を確認します。直接接続が利用できなくても SSH ブリッジの失敗を意味しません。",
+  rbOverviewCapabilityHelp: "各機能を個別に有効化・一時停止できます。停止時はその機能の接続だけを閉じ、ポートを保持します。AI ルートの停止前に管理設定を復元し、再開時に以前有効なツールを再設定します。設定変更後は実行中のツールを再起動してください。",
+  rbOverviewAiHelp: "AI リクエストを SSH 経由でローカル CC Switch に転送します。ネットワークプロキシとは独立しています。CC Switch → 設定 → ルーティング → ローカルルーティング → マスタースイッチで Claude/Codex を有効にしてください。",
+  rbOverviewToolHelp: "既存のバックアップ・復元処理でリモート CLI と拡張機能の共有設定を有効化・復元します。設定済みは AI リクエストの成功確認ではありません。変更後は実行中のツールを再起動してください。",
+  rbOverviewSkillsHelp: "リンクされたローカル Skills の自動同期状態をエージェント別に表示します。管理で有効範囲を変更できます。変更後はエージェントを再起動してください。",
+  rbOverviewSkillsAuto: "自動同期 · {synced} / {total} 同期済み", rbOverviewVscodeUnavailable: "この SSH 接続は現在 VS Code で開けません。詳細画面で VS Code と Remote - SSH を確認してください。",
+  rbOverviewMobaUnavailable: "この接続では MobaXterm を利用できません。詳細画面でインストールと接続設定を確認してください。",
+};
+const overviewKo: OverviewLabels = {
+  rbCapabilityBusy: "브리지 초기화 또는 설정 작업이 진행 중입니다. 잠시 후 다시 시도하세요.",
+  rbCapabilityPartialFailure: "기능 전환을 완료하지 못했습니다. 일부 관리 설정이 복원되었을 수 있습니다. 도구 상태를 확인하고 다시 시도하세요. 충돌한 변경은 덮어쓰지 않았습니다.",
+  rbOverviewServerDirectNetwork: "서버 직접 연결", rbOverviewDirectAvailable: "사용 가능", rbOverviewDirectUnavailable: "사용 불가", rbOverviewDirectUnknown: "알 수 없음",
+  rbOverviewRestartRequired: "다시 시작 필요",
+  rbOverviewLocalProxy: "로컬 프록시", rbOverviewAiTitle: "AI 도구 및 Skills", rbOverviewAiTools: "AI 도구", rbOverviewManage: "관리",
+  rbOverviewConfigured: "설정됨", rbOverviewSynced: "설정됨 · 동기화됨", rbOverviewNotEnabled: "비활성",
+  rbOverviewServerHelp: "브리지 프록시를 거치지 않고 서버 자체의 외부 연결을 확인합니다. 직접 연결 불가는 SSH 브리지 실패를 의미하지 않습니다.",
+  rbOverviewCapabilityHelp: "각 기능을 독립적으로 켜거나 일시 중지할 수 있습니다. 중지 시 해당 연결만 닫고 포트는 유지합니다. AI 라우팅 중지 전 관리 설정을 복원하며 재개 시 이전 활성 도구를 다시 설정합니다. 설정 변경 후 실행 중인 도구를 다시 시작하세요.",
+  rbOverviewAiHelp: "SSH를 통해 AI 요청을 로컬 CC Switch로 전달합니다. 네트워크 프록시와 독립적입니다. CC Switch → 설정 → 라우팅 → 로컬 라우팅 → 전체 스위치에서 Claude/Codex를 켜 주세요.",
+  rbOverviewToolHelp: "기존 백업 및 복원 절차로 원격 CLI와 확장의 공유 설정을 활성화하거나 복원합니다. 설정됨은 AI 요청 성공을 보장하지 않습니다. 변경 후 실행 중인 도구를 다시 시작하세요.",
+  rbOverviewSkillsHelp: "연결된 로컬 Skills의 자동 동기화 상태를 에이전트별로 표시합니다. 관리에서 활성화 범위를 변경하세요. 변경 후 에이전트를 다시 시작하세요.",
+  rbOverviewSkillsAuto: "자동 동기화 · {synced} / {total} 동기화됨", rbOverviewVscodeUnavailable: "현재 이 SSH 연결을 VS Code에서 열 수 없습니다. 고급 화면에서 VS Code와 Remote - SSH를 확인하세요.",
+  rbOverviewMobaUnavailable: "이 연결에서 MobaXterm을 사용할 수 없습니다. 고급 화면에서 설치와 연결 설정을 확인하세요.",
+};
 const en = {
+  ...overviewEn,
   ...extensionEn,
   ...flowEn,
   ...foundationEn,
@@ -586,6 +648,7 @@ rbDependencyError: "The remote operation is missing a required capability.", rbR
 };
 type Labels = { [K in keyof typeof en]: K extends "rbStates" ? Record<keyof typeof en.rbStates, string> : string };
 const zh: Labels = {
+  ...overviewZh,
   ...extensionZh,
   ...flowZh,
   ...foundationZh,
@@ -607,6 +670,7 @@ const zh: Labels = {
   rbStates:{disconnected:"未连接",connecting:"正在连接",connected:"已连接",stale:"配置已变化",unavailable:"当前不可用",error:"连接失败"},
 };
 const ja: Labels = {
+  ...overviewJa,
   ...extensionJa,
   ...flowJa,
   ...foundationJa,
@@ -619,6 +683,7 @@ const ja: Labels = {
   rbTitle:"リモート環境ブリッジ",rbHint:"SSH 経由でサーバーや VM と現在のプロキシ・CC Switch を共有します。",rbOpen:"ブリッジを設定",rbView:"ブリッジを表示",rbTarget:"接続先を選択",rbCapabilities:"機能を選択",rbPreview:"設定を確認",rbStatus:"ブリッジの状態",rbAlias:"SSH ホスト別名",rbEmpty:"~/.ssh/config に明示的な Host がありません。OpenSSH で追加して更新してください。",rbRequirements:"既存の鍵と Agent を使用します。先にターミナルでホスト鍵を確認してください。接続先は非 root の Linux、ss・flock・coreutils が必要です。",rbCheck:"接続を確認",rbChecked:"SSH 接続を確認済み",rbRefresh:"ホストを更新",rbNext:"次へ",rbBack:"戻る",rbClose:"閉じる",rbProxy:"現在のローカルプロキシ",rbNoProxy:"プロキシが利用できません。ホームで利用可能なプロキシを選択してください。",rbCc:"CC Switch ローカルルーティング",rbCcHint:"ポートの待ち受けのみ確認します。CC Switch のポートと CLI のルーティング有効化を確認してください。",rbLocalPort:"ローカルポート",rbDetect:"ポートを確認",rbDetected:"ポートは待ち受け中です",rbRemotePort:"リモートポート",rbPortHint:"1024～65535 の異なるポートを指定してください。",rbSafety:"リモートは 127.0.0.1 のみ。ProxyEnv の実行中だけ有効です。Shell 起動ファイルは変更しません。",rbConnect:"ブリッジを接続",rbDisconnect:"ブリッジを切断",rbDisconnectHint:"リモートプログラムの接続が失われます。保存済み CLI 設定は復元できます。",rbConfirm:"確認",rbCancel:"キャンセル",rbReconnect:"再設定",rbStaleHint:"現在のプロキシが変更されました。既存の接続先は保持されています。切断してから再接続してください。",rbUnavailableHint:"ローカルの接続先を利用できません。プロキシまたは CC Switch を確認してください。自動切替は行いません。",rbLocal:"ローカル",rbRemote:"リモート",rbCopy:"環境変数をコピー",rbCopied:"コピーしました",rbTest:"ブリッジをテスト",rbTestHint:"この操作のみがリモートプロキシ経由で gstatic.com に接続します。AI リクエストは送りません。",rbTested:"ネットワークテスト成功",rbCodex:"Codex を設定",rbClaude:"Claude Code を設定",rbRestoreCodex:"Codex 設定を復元",rbRestoreClaude:"Claude 設定を復元",rbConfigHint:"選択した CLI 設定を確認して適用します。",rbCodexConfigHint:"Codex CLI 0.134+（0.x）用の専用 Profile を作成し、既定設定と認証情報は変更しません。",rbClaudeConfigHint:"Claude Code 2.x のユーザー設定を更新し、通常の `claude` 起動でブリッジ経路を使います。無関係な設定は保持し、経路と競合する認証キーはバックアップと確認後のみ置換します。",rbBefore:"変更前",rbAfter:"管理対象の変更",rbAbsent:"ファイルなし",rbExistingConfigProtected:"既存設定を検出しました。内容と認証情報は表示せず、リモートバックアップに完全保存します。",rbConfigBackupHint:"書き込み前に元ファイルを保存し、置換後に検証します。失敗時は即時ロールバックし、第三者変更があれば復元せず停止します。",rbApply:"バックアップして適用",rbApplied:"設定を検証済み",rbLaunch:"リモート起動コマンド",rbCopyLaunch:"起動コマンドをコピー",rbRestoreHint:"リモートバックアップから元ファイルを正確に復元します。管理対象ファイルが変更されていれば上書きせず停止します。",rbRestored:"元の設定を復元しました",rbBusy:"処理中…",rbFailed:"操作に失敗しました。SSH とローカル接続先を確認して再試行してください。",rbSshError:"SSH 接続に失敗しました。ターミナルでホスト鍵、認証、設定を確認してください。サーバー設定は変更していません。",rbForwardError:"転送できません。ポートの使用状況と SSH 転送ポリシーを確認してください。サーバー設定は変更していません。",rbBindingError:"Loopback のみの待ち受けを確認できず、新しい接続を閉じました。管理者に GatewayPorts を確認してください。",rbConfigError:"設定が競合するか未対応です。競合を上書きしていません。対象設定と ProxyEnv の復元ファイルを確認してください。",rbDependencyError:"現在の操作に必要な機能がありません。",rbRemoteUnsupportedError:"このリモートシステムは未対応です。現在は Linux のみ対応します。",rbDependencyMissingError:"必要なツールがありません。ss、flock、GNU coreutils を導入してください。",rbCliUnsupportedError:"対応 CLI がありません。Codex 0.134+（0.x）または Claude Code 2.x を使用してください。",rbCustomHomeError:"カスタム設定ディレクトリが有効です。ProxyEnv はその場所を推測・変更しません。",rbRootForbiddenError:"root アカウントは未対応です。非 root Linux アカウントを使用してください。",rbJsonEditorMissingError:"Claude ユーザー設定の安全な JSON 結合と復元には Python 2.7 または Python 3 が必要です。",rbPortError:"ポートが無効か使用中です。1024～65535 の空きポートを選択してください。",rbActiveError:"プロキシが変更されたか利用できません。ホームで確認して再設定してください。",rbStates:{disconnected:"未接続",connecting:"接続中",connected:"接続済み",stale:"設定変更あり",unavailable:"利用不可",error:"接続失敗"},
 };
 const ko: Labels = {
+  ...overviewKo,
   ...extensionKo,
   ...flowKo,
   ...foundationKo,
@@ -684,6 +749,8 @@ export function bridgeErrorCode(error: unknown): string {
 
 export function bridgeError(code: unknown, copy: Labels): string {
   const value = bridgeErrorCode(code);
+  if (value === "bridgeBusy") return copy.rbCapabilityBusy;
+  if (value === "capabilityPartialFailure") return copy.rbCapabilityPartialFailure;
   if (value === "backendCommandMissing") return copy.rbBackendRestartRequired;
   if (value === "invalidConnectionName") return copy.rbConnectionNameInvalid;
   if (value === "invalidConnectionDestination") return copy.rbConnectionDestinationInvalid;

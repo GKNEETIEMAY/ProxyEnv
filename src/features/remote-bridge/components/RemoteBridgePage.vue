@@ -12,11 +12,14 @@ import FieldValidation from "../../../shared/components/FieldValidation.vue";
 import RemoteToolDialog from "./RemoteToolDialog.vue";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
+import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
+import { overviewServerDirectStatus } from "../overview-presentation";
 import { remoteToolAdapters, type RemoteToolAdapter, type RemoteToolId } from "../tool-adapters";
 import {
   remoteBackend,
   targetLabel,
   type BridgeRequest,
+  type BridgeCapability,
   type BridgeSummary,
   type CcDetection,
   type ManualConnectionInput,
@@ -31,6 +34,7 @@ import {
 } from "../state";
 
 const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; ccDetection: CcDetection | null; reviewPreview?: boolean; visible?: boolean }>();
+const capabilityPending = ref<BridgeCapability>();
 const emit = defineEmits<{ refresh: []; connected: [summary: BridgeSummary] }>();
 const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
 const confirmation = ref<HTMLDialogElement>();
@@ -72,6 +76,7 @@ function persistTargetCopies() {
 }
 const checked = ref(false);
 const proxy = ref(true);
+const proxyPreferred = ref(true);
 const cc = ref(false);
 const ccPreferred = ref(true);
 const proxyPort = ref(0);
@@ -100,6 +105,13 @@ const authSubmitting = ref(false);
 const authCopyState = ref<"idle" | "copied" | "failed">("idle");
 const showAuthDiagnostic = ref(false);
 const advancedView = ref(false);
+const skillsPanel = ref<HTMLElement>();
+async function manageSkills() {
+  advancedView.value = true;
+  await nextTick();
+  skillsPanel.value?.scrollIntoView({ block: "start", behavior: "instant" });
+  skillsPanel.value?.focus({ preventScroll: true });
+}
 type ConnectionPhase = "idle" | "checking" | "authenticating" | "building" | "succeeded" | "failed";
 const connectionPhase = ref<ConnectionPhase>("idle");
 const establishingBridge = computed(() => ["checking", "authenticating", "building"].includes(connectionPhase.value));
@@ -277,6 +289,7 @@ const helpContent = computed(() => ({
 }));
 const genericStateLabel = (state: CheckState) => ({ idle: props.copy.rbCheckIdle, checking: props.copy.rbCheckChecking, healthy: props.copy.rbCheckHealthy, warning: props.copy.rbCheckWarning, failed: props.copy.rbCheckFailed, disabled: props.copy.rbCheckDisabled })[state];
 const serverInternetLabel = computed(() => serverInternetCheck.value.state === "healthy" ? props.copy.rbServerInternetReachable : serverInternetCheck.value.state === "failed" ? props.copy.rbServerInternetUnreachable : serverInternetCheck.value.state === "warning" ? props.copy.rbServerInternetUnknown : genericStateLabel(serverInternetCheck.value.state));
+const serverDirectStatus = computed(() => overviewServerDirectStatus(props.copy, serverInternetCheck.value.state));
 const localProxyLabel = computed(() => localProxyCheck.value.state === "healthy" ? props.copy.rbLocalProxyReady : localProxyCheck.value.state === "failed" ? props.copy.rbLocalProxyUnavailable : genericStateLabel(localProxyCheck.value.state));
 const ccStateLabel = computed(() => ccCheck.value.state === "healthy" ? props.copy.rbCcConfirmed : ccCheck.value.state === "warning" ? props.copy.rbCcUnknown : ccCheck.value.state === "failed" ? props.copy.rbCcMissing : ccCheck.value.state === "disabled" ? props.copy.rbCcDisabled : genericStateLabel(ccCheck.value.state));
 const lastNetworkChecked = computed(() => Math.max(0, sshCheck.value.checkedAt ?? 0, serverInternetCheck.value.checkedAt ?? 0, localProxyCheck.value.checkedAt ?? 0, ccCheck.value.checkedAt ?? 0) || null);
@@ -685,9 +698,9 @@ function usePorts(ports: PortAllocation) {
 }
 
 function initializeCapabilities(autoEnable = true) {
-  if (autoEnable || !proxyAvailable.value) proxy.value = proxyAvailable.value;
+  if (autoEnable || !proxyAvailable.value) proxy.value = proxyAvailable.value && proxyPreferred.value;
   if (live.value || establishingBridge.value) return;
-  const result = props.reviewPreview ? { state: "confirmed" as const, localPort: ccLocalPort.value } : props.ccDetection;
+  const result = props.ccDetection ?? (props.reviewPreview ? { state: "confirmed" as const, localPort: ccLocalPort.value } : null);
   if (!result) {
     ccCheck.value = { state: "checking", checkedAt: null };
     return;
@@ -701,6 +714,10 @@ function initializeCapabilities(autoEnable = true) {
 
 function rememberCcChoice(event: Event) {
   ccPreferred.value = (event.target as HTMLInputElement).checked;
+}
+
+function rememberProxyChoice(event: Event) {
+  proxyPreferred.value = (event.target as HTMLInputElement).checked;
 }
 
 async function connectPrepared(selected: BridgeRequest): Promise<BridgeSummary> {
@@ -996,6 +1013,22 @@ function toggleTool(adapter: RemoteToolAdapter, configured: boolean) {
   });
 }
 
+function toggleCapability(capability: BridgeCapability, enabled: boolean) {
+  const target = props.summary.target;
+  if (!target || busy.value) return;
+  capabilityPending.value = capability;
+  void perform(async () => {
+    try {
+      const summary = await remoteBackend.setCapability({
+        targetId: target.id, capability, enabled,
+        expectedRevision: props.activeProxy.revision,
+        ccLocalPort: props.ccDetection?.localPort ?? ccLocalPort.value,
+      });
+      emit("connected", summary);
+    } finally { capabilityPending.value = undefined; }
+  });
+}
+
 function verifyTool(adapter: RemoteToolAdapter) {
   void perform(async () => {
     await adapter.verify();
@@ -1112,7 +1145,12 @@ watch(targetId, (nextTarget, previousTarget) => {
   serverInternetCheck.value = { state: "idle", checkedAt: null };
 });
 watch([() => props.ccDetection, live, establishingBridge], () => initializeCapabilities(false), { immediate: true });
-watch(proxyAvailable, updateLocalProxyCheck);
+watch(proxyAvailable, (available) => {
+  updateLocalProxyCheck();
+  // The hidden page mounts before local discovery completes. Apply its result
+  // without overriding a user's choice or an established bridge's endpoint.
+  if (!live.value && !establishingBridge.value) proxy.value = available && proxyPreferred.value;
+});
 watch(cc, (enabled) => {
   if (enabled && (checked.value || live.value)) void refreshNetworkChecks();
 });
@@ -1188,6 +1226,7 @@ onBeforeUnmount(() => {
           </div>
           <LastChecked v-if="advancedView" :label="copy.rbLastChecked" :checked-at="lastNetworkChecked" />
           <button class="secondary-action" type="button" :disabled="busy || networkChecking" @click="refreshNetworkChecks">{{ copy.rbRefreshStatus }}</button>
+          <button class="secondary-action remote-danger" type="button" :disabled="busy" @click="confirmation?.showModal()">{{ copy.rbDisconnect }}</button>
         </div>
       </div>
       <header v-else class="remote-page-intro">
@@ -1251,7 +1290,7 @@ onBeforeUnmount(() => {
                     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c2.2 2.3 3.2 5 3.2 8S14.2 17.7 12 20c-2.2-2.3-3.2-5-3.2-8S9.8 6.3 12 4Z"/></svg>
                   </span>
                   <span class="remote-capability-copy"><span class="remote-capability-title"><label for="bridge-local-network">{{ copy.rbLocalNetworkTitle }}</label><HelpTooltip :label="copy.rbLocalNetworkTitle" :text="copy.rbLocalNetworkHelp" /></span><small v-if="proxyAvailable" :title="`${activeProxy.candidate?.clientName} · ${activeProxy.candidate?.host}:${activeProxy.candidate?.port}`">{{ activeProxy.candidate?.clientName }} · {{ activeProxy.candidate?.host }}:{{ activeProxy.candidate?.port }}<template v-if="proxyPort"> → 127.0.0.1:{{ proxyPort }}</template></small><small v-else>{{ copy.rbNoProxy }}</small></span>
-                  <input id="bridge-local-network" v-model="proxy" class="switch-input" type="checkbox" role="switch" :disabled="!proxyAvailable" />
+                  <input id="bridge-local-network" v-model="proxy" class="switch-input" type="checkbox" role="switch" :disabled="!proxyAvailable" @change="rememberProxyChoice" />
                 </div>
                 <div class="remote-capability-choice" :class="{ unavailable: !ccUsable }">
                   <span class="remote-capability-icon" aria-hidden="true">
@@ -1280,14 +1319,20 @@ onBeforeUnmount(() => {
 
         <template v-else>
           <div v-if="activeTarget" class="remote-selected-target">
-            <div><strong>{{ activeTarget.displayName }}</strong><template v-if="advancedView"><span>{{ sourceLabel(activeTarget) }}</span><code>{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></template></div>
-            <div class="remote-target-runtime">
+            <div class="remote-target-identity"><div class="remote-target-name"><strong>{{ activeTarget.displayName }}</strong>
               <StatusIndicator :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
+              </div><div class="remote-target-metadata"><span>{{ activeTarget.host ? targetAddress(activeTarget) : `SSH Target · ${activeTarget.sshAlias ?? activeTarget.displayName}` }}</span><span>{{ sourceLabel(activeTarget) }}</span><code v-if="activeTarget.configPath" :title="withoutWindowsExtendedPathPrefix(activeTarget.configPath)">{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></div>
               <span v-if="reconnecting" class="remote-reconnect-inline" role="status">{{ copy.rbReconnectWaiting }}</span>
+            </div>
+            <div v-if="!advancedView" class="remote-server-direct">
+              <svg class="remote-server-globe" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5h14M5 17.5h14"/></svg>
+              <span>{{ copy.rbOverviewServerDirectNetwork }}</span>
+              <HelpTooltip pinnable :label="copy.rbOverviewServerDirectNetwork" :text="copy.rbOverviewServerHelp" />
+              <StatusIndicator :state="serverDirectStatus.state" :label="serverDirectStatus.label" />
             </div>
           </div>
           <p v-if="summary.status === 'stale'" class="notice notice-warning">{{ copy.rbStaleHint }}</p>
-          <section v-if="summary.postConnectStatus && summary.postConnectStatus !== 'idle'" class="remote-post-connect" :class="`state-${summary.postConnectStatus}`">
+          <section v-if="summary.postConnectStatus && summary.postConnectStatus !== 'idle'" v-show="advancedView" class="remote-post-connect" :class="`state-${summary.postConnectStatus}`">
             <div class="remote-section-heading">
               <div><h3>{{ copy.rbPostConnectTitle }}</h3><p class="remote-hint">{{ postConnectLabel }}</p></div>
               <StatusIndicator :state="summary.postConnectStatus === 'ready' ? 'healthy' : summary.postConnectStatus === 'partial' ? 'warning' : 'checking'" :label="postConnectLabel" />
@@ -1301,19 +1346,7 @@ onBeforeUnmount(() => {
             <button class="primary-action" type="button" :disabled="busy" @click="reconnectManually">{{ copy.rbReconnectAction }}</button>
           </div>
           <p v-if="summary.status === 'unavailable'" class="notice notice-warning">{{ copy.rbUnavailableHint }}</p>
-          <section v-show="!advancedView" class="remote-overview-section">
-            <h3>{{ copy.rbCapabilitySelection }}</h3>
-            <div class="remote-capability-list">
-              <div v-if="summary.proxy" class="remote-capability-summary">
-                <span><strong>{{ copy.rbProxyUseTitle }}</strong><small>{{ summary.proxy.local.protocol }} · {{ activeProxy.candidate?.clientName ?? copy.rbHealthy }}</small></span>
-                <StatusIndicator :state="bridgeCheckState(summary.proxyStatus)" :label="summary.proxyStatus ? copy.rbStates[summary.proxyStatus] : copy.rbCheckIdle" />
-              </div>
-              <div v-if="summary.cc" class="remote-capability-summary">
-                <span><strong>{{ copy.rbCcUseTitle }}</strong><small>CC Switch</small></span>
-                <StatusIndicator :state="bridgeCheckState(summary.ccStatus)" :label="summary.ccStatus ? copy.rbStates[summary.ccStatus] : copy.rbCheckIdle" />
-              </div>
-            </div>
-          </section>
+          <RemoteBridgeOverview v-show="!advancedView" :copy="copy" :summary="summary" :active-proxy="activeProxy" :skills="skillGroups" :connected="sshConnected" :busy="busy" :cc-available="ccDetection?.state === 'confirmed'" :capability-pending="capabilityPending" @toggle-capability="toggleCapability" @toggle-tool="(id, configured) => toggleTool(remoteToolAdapters.find((adapter) => adapter.id === id)!, configured)" @manage-skills="manageSkills" @terminal="launchTerminal" @vscode="perform(openVscode)" @mobaxterm="perform(openMobaxterm)" />
 
           <section v-show="advancedView" class="remote-health remote-advanced-group">
               <h3>{{ copy.rbSshHealth }}</h3>
@@ -1333,15 +1366,9 @@ onBeforeUnmount(() => {
               </CheckRow>
           </section>
 
-          <header v-show="!advancedView" class="remote-next-heading"><h3>{{ copy.rbNextSteps }}</h3></header>
-          <div v-show="!advancedView" class="remote-primary-actions">
-            <button v-if="summary.target?.canOpenVscode" class="secondary-action" type="button" :disabled="busy || !sshConnected" @click="perform(openVscode)">{{ copy.rbVscodeOpen }}</button>
-            <button v-if="summary.target?.canOpenMobaxterm" class="secondary-action" type="button" :disabled="busy || !sshConnected" @click="perform(openMobaxterm)">{{ copy.rbLaunchMobaxterm }}</button>
-            <button class="primary-action" type="button" :disabled="busy || !sshConnected" @click="launchTerminal">{{ copy.rbOpenTerminal }}</button>
-          </div>
-          <p v-if="!advancedView && summary.proxy && summary.target?.canOpenVscode" class="remote-hint">{{ copy.rbVscodeAutoAuth }}</p>
+          <p v-if="advancedView && summary.proxy && summary.target?.canOpenVscode" class="remote-hint">{{ copy.rbVscodeAutoAuth }}</p>
           <p v-if="vscodeOpened" class="remote-success" role="status">{{ copy.rbExtOpened }}</p>
-          <section v-if="mobaOpened && sshConnected" class="remote-external-client" aria-labelledby="remote-moba-heading">
+          <section v-if="mobaOpened && sshConnected" v-show="advancedView" class="remote-external-client" aria-labelledby="remote-moba-heading">
             <h4 id="remote-moba-heading">MobaXterm</h4>
             <p class="remote-hint">{{ copy.rbMobaConnectionHint }}</p>
             <template v-if="summary.proxy">
@@ -1369,7 +1396,7 @@ onBeforeUnmount(() => {
               </div>
           </section>
 
-          <section v-if="summary.cc" class="remote-next-section" :class="{ 'remote-advanced-group': advancedView }">
+          <section v-if="summary.cc" v-show="advancedView" class="remote-next-section remote-advanced-group">
               <h3>{{ copy.rbToolsTitle }}</h3>
               <div class="remote-tool-access-list">
                 <label v-for="tool in remoteTools" :key="tool.adapter.id" class="remote-tool-access">
@@ -1391,7 +1418,7 @@ onBeforeUnmount(() => {
               </template>
           </section>
 
-          <section v-if="advancedView || skills.length > 0" class="remote-next-section remote-skills">
+          <section ref="skillsPanel" v-show="advancedView" tabindex="-1" class="remote-next-section remote-skills">
               <div class="remote-section-heading"><div><h3>{{ copy.rbSkillsTitle }}</h3><p v-if="advancedView" class="remote-hint">{{ copy.rbSkillsHint }}</p></div><StatusIndicator v-if="!advancedView" :state="skillsSummaryState" :label="skillsSummaryLabel" /></div>
               <p v-if="advancedView && skills.length === 0" class="remote-hint">{{ copy.rbSkillsEmpty }}</p>
               <div v-if="skillGroups.length" v-show="advancedView" class="remote-tool-access-list remote-skill-list">
@@ -1417,7 +1444,6 @@ onBeforeUnmount(() => {
               <button v-if="summary.target?.source === 'vscode'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openVscodeSettings())">{{ copy.rbOpenVscodeSettings }}</button>
               </div>
           </section>
-          <div class="confirmation-actions"><button class="secondary-action remote-danger" type="button" :disabled="busy" @click="confirmation?.showModal()">{{ copy.rbDisconnect }}</button></div>
         </template>
       </fieldset>
 
@@ -1514,6 +1540,7 @@ onBeforeUnmount(() => {
 
 <style>
 .remote-bridge-page { display:grid; gap:24px; }
+.remote-bridge-page:not(.remote-setup-page) { padding:20px 24px; }
 .remote-bridge-page.remote-setup-page { height:100%; min-height:0; padding:20px 24px; gap:0; overflow:hidden; }
 .remote-setup-page .remote-workspace-configure { display:flex; min-height:0; flex-direction:column; }
 .remote-setup-page .remote-fields { display:flex; min-height:0; flex:1; }
@@ -1563,8 +1590,20 @@ onBeforeUnmount(() => {
 .remote-current-empty { display:grid; min-height:255px; place-items:center; align-content:center; gap:8px; color:var(--muted); text-align:center; }
 .remote-current-empty strong { color:var(--text); font-size:14px; }
 .remote-current-empty p { max-width:34ch; margin:0; font-size:11px; line-height:1.55; }
-.remote-workspace-heading { display:flex; margin-bottom:18px; align-items:center; justify-content:space-between; gap:18px; }
-.remote-workspace-heading h1 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
+.remote-workspace-heading { display:flex; margin-bottom:14px; align-items:center; justify-content:space-between; gap:18px; }
+.remote-workspace-heading h1 { margin:0; font-size:24px; font-weight:700; letter-spacing:-.025em; }
+.remote-workspace-simple .remote-selected-target { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:0 0 18px; margin-bottom:0; border:0; background:none; }
+.remote-target-identity { min-width:0; flex:1; }
+.remote-target-name { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+.remote-selected-target .remote-target-name > strong { font-size:20px; }
+.remote-target-metadata { display:flex; flex-wrap:wrap; align-items:center; gap:5px 0; margin-top:8px; color:var(--muted); font-size:11px; }
+.remote-target-metadata > * { min-width:0; padding:0 10px; border-left:1px solid var(--line); }
+.remote-target-metadata > :first-child { padding-left:0; border-left:0; }
+.remote-target-metadata > code { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+.remote-server-direct { display:flex; align-items:center; gap:8px; white-space:nowrap; font-size:12px; font-weight:600; }
+.remote-server-globe { flex:none; width:18px; height:18px; fill:none; stroke:var(--muted); stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.remote-target-name :deep(.check-status),.remote-server-direct :deep(.check-status) { padding:5px 9px; border-radius:999px; background:color-mix(in srgb,currentColor 8%,transparent); }
+.remote-skills:focus-visible { outline:2px solid var(--focus); outline-offset:4px; }
 .remote-status-toolbar { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
 .remote-status-toolbar .secondary-action { min-height:30px; padding:6px 10px; font-size:10px; }
 .remote-view-switch { display:flex; padding:2px; border:1px solid var(--line); border-radius:10px; background:var(--surface-strong); }
@@ -1628,7 +1667,7 @@ onBeforeUnmount(() => {
 .remote-check-group .remote-port-pair { padding:10px 0 12px; margin:0; border-top:1px solid var(--line); }
 .remote-check-group .remote-choice { color:var(--muted); font-size:10px; font-weight:600; white-space:nowrap; }
 .remote-selected-target { display:flex; padding-bottom:18px; align-items:flex-start; justify-content:space-between; gap:20px; border-bottom:1px solid var(--line); }
-.remote-selected-target > div { display:grid; min-width:0; gap:4px; }.remote-selected-target span,.remote-selected-target code { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+.remote-selected-target > div { min-width:0; }.remote-target-metadata span,.remote-target-metadata code { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
 .remote-selected-target > .remote-target-runtime { display:flex; align-items:center; justify-content:flex-end; gap:9px; }
 .remote-reconnect-inline { padding-left:14px; position:relative; white-space:nowrap; }
 .remote-reconnect-inline::before { position:absolute; left:0; top:50%; width:7px; height:7px; border:1px solid var(--accent); border-top-color:transparent; border-radius:50%; content:""; transform:translateY(-50%); animation:remote-inline-spin .8s linear infinite; }
@@ -1719,15 +1758,15 @@ onBeforeUnmount(() => {
 .remote-auth-choice label { display:grid; align-items:start; grid-template-columns:16px minmax(0,1fr); gap:10px; cursor:pointer; }
 .remote-auth-choice label > span { display:grid; gap:3px; }.remote-auth-choice strong { color:var(--text); font-size:12px; }.remote-auth-choice input { margin-top:2px; accent-color:var(--accent-strong); }
 .remote-auth-choice label > .remote-auth-option-label { display:flex; align-items:center; gap:6px; }
-.confirmation-dialog.remote-auth-dialog { width:min(440px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow:hidden; }
-.confirmation-dialog.remote-auth-dialog > form { padding:22px; }
+.confirmation-dialog.remote-auth-dialog { width:min(400px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow:hidden; }
+.confirmation-dialog.remote-auth-dialog > form { padding:20px; }
 .remote-auth-dialog > form { display:flex; max-height:calc(100vh - 40px); min-height:0; overflow-y:auto; flex-direction:column; }
-.remote-auth-dialog .confirmation-actions { flex:none; margin-top:18px; }
+.remote-auth-dialog .confirmation-actions { flex:none; margin-top:8px; }
 .remote-auth-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; }
 .remote-auth-heading h2 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:19px; letter-spacing:-.025em; }
 .remote-auth-heading .check-status { flex:none; }
 .remote-auth-dialog { -webkit-user-select:text; user-select:text; }
-.remote-auth-terminal { flex:none; margin:24px 0 16px; overflow:hidden; border-radius:12px; background:#1a1a19; color:#f1ece4; box-shadow:0 10px 28px rgba(20,20,19,.12); user-select:text; }
+.remote-auth-terminal { flex:none; margin:20px 0 16px; overflow:hidden; border-radius:12px; background:#1a1a19; color:#f1ece4; box-shadow:0 10px 28px rgba(20,20,19,.12); user-select:text; }
 .remote-auth-terminal > header { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:33px; padding:3px 10px 3px 12px; border-bottom:1px solid #403b35; color:#b5ada2; font-size:10px; font-weight:650; }
 .remote-auth-copy { display:inline-flex; align-items:center; gap:5px; min-height:26px; padding:3px 6px; border:0; border-radius:5px; color:#ded7cd; background:transparent; font:inherit; cursor:pointer; }
 .remote-auth-copy:hover { background:#35332f; color:#fff; }
@@ -1741,7 +1780,7 @@ onBeforeUnmount(() => {
 .remote-auth-field input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
 .remote-auth-connect-action { display:inline-flex; min-width:126px; align-items:center; justify-content:center; gap:7px; }
 .remote-auth-field-placeholder { visibility:hidden; }
-.remote-auth-error-slot { display:flex; flex:none; gap:7px; height:44px; margin-top:8px; padding:6px 9px; border-radius:7px; overflow:hidden; color:var(--danger); }
+.remote-auth-error-slot { display:flex; flex:none; gap:7px; height:32px; margin-top:4px; padding:0 9px; border-radius:7px; overflow:hidden; color:var(--danger); }
 .remote-auth-error-slot.has-error { background:color-mix(in srgb,var(--danger) 7%,var(--surface)); }
 .remote-auth-error-slot svg { flex:none; width:15px; height:15px; margin-top:1px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; }
 .remote-auth-error-slot p { min-width:0; margin:0; overflow:auto; overflow-wrap:anywhere; font-size:12px; line-height:16px; }
