@@ -14,7 +14,7 @@ const base = process.env.PROXYENV_LAYOUT_URL || "http://localhost:1420";
 const output = process.argv.includes("--screenshots") ? resolve(".debug-tmp/remote-layout") : null;
 if (output) mkdirSync(output, { recursive: true });
 const sizes = [[880,720], [1920,1080], [1280,720], [1024,640], [761,620], [760,620], [704,576], [587,480], [560,620]];
-const routes = ["local", "remote", "remote-empty", "remote-add", "remote-connected", "remote-connected-advanced", "remote-auth", "remote-auth-rejected", "remote-auth-completing", "settings", "about", "assistant"];
+const routes = process.env.PROXYENV_LAYOUT_ROUTES?.split(",") || ["local", "remote", "remote-empty", "remote-add", "remote-connected", "remote-connected-advanced", "remote-auth", "remote-auth-rejected", "remote-auth-completing", "settings", "about", "assistant"];
 
 try {
   for (const theme of ["light", "dark"]) {
@@ -73,6 +73,50 @@ try {
         assert.equal(result.frame.width,width,`${label}: window shell must fill viewport`);
         assert.ok(result.header.right <= width + 1,`${label}: window controls overflow`);
         assert.equal(result.horizontalOverflow,false,`${label}: page has horizontal overflow`);
+        if (route === "remote-connected") {
+          const overview = await page.evaluate(() => {
+            const cards = [...document.querySelectorAll('.bridge-capability')].map(element => element.getBoundingClientRect().toJSON());
+            const stage = document.querySelector('.view-stage');
+            const bar = document.querySelector('.bridge-launch-bar');
+            const launch = [...bar.querySelectorAll('button')];
+            return { cards, actions: launch.length, mobaDisabled: launch[2].disabled, terminalVisible: launch[0].getBoundingClientRect().bottom <= stage.getBoundingClientRect().bottom, capabilityInteractive: [...document.querySelectorAll('.capability-switch')].every(input => !input.disabled) };
+          });
+          assert.equal(overview.actions,3,`${label}: launch actions must stay visible even when unavailable`);
+          assert.equal(overview.mobaDisabled,true,`${label}: unavailable MobaXterm must stay disabled`);
+          assert.equal(overview.capabilityInteractive,true,`${label}: connected capabilities must be interactive`);
+          const mappingTypography=await page.evaluate(() => {
+            const font=element=>{
+              const style=getComputedStyle(element);
+              return { family:style.fontFamily, size:style.fontSize, weight:style.fontWeight, lineHeight:style.lineHeight };
+            };
+            return { reference:font(document.querySelector('.remote-target-metadata > span')), mapping:[...document.querySelectorAll('.bridge-mapping span,.bridge-mapping code,.bridge-mapping small')].map(font) };
+          });
+          for (const font of mappingTypography.mapping) assert.deepEqual(font,mappingTypography.reference,`${label}: mapping typography must match SSH metadata`);
+          const mappingLayout=await page.evaluate(() => {
+            const mappings=[...document.querySelectorAll('.bridge-mapping')].map(element=>{
+              const style=getComputedStyle(element);
+              const children=[...element.children].map(child=>child.getBoundingClientRect());
+              const bounds=element.getBoundingClientRect();
+              const rect=selector=>element.querySelector(selector).getBoundingClientRect();
+              const localLabel=rect('.bridge-mapping-local-label'),remoteLabel=rect('.bridge-mapping-remote-label');
+              const localAddress=rect('.bridge-mapping-local-address'),remoteAddress=rect('.bridge-mapping-remote-address');
+              const client=rect('.bridge-mapping-client'),arrow=rect('.bridge-mapping-arrow');
+              const center=rect=>rect.top+rect.height/2;
+              return {display:style.display,labelsAligned:Math.abs(center(localLabel)-center(remoteLabel))<1,addressesAligned:Math.abs(center(localAddress)-center(remoteAddress))<1 && Math.abs(center(localAddress)-center(arrow))<1,clientBelow:client.top>=localAddress.bottom,contained:element.scrollWidth<=element.clientWidth+1 && children.every(rect=>rect.left>=bounds.left-1 && rect.right<=bounds.right+1),plainArrow:element.querySelector('.bridge-mapping-arrow').children.length===1};
+            });
+            return {mappings,globe:!!document.querySelector('.remote-server-direct > .remote-server-globe'),directLabel:document.querySelector('.remote-server-direct > span')?.textContent};
+          });
+          assert.ok(mappingLayout.globe,`${label}: server direct network must show a globe icon`);
+          assert.equal(mappingLayout.directLabel,'服务器直连网络',`${label}: overview must use the direct-network title`);
+          for (const mapping of mappingLayout.mappings) {
+            assert.equal(mapping.display,'grid',`${label}: mapping must keep local and remote columns`);
+            assert.ok(mapping.labelsAligned && mapping.addressesAligned && mapping.clientBelow && mapping.contained && mapping.plainArrow,`${label}: mapping labels and addresses must align with a plain arrow and separate client details ${JSON.stringify(mapping)}`);
+          }
+          if (width >= 880) for (const card of overview.cards) assert.ok(card.height <= 126,`${label}: desktop connected capability card must stay compact`);
+          if (width > 760) assert.ok(overview.cards[1].left >= overview.cards[0].right,`${label}: capability cards must be side by side`);
+          else assert.ok(overview.cards[1].top >= overview.cards[0].bottom,`${label}: narrow capability cards must stack`);
+          if (width >= 1280 && height >= 720) assert.ok(overview.terminalVisible,`${label}: desktop launch bar must fit the first screen`);
+        }
         if (result.setup) {
           assert.equal(result.stageOverflow,false,`${label}: setup must not scroll outside its panels`);
           assert.ok(result.setup.bottom <= height + 1,`${label}: workspace border is clipped ${JSON.stringify(result)}`);
@@ -115,8 +159,33 @@ try {
           assert.equal(await page.locator(".remote-current-empty .pixel-mascot").count(),1,`${label}: one decorative mascot below the instruction`);
           assert.equal(await page.locator(".pixel-mascot__actor").evaluate(element => getComputedStyle(element).animationName),"none",`${label}: reduced motion keeps the mascot static`);
         }
+        if (route === "remote-connected" && width === 880) {
+          const help=page.locator('.bridge-capability .help-tooltip').first();
+          await help.hover();
+          await page.getByRole('tooltip').waitFor();
+          await help.click();
+          await page.mouse.move(0,0);
+          assert.equal(await page.getByRole('tooltip').count(),1,`${label}: clicking help pins it`);
+          await page.keyboard.press('Escape');
+          await page.getByRole('tooltip').waitFor({state:'hidden'});
+          await help.focus();
+          await page.keyboard.press('Enter');
+          assert.equal(await help.getAttribute('aria-expanded'),'true',`${label}: keyboard can pin help`);
+          await page.locator('.remote-workspace-heading h1').click();
+          await page.getByRole('tooltip').waitFor({state:'hidden'});
+          const originalTools=await page.locator('.bridge-tool strong').allTextContents();
+          await page.locator('.bridge-skills-heading button').click();
+          await page.locator('.remote-skills').waitFor({state:'visible'});
+          assert.equal(await page.locator('.remote-skills').evaluate(element=>element===document.activeElement),true,`${label}: Manage focuses existing Skills controls`);
+          await page.locator('.remote-view-switch button').first().click();
+          assert.deepEqual(await page.locator('.bridge-tool strong').allTextContents(),originalTools,`${label}: view changes preserve tools`);
+          await page.locator('.view-stage').evaluate(element=>element.scrollTop=0);
+        }
         if (output && theme === "light" && route === "remote" && [880,1920,560,587].includes(width)) {
           await page.screenshot({path:resolve(output,`${route}-${width}x${height}.png`)});
+        }
+        if (output && route === 'remote-connected' && [880,1280,560].includes(width)) {
+          await page.screenshot({path:resolve(output,`${route}-${theme}-${width}x${height}.png`)});
         }
       }
     }
@@ -142,7 +211,11 @@ try {
   });
   await startup.goto(`${base}/?impeccable-review=local`);
   await startup.waitForFunction(() => window.ccComplete);
-  assert.equal(await startup.locator(".remote-bridge-page").count(),0,"Startup discovery must not mount the SSH page");
+  assert.equal(await startup.locator(".remote-bridge-page").count(),1,"Startup must preload the SSH page");
+  assert.equal(await startup.locator(".remote-bridge-page").isVisible(),false,"Preloading must not change the initial local page");
+  await startup.locator(".remote-target-main").first().waitFor({state:"attached"});
+  await startup.waitForFunction(() => document.querySelector('#bridge-ai-route')?.checked && document.querySelector('#bridge-local-network')?.checked);
+  await startup.evaluate(() => { window.preloadedRemote = document.querySelector(".remote-bridge-page"); window.preloadedTarget = document.querySelector(".remote-target-main"); });
   await startup.evaluate(() => {
     window.ccFrames = [];
     const sample = () => {
@@ -154,12 +227,17 @@ try {
   });
   await startup.locator(".primary-nav button").nth(1).click();
   await startup.waitForFunction(() => window.ccFrames.length >= 6);
-  const firstPaint = await startup.evaluate(() => ({frames:window.ccFrames,calls:window.ccCalls}));
+  const firstPaint = await startup.evaluate(() => ({frames:window.ccFrames,calls:window.ccCalls,samePage:window.preloadedRemote === document.querySelector(".remote-bridge-page"),sameTarget:window.preloadedTarget === document.querySelector(".remote-target-main")}));
+  assert.equal(firstPaint.samePage,true,"First navigation must reveal the preloaded page without remounting");
+  assert.equal(firstPaint.sameTarget,true,"First navigation must retain the preloaded SSH list");
   assert.equal(firstPaint.calls,1,"Entering the remote page must not issue a duplicate discovery");
   for (const frame of firstPaint.frames) {
     assert.match(frame.text,/127\.0\.0\.1:15822/,"Every initial frame uses the startup-discovered address");
     assert.equal(frame.enabled,true,"The available default route renders enabled from the first frame");
   }
+  await startup.locator(".primary-nav button").first().click();
+  await startup.locator(".primary-nav button").nth(1).click();
+  assert.equal(await startup.evaluate(() => window.preloadedRemote === document.querySelector(".remote-bridge-page")),true,"Later navigation also retains the same page instance");
   await startupContext.close();
   const mascotContext = await browser.newContext({viewport:{width:880,height:720},reducedMotion:"no-preference"});
   const mascotPage = await mascotContext.newPage();

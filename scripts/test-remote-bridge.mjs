@@ -297,7 +297,8 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   assert.match(shell,/<div class="view-stage">/);
   assert.match(shell,/<div class="view-outlet">/);
   assert.match(shell,/<div v-show="view === 'local'" class="view-pane">/);
-  assert.match(shell,/<div v-if="remoteViewMounted" v-show="view === 'remote'" class="view-pane remote-view-pane">/);
+  assert.match(shell,/<div v-show="view === 'remote'" class="view-pane remote-view-pane">/);
+  assert.doesNotMatch(shell,/remoteViewMounted/);
   assert.doesNotMatch(shell,/view-fade/);
   assert.match(shell,/@connected="acceptRemoteBridgeSummary"/);
   assert.doesNotMatch(page,/remote-steps|reviewedRequest|authPromptCopy\.notice/);
@@ -397,16 +398,17 @@ test("managed proxy terminal loads a private authenticated session environment",
   assert.match(runtime,/remote_bridge::remote_bridge_launch_manual_terminal/);
   assert.match(state,/launchProxyTerminal: \(\) => invoke<void>\("remote_bridge_launch_proxy_terminal"\)/);
   assert.match(state,/launchManualTerminal: \(\) => invoke<void>\("remote_bridge_launch_manual_terminal"\)/);
-  assert.match(page,/@click="launchTerminal"/);
+  assert.match(page,/@terminal="launchTerminal"/);
   assert.match(page,/remoteBackend\.launchManualTerminal\(\)/);
   assert.match(page,/<div class="remote-advanced-panel">/);
   assert.doesNotMatch(page,/v-if="summary\.environment"/);
   assert.match(page,/remoteBackend\.sessionEnvironmentCommand\(\)/);
-  assert.match(page,/summary\.target\?\.canOpenMobaxterm/);
+  const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
+  assert.match(overview,/summary\.target\?\.canOpenMobaxterm/);
   assert.match(page,/remoteBackend\.launchMobaxterm\(props\.summary\.target!\.id\)/);
   assert.match(page,/@click="copySessionEnvironment"/);
   assert.match(page,/async function openVscode\(\)[\s\S]*remoteBackend\.openVscode\(props\.summary\.target!\.id\)/);
-  assert.match(page,/remote-primary-actions[\s\S]*@click="perform\(openVscode\)"/);
+  assert.match(page,/@vscode="perform\(openVscode\)"/);
   assert.match(ssh,/fn launch_terminal/);
   assert.match(ssh,/launch_terminal\(target_id, fingerprint, None\)/);
 });
@@ -635,7 +637,7 @@ test("CC Switch detection defaults on and preserves an explicit off choice",asyn
   assert.equal(lf.match(initializer)?.[1],lf.replaceAll("\n","\r\n").match(initializer)?.[1].replaceAll("\r\n","\n"));
   const value=initial=>({value:initial});
   const context={
-    props:{reviewPreview:false,visible:false,ccDetection:{state:"confirmed",localPort:15721}},proxyAvailable:value(true),proxy:value(true),
+    props:{reviewPreview:false,visible:false,ccDetection:{state:"confirmed",localPort:15721}},proxyAvailable:value(true),proxy:value(true),proxyPreferred:value(true),
     cc:value(false),ccPreferred:value(true),ccLocalPort:value(15721),ccDetection:value(null),ccCheck:value(null),
     live:value(false),busy:value(true),establishingBridge:value(false),
   };
@@ -680,7 +682,7 @@ test("CC Switch discovery starts with the app, caches results and serializes bac
     detectCc:(port,find)=>{calls++;lastPort=port;discover=find;return new Promise(resolve=>{resolveDetection=resolve;});},
   },()=>({status:"disconnected"}),(callback,delay)=>{const id=timers.size+1;timers.set(id,{callback,delay});return id;},id=>timers.delete(id));
   mounted.forEach(callback=>callback());
-  assert.equal(calls,1,"Startup must detect CC Switch before the remote page exists");
+  assert.equal(calls,1,"Startup must detect CC Switch independently of remote page initialization");
   assert.equal(discover,true);
   assert.equal(lastPort,15721);
   assert.equal(bridge.ccDetection.value,null,"Unfinished detection is not a negative result");
@@ -711,6 +713,34 @@ test("CC Switch discovery starts with the app, caches results and serializes bac
   assert.equal(bridge.ccDetection.value.state,"notDetected","Late results after shutdown are ignored");
   const shell=readFileSync("src/app/AppShell.vue","utf8");
   assert.match(shell,/:cc-detection="ccDetection"/);
+});
+
+test("preloaded network capability adopts late discovery without losing an explicit choice",()=>{
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const match=page.match(/watch\(proxyAvailable, \(available\) => \{([\s\S]*?)\r?\n\}\);/);
+  assert.ok(match,"Hidden startup page must observe late local proxy discovery");
+  const value=initial=>({value:initial});
+  const context={proxy:value(false),proxyPreferred:value(true),live:value(false),establishingBridge:value(false),updateLocalProxyCheck:()=>{}};
+  const observe=new Function("available","context",`const {${Object.keys(context).join(",")}}=context; ${match[1]}`);
+  observe(true,context);
+  assert.equal(context.proxy.value,true,"Late startup discovery enables the available default");
+  context.proxyPreferred.value=false;
+  context.proxy.value=false;
+  observe(false,context); observe(true,context);
+  assert.equal(context.proxy.value,false,"Discovery cannot override an explicit off choice");
+  context.proxyPreferred.value=true;
+  context.live.value=true;
+  observe(true,context);
+  assert.equal(context.proxy.value,false,"Existing bridges retain their capability selection");
+  context.live.value=false;
+  context.establishingBridge.value=true;
+  observe(true,context);
+  assert.equal(context.proxy.value,false,"Discovery cannot change an in-progress connection");
+  assert.match(page,/@change="rememberProxyChoice"/);
+  const load=page.match(/async function load\(\) \{([\s\S]*?)\r?\n\}\r?\n\r?\nfunction usePorts/);
+  assert.ok(load);
+  assert.match(load[1],/remoteBackend\.targets\(\)/);
+  assert.doesNotMatch(load[1],/remoteBackend\.(connect|checkNetwork|sshAuthBegin|configApply|setCapability)\(/,"Preloading only discovers local connection metadata");
 });
 
 test("CLI launch commands are hidden until their remote configuration is applied",()=>{
@@ -885,14 +915,65 @@ test("connected bridge defaults to a concise overview and preserves advanced sta
   assert.match(page,/:aria-pressed="advancedView"/);
   assert.match(page,/v-show="advancedView" class="remote-runtime-observation"/);
   assert.match(page,/v-show="advancedView" class="remote-next-section remote-advanced-group"/);
-  assert.match(page,/v-show="!advancedView" class="remote-overview-section"/);
+  assert.match(page,/<RemoteBridgeOverview v-show="!advancedView"/);
   assert.match(page,/skillsSummaryLabel/);
-  assert.match(page,/v-if="advancedView \|\| skills\.length > 0" class="remote-next-section remote-skills"/);
-  assert.match(page,/remote-primary-actions/);
+  assert.match(page,/ref="skillsPanel" v-show="advancedView" tabindex="-1" class="remote-next-section remote-skills"/);
+  const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
+  assert.match(overview,/bridge-launch-bar/);
+  assert.match(page,/async function manageSkills\(\)[\s\S]*advancedView\.value = true[\s\S]*skillsPanel\.value\?\.focus/);
   assert.doesNotMatch(page,/v-if="advancedView" class="remote-next-section"/);
   for(const key of ["rbSimpleView","rbAdvancedView","rbViewMode","rbToolsTitle","rbSkillsSummary","rbSkillNotLinked","rbConnections","rbOpenTerminal","rbDiagnostics"]) {
     assert.equal(copy.match(new RegExp(`${key}:`,"g"))?.length,4,`${key} must exist in all four locales`);
   }
+});
+
+test("overview preserves independent statuses, public port mappings, and existing action boundaries",async()=>{
+  const compiled=(path)=>ts.transpileModule(readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
+  const load=(path)=>import(`data:text/javascript;base64,${Buffer.from(compiled(path)).toString("base64")}`);
+  const {bridgeCapabilityState,bridgeEndpointLabel,overviewToolLabel,overviewSkillStatus,overviewServerDirectStatus}=await load("src/features/remote-bridge/overview-presentation.ts");
+  const {remoteBridgeMessages}=await load("src/shared/i18n/remote-bridge.ts");
+  assert.equal(bridgeEndpointLabel("::1",7897),"[::1]:7897");
+  assert.equal(bridgeCapabilityState("connected",false),"disabled");
+  assert.equal(bridgeCapabilityState("connected",true),"healthy");
+  assert.equal(bridgeCapabilityState("connecting",true),"checking");
+  assert.equal(bridgeCapabilityState("stale",true),"warning");
+  assert.equal(bridgeCapabilityState("unavailable",true),"failed");
+  const summary={cc:{},ccStatus:"connected",claudeProfileState:"synced"};
+  for(const copy of Object.values(remoteBridgeMessages)) {
+    assert.deepEqual(overviewServerDirectStatus(copy,"healthy"),{state:"healthy",label:copy.rbOverviewDirectAvailable});
+    assert.deepEqual(overviewServerDirectStatus(copy,"failed"),{state:"warning",label:copy.rbOverviewDirectUnavailable});
+    assert.deepEqual(overviewServerDirectStatus(copy,"warning"),{state:"idle",label:copy.rbOverviewDirectUnknown});
+    assert.deepEqual(overviewServerDirectStatus(copy,"idle"),{state:"idle",label:copy.rbCheckIdle});
+    assert.deepEqual(overviewServerDirectStatus(copy,"checking"),{state:"checking",label:copy.rbCheckChecking});
+    assert.equal(overviewToolLabel(copy,summary,"codex",true),copy.rbOverviewConfigured,"Codex sync cannot be inferred from Claude or configured status");
+    assert.equal(overviewToolLabel(copy,summary,"claude",true),copy.rbOverviewSynced);
+    assert.equal(overviewToolLabel(copy,summary,"claude",false),copy.rbNotConfigured);
+    assert.equal(overviewToolLabel(copy,{...summary,ccStatus:"unavailable"},"claude",true),copy.rbToolRouteUnavailable);
+    assert.equal(overviewToolLabel(copy,{...summary,claudeProfileState:"restartRequired"},"claude",true),copy.rbOverviewRestartRequired);
+    assert.equal(overviewToolLabel(copy,{...summary,claudeProfileState:"conflict"},"claude",true),copy.rbProfileConflict);
+    assert.deepEqual(overviewSkillStatus(copy),{state:"disabled",label:copy.rbSkillNotLinked});
+    assert.deepEqual(overviewSkillStatus(copy,{enabled:false,state:"synced"}),{state:"disabled",label:copy.rbAccessDisabled});
+    assert.deepEqual(overviewSkillStatus(copy,{enabled:true,state:"conflict"}),{state:"warning",label:copy.rbSkillConflict});
+    assert.deepEqual(overviewSkillStatus(copy,{enabled:true,state:"synced"}),{state:"healthy",label:copy.rbSkillSynced});
+  }
+  const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(overview,/capability\.route\.local\.host, capability\.route\.local\.port/);
+  assert.match(overview,/127\.0\.0\.1:\{\{ capability\.route\.remotePort \}\}/);
+  assert.doesNotMatch(overview,/proxy_relay|relayPort|remoteBackend|invoke\(/);
+  assert.match(overview,/capability-switch[\s\S]*:checked="!!capability\.route" :disabled="busy \|\| !connected/);
+  assert.match(overview,/@click\.prevent="emit\('toggleCapability', capability\.id, !capability\.route\)"/);
+  assert.match(page,/remoteBackend\.setCapability\(/);
+  assert.match(page,/emit\("connected", summary\)/);
+  assert.match(page,/overviewServerDirectStatus\(props\.copy, serverInternetCheck\.value\.state\)/);
+  assert.match(page,/class="remote-server-globe" aria-hidden="true"/);
+  assert.match(page,/copy\.rbOverviewServerDirectNetwork/);
+  const launch=overview.slice(overview.indexOf('<footer class="bridge-launch-bar">'));
+  assert.ok(launch.indexOf("rbOpenTerminal")<launch.indexOf("rbVscodeOpen"));
+  assert.ok(launch.indexOf("rbVscodeOpen")<launch.indexOf("rbLaunchMobaxterm"));
+  assert.doesNotMatch(launch,/v-if="summary\.target/);
+  assert.match(overview,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(overview,/@media \(max-width:760px\)/);
 });
 
 test("Claude verification is a fixed isolated request and never returns model output",()=>{
@@ -958,7 +1039,9 @@ test("M7 keeps VS Code Server context and extension location conservative",()=>{
   assert.doesNotMatch(targetSelection,/launchSshTerminal/);
   assert.doesNotMatch(targetSelection,/remoteBackend\.openVscode\(/);
   assert.doesNotMatch(targetSelection,/launchMobaxterm/);
-  assert.match(page.slice(connectedStart),/v-if="summary\.target\?\.canOpenMobaxterm"[\s\S]*?:disabled="busy \|\| !sshConnected"[\s\S]*?@click="perform\(openMobaxterm\)"/);
+  assert.match(page.slice(connectedStart),/@mobaxterm="perform\(openMobaxterm\)"/);
+  const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
+  assert.match(overview,/:disabled="busy \|\| !connected \|\| !summary\.target\?\.canOpenMobaxterm"/);
 });
 
 test("two-step setup auto-connects after interactive authentication and keeps one stable modal shell",()=>{
@@ -971,7 +1054,7 @@ test("two-step setup auto-connects after interactive authentication and keeps on
   assert.match(page,/bridgeErrorCode\(cause\) !== "portInUse"/);
   assert.match(page,/remoteBackend\.allocatePorts\(selected\.targetId, false\)/);
   assert.match(page,/connectionPhase === 'failed' \|\| authSession\?\.status !== 'succeeded'/);
-  assert.match(page,/\.remote-auth-dialog \{[^}]*width:min\(440px,calc\(100vw - 40px\)\)[^}]*max-height:calc\(100vh - 40px\)/);
+  assert.match(page,/\.remote-auth-dialog \{[^}]*width:min\(400px,calc\(100vw - 40px\)\)[^}]*max-height:calc\(100vh - 40px\)/);
   assert.doesNotMatch(page,/\.remote-auth-dialog \{[^}]*height:min\(/);
   assert.match(page,/authInteractionVisible/);
   assert.match(page,/authSurfaceVisible/);
@@ -989,7 +1072,7 @@ test("SSH authentication errors reserve space and copy only displayed informatio
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(page,/<div id="remote-auth-error" class="remote-auth-error-slot"/);
   assert.doesNotMatch(page,/<div[^>]*v-if=[^>]*class="remote-auth-error-slot"/);
-  assert.match(page,/\.remote-auth-error-slot \{[^}]*flex:none[^}]*height:44px/);
+  assert.match(page,/\.remote-auth-error-slot \{[^}]*flex:none[^}]*height:32px[^}]*margin-top:4px/);
   assert.match(page,/\.remote-auth-error-slot p \{[^}]*overflow:auto/);
   assert.match(page,/:aria-describedby="authErrorMessage \? 'remote-auth-error' : undefined"/);
   assert.match(page,/\.remote-auth-dialog pre,\.remote-auth-error-slot p \{[^}]*user-select:text/);
@@ -1000,6 +1083,15 @@ test("SSH authentication errors reserve space and copy only displayed informatio
   assert.match(page,/remote-auth-rejected/);
   const clipboard=readFileSync("src/shared/utils/clipboard.ts","utf8");
   assert.match(clipboard,/document\.querySelector\("dialog\[open\]"\) \?\? document\.body/);
+});
+
+test("SSH authentication dialog keeps a compact width and input-to-action spacing",()=>{
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(page,/\.confirmation-dialog\.remote-auth-dialog \{[^}]*width:min\(400px,calc\(100vw - 40px\)\)[^}]*max-height:calc\(100vh - 40px\)/);
+  assert.match(page,/\.confirmation-dialog\.remote-auth-dialog > form \{[^}]*padding:20px/);
+  assert.match(page,/\.remote-auth-dialog \.confirmation-actions \{[^}]*flex:none[^}]*margin-top:8px/);
+  assert.match(page,/\.remote-auth-field input \{[^}]*height:40px/);
+  assert.match(page,/\.remote-auth-dialog > form \{[^}]*overflow-y:auto/);
 });
 
 test("SSH polling does not steal selection from other authentication text",async()=>{
@@ -1051,7 +1143,8 @@ test("MobaXterm launch is available only from the connected overview",()=>{
   assert.match(ssh,/let can_open_mobaxterm = mobaxterm::available\(\)/);
   assert.match(ssh,/mobaxterm::launch_application\(\)/);
   assert.doesNotMatch(groups,/canOpenMobaxterm|openMoba|rbLaunchMobaxterm/);
-  assert.match(page,/summary\.target\?\.canOpenMobaxterm/);
+  const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
+  assert.match(overview,/summary\.target\?\.canOpenMobaxterm/);
   assert.doesNotMatch(page,/@open-moba=/);
   const advancedStart=page.indexOf('<section v-if="summary.proxy" v-show="advancedView"');
   const advancedEnd=page.indexOf('</section>',advancedStart);
@@ -1061,7 +1154,7 @@ test("MobaXterm launch is available only from the connected overview",()=>{
 test("MobaXterm handoff exposes the shared environment action without claiming AI activation",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(page,/async function openMobaxterm\(\)[\s\S]*await remoteBackend\.launchMobaxterm[\s\S]*mobaOpened\.value = true/);
-  assert.match(page,/@click="perform\(openMobaxterm\)"/);
+  assert.match(page,/@mobaxterm="perform\(openMobaxterm\)"/);
   const start=page.indexOf('<section v-if="mobaOpened && sshConnected"');
   const handoff=page.slice(start,page.indexOf('</section>',start));
   assert.match(handoff,/summary\.proxy/);
