@@ -1,4 +1,6 @@
 mod authenticated_relay;
+mod capabilities;
+pub use capabilities::{set_capability, CapabilityChange};
 #[allow(dead_code)]
 mod codex_relay;
 pub(crate) mod connections;
@@ -322,6 +324,11 @@ struct Store {
     connection_generation: u64,
     summary: Summary,
     child: Option<Box<dyn ssh::ManagedSsh>>,
+    additional_tunnels: Vec<Box<dyn ssh::ManagedSsh>>,
+    paused_proxy: Option<Endpoint>,
+    paused_cc: Option<Endpoint>,
+    paused_tools: Vec<tool_adapter::RemoteToolId>,
+    capability_vscode_managed: bool,
     proxy_relay: Option<authenticated_relay::AuthenticatedRelay>,
     ai_relay: Option<authenticated_relay::AuthenticatedRelay>,
     pending: Option<Pending>,
@@ -348,6 +355,11 @@ impl Default for Store {
             connection_generation: 0,
             summary: Summary::default(),
             child: None,
+            additional_tunnels: Vec::new(),
+            paused_proxy: None,
+            paused_cc: None,
+            paused_tools: Vec::new(),
+            capability_vscode_managed: false,
             proxy_relay: None,
             ai_relay: None,
             pending: None,
@@ -445,8 +457,13 @@ fn observed_status(
     }
 }
 fn refresh(state: &mut Store) {
+    let additional_failed = state
+        .additional_tunnels
+        .iter_mut()
+        .any(|child| !matches!(child.is_running(), Ok(true)));
     if let Some(child) = state.child.as_mut() {
-        if !matches!(child.is_running(), Ok(true)) {
+        if additional_failed || !matches!(child.is_running(), Ok(true)) {
+            state.additional_tunnels.clear();
             state.child = None;
             if state.last_request.is_some() {
                 state.reconnect = Some(reconnect::Retry::new());
@@ -2005,6 +2022,11 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     state.pending = None;
     state.extension_pending = None;
     state.profile_syncing = false;
+    state.additional_tunnels.clear();
+    state.paused_proxy = None;
+    state.paused_cc = None;
+    state.paused_tools.clear();
+    state.capability_vscode_managed = false;
     state.local_codex_profile = None;
     state.local_claude_profile = None;
     state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
@@ -2039,6 +2061,7 @@ pub fn shutdown() {
     // outstanding kill-on-close jobs even when an operation owns the mutex.
     if let Ok(mut state) = store().try_lock() {
         state.child = None;
+        state.additional_tunnels.clear();
         state.proxy_relay = None;
         state.ai_relay = None;
         state.profile_syncing = false;
@@ -2175,6 +2198,9 @@ pub fn open_vscode(target: String) -> BridgeResult<Option<String>> {
     let fingerprint = ssh::fingerprint(&target)?;
     if state.target_fingerprint.as_deref() != Some(fingerprint.as_str()) {
         return Err("sshConfigChanged".into());
+    }
+    if state.summary.proxy.is_none() && state.summary.cc.is_none() {
+        return vscode::open(target).map(|_| None);
     }
     // Apply the remote VS Code network isolation before the window starts. If the
     // server already exists, launching first lets extensions inherit stale proxy

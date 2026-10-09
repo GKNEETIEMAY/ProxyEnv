@@ -1,5 +1,5 @@
 use crate::features::remote_bridge::{
-    self as bridge, BridgeResult, CcDetection, ConfigPreview, PortAllocation,
+    self as bridge, BridgeResult, CapabilityChange, CcDetection, ConfigPreview, PortAllocation,
     RemoteNetworkObservation, RemoteTarget, Request, Summary, ToolVerificationResult,
 };
 use serde::Serialize;
@@ -274,6 +274,16 @@ pub async fn remote_bridge_connect(request: Request, confirmed: bool) -> Command
 pub async fn remote_bridge_disconnect(confirmed: bool) -> CommandResult<Summary> {
     run("bridgeDisconnect", None, move || {
         bridge::disconnect(confirmed)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn remote_bridge_set_capability(
+    change: CapabilityChange,
+    confirmed: bool,
+) -> CommandResult<Summary> {
+    run("capabilityChange", None, move || {
+        bridge::set_capability(change, confirmed)
     })
     .await
 }

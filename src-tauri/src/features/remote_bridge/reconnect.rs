@@ -90,7 +90,7 @@ pub(super) fn tick() {
             return;
         };
         let Ok(endpoints) = forwarding_endpoints(
-            &state.summary,
+            &capabilities::transport_summary(&state),
             state.proxy_relay.as_ref(),
             state.ai_relay.as_ref(),
         ) else {
@@ -197,8 +197,13 @@ pub(super) fn cancel(state: &mut Store) {
     state.reconnect = None;
     state.summary.reconnect_state = State::Idle;
     if state.child.is_none() {
+        state.additional_tunnels.clear();
         state.proxy_relay = None;
         state.ai_relay = None;
+        state.paused_proxy = None;
+        state.paused_cc = None;
+        state.paused_tools.clear();
+        state.capability_vscode_managed = false;
     }
 }
 
@@ -228,6 +233,91 @@ mod tests {
         fn is_running(&mut self) -> BridgeResult<bool> {
             Ok(false)
         }
+    }
+    #[test]
+    fn transport_loss_retains_paused_lane_without_reopening_it() {
+        let relay = authenticated_relay::AuthenticatedRelay::start(
+            ProxyEndpoint {
+                host: "127.0.0.1".into(),
+                port: 9,
+                protocol: ProxyProtocol::Http,
+            },
+            authenticated_relay::RelayMode::AiHttp,
+        )
+        .unwrap();
+        relay.set_enabled(false);
+        let local_port = relay.port();
+        let mut state = Store {
+            child: Some(Box::new(ExitedSsh)),
+            last_request: Some(Request {
+                target_id: "test".into(),
+                proxy_port: None,
+                cc_port: None,
+                cc_local_port: 9,
+                expected_revision: 0,
+            }),
+            paused_cc: Some(Endpoint {
+                local: ProxyEndpoint {
+                    host: "127.0.0.1".into(),
+                    port: 9,
+                    protocol: ProxyProtocol::Http,
+                },
+                remote_port: 15721,
+            }),
+            ai_relay: Some(relay),
+            ..Store::default()
+        };
+        refresh(&mut state);
+        assert_eq!(state.summary.reconnect_state, State::Waiting);
+        assert!(state.summary.cc.is_none());
+        assert_eq!(
+            forwarding_endpoints(
+                &capabilities::transport_summary(&state),
+                None,
+                state.ai_relay.as_ref()
+            )
+            .unwrap(),
+            vec![(15721, "127.0.0.1".into(), local_port)]
+        );
+        let mut client = std::net::TcpStream::connect(("127.0.0.1", local_port)).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut byte = [0];
+        match std::io::Read::read(&mut client, &mut byte) {
+            Ok(count) => assert_eq!(count, 0),
+            Err(error) => assert!(!matches!(
+                error.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            )),
+        }
+        cancel(&mut state);
+        assert!(state.paused_cc.is_none());
+    }
+
+    #[test]
+    fn additional_lane_transport_loss_enters_shared_recovery() {
+        struct LiveSsh;
+        impl ssh::ManagedSsh for LiveSsh {
+            fn is_running(&mut self) -> BridgeResult<bool> {
+                Ok(true)
+            }
+        }
+        let mut state = Store {
+            child: Some(Box::new(LiveSsh)),
+            additional_tunnels: vec![Box::new(ExitedSsh)],
+            last_request: Some(Request {
+                target_id: "test".into(),
+                proxy_port: None,
+                cc_port: None,
+                cc_local_port: 9,
+                expected_revision: 0,
+            }),
+            ..Store::default()
+        };
+        refresh(&mut state);
+        assert!(state.child.is_none() && state.additional_tunnels.is_empty());
+        assert_eq!(state.summary.reconnect_state, State::Waiting);
     }
     #[test]
     fn transport_loss_preserves_live_relay_and_session_until_explicit_cancel() {

@@ -57,6 +57,7 @@ impl AiRoute {
 struct Session {
     secret: Zeroizing<[u8; 32]>,
     revoked: AtomicBool,
+    enabled: AtomicBool,
     next_connection: AtomicU64,
     connections: Mutex<HashMap<u64, (TcpStream, Option<TcpStream>)>>,
 }
@@ -68,6 +69,7 @@ impl Session {
         Ok(Self {
             secret,
             revoked: AtomicBool::new(false),
+            enabled: AtomicBool::new(true),
             next_connection: AtomicU64::new(1),
             connections: Mutex::new(HashMap::new()),
         })
@@ -78,7 +80,7 @@ impl Session {
     }
 
     fn accepts(&self, candidate: &[u8]) -> bool {
-        if self.revoked.load(Ordering::Acquire) || candidate.len() != 64 {
+        if !self.available() || candidate.len() != 64 {
             return false;
         }
         let expected = self.token();
@@ -103,7 +105,7 @@ impl Session {
                 .transpose()?,
         );
         let mut connections = self.connections.lock().map_err(|_| "relayUnavailable")?;
-        if self.revoked.load(Ordering::Acquire) {
+        if !self.available() {
             return Err("relayUnauthorized");
         }
         connections.insert(id, pair);
@@ -118,7 +120,22 @@ impl Session {
 
     fn revoke(&self) {
         self.revoked.store(true, Ordering::Release);
+        self.set_enabled(false);
+    }
+
+    fn available(&self) -> bool {
+        !self.revoked.load(Ordering::Acquire) && self.enabled.load(Ordering::Acquire)
+    }
+
+    fn set_enabled(&self, enabled: bool) {
         if let Ok(mut connections) = self.connections.lock() {
+            self.enabled.store(
+                enabled && !self.revoked.load(Ordering::Acquire),
+                Ordering::Release,
+            );
+            if enabled {
+                return;
+            }
             for (_, (downstream, upstream)) in connections.drain() {
                 let _ = downstream.shutdown(Shutdown::Both);
                 if let Some(upstream) = upstream {
@@ -134,6 +151,7 @@ pub(crate) struct AuthenticatedRelay {
     upstream: ProxyEndpoint,
     session_id: String,
     session: Arc<Session>,
+    ai_route: Arc<Mutex<Option<AiRoute>>>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -167,6 +185,8 @@ impl AuthenticatedRelay {
         let mut session_id = [0u8; 16];
         getrandom::fill(&mut session_id).map_err(|_| "stateUnavailable")?;
         let worker_session = Arc::clone(&session);
+        let ai_route = Arc::new(Mutex::new(ai_route));
+        let worker_route = Arc::clone(&ai_route);
         let route_upstream = upstream.clone();
         let worker = thread::Builder::new()
             .name("proxyenv-authenticated-relay".into())
@@ -180,20 +200,29 @@ impl AuthenticatedRelay {
                                 let _ = downstream.shutdown(Shutdown::Both);
                                 continue;
                             }
+                            // Pause also closes clients waiting in an HTTP/SOCKS handshake.
+                            let Ok(connection_id) = worker_session.track(&downstream, None) else {
+                                let _ = downstream.shutdown(Shutdown::Both);
+                                continue;
+                            };
                             let endpoint = upstream.clone();
                             let connection_session = Arc::clone(&worker_session);
-                            let route = ai_route.clone();
-                            let _ = thread::Builder::new()
+                            let route = worker_route.lock().ok().and_then(|route| route.clone());
+                            let spawned = thread::Builder::new()
                                 .name("proxyenv-authenticated-connection".into())
                                 .spawn(move || {
                                     let _ = handle(
                                         downstream,
                                         endpoint,
                                         mode,
-                                        connection_session,
+                                        Arc::clone(&connection_session),
                                         route,
                                     );
+                                    connection_session.untrack(connection_id);
                                 });
+                            if spawned.is_err() {
+                                worker_session.untrack(connection_id);
+                            }
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(20));
@@ -208,6 +237,7 @@ impl AuthenticatedRelay {
             upstream: route_upstream,
             session_id: hex::encode(session_id),
             session,
+            ai_route,
             worker: Some(worker),
         })
     }
@@ -230,6 +260,16 @@ impl AuthenticatedRelay {
 
     pub(super) fn session_id(&self) -> &str {
         &self.session_id
+    }
+
+    pub(super) fn set_enabled(&self, enabled: bool) {
+        self.session.set_enabled(enabled);
+    }
+
+    pub(super) fn set_ai_route(&self, route: Option<AiRoute>) {
+        if let Ok(mut current) = self.ai_route.lock() {
+            *current = route;
+        }
     }
 
     pub(super) fn is_running(&self) -> bool {
@@ -350,13 +390,13 @@ fn handle_http(
         output.push_str(line);
         output.push_str("\r\n");
     }
-    if session.revoked.load(Ordering::Acquire) {
+    if !session.available() {
         return Err("relayUnauthorized");
     }
     output.push_str("\r\n");
     if ai_request_line.is_some() {
         let route = ai_route.as_ref().ok_or("relayUnavailable")?;
-        if route.session.revoked.load(Ordering::Acquire) {
+        if !route.session.available() {
             downstream
                 .write_all(
                     b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -374,7 +414,7 @@ fn handle_http(
             let result = super::codex_relay::handle_authenticated_buffered(
                 downstream,
                 route.upstream.clone(),
-                |token| route.session.accepts(token) && !session.revoked.load(Ordering::Acquire),
+                |token| route.session.accepts(token) && session.available(),
                 buffered,
             );
             route.session.untrack(ai_id);
@@ -416,7 +456,7 @@ fn handle_socks5(
     downstream
         .write_all(&[5, 0])
         .map_err(|_| "relayUnavailable")?;
-    if session.revoked.load(Ordering::Acquire) {
+    if !session.available() {
         return Err("relayUnauthorized");
     }
     let request = read_socks_request(&mut downstream)?;
@@ -536,6 +576,133 @@ fn tunnel(mut left: TcpStream, mut right: TcpStream) -> Result<(), &'static str>
 mod tests {
     use super::*;
     use std::sync::mpsc;
+
+    fn assert_connection_closed(result: std::io::Result<usize>) {
+        match result {
+            Ok(count) => assert_eq!(count, 0),
+            Err(error) => assert!(
+                !matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ),
+                "Paused connection was not closed: {error}"
+            ),
+        }
+    }
+
+    #[test]
+    fn pause_shuts_down_both_sides_of_an_established_connection() {
+        let pair = || {
+            let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            (listener.accept().unwrap().0, peer)
+        };
+        let (downstream, mut client) = pair();
+        let (upstream, mut server) = pair();
+        let session = Session::new().unwrap();
+        session.track(&downstream, Some(&upstream)).unwrap();
+        session.set_enabled(false);
+        let mut byte = [0];
+        assert_connection_closed(client.read(&mut byte));
+        assert_connection_closed(server.read(&mut byte));
+        assert!(session.connections.lock().unwrap().is_empty());
+        assert!(session.track(&downstream, Some(&upstream)).is_err());
+    }
+
+    #[test]
+    fn newly_added_ai_route_is_used_by_the_existing_general_worker() {
+        let (endpoint, receiver) = upstream();
+        let ai = AuthenticatedRelay::start(endpoint, RelayMode::AiHttp).unwrap();
+        let (proxy, unused) = routed_proxy(&ai, 15721);
+        proxy.set_ai_route(None);
+        let original_port = proxy.port();
+        proxy.set_ai_route(Some(ai.ai_route(31472)));
+        let request = format!("POST http://127.0.0.1:31472/v1/responses HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 0\r\n\r\n", ai.token().as_str());
+        assert!(exchange(proxy.port(), &request).starts_with("HTTP/1.1 200"));
+        assert_eq!(proxy.port(), original_port);
+        assert!(receiver.recv_timeout(Duration::from_secs(5)).is_ok());
+        assert!(unused.accept().is_err());
+    }
+
+    #[test]
+    fn pause_closes_pending_handshakes_and_resume_retains_port_and_session() {
+        let (endpoint, receiver) = upstream();
+        let relay = AuthenticatedRelay::start(endpoint, RelayMode::AiHttp).unwrap();
+        let port = relay.port();
+        let token = relay.token();
+        let session_id = relay.session_id().to_owned();
+        let mut pending = test_relay_client(&relay);
+        pending
+            .write_all(b"POST /v1/responses HTTP/1.1\r\n")
+            .unwrap();
+        for _ in 0..100 {
+            if !relay.session.connections.lock().unwrap().is_empty() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!relay.session.connections.lock().unwrap().is_empty());
+        relay.set_enabled(false);
+        let mut byte = [0];
+        assert_connection_closed(pending.read(&mut byte));
+        assert!(!relay.session.accepts(token.as_bytes()));
+        assert!(relay.is_running());
+        assert_eq!(relay.port(), port);
+        relay.set_enabled(true);
+        assert_eq!(relay.session_id(), session_id);
+        assert_eq!(*relay.token(), *token);
+        assert!(relay.session.accepts(token.as_bytes()));
+        let response = exchange(port, &format!("POST /v1/responses HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 0\r\n\r\n", token.as_str()));
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(receiver.recv_timeout(Duration::from_secs(5)).is_ok());
+        relay.session.revoke();
+        relay.set_enabled(true);
+        assert!(
+            !relay.session.accepts(token.as_bytes()),
+            "Resume must never revive a revoked session"
+        );
+    }
+
+    #[test]
+    fn paused_ai_cannot_be_bypassed_through_general_proxy() {
+        let (endpoint, receiver) = upstream();
+        let ai = AuthenticatedRelay::start(endpoint, RelayMode::AiHttp).unwrap();
+        let (proxy, unused) = routed_proxy(&ai, 15721);
+        ai.set_enabled(false);
+        let request = format!("POST http://127.0.0.1:15721/v1/responses HTTP/1.1\r\nX-ProxyEnv-Session: {}\r\nContent-Length: 0\r\n\r\n", ai.token().as_str());
+        assert!(exchange(proxy.port(), &request).starts_with("HTTP/1.1 502"));
+        assert!(
+            unused.accept().is_err(),
+            "Paused AI must not leak to the general upstream"
+        );
+        ai.set_enabled(true);
+        proxy.set_enabled(false);
+        // Pausing the general proxy leaves the direct authenticated AI lane usable.
+        let direct = request.replace("http://127.0.0.1:15721", "");
+        assert!(exchange(ai.port(), &direct).starts_with("HTTP/1.1 200"));
+        assert!(receiver.recv_timeout(Duration::from_secs(5)).is_ok());
+        assert!(!proxy.session.available());
+    }
+
+    #[test]
+    fn paused_general_lane_rejects_new_clients_and_resumes_without_ai() {
+        let (endpoint, receiver) = upstream();
+        let proxy =
+            AuthenticatedRelay::start(endpoint, RelayMode::General(ProxyProtocol::Http)).unwrap();
+        proxy.set_enabled(false);
+        let mut denied = test_relay_client(&proxy);
+        let mut byte = [0];
+        assert_connection_closed(denied.read(&mut byte));
+        assert!(receiver.try_recv().is_err());
+        proxy.set_enabled(true);
+        assert!(exchange(
+            proxy.port(),
+            "GET http://example.test/ HTTP/1.1\r\nHost: example.test\r\n\r\n"
+        )
+        .starts_with("HTTP/1.1 200"));
+        assert!(receiver.recv_timeout(Duration::from_secs(5)).is_ok());
+    }
 
     fn accept_test_upstream(listener: TcpListener) -> TcpStream {
         listener.set_nonblocking(true).unwrap();

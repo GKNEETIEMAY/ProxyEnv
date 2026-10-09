@@ -74,6 +74,7 @@ pub fn run() {
             commands::remote_bridge::remote_bridge_preview,
             commands::remote_bridge::remote_bridge_connect,
             commands::remote_bridge::remote_bridge_disconnect,
+            commands::remote_bridge::remote_bridge_set_capability,
             commands::remote_bridge::remote_bridge_retry_reconnect,
             commands::remote_bridge::remote_bridge_test,
             commands::remote_bridge::remote_bridge_launch_proxy_terminal,

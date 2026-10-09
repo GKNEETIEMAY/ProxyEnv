@@ -28,6 +28,8 @@ export interface RemoteBridgeModelSettings { followLocalCodexProfile:boolean; pr
 export interface ToolVerificationResult { tool: RemoteToolId; verification: RemoteToolVerification }
 export interface BridgeSummary { status: BridgeStatus; target: RemoteTarget | null; proxy: BridgeEndpoint | null; runtimeExpectedProxyPort?: number | null; runtimeProxyMatch?: "unknown" | "matched" | "mismatch"; cc: BridgeEndpoint | null; proxyStatus: BridgeStatus | null; ccStatus: BridgeStatus | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; claudeProfileState?: ProfileSyncState; tools?: RemoteToolState[]; codexExtension?: string | null; claudeExtension?: string | null; error: string | null; sshAuth: SshAuthState; postConnectStatus?:PostConnectStatus; sessionEnvironmentState?:RemoteRuntimeState; vscodeState?:RemoteRuntimeState; codexState?:RemoteRuntimeState; claudeState?:RemoteRuntimeState; skillsState?:RemoteRuntimeState; postConnectError?:string|null; timings?:PhaseTiming[] }
 export interface BridgeRequest { targetId: string; proxyPort: number | null; ccPort: number | null; ccLocalPort: number; expectedRevision: number }
+export type BridgeCapability = "proxy" | "cc";
+export interface BridgeCapabilityChange { targetId: string; capability: BridgeCapability; enabled: boolean; expectedRevision: number; ccLocalPort: number }
 export interface PortAllocation { proxyPort: number; ccPort: number; runtimeExpectedProxyPort?: number | null; runtimePortConflict?: boolean }
 export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
 export interface RemoteNetworkObservation { serverInternet: "reachable" | "unreachable" | "unknown" }
@@ -93,6 +95,7 @@ export const remoteBackend = {
   preview: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_preview", { request }),
   connect: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_connect", { request, confirmed:true }),
   disconnect: () => invoke<BridgeSummary>("remote_bridge_disconnect", { confirmed:true }),
+  setCapability: (change: BridgeCapabilityChange) => invoke<BridgeSummary>("remote_bridge_set_capability", { change, confirmed:true }),
   retryReconnect: () => invoke<BridgeSummary>("remote_bridge_retry_reconnect"),
   test: () => invoke<void>("remote_bridge_test"),
   launchProxyTerminal: () => invoke<void>("remote_bridge_launch_proxy_terminal"),
