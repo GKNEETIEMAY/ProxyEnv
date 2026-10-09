@@ -28,11 +28,15 @@ The AI Route remains session-authenticated. Each explicit bridge session creates
 - AI forwarding uses `X-ProxyEnv-Session`. Codex receives it through provider `http_headers`; Claude receives it through `ANTHROPIC_CUSTOM_HEADERS`. Claude versions older than `2.1.227` fail closed.
 - The AI relay owns a 256-bit random token and a non-secret random session id. Tokens are compared in constant time and retained in zeroizing backend buffers where practical.
 - Managed proxy terminals source `~/.proxyenv/sessions/<session-id>/env.sh`. The file is created through SSH stdin with mode `0600` and contains credential-free loopback proxy URLs.
-- Reconnect rotates tokens. Existing ProxyEnv-owned Codex or Claude projections are updated through their established preview/apply transaction without a second user decision. Unowned configurations are not modified.
+- An explicit new bridge session rotates tokens and updates existing owned projections through their established transactions. Silent SSH transport recovery and capability pause/resume retain the current session token and reserved ports. Unowned configurations are not modified.
 - Disconnect revokes both local capabilities before best-effort removal of the remote session environment. Relay drop also shuts down tracked active streams.
 - Production AI forwarding cannot fall back to an unauthenticated route.
 
 ## External client authentication and independent capabilities
+
+Connected Overview switches use `capabilities.rs` and `remote_bridge_set_capability` to change one lane. Pausing gates its relay and closes tracked clients (including incomplete handshakes), while preserving the SSH forward's port reservation. AI pause also rejects authenticated AI bypasses through General Proxy; resume cannot revive a revoked session. Silent transport recovery uses the reserved endpoints but never reopens a paused gate. First-time activation adds only the new SSH forward, and updates the existing General Proxy worker's fixed AI bypass when needed. No proxy credentials are introduced.
+
+Shell and previously managed VS Code network setup follow the effective capabilities. AI tool restoration/reapplication uses the existing ownership, hash, backup and verification boundary. Multi-file operations are not one atomic transaction: partial failure is reported, and conflicting edits are never overwritten. Existing consumer processes may need restarting/reloading to pick up restored configuration.
 
 - The General Proxy and AI Route remain independently selectable. Both use SSH transport, but AI routing does not require the General Proxy or proxy environment variables. General Proxy staleness does not invalidate AI verification; an unavailable AI upstream does not block General Proxy testing or managed terminals.
 - Managed terminals automatically receive uppercase and lowercase credential-free proxy variables. Stale variants are removed; both `NO_PROXY` and `no_proxy` contain loopback and preserve the user's existing bypass entries.
