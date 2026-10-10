@@ -182,6 +182,7 @@ pub struct Summary {
     pub ssh_auth: SshAuthState,
     pub post_connect_status: PostConnectStatus,
     pub session_environment_state: RuntimeState,
+    pub session_environment_command: Option<String>,
     pub vscode_state: RuntimeState,
     pub codex_state: RuntimeState,
     pub claude_state: RuntimeState,
@@ -318,6 +319,12 @@ pub enum RuntimeProxyMatch {
     Unknown,
     Matched,
     Mismatch,
+    NotSet,
+    Disabled,
+    InvalidSettings,
+    ReadFailed,
+    UnsupportedProxy,
+    NotCompared,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -588,6 +595,7 @@ fn refresh(state: &mut Store) {
         if state.summary.cc_status != Some(Status::Connected) {
             invalidate_tool_verification(&mut state.summary);
         }
+        observe_user_proxy_setting(&mut state.summary);
     }
 }
 
@@ -1057,6 +1065,71 @@ fn exposed_summary(summary: &Summary) -> Summary {
     snapshot
 }
 
+fn session_environment_source_command(session_id: &str) -> String {
+    format!(". \"$HOME/.proxyenv/sessions/{session_id}/env.sh\"")
+}
+
+fn projected_session_command(
+    summary: &Summary,
+    ssh_running: bool,
+    session_id: Option<&str>,
+) -> Option<String> {
+    if summary.proxy.is_none()
+        || !capability_ready(ssh_running, summary.proxy_status)
+        || summary.session_environment_state != RuntimeState::Ready
+    {
+        return None;
+    }
+    session_id.map(session_environment_source_command)
+}
+
+fn observe_user_proxy_setting(snapshot: &mut Summary) {
+    // Observe default user settings even when unrelated VS Code profiles exist.
+    // This is configuration evidence only, never extension connectivity proof.
+    let setting = vscode::user_proxy_setting();
+    snapshot.runtime_expected_proxy_port = match setting {
+        vscode::UserProxySetting::Configured(port) => Some(port),
+        _ => None,
+    };
+    snapshot.runtime_proxy_match = match setting {
+        vscode::UserProxySetting::Configured(port) => {
+            if snapshot.proxy_status == Some(Status::Connected)
+                && snapshot.proxy.as_ref().is_some_and(|endpoint| {
+                    matches!(
+                        endpoint.local.protocol,
+                        ProxyProtocol::Http | ProxyProtocol::Mixed
+                    )
+                })
+            {
+                runtime_proxy_match(
+                    Some(port),
+                    snapshot.proxy.as_ref().map(|endpoint| endpoint.remote_port),
+                )
+            } else {
+                RuntimeProxyMatch::NotCompared
+            }
+        }
+        vscode::UserProxySetting::NotSet => RuntimeProxyMatch::NotSet,
+        vscode::UserProxySetting::Disabled => RuntimeProxyMatch::Disabled,
+        vscode::UserProxySetting::InvalidSettings => RuntimeProxyMatch::InvalidSettings,
+        vscode::UserProxySetting::ReadFailed => RuntimeProxyMatch::ReadFailed,
+        vscode::UserProxySetting::UnsupportedProxy => RuntimeProxyMatch::UnsupportedProxy,
+    };
+}
+
+fn exposed_state_summary(state: &Store) -> Summary {
+    let mut snapshot = exposed_summary(&state.summary);
+    observe_user_proxy_setting(&mut snapshot);
+    // Read-only projection: displaying or copying an already-ready command
+    // must not launch SSH or prepare env.sh again.
+    snapshot.session_environment_command = projected_session_command(
+        &state.summary,
+        state.child.is_some(),
+        state.proxy_relay.as_ref().map(|relay| relay.session_id()),
+    );
+    snapshot
+}
+
 fn profile_poll_order(last: tool_adapter::RemoteToolId) -> [tool_adapter::RemoteToolId; 2] {
     use tool_adapter::RemoteToolId::{Claude, Codex};
     match last {
@@ -1203,7 +1276,8 @@ pub fn disable_skill(id: String) -> BridgeResult<SkillView> {
     result
 }
 pub fn summary() -> BridgeResult<Summary> {
-    Ok(exposed_summary(&lock()?.summary))
+    let state = lock()?;
+    Ok(exposed_state_summary(&state))
 }
 
 pub fn recent_events(limit: usize) -> BridgeResult<Vec<events::BridgeEvent>> {
@@ -2219,7 +2293,7 @@ pub(super) fn complete_interactive_connect(
         Some(core_duration_ms),
     );
     let generation = state.connection_generation;
-    let snapshot = exposed_summary(&state.summary);
+    let snapshot = exposed_state_summary(&state);
     drop(state);
     start_post_connect(generation);
     Ok(snapshot)
@@ -2315,7 +2389,7 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         state.summary.ssh_auth = state.ssh_auth;
         state.reachable = true;
         state.target_fingerprint = Some(fingerprint);
-        Ok(exposed_summary(&state.summary))
+        Ok(exposed_state_summary(&state))
     })();
     if let Err(code) = &result {
         state.summary.status = Status::Error;
@@ -2401,14 +2475,14 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
         None,
     );
     credential_cache::clear();
-    Ok(exposed_summary(&state.summary))
+    Ok(exposed_state_summary(&state))
 }
 
 pub fn retry_reconnect() -> BridgeResult<Summary> {
     let mut state = lock()?;
     refresh(&mut state);
     reconnect::resume(&mut state)?;
-    Ok(exposed_summary(&state.summary))
+    Ok(exposed_state_summary(&state))
 }
 pub fn clear_session_credential() {
     credential_cache::clear();
@@ -2815,9 +2889,7 @@ fn capability_ready(ssh_running: bool, status: Option<Status>) -> bool {
 
 pub fn session_environment_command() -> BridgeResult<String> {
     let (_, session_id, _) = proxy_terminal_context()?;
-    Ok(format!(
-        ". \"$HOME/.proxyenv/sessions/{session_id}/env.sh\""
-    ))
+    Ok(session_environment_source_command(&session_id))
 }
 pub fn launch_manual_terminal() -> BridgeResult<()> {
     // AI-only bridges also need a plain remote terminal, not proxy exports.
@@ -3296,6 +3368,53 @@ fn verify_tool_for_generation(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn terminal_command_is_a_read_only_session_scoped_projection() {
+        let mut summary = super::Summary {
+            proxy: Some(super::Endpoint {
+                local: super::ProxyEndpoint {
+                    host: "127.0.0.1".into(),
+                    port: 7897,
+                    protocol: super::ProxyProtocol::Mixed,
+                },
+                remote_port: 7897,
+            }),
+            proxy_status: Some(super::Status::Connected),
+            session_environment_state: super::RuntimeState::Ready,
+            ..super::Summary::default()
+        };
+        let command = super::projected_session_command(&summary, true, Some("session-one"));
+        assert_eq!(
+            command.as_deref(),
+            Some(". \"$HOME/.proxyenv/sessions/session-one/env.sh\"")
+        );
+        assert_eq!(
+            super::projected_session_command(&summary, true, Some("session-one")),
+            command
+        );
+        assert_ne!(
+            super::projected_session_command(&summary, true, Some("session-two")),
+            command
+        );
+        assert!(super::projected_session_command(&summary, false, Some("session-one")).is_none());
+        assert!(super::projected_session_command(&summary, true, None).is_none());
+        for state in [
+            super::RuntimeState::Pending,
+            super::RuntimeState::Preparing,
+            super::RuntimeState::Warning,
+        ] {
+            summary.session_environment_state = state;
+            assert!(
+                super::projected_session_command(&summary, true, Some("session-one")).is_none()
+            );
+        }
+        summary.session_environment_state = super::RuntimeState::Ready;
+        summary.proxy_status = Some(super::Status::Disconnected);
+        assert!(super::projected_session_command(&summary, true, Some("session-one")).is_none());
+        summary.proxy_status = Some(super::Status::Connected);
+        summary.proxy = None;
+        assert!(super::projected_session_command(&summary, true, Some("session-one")).is_none());
+    }
     use super::*;
 
     #[test]

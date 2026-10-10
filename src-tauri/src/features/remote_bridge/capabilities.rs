@@ -78,7 +78,7 @@ pub fn set_capability(change: CapabilityChange, confirmed: bool) -> BridgeResult
         return Err("sshConfigChanged".into());
     }
     if enabled(&state, change.capability) == change.enabled {
-        return Ok(exposed_summary(&state.summary));
+        return Ok(exposed_state_summary(&state));
     }
     let started = Instant::now();
     let component = match change.capability {
@@ -130,7 +130,7 @@ pub fn set_capability(change: CapabilityChange, confirmed: bool) -> BridgeResult
     state.extension_pending = None;
     sync_tool_states(&mut state.summary);
     refresh(&mut state);
-    Ok(exposed_summary(&state.summary))
+    Ok(exposed_state_summary(&state))
 }
 
 fn network_setup(

@@ -13,27 +13,70 @@ pub fn settings_path() -> Option<PathBuf> {
 
 /// A local user setting is a port expectation, not proof of runtime use.
 pub fn user_proxy_port() -> Option<u16> {
-    let path = settings_path()?;
-    let metadata = std::fs::symlink_metadata(&path).ok()?;
-    if !metadata.file_type().is_file() || metadata.len() > 1024 * 1024 {
-        return None;
+    match user_proxy_setting() {
+        UserProxySetting::Configured(port) => Some(port),
+        _ => None,
     }
-    let profiles = path.parent()?.join("profiles");
-    if profiles.is_dir() && std::fs::read_dir(profiles).ok()?.next().is_some() {
-        return None;
-    }
-    let settings = parse_settings(&std::fs::read_to_string(path).ok()?).ok()?;
-    proxy_port_from_settings(&settings)
 }
 
-fn proxy_port_from_settings(settings: &serde_json::Value) -> Option<u16> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserProxySetting {
+    Configured(u16),
+    NotSet,
+    Disabled,
+    InvalidSettings,
+    ReadFailed,
+    UnsupportedProxy,
+}
+
+pub fn user_proxy_setting() -> UserProxySetting {
+    settings_path().map_or(UserProxySetting::ReadFailed, |path| {
+        user_proxy_setting_at(&path)
+    })
+}
+
+fn user_proxy_setting_at(path: &Path) -> UserProxySetting {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return UserProxySetting::NotSet
+        }
+        Err(_) => return UserProxySetting::ReadFailed,
+    };
+    if !metadata.file_type().is_file() || metadata.len() > 1024 * 1024 {
+        return UserProxySetting::ReadFailed;
+    }
+    let input = match std::fs::read_to_string(path) {
+        Ok(input) => input,
+        Err(_) => return UserProxySetting::ReadFailed,
+    };
+    match parse_settings(&input) {
+        Ok(settings) => proxy_setting_from_settings(&settings),
+        Err(_) => UserProxySetting::InvalidSettings,
+    }
+}
+
+fn proxy_setting_from_settings(settings: &serde_json::Value) -> UserProxySetting {
+    if !settings.is_object() {
+        return UserProxySetting::InvalidSettings;
+    }
     if settings.get("http.useLocalProxyConfiguration") == Some(&serde_json::Value::Bool(false))
         || settings.get("http.proxySupport") == Some(&serde_json::Value::String("off".into()))
     {
-        return None;
+        return UserProxySetting::Disabled;
     }
-    let raw = settings.get("http.proxy")?.as_str()?;
-    let url = reqwest::Url::parse(raw).ok()?;
+    let raw = match settings.get("http.proxy") {
+        None | Some(serde_json::Value::Null) => return UserProxySetting::NotSet,
+        Some(serde_json::Value::String(raw)) if raw.trim().is_empty() => {
+            return UserProxySetting::NotSet
+        }
+        Some(serde_json::Value::String(raw)) => raw.trim(),
+        _ => return UserProxySetting::InvalidSettings,
+    };
+    let url = match reqwest::Url::parse(raw) {
+        Ok(url) => url,
+        Err(_) => return UserProxySetting::InvalidSettings,
+    };
     // A reverse forward transports bytes; it does not translate HTTP, HTTPS
     // or SOCKS proxy protocols. Only the observed HTTP case is supported.
     if url.scheme() != "http"
@@ -44,9 +87,12 @@ fn proxy_port_from_settings(settings: &serde_json::Value) -> Option<u16> {
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        return None;
+        return UserProxySetting::UnsupportedProxy;
     }
-    url.port().filter(|port| *port >= 1024)
+    match url.port() {
+        Some(port) if port >= 1024 => UserProxySetting::Configured(port),
+        _ => UserProxySetting::UnsupportedProxy,
+    }
 }
 
 // JSONC comments and trailing commas are syntax, not string contents. Keep this
@@ -553,7 +599,10 @@ mod tests {
 
     #[test]
     fn user_proxy_inspection_accepts_only_explicit_loopback_ports() {
-        let parse = |raw: &str| proxy_port_from_settings(&parse_settings(raw).unwrap());
+        let parse = |raw: &str| match proxy_setting_from_settings(&parse_settings(raw).unwrap()) {
+            UserProxySetting::Configured(port) => Some(port),
+            _ => None,
+        };
         assert_eq!(
             parse(r#"{"http.proxy":"http://127.0.0.1:7897"}"#),
             Some(7897)
@@ -576,5 +625,66 @@ mod tests {
         ] {
             assert_eq!(parse(raw), None, "unexpected proxy from {raw}");
         }
+    }
+
+    #[test]
+    fn user_proxy_states_distinguish_comments_disabled_and_invalid_values() {
+        use UserProxySetting::*;
+        for (input, expected) in [
+            ("{ // \"http.proxy\":\"http://127.0.0.1:7897\"\n}", NotSet),
+            (r#"{/* "http.proxy":"http://127.0.0.1:7897" */}"#, NotSet),
+            (r#"{"http.proxy":""}"#, NotSet),
+            (
+                r#"{"http.proxy":"http://127.0.0.1:7897","http.proxySupport":"off"}"#,
+                Disabled,
+            ),
+            (
+                r#"{"http.proxy":"http://127.0.0.1:7897","http.useLocalProxyConfiguration":false}"#,
+                Disabled,
+            ),
+            (r#"{"http.proxy":7897}"#, InvalidSettings),
+            (r#"{"http.proxy":"invalid url"}"#, InvalidSettings),
+            (
+                r#"{"http.proxy":"socks5://127.0.0.1:7897"}"#,
+                UnsupportedProxy,
+            ),
+            (
+                r#"{"http.proxy":"http://127.0.0.1:7897","http.proxySupport":"on",}"#,
+                Configured(7897),
+            ),
+            ("[]", InvalidSettings),
+        ] {
+            assert_eq!(
+                proxy_setting_from_settings(&parse_settings(input).unwrap()),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn default_user_proxy_remains_readable_when_other_profiles_exist() {
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).unwrap();
+        let directory =
+            std::env::temp_dir().join(format!("proxyenv-vscode-settings-{}", hex::encode(nonce)));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("settings.json");
+        assert_eq!(user_proxy_setting_at(&path), UserProxySetting::NotSet);
+        std::fs::create_dir_all(directory.join("profiles/other")).unwrap();
+        std::fs::write(&path, r#"{"http.proxy":"http://127.0.0.1:7897"}"#).unwrap();
+        assert_eq!(
+            user_proxy_setting_at(&path),
+            UserProxySetting::Configured(7897)
+        );
+        std::fs::write(&path, "{ invalid").unwrap();
+        assert_eq!(
+            user_proxy_setting_at(&path),
+            UserProxySetting::InvalidSettings
+        );
+        assert_eq!(
+            user_proxy_setting_at(&directory),
+            UserProxySetting::ReadFailed
+        );
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
