@@ -80,16 +80,34 @@ pub fn set_capability(change: CapabilityChange, confirmed: bool) -> BridgeResult
     if enabled(&state, change.capability) == change.enabled {
         return Ok(exposed_summary(&state.summary));
     }
-    if change.enabled {
-        enable(&mut state, &change, cc_port, &fingerprint)?;
+    let started = Instant::now();
+    let component = match change.capability {
+        Capability::Proxy => {
+            state.summary.diagnostics.general_proxy_egress.reset();
+            EventComponent::GeneralProxy
+        }
+        Capability::Cc => {
+            state.summary.diagnostics.ai_route_verification.reset();
+            EventComponent::AiRoute
+        }
+    };
+    let action = if change.enabled {
+        EventAction::Enable
+    } else {
+        EventAction::Disable
+    };
+    let result = if change.enabled {
+        enable(&mut state, &change, cc_port, &fingerprint)
     } else {
         disable(
             &mut state,
             change.capability,
             &change.target_id,
             &fingerprint,
-        )?;
-    }
+        )
+    };
+    record_result(&mut state, component, action, &result, started);
+    result?;
     let proxy_port = state
         .summary
         .proxy

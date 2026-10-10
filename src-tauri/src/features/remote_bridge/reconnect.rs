@@ -97,6 +97,13 @@ pub(super) fn tick() {
             return;
         };
         state.summary.reconnect_state = State::Retrying;
+        state.events.push(
+            EventComponent::Ssh,
+            EventAction::Reconnect,
+            EventOutcome::Started,
+            None,
+            None,
+        );
         Job {
             generation: state.connection_generation,
             request,
@@ -105,6 +112,7 @@ pub(super) fn tick() {
         }
     };
     // No Store lock during network I/O: Disconnect can cancel this attempt.
+    let started = Instant::now();
     let result = restore_transport(&job);
     let Ok(mut state) = lock() else {
         return;
@@ -114,6 +122,13 @@ pub(super) fn tick() {
     }
     match result {
         Ok(child) => {
+            state.events.push(
+                EventComponent::Ssh,
+                EventAction::Reconnect,
+                EventOutcome::Success,
+                None,
+                Some(elapsed_ms(started)),
+            );
             state.child = Some(Box::new(child));
             state.reconnect = None;
             state.summary.reconnect_state = State::Idle;
@@ -124,6 +139,13 @@ pub(super) fn tick() {
             refresh(&mut state);
         }
         Err(code) => {
+            state.events.push(
+                EventComponent::Ssh,
+                EventAction::Reconnect,
+                EventOutcome::Failed,
+                Some(ErrorCategory::from_code(&code)),
+                Some(elapsed_ms(started)),
+            );
             let retry = state.reconnect.as_mut().unwrap();
             retry.failed(&code);
             let paused = retry.paused;
@@ -315,7 +337,20 @@ mod tests {
             }),
             ..Store::default()
         };
+        let proxy_ticket = state.summary.diagnostics.general_proxy_egress.begin();
+        let ai_ticket = state.summary.diagnostics.ai_route_verification.begin();
         refresh(&mut state);
+        assert!(!state
+            .summary
+            .diagnostics
+            .general_proxy_egress
+            .current(proxy_ticket));
+        assert!(!state
+            .summary
+            .diagnostics
+            .ai_route_verification
+            .current(ai_ticket));
+        assert_eq!(state.events.recent(1)[0].action, EventAction::TransportLost);
         assert!(state.child.is_none() && state.additional_tunnels.is_empty());
         assert_eq!(state.summary.reconnect_state, State::Waiting);
     }

@@ -8,7 +8,7 @@ mod services;
 use desktop::tray;
 use services::settings;
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 
 pub fn try_run_ssh_askpass() -> bool {
@@ -30,6 +30,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            if let Ok(directory) = app.path().app_log_dir() {
+                features::remote_bridge::logging::initialize(directory.join("remote-bridge"));
+            }
             desktop::notifications::setup(app.handle().clone());
             features::remote_bridge::start_monitor();
             let settings = settings::load().unwrap_or_default();
@@ -56,6 +59,12 @@ pub fn run() {
             commands::remote_bridge::remote_bridge_update_connection,
             commands::remote_bridge::remote_bridge_remove_connection,
             commands::remote_bridge::remote_bridge_summary,
+            commands::remote_bridge::remote_bridge_events,
+            commands::remote_bridge::remote_bridge_run_diagnostics,
+            commands::remote_bridge::remote_bridge_diagnostics_snapshot,
+            commands::remote_bridge::remote_bridge_log_status,
+            commands::remote_bridge::remote_bridge_clear_logs,
+            commands::remote_bridge::remote_bridge_open_log_directory,
             commands::remote_bridge::remote_bridge_skills,
             commands::remote_bridge::remote_bridge_enable_skill,
             commands::remote_bridge::remote_bridge_disable_skill,

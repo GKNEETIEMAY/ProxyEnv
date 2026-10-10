@@ -120,17 +120,26 @@ pub trait RemoteToolAdapter: Sync {
     }
 
     fn apply(&self, summary: &mut Summary) {
+        if self.verification_supported() {
+            summary.diagnostics.ai_route_verification.reset();
+        }
         self.set_configured(summary, true);
         self.set_verification(summary, RemoteToolVerification::VerifyPending);
     }
 
     fn restore(&self, summary: &mut Summary) {
+        if self.verification_supported() {
+            summary.diagnostics.ai_route_verification.reset();
+        }
         self.set_configured(summary, false);
         self.set_verification(summary, RemoteToolVerification::NotConfigured);
     }
 
     fn verify(&self, summary: &mut Summary, verification: RemoteToolVerification) {
         if self.configured(summary) && self.verification_supported() {
+            if verification == RemoteToolVerification::VerifyPending {
+                summary.diagnostics.ai_route_verification.reset();
+            }
             self.set_verification(summary, verification);
         }
     }
@@ -308,6 +317,39 @@ pub fn by_name(id: &str) -> BridgeResult<&'static dyn RemoteToolAdapter> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn supported_profile_changes_invalidate_in_flight_and_cached_model_proof() {
+        use super::super::observations::DiagnosticState;
+        let mut summary = Summary::default();
+        CLAUDE.apply(&mut summary);
+        let old = summary.diagnostics.ai_route_verification.begin();
+        CLAUDE.apply(&mut summary);
+        assert!(!summary
+            .diagnostics
+            .ai_route_verification
+            .finish(old, None, 10));
+        assert_eq!(
+            summary.diagnostics.ai_route_verification.state,
+            DiagnosticState::NotTested
+        );
+        let current = summary.diagnostics.ai_route_verification.begin();
+        summary
+            .diagnostics
+            .ai_route_verification
+            .finish(current, None, 12);
+        CODEX.apply(&mut summary);
+        assert_eq!(
+            summary.diagnostics.ai_route_verification.state,
+            DiagnosticState::Passed,
+            "Codex configuration must not invalidate independent Claude proof"
+        );
+        CLAUDE.restore(&mut summary);
+        assert_eq!(
+            summary.diagnostics.ai_route_verification.state,
+            DiagnosticState::NotTested
+        );
+    }
 
     #[test]
     fn registry_contains_unique_supported_cli_adapters() {

@@ -5,7 +5,14 @@ pub use capabilities::{set_capability, CapabilityChange};
 mod codex_relay;
 pub(crate) mod connections;
 pub(crate) mod credential_cache;
+pub mod diagnostics;
+pub mod events;
 pub mod extension;
+pub mod logging;
+pub mod observations;
+pub mod security;
+use events::{Action as EventAction, Component as EventComponent, Outcome as EventOutcome};
+use observations::{DiagnosticSnapshot, DiagnosticState, ErrorCategory};
 mod local_model;
 pub(crate) mod mobaxterm;
 mod reconnect;
@@ -181,6 +188,8 @@ pub struct Summary {
     pub skills_state: RuntimeState,
     pub post_connect_error: Option<String>,
     pub timings: Vec<PhaseTiming>,
+    pub diagnostics: DiagnosticSnapshot,
+    pub security: security::SecuritySnapshot,
 }
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -198,6 +207,19 @@ pub struct Report {
     pub claude_configured: bool,
     pub codex_extension: Option<String>,
     pub claude_extension: Option<String>,
+    pub reconnect_state: reconnect::State,
+    pub ssh_auth_method: SshAuthMethod,
+    pub runtime_proxy_match: RuntimeProxyMatch,
+    pub post_connect_status: PostConnectStatus,
+    pub session_environment_state: RuntimeState,
+    pub vscode_state: RuntimeState,
+    pub codex_state: RuntimeState,
+    pub claude_state: RuntimeState,
+    pub skills_state: RuntimeState,
+    pub post_connect_error_category: Option<ErrorCategory>,
+    pub phase_timings: Vec<PhaseTiming>,
+    pub diagnostics: DiagnosticSnapshot,
+    pub security: security::SecuritySnapshot,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -327,6 +349,7 @@ pub struct RemoteNetworkObservation {
     pub server_internet: RemoteInternetState,
 }
 struct Store {
+    events: events::EventStore,
     last_request: Option<Request>,
     reconnect: Option<reconnect::Retry>,
     connection_generation: u64,
@@ -358,6 +381,7 @@ struct Store {
 impl Default for Store {
     fn default() -> Self {
         Self {
+            events: events::EventStore::default(),
             last_request: None,
             reconnect: None,
             connection_generation: 0,
@@ -489,6 +513,16 @@ fn refresh(state: &mut Store) {
             state.summary.proxy_status = state.summary.proxy.as_ref().map(|_| Status::Disconnected);
             state.summary.cc_status = state.summary.cc.as_ref().map(|_| Status::Disconnected);
             invalidate_tool_verification(&mut state.summary);
+            state.summary.diagnostics.general_proxy_egress.reset();
+            state.summary.diagnostics.server_direct.reset();
+            state.summary.diagnostics.server_internet = None;
+            state.events.push(
+                EventComponent::Ssh,
+                EventAction::TransportLost,
+                EventOutcome::Warning,
+                Some(ErrorCategory::Ssh),
+                None,
+            );
             state.reachable = false;
             state.pending = None;
             state.extension_pending = None;
@@ -548,6 +582,9 @@ fn refresh(state: &mut Store) {
         state.summary.status =
             observed_status(&state.summary, current.as_ref(), endpoints_available);
         // A stale general proxy must not invalidate an independent AI route.
+        if state.summary.proxy_status != Some(Status::Connected) {
+            state.summary.diagnostics.general_proxy_egress.reset();
+        }
         if state.summary.cc_status != Some(Status::Connected) {
             invalidate_tool_verification(&mut state.summary);
         }
@@ -559,6 +596,21 @@ fn sync_tool_states(summary: &mut Summary) {
         .iter()
         .map(|adapter| adapter.inspect(summary))
         .collect();
+    // Re-applying/restoring a client profile requires a fresh real request.
+    if matches!(
+        summary.diagnostics.ai_route_verification.state,
+        DiagnosticState::Passed | DiagnosticState::Failed
+    ) && !summary.tools.iter().any(|tool| {
+        tool.configured
+            && tool.verification_supported
+            && !matches!(
+                tool.verification,
+                tool_adapter::RemoteToolVerification::NotConfigured
+                    | tool_adapter::RemoteToolVerification::VerifyPending
+            )
+    }) {
+        summary.diagnostics.ai_route_verification.reset();
+    }
 }
 
 fn remote_request(
@@ -737,6 +789,7 @@ fn refresh_tool_configuration(
 }
 
 fn invalidate_tool_verification(summary: &mut Summary) {
+    summary.diagnostics.ai_route_verification.reset();
     for adapter in tool_adapter::adapters() {
         if adapter.configured(summary) {
             adapter.verify(summary, tool_adapter::RemoteToolVerification::VerifyPending);
@@ -1115,14 +1168,48 @@ pub fn skill_views() -> BridgeResult<Vec<SkillView>> {
 }
 
 pub fn enable_skill(id: String) -> BridgeResult<SkillView> {
-    skills::enable(id)
+    let started = Instant::now();
+    let generation = lock()?.connection_generation;
+    let result = skills::enable(id);
+    if let Ok(mut state) = lock() {
+        if state.connection_generation == generation && state.child.is_some() {
+            record_result(
+                &mut state,
+                EventComponent::Skills,
+                EventAction::Enable,
+                &result,
+                started,
+            );
+        }
+    }
+    result
 }
 
 pub fn disable_skill(id: String) -> BridgeResult<SkillView> {
-    skills::disable(id)
+    let started = Instant::now();
+    let generation = lock()?.connection_generation;
+    let result = skills::disable(id);
+    if let Ok(mut state) = lock() {
+        if state.connection_generation == generation && state.child.is_some() {
+            record_result(
+                &mut state,
+                EventComponent::Skills,
+                EventAction::Disable,
+                &result,
+                started,
+            );
+        }
+    }
+    result
 }
 pub fn summary() -> BridgeResult<Summary> {
     Ok(exposed_summary(&lock()?.summary))
+}
+
+pub fn recent_events(limit: usize) -> BridgeResult<Vec<events::BridgeEvent>> {
+    // A UI snapshot must not wait behind an SSH operation.
+    let state = store().try_lock().map_err(|_| "stateUnavailable")?;
+    Ok(state.events.recent(limit))
 }
 
 pub fn model_settings() -> BridgeResult<settings::RemoteBridgeSettingsView> {
@@ -1159,6 +1246,10 @@ pub fn report() -> Report {
     let Ok(state) = store().try_lock() else {
         return Report::default();
     };
+    project_report(&state)
+}
+
+fn project_report(state: &Store) -> Report {
     let s = &state.summary;
     Report {
         configured: s.target.is_some(),
@@ -1172,9 +1263,65 @@ pub fn report() -> Report {
         cc_status: s.cc.as_ref().map(|_| state.cc_status),
         codex_configured: s.codex_configured,
         claude_configured: s.claude_configured,
-        codex_extension: s.codex_extension.clone(),
-        claude_extension: s.claude_extension.clone(),
+        codex_extension: safe_extension_status(s.codex_extension.as_deref()),
+        claude_extension: safe_extension_status(s.claude_extension.as_deref()),
+        reconnect_state: s.reconnect_state,
+        ssh_auth_method: s.ssh_auth.method,
+        runtime_proxy_match: s.runtime_proxy_match,
+        post_connect_status: s.post_connect_status,
+        session_environment_state: s.session_environment_state,
+        vscode_state: s.vscode_state,
+        codex_state: s.codex_state,
+        claude_state: s.claude_state,
+        skills_state: s.skills_state,
+        post_connect_error_category: s
+            .post_connect_error
+            .as_deref()
+            .map(ErrorCategory::from_code),
+        phase_timings: safe_phase_timings(&s.timings),
+        diagnostics: s.diagnostics.clone(),
+        security: s.security,
     }
+}
+
+fn safe_extension_status(value: Option<&str>) -> Option<String> {
+    crate::services::redaction::report_label(
+        value,
+        &["configured", "notConfigured", "conflict", "unknown"],
+    )
+}
+
+fn safe_phase_timings(timings: &[PhaseTiming]) -> Vec<PhaseTiming> {
+    const PHASES: &[&str] = &[
+        "bridge.prepare",
+        "ssh.authenticate",
+        "coreBridge.total",
+        "bridge.forwardReady",
+        "bridge.total",
+        "sessionEnv.apply",
+        "vscodeNetwork.refresh",
+        "codex.status",
+        "codex.preview",
+        "codex.apply",
+        "claude.status",
+        "claude.preview",
+        "claude.apply",
+        "postConnect.total",
+    ];
+    timings
+        .iter()
+        .take(50)
+        .map(|entry| PhaseTiming {
+            phase: crate::services::redaction::report_label(Some(&entry.phase), PHASES)
+                .unwrap_or_else(|| "unknown".into()),
+            duration_ms: entry.duration_ms,
+            outcome: crate::services::redaction::report_label(
+                Some(&entry.outcome),
+                &["success", "failed", "unsupported"],
+            )
+            .unwrap_or_else(|| "unknown".into()),
+        })
+        .collect()
 }
 pub fn targets() -> BridgeResult<Vec<RemoteTarget>> {
     ssh::targets()
@@ -1216,15 +1363,84 @@ pub fn check(target_id: String) -> BridgeResult<PortAllocation> {
     allocate_ports(target_id, true)
 }
 pub fn check_remote_network(target_id: String) -> BridgeResult<RemoteNetworkObservation> {
-    ssh::validate_target(&target_id)?;
-    let value = ssh::remote(&target_id, json!({"operation":"internet"}))?;
-    let server_internet = match value.get("internet").and_then(|entry| entry.as_str()) {
-        Some("reachable") => RemoteInternetState::Reachable,
-        Some("unreachable") => RemoteInternetState::Unreachable,
-        Some("unknown") => RemoteInternetState::Unknown,
-        _ => return Err("remoteUnsupported".into()),
+    check_remote_network_for_generation(target_id, None)
+}
+fn check_remote_network_for_generation(
+    target_id: String,
+    expected_generation: Option<u64>,
+) -> BridgeResult<RemoteNetworkObservation> {
+    let started = Instant::now();
+    let (generation, ticket) = {
+        let mut state = lock()?;
+        if expected_generation.is_some_and(|expected| {
+            state.connection_generation != expected || state.child.is_none()
+        }) {
+            return Err("bridgeUnavailable".into());
+        }
+        let ticket = if state.child.is_some()
+            && state.summary.target.as_ref().map(|target| &target.id) == Some(&target_id)
+        {
+            Some(state.summary.diagnostics.server_direct.begin())
+        } else {
+            None
+        };
+        (state.connection_generation, ticket)
     };
-    Ok(RemoteNetworkObservation { server_internet })
+    let result: BridgeResult<RemoteNetworkObservation> = (|| {
+        ssh::validate_target(&target_id)?;
+        let value = ssh::remote(&target_id, json!({"operation":"internet"}))?;
+        let server_internet = match value.get("internet").and_then(|entry| entry.as_str()) {
+            Some("reachable") => RemoteInternetState::Reachable,
+            Some("unreachable") => RemoteInternetState::Unreachable,
+            Some("unknown") => RemoteInternetState::Unknown,
+            _ => return Err("remoteUnsupported".into()),
+        };
+        Ok(RemoteNetworkObservation { server_internet })
+    })();
+    if let Ok(mut state) = lock() {
+        refresh(&mut state);
+        if state.connection_generation == generation
+            && state.child.is_some()
+            && state.summary.target.as_ref().map(|target| &target.id) == Some(&target_id)
+        {
+            if let Some(ticket) = ticket {
+                let error = match &result {
+                    Ok(observation) => match observation.server_internet {
+                        RemoteInternetState::Reachable => None,
+                        RemoteInternetState::Unreachable => Some(ErrorCategory::Network),
+                        RemoteInternetState::Unknown => Some(ErrorCategory::Unknown),
+                    },
+                    Err(code) => Some(ErrorCategory::from_code(code)),
+                };
+                if state.summary.diagnostics.server_direct.finish(
+                    ticket,
+                    error,
+                    elapsed_ms(started),
+                ) {
+                    state.summary.diagnostics.server_internet =
+                        result.as_ref().ok().map(|value| value.server_internet);
+                }
+            }
+            let outcome = match &result {
+                Ok(RemoteNetworkObservation {
+                    server_internet: RemoteInternetState::Reachable,
+                }) => EventOutcome::Success,
+                Ok(_) => EventOutcome::Warning,
+                Err(_) => EventOutcome::Failed,
+            };
+            state.events.push(
+                EventComponent::Ssh,
+                EventAction::ServerDirect,
+                outcome,
+                result
+                    .as_ref()
+                    .err()
+                    .map(|code| ErrorCategory::from_code(code)),
+                Some(elapsed_ms(started)),
+            );
+        }
+    }
+    result
 }
 fn derived_port(seed: &str, round: u8, lane: u8) -> u16 {
     use sha2::{Digest, Sha256};
@@ -1751,6 +1967,20 @@ fn start_post_connect(generation: u64) {
             }
             match result {
                 PostConnectResult::Environment(result, entry) => {
+                    state.events.push(
+                        EventComponent::SessionEnvironment,
+                        EventAction::EnvironmentSetup,
+                        if result.is_ok() {
+                            EventOutcome::Success
+                        } else {
+                            EventOutcome::Failed
+                        },
+                        result
+                            .as_ref()
+                            .err()
+                            .map(|code| ErrorCategory::from_code(code)),
+                        Some(entry.duration_ms),
+                    );
                     state.summary.session_environment_state = if result.is_ok() {
                         RuntimeState::Ready
                     } else {
@@ -1762,6 +1992,20 @@ fn start_post_connect(generation: u64) {
                     state.summary.timings.push(entry);
                 }
                 PostConnectResult::Vscode(result, entry) => {
+                    state.events.push(
+                        EventComponent::Vscode,
+                        EventAction::VscodeSetup,
+                        if result.is_ok() {
+                            EventOutcome::Success
+                        } else {
+                            EventOutcome::Failed
+                        },
+                        result
+                            .as_ref()
+                            .err()
+                            .map(|code| ErrorCategory::from_code(code)),
+                        Some(entry.duration_ms),
+                    );
                     state.summary.vscode_state = if result.is_ok() {
                         RuntimeState::Ready
                     } else {
@@ -1773,6 +2017,22 @@ fn start_post_connect(generation: u64) {
                     state.summary.timings.push(entry);
                 }
                 PostConnectResult::Tools(tool_summary, entries, ready) => {
+                    for (component, configured) in [
+                        (EventComponent::Codex, tool_summary.codex_configured),
+                        (EventComponent::Claude, tool_summary.claude_configured),
+                    ] {
+                        state.events.push(
+                            component,
+                            EventAction::ToolSetup,
+                            if configured {
+                                EventOutcome::Success
+                            } else {
+                                EventOutcome::Warning
+                            },
+                            None,
+                            None,
+                        );
+                    }
                     state.summary.codex_configured = tool_summary.codex_configured;
                     state.summary.claude_configured = tool_summary.claude_configured;
                     state.summary.codex_verification = tool_summary.codex_verification;
@@ -1874,6 +2134,14 @@ pub(super) fn mark_interactive_connecting() -> BridgeResult<()> {
     state.summary.status = Status::Connecting;
     state.summary.error = None;
     state.connect_started_at = Some(Instant::now());
+    state.events.clear();
+    state.events.push(
+        EventComponent::Ssh,
+        EventAction::Connect,
+        EventOutcome::Started,
+        None,
+        None,
+    );
     Ok(())
 }
 
@@ -1943,6 +2211,13 @@ pub(super) fn complete_interactive_connect(
     state.reachable = true;
     state.target_fingerprint = Some(fingerprint);
     state.ssh_auth = auth;
+    state.events.push(
+        EventComponent::Ssh,
+        EventAction::Connect,
+        EventOutcome::Success,
+        None,
+        Some(core_duration_ms),
+    );
     let generation = state.connection_generation;
     let snapshot = exposed_summary(&state.summary);
     drop(state);
@@ -1961,6 +2236,14 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
     reconnect::cancel(&mut state);
     state.pending = None;
     let connect_started = Instant::now();
+    state.events.clear();
+    state.events.push(
+        EventComponent::Ssh,
+        EventAction::Connect,
+        EventOutcome::Started,
+        None,
+        None,
+    );
     let result = (|| {
         state.extension_pending = None;
         let fingerprint = ssh::fingerprint(&request.target_id)?;
@@ -2038,6 +2321,13 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         state.summary.status = Status::Error;
         state.summary.error = Some(code.clone());
     }
+    record_result(
+        &mut state,
+        EventComponent::Ssh,
+        EventAction::Connect,
+        &result,
+        connect_started,
+    );
     let generation = state.connection_generation;
     drop(state);
     if result.is_ok() {
@@ -2094,7 +2384,22 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     state.proxy_status = Status::Disconnected;
     state.cc_status = Status::Disconnected;
     invalidate_tool_verification(&mut state.summary);
+    state.summary.diagnostics.general_proxy_egress.reset();
+    state.summary.diagnostics.server_direct.reset();
+    state.summary.diagnostics.server_internet = None;
     state.summary.error = vscode_restore_error;
+    let cleanup_error = state.summary.error.as_deref().map(ErrorCategory::from_code);
+    state.events.push(
+        EventComponent::Ssh,
+        EventAction::Disconnect,
+        if cleanup_error.is_some() {
+            EventOutcome::Warning
+        } else {
+            EventOutcome::Success
+        },
+        cleanup_error,
+        None,
+    );
     credential_cache::clear();
     Ok(exposed_summary(&state.summary))
 }
@@ -2107,6 +2412,17 @@ pub fn retry_reconnect() -> BridgeResult<Summary> {
 }
 pub fn clear_session_credential() {
     credential_cache::clear();
+    if let Ok(mut state) = lock() {
+        state.ssh_auth.password_stored = false;
+        state.summary.ssh_auth.password_stored = false;
+        state.events.push(
+            EventComponent::Ssh,
+            EventAction::CredentialClear,
+            EventOutcome::Success,
+            None,
+            None,
+        );
+    }
 }
 pub fn shutdown() {
     STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -2121,35 +2437,132 @@ pub fn shutdown() {
         state.local_codex_profile = None;
         state.local_claude_profile = None;
         state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
+        state.events.clear();
     }
     credential_cache::clear();
     ssh_auth::shutdown();
+    logging::shutdown();
 }
 pub fn test() -> BridgeResult<()> {
-    let mut state = lock()?;
-    refresh(&mut state);
-    if !capability_ready(state.child.is_some(), state.summary.proxy_status) {
-        return Err("bridgeUnavailable".into());
-    }
-    let endpoint = state.summary.proxy.as_ref().ok_or("proxyUnavailable")?;
-    let target_id = state
-        .summary
-        .target
-        .as_ref()
-        .map(|target| target.id.as_str())
-        .ok_or("invalidTarget")?;
-    if Some(ssh::fingerprint(target_id)?) != state.target_fingerprint {
-        return Err("sshConfigChanged".into());
-    }
-    ssh::remote(
-        target_id,
+    test_for_generation(None)
+}
+fn test_for_generation(expected_generation: Option<u64>) -> BridgeResult<()> {
+    let started = Instant::now();
+    let (endpoint, target_id, fingerprint, generation, ticket) = {
+        let mut state = lock()?;
+        if expected_generation.is_some_and(|expected| state.connection_generation != expected) {
+            return Err("bridgeUnavailable".into());
+        }
+        refresh(&mut state);
+        if !capability_ready(state.child.is_some(), state.summary.proxy_status) {
+            return Err("bridgeUnavailable".into());
+        }
+        if state.summary.diagnostics.general_proxy_egress.state == DiagnosticState::Testing {
+            return Err("bridgeBusy".into());
+        }
+        let endpoint = state.summary.proxy.clone().ok_or("proxyUnavailable")?;
+        let target_id = state
+            .summary
+            .target
+            .as_ref()
+            .map(|target| target.id.clone())
+            .ok_or("invalidTarget")?;
+        let fingerprint = state.target_fingerprint.clone().ok_or("sshConfigChanged")?;
+        if ssh::fingerprint(&target_id)? != fingerprint {
+            return Err("sshConfigChanged".into());
+        }
+        let ticket = state.summary.diagnostics.general_proxy_egress.begin();
+        state.events.push(
+            EventComponent::GeneralProxy,
+            EventAction::EgressTest,
+            EventOutcome::Started,
+            None,
+            None,
+        );
+        (
+            endpoint,
+            target_id,
+            fingerprint,
+            state.connection_generation,
+            ticket,
+        )
+    };
+    // Keep UI snapshots and Disconnect available while the existing probe runs.
+    let result = ssh::remote(
+        &target_id,
         json!({
             "operation":"test",
             "port":endpoint.remote_port,
             "protocol":endpoint.local.protocol
         }),
-    )?;
-    Ok(())
+    )
+    .and_then(|_| {
+        if ssh::fingerprint(&target_id)? == fingerprint {
+            Ok(())
+        } else {
+            Err("sshConfigChanged".into())
+        }
+    });
+    let mut state = lock()?;
+    refresh(&mut state);
+    if state.connection_generation != generation
+        || state.summary.target.as_ref().map(|target| &target.id) != Some(&target_id)
+        || state.target_fingerprint.as_ref() != Some(&fingerprint)
+        || state.summary.proxy.as_ref().is_none_or(|current| {
+            current.remote_port != endpoint.remote_port || current.local != endpoint.local
+        })
+        || !capability_ready(state.child.is_some(), state.summary.proxy_status)
+        || !state
+            .summary
+            .diagnostics
+            .general_proxy_egress
+            .current(ticket)
+    {
+        return Err("bridgeUnavailable".into());
+    }
+    state.summary.diagnostics.general_proxy_egress.finish(
+        ticket,
+        result
+            .as_ref()
+            .err()
+            .map(|code| ErrorCategory::from_code(code)),
+        elapsed_ms(started),
+    );
+    record_result(
+        &mut state,
+        EventComponent::GeneralProxy,
+        EventAction::EgressTest,
+        &result,
+        started,
+    );
+    result
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
+}
+
+fn record_result<T>(
+    state: &mut Store,
+    component: EventComponent,
+    action: EventAction,
+    result: &BridgeResult<T>,
+    started: Instant,
+) {
+    state.events.push(
+        component,
+        action,
+        if result.is_ok() {
+            EventOutcome::Success
+        } else {
+            EventOutcome::Failed
+        },
+        result
+            .as_ref()
+            .err()
+            .map(|code| ErrorCategory::from_code(code)),
+        Some(elapsed_ms(started)),
+    );
 }
 fn connected_terminal_context() -> BridgeResult<(String, String)> {
     let (target_id, target_fingerprint) = {
@@ -2723,18 +3136,31 @@ pub fn config_restore(id: String, confirmed: bool) -> BridgeResult<()> {
 }
 
 pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
+    verify_tool_for_generation(tool, None)
+}
+fn verify_tool_for_generation(
+    tool: String,
+    expected_generation: Option<u64>,
+) -> BridgeResult<ToolVerificationResult> {
+    let started = Instant::now();
     let adapter = tool_adapter::by_name(&tool)?;
     if !adapter.verification_supported() {
         return Err("toolVerificationUnsupported".into());
     }
-    let (target_id, target_fingerprint, route_port, session_token) = {
+    let (target_id, target_fingerprint, route_port, session_token, generation, ticket) = {
         let mut state = lock()?;
+        if expected_generation.is_some_and(|expected| state.connection_generation != expected) {
+            return Err("bridgeUnavailable".into());
+        }
         refresh(&mut state);
         if !capability_ready(state.child.is_some(), state.summary.cc_status) {
             return Err("bridgeUnavailable".into());
         }
         if !adapter.configured(&state.summary) {
             return Err("toolNotConfigured".into());
+        }
+        if state.summary.diagnostics.ai_route_verification.state == DiagnosticState::Testing {
+            return Err("bridgeBusy".into());
         }
         let target_id = state
             .summary
@@ -2762,41 +3188,106 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
             tool_adapter::RemoteToolVerification::VerifyPending,
         );
         sync_tool_states(&mut state.summary);
-        (target_id, fingerprint, route_port, session_token)
+        let ticket = state.summary.diagnostics.ai_route_verification.begin();
+        state.events.push(
+            EventComponent::AiRoute,
+            EventAction::ToolVerify,
+            EventOutcome::Started,
+            None,
+            None,
+        );
+        (
+            target_id,
+            fingerprint,
+            route_port,
+            session_token,
+            state.connection_generation,
+            ticket,
+        )
     };
 
-    let value = ssh::remote(
-        &target_id,
-        json!({
-            "operation":"tool-verify",
-            "tool":adapter.id().as_str(),
-            "port":route_port,
-            "sessionToken":session_token.as_str()
-        }),
-    )?;
-    let verification: tool_adapter::RemoteToolVerification =
-        serde_json::from_value(value.get("verification").cloned().ok_or("remoteFailed")?)
-            .map_err(|_| "remoteFailed")?;
-    if matches!(
-        verification,
-        tool_adapter::RemoteToolVerification::NotConfigured
-            | tool_adapter::RemoteToolVerification::VerifyPending
-    ) {
-        return Err("remoteFailed".into());
-    }
+    let result: BridgeResult<tool_adapter::RemoteToolVerification> = (|| {
+        let value = ssh::remote(
+            &target_id,
+            json!({
+                "operation":"tool-verify",
+                "tool":adapter.id().as_str(),
+                "port":route_port,
+                "sessionToken":session_token.as_str()
+            }),
+        )?;
+        let verification: tool_adapter::RemoteToolVerification =
+            serde_json::from_value(value.get("verification").cloned().ok_or("remoteFailed")?)
+                .map_err(|_| "remoteFailed")?;
+        if matches!(
+            verification,
+            tool_adapter::RemoteToolVerification::NotConfigured
+                | tool_adapter::RemoteToolVerification::VerifyPending
+        ) {
+            return Err("remoteFailed".into());
+        }
+        if ssh::fingerprint(&target_id)? != target_fingerprint {
+            return Err("sshConfigChanged".into());
+        }
+        Ok(verification)
+    })();
 
     let mut state = lock()?;
     refresh(&mut state);
     if !capability_ready(state.child.is_some(), state.summary.cc_status)
+        || state.connection_generation != generation
         || state.summary.target.as_ref().map(|target| &target.id) != Some(&target_id)
         || state.target_fingerprint.as_ref() != Some(&target_fingerprint)
-        || ssh::fingerprint(&target_id)? != target_fingerprint
+        || state
+            .summary
+            .cc
+            .as_ref()
+            .map(|endpoint| endpoint.remote_port)
+            != Some(route_port)
+        || state
+            .ai_relay
+            .as_ref()
+            .is_none_or(|relay| *relay.token() != *session_token)
+        || !state
+            .summary
+            .diagnostics
+            .ai_route_verification
+            .current(ticket)
         || !adapter.configured(&state.summary)
     {
         return Err("bridgeUnavailable".into());
     }
-    adapter.verify(&mut state.summary, verification);
+    use tool_adapter::RemoteToolVerification as V;
+    let error = match &result {
+        Ok(V::Verified) => None,
+        Ok(V::AuthenticationRequired) => Some(ErrorCategory::Authentication),
+        Ok(V::RouteUnavailable) => Some(ErrorCategory::Unavailable),
+        Ok(V::TimedOut) => Some(ErrorCategory::Network),
+        Ok(_) => Some(ErrorCategory::Unknown),
+        Err(code) => Some(ErrorCategory::from_code(code)),
+    };
+    state
+        .summary
+        .diagnostics
+        .ai_route_verification
+        .finish(ticket, error, elapsed_ms(started));
+    state.events.push(
+        EventComponent::AiRoute,
+        EventAction::ToolVerify,
+        if error.is_none() {
+            EventOutcome::Success
+        } else {
+            EventOutcome::Failed
+        },
+        error,
+        Some(elapsed_ms(started)),
+    );
+    adapter.verify(
+        &mut state.summary,
+        result.as_ref().copied().unwrap_or(V::Failed),
+    );
     sync_tool_states(&mut state.summary);
+    let verification = result?;
     Ok(ToolVerificationResult {
         tool: adapter.id(),
         verification,
@@ -2806,6 +3297,62 @@ pub fn verify_tool(tool: String) -> BridgeResult<ToolVerificationResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_polling_alternates_even_when_one_tool_cannot_sync() {
+        use tool_adapter::RemoteToolId::{Claude, Codex};
+        assert_eq!(profile_poll_order(Codex), [Claude, Codex]);
+        assert_eq!(profile_poll_order(Claude), [Codex, Claude]);
+    }
+
+    #[test]
+    fn report_projection_omits_untrusted_text_and_preserves_cached_proof() {
+        let mut state = Store::default();
+        state.summary.environment = "secret-password /home/private/user".into();
+        state.summary.error = Some("https://private.invalid/?token=secret".into());
+        state.summary.post_connect_error = Some("Authorization: secret-token".into());
+        state.summary.codex_extension = Some("/home/private/settings.json".into());
+        state.summary.claude_extension = Some("configured".into());
+        state.summary.timings = vec![
+            PhaseTiming {
+                phase: "ssh.authenticate".into(),
+                duration_ms: 4,
+                outcome: "success".into(),
+            },
+            PhaseTiming {
+                phase: "secret-token".into(),
+                duration_ms: 6,
+                outcome: "secret-password".into(),
+            },
+        ];
+        let ticket = state.summary.diagnostics.general_proxy_egress.begin();
+        state
+            .summary
+            .diagnostics
+            .general_proxy_egress
+            .finish(ticket, None, 12);
+        let report = serde_json::to_value(project_report(&state)).unwrap();
+        assert_eq!(
+            report["diagnostics"]["generalProxyEgress"]["state"],
+            "passed"
+        );
+        assert_eq!(report["phaseTimings"][0]["phase"], "ssh.authenticate");
+        assert_eq!(report["phaseTimings"][1]["phase"], "unknown");
+        assert_eq!(report["postConnectErrorCategory"], "unknown");
+        let text = report.to_string();
+        for forbidden in [
+            "private",
+            "secret-token",
+            "secret-password",
+            "Authorization",
+            "environment",
+            "target",
+            "revision",
+            "passwordStored",
+        ] {
+            assert!(!text.contains(forbidden), "report leaked {forbidden}");
+        }
+    }
 
     #[test]
     fn cc_route_discovery_tracks_changed_ports_and_excludes_foreign_listeners() {

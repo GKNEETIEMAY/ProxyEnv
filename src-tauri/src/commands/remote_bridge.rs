@@ -16,6 +16,36 @@ pub struct BridgeCommandError {
 
 type CommandResult<T> = Result<T, BridgeCommandError>;
 
+#[tauri::command]
+pub async fn remote_bridge_run_diagnostics(
+) -> CommandResult<bridge::diagnostics::RuntimeDiagnostics> {
+    run("diagnostics", None, bridge::diagnostics::run_all).await
+}
+#[tauri::command]
+pub async fn remote_bridge_diagnostics_snapshot(
+) -> CommandResult<bridge::diagnostics::RuntimeDiagnostics> {
+    run("diagnostics", None, bridge::diagnostics::snapshot).await
+}
+#[tauri::command]
+pub fn remote_bridge_log_status() -> bridge::logging::LogStatus {
+    bridge::logging::status()
+}
+#[tauri::command]
+pub async fn remote_bridge_clear_logs() -> CommandResult<()> {
+    run("logs", None, bridge::logging::clear).await
+}
+#[tauri::command]
+pub async fn remote_bridge_open_log_directory(app: tauri::AppHandle) -> CommandResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    run("logs", None, move || {
+        let path = bridge::logging::directory()?;
+        app.opener()
+            .open_path(path.to_string_lossy(), None::<&str>)
+            .map_err(|_| "logUnavailable".into())
+    })
+    .await
+}
+
 fn command_error(
     code: String,
     phase: &'static str,
@@ -40,6 +70,7 @@ fn command_error(
             | "routeOutdated"
             | "stateUnavailable"
             | "skillBusy"
+            | "logBusy"
     );
     BridgeCommandError {
         code,
@@ -122,6 +153,16 @@ pub async fn remote_bridge_remove_connection(id: String) -> CommandResult<()> {
 #[tauri::command]
 pub async fn remote_bridge_summary() -> CommandResult<Summary> {
     run("stateRead", None, bridge::summary).await
+}
+
+#[tauri::command]
+pub async fn remote_bridge_events(
+    limit: Option<usize>,
+) -> CommandResult<Vec<bridge::events::BridgeEvent>> {
+    run("stateRead", None, move || {
+        bridge::recent_events(limit.unwrap_or(50))
+    })
+    .await
 }
 
 #[tauri::command]
