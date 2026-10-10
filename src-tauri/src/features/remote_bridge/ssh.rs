@@ -1291,7 +1291,19 @@ pub(super) fn remote_payload(
     {
         return Err("invalidRequest".into());
     }
-    let source = Zeroizing::new(format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nrepair_permissions={repair_permissions}\nprotocol='{protocol}'\nscheme='{scheme}'\nprofile_model_b64='{profile_model}'\nprofile_catalog_b64='{profile_catalog}'\nprofile_settings_b64='{profile_settings}'\nprofile_hash='{profile_hash}'\nsession_id='{session_id}'\nsession_token='{session_token}'\nPROXYENV_SESSION_TOKEN=\"$session_token\"\nexport PROXYENV_SESSION_TOKEN\n{}", ports.join(" "), include_str!("remote.sh")));
+    let bundled = include_str!("remote.sh");
+    // Read-only transport probes return before any configuration code runs.
+    // Do not keep writing the entire configuration helper after the remote
+    // shell has already emitted its result and closed its stdin.
+    let script = if matches!(operation, "check" | "verify" | "internet" | "test") {
+        bundled
+            .split_once("\numask 077\n")
+            .ok_or("stateUnavailable")?
+            .0
+    } else {
+        bundled
+    };
+    let source = Zeroizing::new(format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nrepair_permissions={repair_permissions}\nprotocol='{protocol}'\nscheme='{scheme}'\nprofile_model_b64='{profile_model}'\nprofile_catalog_b64='{profile_catalog}'\nprofile_settings_b64='{profile_settings}'\nprofile_hash='{profile_hash}'\nsession_id='{session_id}'\nsession_token='{session_token}'\nPROXYENV_SESSION_TOKEN=\"$session_token\"\nexport PROXYENV_SESSION_TOKEN\n{script}", ports.join(" ")));
     let operation = match operation {
         "check" => "check",
         "verify" => "verify",
@@ -1823,6 +1835,30 @@ mod tests {
             .unwrap_err(),
             "invalidRequest"
         );
+    }
+    #[test]
+    fn read_only_probes_do_not_upload_configuration_helpers() {
+        for operation in ["check", "verify", "internet", "test"] {
+            let (source, _) = remote_payload(&serde_json::json!({
+                "operation": operation, "ports": [17897]
+            }))
+            .unwrap();
+            assert!(
+                source.len() < 4096,
+                "{operation} should remain a compact probe"
+            );
+            assert!(source.contains("check_ports()"));
+            assert!(source.contains("fail rootForbidden"));
+            assert!(!source.contains("claude_json"));
+            assert!(!source.contains("umask 077"));
+        }
+        let (source, _) = remote_payload(&serde_json::json!({
+            "operation": "session-env-apply",
+            "sessionId": "0123456789abcdef0123456789abcdef"
+        }))
+        .unwrap();
+        assert!(source.contains("umask 077"));
+        assert!(source.contains("claude_json"));
     }
     #[test]
     fn openssh_parameters_keep_security_overrides_and_have_no_shell() {

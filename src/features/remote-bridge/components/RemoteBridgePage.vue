@@ -430,9 +430,10 @@ function clearAuthPoll() {
 }
 
 async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
-  authSession.value = snapshot;
-  const outcome = await remoteBackend.sshAuthFinish(snapshot.sessionId);
   clearAuthPoll();
+  authSession.value = snapshot;
+  connectionPhase.value = "building";
+  const outcome = await remoteBackend.sshAuthFinish(snapshot.sessionId);
   if (outcome.operation === "check" && outcome.ports) {
     usePorts(outcome.ports);
     checked.value = true;
@@ -471,16 +472,30 @@ async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
 async function pollInteractiveAuth() {
   const session = authSession.value;
   if (!session) return;
+  const revision = authBeginRevision;
   try {
     const next = await remoteBackend.sshAuthState(session.sessionId);
+    if (revision !== authBeginRevision || authSession.value?.sessionId !== session.sessionId) return;
     authSession.value = next;
     if (next.status === "succeeded") {
       await completeInteractiveAuth(next);
       return;
     }
+    if (next.status === "failed") {
+      connectionPhase.value = "failed";
+      busy.value = false;
+      clearAuthPoll();
+      emit("refresh");
+      return;
+    }
   } catch (cause) {
+    if (revision !== authBeginRevision) return;
+    connectionPhase.value = "failed";
+    sshCheck.value = { state: "failed", checkedAt: Date.now() };
+    busy.value = false;
     error.value = cause;
     clearAuthPoll();
+    emit("refresh");
     return;
   }
   if (!["failed", "promptUnavailable"].includes(authSession.value?.status ?? "")) {
@@ -1414,7 +1429,7 @@ onBeforeUnmount(() => {
       <div class="confirmation-actions">
         <button v-if="connectionPhase === 'failed' || authSession?.status !== 'succeeded'" class="secondary-action" type="button" :disabled="authSubmitting" @click="cancelInteractiveAuth">{{ connectionPhase === 'failed' || authSession?.status === 'failed' ? copy.rbClose : copy.rbAuthCancel }}</button>
         <button v-if="authDiagnosticAvailable" class="secondary-action" type="button" :aria-expanded="showAuthDiagnostic" :disabled="authSubmitting" @click="showAuthDiagnostic = !showAuthDiagnostic">{{ showAuthDiagnostic ? copy.rbAuthHideDiagnostic : copy.rbAuthOpenDiagnostic }}</button>
-        <button v-if="authPromptUnavailable" class="primary-action" type="button" :disabled="authSubmitting" @click="retryInteractiveAuth">{{ copy.rbAuthRetry }}</button>
+        <button v-if="authPromptUnavailable || connectionPhase === 'failed'" class="primary-action" type="button" :disabled="authSubmitting" @click="retryInteractiveAuth">{{ copy.rbAuthRetry }}</button>
         <button v-if="authInteractionVisible || authSurfaceVisible" class="primary-action remote-auth-connect-action" :class="{ 'is-loading': connectionPhase === 'building' || authSubmitting || authCompleting }" type="submit" :aria-busy="connectionPhase === 'building' || authSubmitting || authCompleting" :disabled="!authCanRespond || (!authIsHostConfirmation && !authResponse) || authSubmitting"><svg v-if="connectionPhase === 'building' || authSubmitting || authCompleting" class="remote-button-spinner" aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 3a7 7 0 0 1 7 7"/></svg><span>{{ connectionPhase === 'building' ? copy.rbEstablishingBridge : connectionPhase === 'succeeded' ? copy.rbAuthBridgeReady : authSubmitting || authCompleting ? copy.rbAuthVerifying : authPromptCopy.action }}</span></button>
       </div>
     </form>
