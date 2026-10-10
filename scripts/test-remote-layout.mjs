@@ -44,7 +44,10 @@ try {
             return {left:bounds.left,right:bounds.right,top:bounds.top,bottom:bounds.bottom,width:bounds.width};
           };
           const stage = document.querySelector(".view-stage");
-          const setup = document.querySelector(".remote-setup-page");
+          // The remote page is preloaded and remains in the DOM on other tabs.
+          // Geometry assertions apply only to the visible setup page.
+          const setupElement = document.querySelector(".remote-setup-page");
+          const setup = setupElement?.getBoundingClientRect().height > 0 ? setupElement : null;
           const list = document.querySelector(".remote-connection-list-scroll");
           const rows = list ? [...list.querySelectorAll(".remote-target")] : [];
           const listBounds = list?.getBoundingClientRect();
@@ -82,6 +85,7 @@ try {
             return { cards, actions: launch.length, mobaDisabled: launch[2].disabled, terminalVisible: launch[0].getBoundingClientRect().bottom <= stage.getBoundingClientRect().bottom, capabilityInteractive: [...document.querySelectorAll('.capability-switch')].every(input => !input.disabled) };
           });
           assert.equal(overview.actions,3,`${label}: launch actions must stay visible even when unavailable`);
+          assert.equal(overview.terminalVisible,true,`${label}: launch actions stay at the viewport bottom`);
           assert.equal(overview.mobaDisabled,true,`${label}: unavailable MobaXterm must stay disabled`);
           assert.equal(overview.capabilityInteractive,true,`${label}: connected capabilities must be interactive`);
           const mappingTypography=await page.evaluate(() => {
@@ -175,10 +179,20 @@ try {
           await page.getByRole('tooltip').waitFor({state:'hidden'});
           const originalTools=await page.locator('.bridge-tool strong').allTextContents();
           await page.locator('.bridge-skills-heading button').click();
-          await page.locator('.remote-skills').waitFor({state:'visible'});
-          assert.equal(await page.locator('.remote-skills').evaluate(element=>element===document.activeElement),true,`${label}: Manage focuses existing Skills controls`);
-          await page.locator('.remote-view-switch button').first().click();
-          assert.deepEqual(await page.locator('.bridge-tool strong').allTextContents(),originalTools,`${label}: view changes preserve tools`);
+          await page.locator('#bridge-skills-manager').waitFor({state:'visible'});
+          const launchTop = await page.locator('.bridge-launch-bar').evaluate(element=>element.getBoundingClientRect().top);
+          await page.locator('.remote-workspace > .remote-fields').evaluate(element=>element.scrollTop=element.scrollHeight);
+          assert.equal(await page.locator('.bridge-launch-bar').evaluate(element=>element.getBoundingClientRect().top),launchTop,`${label}: expanded content does not displace the footer`);
+          if (output) await page.screenshot({path:resolve(output,`remote-skills-${theme}-${width}x${height}.png`)});
+          assert.equal(await page.locator('.remote-view-switch button').first().getAttribute('aria-pressed'),'true',`${label}: Manage stays on Overview`);
+          await page.locator('.bridge-skills-search input').fill('RUST');
+          assert.deepEqual(await page.locator('.bridge-skill-row > th > strong').allTextContents(),['rust-review'],`${label}: case-insensitive Skills search`);
+          await page.locator('.bridge-skills-search input').fill('no-match');
+          assert.equal(await page.locator('.bridge-skill-row').count(),0,`${label}: empty search result`);
+          await page.locator('.bridge-skills-search input').fill('');
+          await page.locator('.bridge-skills-heading button').click();
+          await page.locator('#bridge-skills-manager').waitFor({state:'hidden'});
+          assert.deepEqual(await page.locator('.bridge-tool strong').allTextContents(),originalTools,`${label}: Skills management preserves tools`);
           await page.locator('.view-stage').evaluate(element=>element.scrollTop=0);
         }
         if (output && theme === "light" && route === "remote" && [880,1920,560,587].includes(width)) {
@@ -286,24 +300,54 @@ try {
   assert.deepEqual(await mascotPage.locator(".remote-setup-actions").boundingBox(),footerBefore,"Scene transition does not shift the buttons");
   await mascotPage.locator('.pixel-scene[data-scene="2"]').waitFor({timeout:7000});
   assert.equal(await mascotPage.locator(".pixel-scene--duo .pixel-mascot").count(),2,"Every third completed scene pairs the characters");
+  // Reduced motion removes movement, not the scene lifecycle.
+  await enterEmptyState((3+.5)/16);
+  await mascotPage.emulateMedia({reducedMotion:"reduce"});
+  assert.equal(await mascotPage.locator('.pixel-mascot__actor').evaluate(element => getComputedStyle(element).animationName), 'none');
+  assert.notEqual(await mascotPage.locator('.pixel-mascot__clock').evaluate(element => getComputedStyle(element).animationName), 'none', 'Static scenes retain their non-visual clock');
+  await mascotPage.waitForTimeout(500);
+  assert.equal(await mascotPage.locator('.pixel-scene').getAttribute('data-scene'), '0', 'Reduced motion does not trigger a rapid cycling loop');
+  await mascotPage.locator('.primary-nav button').first().click();
+  await mascotPage.waitForFunction(() => document.querySelector('.remote-empty-mascot').classList.contains('is-paused'));
+  await mascotPage.waitForTimeout(4500);
+  assert.equal(await mascotPage.locator('.pixel-scene').getAttribute('data-scene'), '0', 'Hidden page pauses the non-visual clock too');
+  await mascotPage.locator('.primary-nav button').nth(1).click();
+  await mascotPage.locator('.pixel-scene[data-scene="1"]').waitFor({timeout:7000});
+  await mascotPage.locator('.pixel-scene[data-scene="2"]').waitFor({timeout:7000});
+  await mascotPage.locator('.pixel-scene[data-scene="3"]').waitFor({timeout:7000});
   // Exercise all duet props and verify that both actors must finish.
   for (const [index,action] of ["coding","sleep","plant","game","music"].entries()) {
     await enterEmptyState(.01);
-    await mascotPage.locator(".pixel-mascot__actor").evaluate(element => element.dispatchEvent(new Event("animationend")));
+    await mascotPage.locator(".pixel-mascot__clock").evaluate(element => element.dispatchEvent(new Event("animationend")));
     await mascotPage.waitForFunction(() => document.querySelector('.pixel-scene[data-scene="1"]') && !document.querySelector(".pixel-scene-enter-active"));
     await mascotPage.evaluate(value => { window.originalRandom = Math.random; Math.random = () => value; },(index+.5)/5);
-    await mascotPage.locator(".pixel-mascot__actor").evaluate(element => element.dispatchEvent(new Event("animationend")));
+    await mascotPage.locator(".pixel-mascot__clock").evaluate(element => element.dispatchEvent(new Event("animationend")));
     await mascotPage.locator(`.pixel-scene--duo .pixel-mascot--${action}`).first().waitFor();
     await mascotPage.waitForFunction(() => !document.querySelector(".pixel-scene-enter-active"));
     await mascotPage.evaluate(() => { Math.random = window.originalRandom; delete window.originalRandom; });
-    const actors = mascotPage.locator(".pixel-mascot__actor");
-    await actors.first().evaluate(element => element.dispatchEvent(new Event("animationend")));
+    const actors = mascotPage.locator(".pixel-mascot__clock");
+    const firstActor = index % 2 ? actors.last() : actors.first();
+    const lastActor = index % 2 ? actors.first() : actors.last();
+    await firstActor.evaluate(element => element.dispatchEvent(new Event("animationend")));
     assert.equal(await mascotPage.locator(".pixel-scene").getAttribute("data-scene"),"2","First duet actor cannot interrupt the second");
+    await firstActor.evaluate(element => element.dispatchEvent(new Event("animationend")));
+    assert.equal(await mascotPage.locator(".pixel-scene").getAttribute("data-scene"),"2","Duplicate completion never counts as the other actor");
+    if (action === 'plant') {
+      assert.equal(await mascotPage.locator('.pixel-shared-plant .shared-pot').count(), 1, 'Both agents water one shared pot');
+      assert.equal(await mascotPage.locator('.solo-plant').count(), 0, 'No duplicate private plants in a duet');
+      assert.equal(await mascotPage.locator('.watering-can').count(), 2);
+      assert.equal(await mascotPage.locator('.shared-water').count(), 2, 'Two streams reach the shared flower');
+      assert.equal(await mascotPage.locator('.is-partner .prop--plant').getAttribute('transform'), 'translate(128 0) scale(-1 1)', 'Partner waters toward the center');
+    }
+    if (action === 'game') {
+      assert.equal(await mascotPage.locator('.pixel-fighter').count(), 2, 'Two recognizable miniature characters duel');
+      assert.equal(await mascotPage.locator('.prop--game').count(), 2, 'Both agents play with controllers');
+    }
     await mascotPage.evaluate(value => document.documentElement.dataset.theme = value,index%2 ? "dark" : "light");
     const geometry = await mascotPage.evaluate(() => {
       const stage = document.querySelector(".remote-empty-mascot");
       const scene = document.querySelector(".pixel-scene");
-      const signal = document.querySelector(".pixel-duet-signal");
+      const signal = document.querySelector(".pixel-shared-prop, .pixel-duet-signal");
       const rect = signal.getBoundingClientRect(), stageRect = stage.getBoundingClientRect();
       return { display:getComputedStyle(stage).display, sceneDisplay:getComputedStyle(scene).display,
         signalWidth:parseFloat(getComputedStyle(signal).width), signalHeight:parseFloat(getComputedStyle(signal).height),
@@ -312,14 +356,15 @@ try {
     });
     assert.equal(geometry.display,"grid","Fixed stage CSS is applied");
     assert.equal(geometry.sceneDisplay,"flex","Duet CSS is applied");
-    assert.equal(geometry.signalWidth,32,"Duet accent is a small decoration, not an unstyled SVG");
-    assert.equal(geometry.signalHeight,20);
-    assert.notEqual(geometry.fill,"rgb(0, 0, 0)");
+    assert.equal(geometry.signalWidth,['game','plant'].includes(action) ? 96 : 32,"Shared props have intentional bounded dimensions");
+    assert.equal(geometry.signalHeight,['game','plant'].includes(action) ? 80 : 20);
+    if (!['game','plant'].includes(action)) assert.notEqual(geometry.fill,"rgb(0, 0, 0)");
     assert.equal(geometry.inside,true,"Duet accent stays inside the reserved stage");
     assert.equal(geometry.codexColor,index%2 ? "rgb(135, 156, 203)" : "rgb(145, 168, 223)","Codex uses the active theme palette");
-    if (output && (action === "coding" || action === "plant")) await mascotPage.screenshot({path:resolve(output,`empty-duet-${action}.png`)});
-    await actors.last().evaluate(element => element.dispatchEvent(new Event("animationend")));
+    if (output && ['coding','plant','game'].includes(action)) await mascotPage.locator('.remote-empty-mascot').screenshot({path:resolve(output,`empty-duet-${action}.png`)});
+    await lastActor.evaluate(element => element.dispatchEvent(new Event("animationend")));
     await mascotPage.locator('.pixel-scene[data-scene="3"]').waitFor();
+    await mascotPage.waitForFunction(() => !document.querySelector('.pixel-scene-enter-active, .pixel-scene-leave-active'));
     assert.equal(await mascotPage.locator(".pixel-mascot").count(),1,"Completed duet returns to a solo scene");
   }
   await mascotContext.close();

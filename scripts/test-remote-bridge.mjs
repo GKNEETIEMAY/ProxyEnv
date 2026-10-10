@@ -15,6 +15,57 @@ const python = process.env.PROXYENV_TEST_PYTHON || (process.platform === "win32"
 const root = resolve(".debug-tmp");
 mkdirSync(root,{recursive:true});
 const script = readFileSync("src-tauri/src/features/remote_bridge/remote.sh","utf8");
+
+test("SSH labels hide only port 22, and first-use host keys enter interactive confirmation", async () => {
+  const source = readFileSync("src/features/remote-bridge/ssh-presentation.ts", "utf8");
+  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
+  const { sshTargetAddress, needsInteractiveSshAuth } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+  const target = { host: "lab.example.test", user: "student", port: 22, sshAlias: null, displayName: "Lab" };
+  assert.equal(sshTargetAddress(target), "student@lab.example.test");
+  assert.equal(sshTargetAddress({ ...target, port: 2222 }), "student@lab.example.test:2222");
+  assert.equal(sshTargetAddress({ ...target, host: "2001:db8::1" }), "student@[2001:db8::1]");
+  assert.equal(sshTargetAddress({ ...target, host: "2001:db8::1", port: 2222 }), "student@[2001:db8::1]:2222");
+  assert.equal(sshTargetAddress({ ...target, host: null, sshAlias: "lab" }), "lab");
+  assert.equal(needsInteractiveSshAuth("sshAuth"), true);
+  assert.equal(needsInteractiveSshAuth("hostKey"), true);
+  for (const code of ["hostKeyChanged", "sshFailed", "sshTimeout", "forwardDenied"]) assert.equal(needsInteractiveSshAuth(code), false);
+  const page = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
+  assert.equal((page.match(/needsInteractiveSshAuth\(bridgeErrorCode\(cause\)\)/g) ?? []).length, 3);
+  for (const file of ["RemoteBridgePage.vue", "RemoteTargetGroups.vue"]) {
+    assert.match(readFileSync(`src/features/remote-bridge/components/${file}`, "utf8"), /sshTargetAddress as/);
+  }
+});
+
+test("the real start-connection handler confirms new host keys without retrying changed keys", async () => {
+  const page = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
+  const start = page.slice(page.indexOf("function startConnection()"), page.indexOf("function refreshTargets()"));
+  const compiled = ts.transpileModule(`export function create(context) {
+    const {canStartConnection,busy,checked,proxyPort,ccPort,runtimeExpectedPort,runtimePortConflict,sshCheck,error,connectionPhase,props,remoteBackend,targetId,needsInteractiveSshAuth,bridgeErrorCode,beginInteractiveAuth,emit} = context;
+    ${start}
+    return startConnection;
+  }`, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
+  const { create } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+  for (const code of ["hostKey", "sshAuth", "hostKeyChanged", "sshFailed"]) {
+    const ref = value => ({ value });
+    const calls = [];
+    const context = {
+      canStartConnection: ref(true), busy: ref(false), checked: ref(false), proxyPort: ref(0), ccPort: ref(0),
+      runtimeExpectedPort: ref(null), runtimePortConflict: ref(false), sshCheck: ref({state:"idle"}), error: ref(), connectionPhase: ref("idle"),
+      props: {reviewPreview:false}, targetId: ref("manual-test"),
+      remoteBackend: {check:async () => {throw code;}}, bridgeErrorCode:error=>error,
+      needsInteractiveSshAuth:code=>["hostKey","sshAuth"].includes(code),
+      beginInteractiveAuth:async operation=>{calls.push(operation);}, emit:()=>{},
+    };
+    create(context)();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls, ["hostKey","sshAuth"].includes(code) ? ["check"] : []);
+    if (["hostKeyChanged","sshFailed"].includes(code)) {
+      assert.equal(context.error.value, code);
+      assert.equal(context.connectionPhase.value, "failed");
+    }
+    assert.equal(context.busy.value, false);
+  }
+});
 const legacyCatalogJson = script.match(/codex_catalog_json\(\) \{\s+printf '%s\\n' '([^']+)'/)?.[1];
 const posix = p => p.replaceAll("\\", "/").replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
 function fixture({jsonEngine="python3",claudeLocation="path",privateGroup=false,sharedGroup=false}={}) {
@@ -361,7 +412,7 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
     assert.match(commands,new RegExp(`fn ${command}`));
     assert.match(runtime,new RegExp(`remote_bridge::${command}`));
   }
-  assert.match(page,/bridgeErrorCode\(cause\) === "sshAuth"/);
+  assert.match(page,/needsInteractiveSshAuth\(bridgeErrorCode\(cause\)\)/);
   assert.match(page,/visibleAuthPrompt\?\.secret !== false \? 'password' : 'text'/);
   assert.match(page,/remoteBackend\.sshAuthSubmit/);
   assert.match(page,/remoteBackend\.sshAuthConfirmHost/);
@@ -403,8 +454,8 @@ test("managed proxy terminal loads a private authenticated session environment",
   assert.match(page,/<div class="remote-advanced-panel">/);
   assert.doesNotMatch(page,/v-if="summary\.environment"/);
   assert.match(page,/remoteBackend\.sessionEnvironmentCommand\(\)/);
-  const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
-  assert.match(overview,/summary\.target\?\.canOpenMobaxterm/);
+  const launch=readFileSync("src/features/remote-bridge/components/BridgeLaunchBar.vue","utf8");
+  assert.match(launch,/target\?\.canOpenMobaxterm/);
   assert.match(page,/remoteBackend\.launchMobaxterm\(props\.summary\.target!\.id\)/);
   assert.match(page,/@click="copySessionEnvironment"/);
   assert.match(page,/async function openVscode\(\)[\s\S]*remoteBackend\.openVscode\(props\.summary\.target!\.id\)/);
@@ -917,10 +968,10 @@ test("connected bridge defaults to a concise overview and preserves advanced sta
   assert.match(page,/v-show="advancedView" class="remote-next-section remote-advanced-group"/);
   assert.match(page,/<RemoteBridgeOverview v-show="!advancedView"/);
   assert.match(page,/skillsSummaryLabel/);
-  assert.match(page,/ref="skillsPanel" v-show="advancedView" tabindex="-1" class="remote-next-section remote-skills"/);
+  assert.match(page,/v-show="advancedView" class="remote-next-section remote-skills"/);
   const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
-  assert.match(overview,/bridge-launch-bar/);
-  assert.match(page,/async function manageSkills\(\)[\s\S]*advancedView\.value = true[\s\S]*skillsPanel\.value\?\.focus/);
+  assert.match(page,/<BridgeLaunchBar v-if="live" v-show="!advancedView"/);
+  assert.match(overview,/skillsExpanded = !skillsExpanded/);
   assert.doesNotMatch(page,/v-if="advancedView" class="remote-next-section"/);
   for(const key of ["rbSimpleView","rbAdvancedView","rbViewMode","rbToolsTitle","rbSkillsSummary","rbSkillNotLinked","rbConnections","rbOpenTerminal","rbDiagnostics"]) {
     assert.equal(copy.match(new RegExp(`${key}:`,"g"))?.length,4,`${key} must exist in all four locales`);
@@ -930,7 +981,7 @@ test("connected bridge defaults to a concise overview and preserves advanced sta
 test("overview preserves independent statuses, public port mappings, and existing action boundaries",async()=>{
   const compiled=(path)=>ts.transpileModule(readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
   const load=(path)=>import(`data:text/javascript;base64,${Buffer.from(compiled(path)).toString("base64")}`);
-  const {bridgeCapabilityState,bridgeEndpointLabel,overviewToolLabel,overviewSkillStatus,overviewServerDirectStatus}=await load("src/features/remote-bridge/overview-presentation.ts");
+  const {bridgeCapabilityState,bridgeEndpointLabel,overviewToolChecking,overviewToolLabel,overviewSkillStatus,overviewServerDirectStatus}=await load("src/features/remote-bridge/overview-presentation.ts");
   const {remoteBridgeMessages}=await load("src/shared/i18n/remote-bridge.ts");
   assert.equal(bridgeEndpointLabel("::1",7897),"[::1]:7897");
   assert.equal(bridgeCapabilityState("connected",false),"disabled");
@@ -948,6 +999,20 @@ test("overview preserves independent statuses, public port mappings, and existin
     assert.equal(overviewToolLabel(copy,summary,"codex",true),copy.rbOverviewConfigured,"Codex sync cannot be inferred from Claude or configured status");
     assert.equal(overviewToolLabel(copy,summary,"claude",true),copy.rbOverviewSynced);
     assert.equal(overviewToolLabel(copy,summary,"claude",false),copy.rbNotConfigured);
+    for (const id of ["codex", "claude"]) {
+      for (const state of ["pending", "preparing"]) {
+        const checking = {...summary, [`${id}State`]:state};
+        assert.equal(overviewToolChecking(checking,id),true);
+        for (const configured of [true,false]) assert.equal(overviewToolLabel(copy,checking,id,configured),copy.rbCheckChecking);
+      }
+      for (const state of ["ready", "warning"]) assert.equal(overviewToolChecking({...summary,postConnectStatus:"preparing",[`${id}State`]:state},id),false,"Finished tools do not wait for unrelated jobs");
+      assert.equal(overviewToolChecking({...summary,cc:null,[`${id}State`]:"pending"},id),false,"Proxy-only connections have no AI configuration check");
+      assert.equal(overviewToolChecking({...summary,postConnectStatus:"preparing"},id),true,"Pending legacy summary stays locked");
+    }
+    const independent = {...summary,postConnectStatus:"preparing",codexState:"ready",claudeState:"preparing"};
+    assert.equal(overviewToolChecking(independent,"codex"),false);
+    assert.equal(overviewToolChecking(independent,"claude"),true);
+    assert.equal(overviewToolLabel(copy,{...summary,codexState:"warning"},"codex",false),copy.rbNotConfigured);
     assert.equal(overviewToolLabel(copy,{...summary,ccStatus:"unavailable"},"claude",true),copy.rbToolRouteUnavailable);
     assert.equal(overviewToolLabel(copy,{...summary,claudeProfileState:"restartRequired"},"claude",true),copy.rbOverviewRestartRequired);
     assert.equal(overviewToolLabel(copy,{...summary,claudeProfileState:"conflict"},"claude",true),copy.rbProfileConflict);
@@ -964,16 +1029,46 @@ test("overview preserves independent statuses, public port mappings, and existin
   assert.match(overview,/capability-switch[\s\S]*:checked="!!capability\.route" :disabled="busy \|\| !connected/);
   assert.match(overview,/@click\.prevent="emit\('toggleCapability', capability\.id, !capability\.route\)"/);
   assert.match(page,/remoteBackend\.setCapability\(/);
+  assert.match(overview,/v-if="tool\.checking" state="checking"/);
+  assert.match(overview,/:disabled="busy \|\| tool\.checking \|\| !connected/);
+  assert.match(page,/if \(busy\.value \|\| overviewToolChecking\(props\.summary, adapter\.id\)\) return/);
+  assert.match(page,/:disabled="busy \|\| tool\.checking \|\| !sshConnected/);
   assert.match(page,/emit\("connected", summary\)/);
   assert.match(page,/overviewServerDirectStatus\(props\.copy, serverInternetCheck\.value\.state\)/);
   assert.match(page,/class="remote-server-globe" aria-hidden="true"/);
   assert.match(page,/copy\.rbOverviewServerDirectNetwork/);
-  const launch=overview.slice(overview.indexOf('<footer class="bridge-launch-bar">'));
+  const launch=readFileSync("src/features/remote-bridge/components/BridgeLaunchBar.vue","utf8");
   assert.ok(launch.indexOf("rbOpenTerminal")<launch.indexOf("rbVscodeOpen"));
   assert.ok(launch.indexOf("rbVscodeOpen")<launch.indexOf("rbLaunchMobaxterm"));
   assert.doesNotMatch(launch,/v-if="summary\.target/);
   assert.match(overview,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(overview,/@media \(max-width:760px\)/);
+  assert.match(overview,/const skillsExpanded = ref\(false\)/);
+  assert.match(overview,/v-show="skillsExpanded" id="bridge-skills-manager"/);
+  assert.match(overview,/v-model="skillSearch" type="search"/);
+  assert.match(overview,/:text="`\$\{copy\.rbOverviewSkillsHelp\} \$\{copy\.rbOverviewSkillsManageHint\}`"/);
+  assert.doesNotMatch(overview,/<p[^>]*>\{\{ copy\.rbOverviewSkillsManageHint \}\}/);
+  assert.match(overview,/class="switch-input bridge-skill-action" type="checkbox" role="switch"/);
+  assert.match(overview,/class="secondary-action bridge-skills-manage"/);
+  assert.match(overview,/<table class="bridge-skills-table"/);
+  assert.match(overview,/<th scope="row"><strong>\{\{ group\.name \}\}<\/strong><\/th>/);
+  assert.doesNotMatch(overview,/<strong><RemoteToolIcon :tool="agent\.tool"/);
+  assert.match(overview,/:checked="!!agent\.skill\?\.enabled"/);
+  assert.match(page,/class="secondary-action remote-danger remote-disconnect"[\s\S]*?<svg aria-hidden="true"/);
+  assert.match(page,/\.remote-status-toolbar \.remote-disconnect \{[^}]*color:var\(--danger\)/);
+  assert.match(overview,/group\.name\.toLocaleLowerCase\(\)\.includes\(query\)/);
+  assert.match(overview,/emit\('toggleSkill', agent\.skill\)/);
+  assert.doesNotMatch(page,/function manageSkills|@manage-skills=/);
+  assert.match(page,/@toggle-skill="toggleSkill"/);
+  assert.match(page,/remoteBackend\.disableSkill\(skill\.id\)/);
+  assert.match(page,/remoteBackend\.enableSkill\(skill\.id\)/);
+  assert.match(page,/\.remote-overview-page \.remote-fields \{ flex:1; min-height:0; overflow-y:scroll; scrollbar-gutter:stable/);
+  assert.match(overview,/\.bridge-skills-list \{[^}]*overflow-y:scroll; scrollbar-gutter:stable/);
+  for(const app of ["powershell.png","vscode.ico","mobaxterm.ico"]) assert.ok(launch.includes(`/remote-apps/${app}`));
+  for(const copy of Object.values(remoteBridgeMessages)) {
+    for(const key of ["rbOverviewCollapse","rbOverviewSkillsCount","rbOverviewSkillsSearch","rbOverviewSkillsNoResults","rbOverviewSkillSync","rbOverviewSkillUnsync","rbOverviewSkillsManageHint"]) assert.ok(copy[key]);
+    assert.match(copy.rbOverviewSkillsCount,/\{count\}/);
+  }
 });
 
 test("Claude verification is a fixed isolated request and never returns model output",()=>{
@@ -1040,8 +1135,8 @@ test("M7 keeps VS Code Server context and extension location conservative",()=>{
   assert.doesNotMatch(targetSelection,/remoteBackend\.openVscode\(/);
   assert.doesNotMatch(targetSelection,/launchMobaxterm/);
   assert.match(page.slice(connectedStart),/@mobaxterm="perform\(openMobaxterm\)"/);
-  const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
-  assert.match(overview,/:disabled="busy \|\| !connected \|\| !summary\.target\?\.canOpenMobaxterm"/);
+  const launch=readFileSync("src/features/remote-bridge/components/BridgeLaunchBar.vue","utf8");
+  assert.match(launch,/:disabled="busy \|\| !connected \|\| !target\?\.canOpenMobaxterm"/);
 });
 
 test("two-step setup auto-connects after interactive authentication and keeps one stable modal shell",()=>{
@@ -1143,8 +1238,8 @@ test("MobaXterm launch is available only from the connected overview",()=>{
   assert.match(ssh,/let can_open_mobaxterm = mobaxterm::available\(\)/);
   assert.match(ssh,/mobaxterm::launch_application\(\)/);
   assert.doesNotMatch(groups,/canOpenMobaxterm|openMoba|rbLaunchMobaxterm/);
-  const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
-  assert.match(overview,/summary\.target\?\.canOpenMobaxterm/);
+  const launch=readFileSync("src/features/remote-bridge/components/BridgeLaunchBar.vue","utf8");
+  assert.match(launch,/target\?\.canOpenMobaxterm/);
   assert.doesNotMatch(page,/@open-moba=/);
   const advancedStart=page.indexOf('<section v-if="summary.proxy" v-show="advancedView"');
   const advancedEnd=page.indexOf('</section>',advancedStart);
@@ -1153,6 +1248,13 @@ test("MobaXterm launch is available only from the connected overview",()=>{
 
 test("MobaXterm handoff exposes the shared environment action without claiming AI activation",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const launch=readFileSync("src/features/remote-bridge/components/BridgeLaunchBar.vue","utf8");
+  assert.match(page,/@copy-environment="copySessionEnvironment"/);
+  assert.match(page,/:can-copy="!!summary\.proxy && summary\.proxyStatus === 'connected'"/);
+  assert.match(launch,/class="secondary-action bridge-launch-copy"/);
+  assert.match(launch,/@click="emit\('copyEnvironment'\)"/);
+  assert.match(launch,/\.bridge-launch-copy \{ margin-left:auto; \}/);
+  assert.match(page,/copyText\(await remoteBackend\.sessionEnvironmentCommand\(\)\)/);
   assert.match(page,/async function openMobaxterm\(\)[\s\S]*await remoteBackend\.launchMobaxterm[\s\S]*mobaOpened\.value = true/);
   assert.match(page,/@mobaxterm="perform\(openMobaxterm\)"/);
   const start=page.indexOf('<section v-if="mobaOpened && sshConnected"');
@@ -1226,11 +1328,18 @@ test("remote SSH empty state finishes actions before random scenes and duets wit
   assert.match(page,/<div v-else class="remote-current-empty">[\s\S]*?copy\.rbNoSelectionHint[\s\S]*?<RemoteEmptyMascot :paused="visible === false" \/>/);
   assert.match(mascot,/const scene = ref\(randomChoice\(soloScenes\)\)/);
   assert.match(mascot,/sceneId\.value % 3 === 2 \? duoScenes/);
-  assert.match(mascot,/mode="out-in"/);
-  assert.match(mascot,/@complete="index === scene\.kinds\.length - 1 && advanceScene\(\)"/);
-  assert.match(sprite,/@animationend\.self="emit\('complete'\)"/);
+  assert.doesNotMatch(mascot,/mode="out-in"/);
+  assert.match(mascot,/@complete="finishActor\(kind, \$event\)"/);
+  assert.match(mascot,/generation !== sceneId\.value \|\| completedActors\.has\(kind\)/);
+  assert.match(mascot,/completedActors\.size === scene\.value\.kinds\.length/);
+  assert.match(sprite,/@animationend\.self="emit\('complete', generation\)"/);
+  assert.match(sprite,/<span class="pixel-mascot pixel-mascot__clock"[^>]*@animationend\.self/);
+  assert.doesNotMatch(sprite,/<g class="pixel-mascot__actor"[^>]*@animationend/);
+  assert.match(sprite,/animation:scene-complete var\(--mascot-scene-duration\) linear 1 both/);
+  assert.match(sprite,/animation-duration:var\(--mascot-scene-duration\) !important/);
+  assert.match(mascot,/:deep\(\*:not\(\.pixel-mascot__clock\)\)/);
   assert.match(sprite,/animation-iteration-count:var\(--mascot-iterations\)/);
-  assert.match(mascot,/height:clamp\(100px,18dvh,144px\)/);
+  assert.match(mascot,/height:144px/);
   assert.doesNotMatch(mascot,/setInterval|setTimeout|requestAnimationFrame|fetch\(/);
   assert.match(mascot,/new IntersectionObserver/);
   assert.match(mascot,/observer\?\.disconnect\(\)/);
@@ -1247,7 +1356,14 @@ test("remote SSH empty state finishes actions before random scenes and duets wit
   assert.match(sprite,/<path class="codex-blob"/);
   assert.doesNotMatch(mascot,/M18 4h4v6h6v4h-6v6h-4v-6h-6v-4h6Z/);
   assert.match(mascot,/scene\.action === 'game'/);
-  assert.match(mascot,/@keyframes pixel-duet-play/);
+  assert.match(mascot,/class="pixel-shared-prop pixel-shared-plant"/);
+  assert.match(mascot,/pixel-fighter--claude/);
+  assert.match(mascot,/pixel-fighter--codex/);
+  assert.match(sprite,/v-if="!sharedPlant" class="solo-plant"/);
+  assert.match(sprite,/@keyframes coffee-sip/);
+  assert.match(sprite,/@keyframes typing/);
+  assert.match(sprite,/@keyframes page-turn/);
+  assert.match(sprite,/\.pixel-mascot--sleep \.claude-eye \{ animation:none/);
   assert.match(sprite,/data-theme="dark"/);
 });
 
