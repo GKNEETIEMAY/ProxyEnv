@@ -333,6 +333,27 @@ elif action == "inspect":
 elif action == "session-match":
     print("true" if env.get("ANTHROPIC_CUSTOM_HEADERS") ==
           "{0}: {1}".format(SESSION_HEADER, session_token) else "false")
+elif action == "verify-settings":
+    try:
+        route_port = int(argument)
+    except ValueError:
+        sys.exit(42)
+    if not session_token or not 1024 <= route_port <= 65535:
+        sys.exit(42)
+    # Verify the model the user actually configured, without copying hooks,
+    # tools, credentials or unrelated remote settings into the isolated run.
+    projected = dict((key, config[key]) for key in MODEL_KEYS if key in config)
+    projected_env = dict((key, value) for key, value in env.items() if model_env_key(key))
+    projected_env.update({
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:{0}".format(route_port),
+        "ANTHROPIC_AUTH_TOKEN": "PROXY_MANAGED",
+        "ANTHROPIC_CUSTOM_HEADERS": "{0}: {1}".format(SESSION_HEADER, session_token),
+        "NO_PROXY": "127.0.0.1,localhost,::1",
+        "no_proxy": "127.0.0.1,localhost,::1",
+    })
+    projected["env"] = projected_env
+    json.dump(projected, sys.stdout, ensure_ascii=True, indent=2)
+    sys.stdout.write("\n")
 elif action == "render":
     route_port = int(argument)
     if not 1024 <= route_port <= 65535:
@@ -828,10 +849,19 @@ if [ "$operation" = tool-verify ]; then
   cleanup_verify() { rm -f "$verify_out" "$verify_error" "$verify_settings"; rmdir "$verify_dir" 2>/dev/null || :; }
   trap cleanup_verify EXIT
   trap 'exit 1' HUP INT TERM
-  render "$previous" >"$verify_settings" || fail remoteFailed
+  claude_json verify-settings "$file" "$previous" >"$verify_settings" || fail remoteFailed
   set +e
   (
     cd "$verify_dir" || exit 1
+    # The diagnostic targets the loopback AI tunnel, not the ordinary network
+    # proxy. Do not inherit a different provider/model from this SSH shell.
+    unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN OPENROUTER_API_KEY OPENAI_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS
+    unset ANTHROPIC_MODEL CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_EFFORT_LEVEL ANTHROPIC_CUSTOM_MODEL_OPTION
+    for tier in OPUS SONNET HAIKU FABLE; do
+      unset "ANTHROPIC_DEFAULT_${tier}_MODEL" "ANTHROPIC_DEFAULT_${tier}_MODEL_NAME"
+    done
+    export NO_PROXY='127.0.0.1,localhost,::1' no_proxy='127.0.0.1,localhost,::1'
     timeout 75 claude --settings "$verify_settings" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' --tools "" --disallowedTools 'mcp__*' --no-session-persistence --max-turns 1 --output-format json -p 'Reply with exactly PROXYENV_VERIFY_OK.'
   ) >"$verify_out" 2>"$verify_error"
   verify_status=$?
@@ -1120,6 +1150,9 @@ validate "$file"
 if [ "$operation" = apply ]; then
   [ "$previous" = "$port" ] || fail rollbackConflict
   [ "$session_current" = true ] || fail rollbackConflict
+  if [ "$tool" = claude ]; then
+    [ "$claude_remote_profile_hash" = "$profile_hash" ] || fail rollbackConflict
+  fi
 fi
 if [ "$tool" = codex ] && [ "$legacy_catalog_owned" = true ] && [ -f "$codex_catalog" ]; then
   codex_catalog_matches || fail configConflict
@@ -1136,7 +1169,7 @@ if [ "$operation" = restore ]; then
   unlink "$marker"
 fi
 if [ "$operation" = apply ]; then
-  printf '{"configured":true,"appliedHash":"%s","backupHash":"%s"}\n' "$next" "$(hash "$backup")"
+  printf '{"configured":true,"appliedHash":"%s","backupHash":"%s","previousPort":%s,"profileHash":"%s"}\n' "$next" "$(hash "$backup")" "$previous" "$profile_hash"
 else
   printf '{"configured":false}\n'
 fi

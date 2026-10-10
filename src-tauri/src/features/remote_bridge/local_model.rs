@@ -48,6 +48,12 @@ pub struct LocalClaudeProfileStamp {
     len: u64,
 }
 
+impl LocalClaudeProfile {
+    pub fn can_replace(&self, previous: &Self) -> bool {
+        !previous.stamp.exists || self.stamp.exists
+    }
+}
+
 fn safe_text(value: &str, max: usize) -> bool {
     !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
 }
@@ -164,6 +170,11 @@ fn inspect_claude_profile_at(home: &Path) -> Result<LocalClaudeProfile, ProfileE
             .map_err(|_| ProfileError::Invalid)?,
         None => serde_json::json!({}),
     };
+    // A provider switch may replace the file between metadata and content reads.
+    // Never associate content from one save with the stamp of another save.
+    if stamp != optional_file_stamp(&config_path)? {
+        return Err(ProfileError::Invalid);
+    }
     let source = root.as_object().ok_or(ProfileError::Invalid)?;
     let mut projected = serde_json::Map::new();
     for key in [
@@ -255,6 +266,7 @@ pub fn inspect_codex_profile() -> Result<LocalCodexProfile, ProfileError> {
 fn inspect_codex_profile_at(home: &Path) -> Result<LocalCodexProfile, ProfileError> {
     let directory = home.join(".codex");
     let config_path = directory.join("config.toml");
+    let config_stamp = file_stamp(&config_path)?;
     let config_bytes = local_file::safe_read(&config_path, MAX_CODEX_CONFIG_BYTES)
         .map_err(|_| ProfileError::Invalid)?
         .ok_or(ProfileError::Missing)?;
@@ -273,6 +285,7 @@ fn inspect_codex_profile_at(home: &Path) -> Result<LocalCodexProfile, ProfileErr
         .filter(|value| safe_text(value, 1024))
         .ok_or(ProfileError::Missing)?;
     let catalog_path = safe_catalog_path(&directory, catalog_name).ok_or(ProfileError::Invalid)?;
+    let catalog_stamp = file_stamp(&catalog_path)?;
     let catalog_bytes = local_file::safe_read(&catalog_path, MAX_CODEX_CATALOG_BYTES)
         .map_err(|_| ProfileError::Invalid)?
         .ok_or(ProfileError::Missing)?;
@@ -300,6 +313,11 @@ fn inspect_codex_profile_at(home: &Path) -> Result<LocalCodexProfile, ProfileErr
     }
     let (config_modified, config_len) = file_stamp(&config_path)?;
     let (catalog_modified, catalog_len) = file_stamp(&catalog_path)?;
+    if config_stamp != (config_modified, config_len)
+        || catalog_stamp != (catalog_modified, catalog_len)
+    {
+        return Err(ProfileError::Invalid);
+    }
     let hash = hex::encode(Sha256::digest(
         [model.as_bytes(), b"\0", catalog_bytes.as_slice()].concat(),
     ));
@@ -381,6 +399,62 @@ mod tests {
             fs::write(&path, value).unwrap();
             assert_eq!(inspect_claude_profile_at(&root), Err(ProfileError::Invalid));
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_claude_file_during_provider_switch_keeps_last_good_profile() {
+        let root = fixture("model = \"fixture\"\n", "unused.json", None);
+        let absent = inspect_claude_profile_at(&root).unwrap();
+        let path = root.join(".claude/settings.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"model":"first"}"#).unwrap();
+        let first = inspect_claude_profile_at(&root).unwrap();
+        assert!(first.can_replace(&absent));
+        fs::remove_file(&path).unwrap();
+        let intermediate = inspect_claude_profile_at(&root).unwrap();
+        assert!(!intermediate.can_replace(&first));
+        fs::write(
+            &path,
+            r#"{"model":"second","env":{"ANTHROPIC_DEFAULT_SONNET_MODEL":"second"}}"#,
+        )
+        .unwrap();
+        let second = inspect_claude_profile_at(&root).unwrap();
+        assert!(second.can_replace(&first));
+        assert_ne!(second.hash, first.hash);
+        // Deliberately clearing model settings remains supported when a file exists.
+        fs::write(&path, "{}").unwrap();
+        assert!(inspect_claude_profile_at(&root)
+            .unwrap()
+            .can_replace(&second));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn codex_provider_switch_rejects_intermediate_model_catalog_pairs() {
+        let root = fixture(
+            "model = \"first\"\nmodel_catalog_json = \"models.json\"\n",
+            "models.json",
+            Some(r#"{"models":[{"slug":"first"}]}"#),
+        );
+        let first = inspect_codex_profile_at(&root).unwrap();
+        let config = root.join(".codex/config.toml");
+        fs::write(
+            &config,
+            "model = \"second\"\nmodel_catalog_json = \"models.json\"\n",
+        )
+        .unwrap();
+        assert_eq!(inspect_codex_profile_at(&root), Err(ProfileError::Invalid));
+        fs::write(
+            root.join(".codex/models.json"),
+            r#"{"models":[{"slug":"second"}]}"#,
+        )
+        .unwrap();
+        let second = inspect_codex_profile_at(&root).unwrap();
+        assert_eq!(second.model, "second");
+        assert_ne!(first.hash, second.hash);
+        fs::remove_file(config).unwrap();
+        assert_eq!(inspect_codex_profile_at(&root), Err(ProfileError::Missing));
         fs::remove_dir_all(root).unwrap();
     }
 
