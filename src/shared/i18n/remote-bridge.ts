@@ -619,7 +619,94 @@ const overviewKo: OverviewLabels = {
   rbOverviewSkillsAuto: "자동 동기화 · {synced} / {total} 동기화됨", rbOverviewVscodeUnavailable: "현재 이 SSH 연결을 VS Code에서 열 수 없습니다. 고급 화면에서 VS Code와 Remote - SSH를 확인하세요.",
   rbOverviewMobaUnavailable: "이 연결에서 MobaXterm을 사용할 수 없습니다. 고급 화면에서 설치와 연결 설정을 확인하세요.",
 };
+const advancedEn = {
+  rbAdvClearLogs:"Clear logs", rbAdvClearLogsTitle:"Clear bridge logs?", rbAdvClearLogsBody:"Clear all saved ProxyEnv bridge logs. This cannot be undone. Configuration and recovery files are not affected; new events will still be logged.", rbAdvLogsCleared:"Logs cleared", rbAdvLogsClearing:"Clearing…", rbAdvClearLogsError:"Could not clear logs. Check local folder permissions or file access, then restart ProxyEnv and try again.",
+  rbAdvCopyShort:"Copy",
+  rbAdvOpenLogs:"Open log folder", rbAdvLogsHelp:"Redacted JSONL events only. No AI content, paths or credentials. Files rotate at 2 MB; up to three are retained.", rbAdvLogsUnavailable:"Local logging is unavailable. The bridge still works; check local folder permissions and restart ProxyEnv.",
+  rbAdvEvents:"Recent events", rbAdvNoEvents:"No events recorded for this bridge yet.", rbAdvPending:"Pending", rbAdvPreparing:"Preparing", rbAdvWarning:"Needs attention", rbAdvIdle:"Idle",
+  rbAdvConnect:"Connect", rbAdvDisconnect:"Disconnect", rbAdvTransportLost:"Transport interrupted", rbAdvReconnect:"Reconnect", rbAdvServerDirect:"Server direct check", rbAdvEgressTest:"Egress test", rbAdvToolVerify:"Model verification", rbAdvEnvironmentSetup:"Environment setup", rbAdvVscodeSetup:"VS Code network setup", rbAdvToolSetup:"Client configuration", rbAdvCredentialClear:"Credential cache cleared", rbAdvEnable:"Enable", rbAdvDisable:"Disable", rbAdvSuccess:"Succeeded", rbAdvStarted:"Started", rbAdvErrorCategory:"Error category", rbAdvLastChecked:"Last checked", rbAdvPostConnect:"Post-connect setup",
+  rbAdvErrorNetwork:"Network error", rbAdvErrorSsh:"SSH transport error", rbAdvErrorAuthentication:"Authentication required", rbAdvErrorConflict:"Configuration conflict", rbAdvErrorUnsupported:"Unsupported", rbAdvErrorUnavailable:"Unavailable", rbAdvErrorResponse:"Invalid remote response", rbAdvErrorUnknown:"Unknown error",
+  rbAdvCommandUnavailable:"Command preview unavailable; copy to load the current command.",
+  rbAdvCached:"Current session cached", rbAdvClearCache:"Clear this SSH credential cache", rbAdvConfigured:"Configured", rbAdvManualLoadHelp:"Copy the terminal setup command here, then paste and run it in your connected external SSH or MobaXterm terminal. Repeat for each new terminal before launching tools.",
+  rbAdvEnvironment: "Environment & configuration", rbAdvLinks: "Link verification", rbAdvSecurity: "Security & boundaries", rbAdvManual: "Manual tools",
+  rbAdvTerminal: "Terminal environment", rbAdvManagedTerminal: "Terminal opened by ProxyEnv", rbAdvExternalTerminal: "External SSH / MobaXterm", rbAdvAutoLoad: "Loads automatically", rbAdvManualLoad: "Run manually",
+  rbAdvVscodeTerminal: "Terminal environment", rbAdvRuntimePort: "User proxy port", rbAdvPortUnknown: "Unknown", rbAdvUserProxyHelp: "Compares the proxy port in the local default VS Code user settings with the remote bridge port. An active profile, remote/workspace settings or extension environment can override it. Unknown does not mean the extension is unavailable; this does not inspect its running process.", rbAdvMatched: "Matched", rbAdvMismatch: "Mismatch",
+  rbAdvLink: "Tunnel", rbAdvEgress: "Actual egress", rbAdvModelRequest: "Model request", rbAdvEstablished: "Established", rbAdvNotVerified: "Not verified", rbAdvRun: "Run diagnostics again",
+  rbAdvVerificationHelp: "Checks server direct access and, when enabled, actual proxy egress. Verifies configured AI tools only when supported; this can send a minimal model request and incur provider usage. A ready tunnel is not proof of a successful request.",
+  rbAdvSessionOnly: "Current session only", rbAdvBind: "Remote listeners", rbAdvLoopback: "Loopback only", rbAdvProxyAuth: "Network proxy authentication", rbAdvNoProxyAuth: "No proxy authentication",
+  rbAdvProxyRisk: "The network proxy uses no username or password. It binds only to remote 127.0.0.1, but other accounts on the same Linux host may access that port. AI routing uses separate session authentication. This does not protect against a privileged administrator.",
+  rbAdvAiAuth: "AI route authentication", rbAdvSessionAuth: "Session authentication", rbAdvShell: "Shell changes", rbAdvShellHint: "Does not modify .bashrc / .profile", rbAdvCache: "SSH credential cache", rbAdvCacheEmpty: "Not cached",
+  rbAdvCacheHelp: "Only eligible server passwords may be cached for this bridge using Windows user-level encryption. Disconnecting or clearing removes the cache. Key passphrases and verification codes are not cached.",
+  rbAdvRecovery: "Automatic recovery", rbAdvReady: "Ready", rbAdvAuthentication: "Authentication", rbAdvTimings: "View phase timings", rbAdvNoTimings: "No phase timings recorded yet.", rbAdvPhase: "Phase", rbAdvDuration: "Duration", rbAdvOutcome: "Outcome",
+  rbAdvReport: "Diagnostic report", rbAdvReportHelp: "Open the existing redacted report preview, choose a language, and copy it. No new network requests are sent by report generation.", rbAdvEnvironmentActions: "Environment", rbAdvConfigActions: "Configuration", rbAdvSecurityActions: "Session security", rbAdvNoConfig: "This connection has no supported configuration-file action.", rbAdvNotSupported: "Verification unsupported", rbAdvVerified: "Verification passed", rbAdvFailed: "Verification failed",
+};
+type AdvancedLabels = { [K in keyof typeof advancedEn]: string };
+const advancedZh: AdvancedLabels = {
+  rbAdvClearLogs:"清除日志", rbAdvClearLogsTitle:"清除桥接日志？", rbAdvClearLogsBody:"清空已保存的 ProxyEnv 桥接日志，无法恢复。不会影响配置或恢复文件；后续事件仍会正常记录。", rbAdvLogsCleared:"日志已清除", rbAdvLogsClearing:"正在清除…", rbAdvClearLogsError:"未能清除日志。请检查本地目录权限或文件占用，重新启动 ProxyEnv 后重试。",
+  rbAdvCopyShort:"复制",
+  rbAdvOpenLogs:"打开日志目录", rbAdvLogsHelp:"仅记录脱敏后的 JSONL 事件，不记录 AI 内容、路径或凭据。每个文件最多 2 MB，保留三个文件。", rbAdvLogsUnavailable:"本地日志暂不可用，不影响桥接。请检查本地目录权限后重新启动 ProxyEnv。",
+  rbAdvEvents:"最近事件", rbAdvNoEvents:"本次桥接尚无事件记录。", rbAdvPending:"待处理", rbAdvPreparing:"准备中", rbAdvWarning:"需要处理", rbAdvIdle:"空闲",
+  rbAdvConnect:"建立连接", rbAdvDisconnect:"断开连接", rbAdvTransportLost:"连接中断", rbAdvReconnect:"恢复连接", rbAdvServerDirect:"服务器直连检查", rbAdvEgressTest:"实际出口测试", rbAdvToolVerify:"模型请求验证", rbAdvEnvironmentSetup:"终端环境配置", rbAdvVscodeSetup:"VS Code 网络配置", rbAdvToolSetup:"客户端配置", rbAdvCredentialClear:"清除凭据缓存", rbAdvEnable:"启用", rbAdvDisable:"停用", rbAdvSuccess:"成功", rbAdvStarted:"开始", rbAdvErrorCategory:"错误类别", rbAdvLastChecked:"验证时间", rbAdvPostConnect:"连接后配置",
+  rbAdvErrorNetwork:"网络错误", rbAdvErrorSsh:"SSH 传输错误", rbAdvErrorAuthentication:"需要认证", rbAdvErrorConflict:"配置冲突", rbAdvErrorUnsupported:"不受支持", rbAdvErrorUnavailable:"不可用", rbAdvErrorResponse:"远端响应无效", rbAdvErrorUnknown:"未知错误",
+  rbAdvCommandUnavailable:"暂无法预览，可点击复制获取当前命令。",
+  rbAdvCached:"当前会话缓存", rbAdvClearCache:"清除本次 SSH 凭据缓存", rbAdvConfigured:"已配置", rbAdvManualLoadHelp:"在此复制终端配置命令，粘贴到已连接的外部 SSH 或 MobaXterm 终端执行，再启动应用。每个新终端都需要执行一次。",
+  rbAdvEnvironment: "环境与配置", rbAdvLinks: "链路验证", rbAdvSecurity: "安全与边界", rbAdvManual: "手动工具",
+  rbAdvTerminal: "终端环境", rbAdvManagedTerminal: "ProxyEnv 打开的终端", rbAdvExternalTerminal: "外部 SSH / MobaXterm", rbAdvAutoLoad: "自动加载", rbAdvManualLoad: "需手动执行",
+  rbAdvVscodeTerminal: "Terminal 环境", rbAdvRuntimePort: "用户代理端口", rbAdvPortUnknown: "无法确认", rbAdvUserProxyHelp: "对照本机 VS Code 默认用户设置中的代理端口与远端桥接端口。Profile、远端或工作区设置及扩展环境可能覆盖此设置。无法确认不代表插件不可用；此项并未检测扩展运行进程。", rbAdvMatched: "匹配", rbAdvMismatch: "不匹配",
+  rbAdvLink: "链路", rbAdvEgress: "实际出口", rbAdvModelRequest: "模型请求", rbAdvEstablished: "已建立", rbAdvNotVerified: "尚未验证", rbAdvRun: "重新运行诊断",
+  rbAdvVerificationHelp: "检查服务器直连，并在桥接网络开启时测试实际出口。仅对已配置且支持验证的 AI 工具发送最小模型请求，可能产生服务商用量。链路已建立不代表真实请求已成功。",
+  rbAdvSessionOnly: "仅当前会话", rbAdvBind: "远端监听", rbAdvLoopback: "仅 Loopback", rbAdvProxyAuth: "桥接本机网络鉴权", rbAdvNoProxyAuth: "无代理鉴权",
+  rbAdvProxyRisk: "普通网络代理不要求账号密码，仅绑定远端 127.0.0.1；但同一 Linux 主机的其他账户可能访问此端口。AI 路由使用独立会话鉴权。此边界无法防范具有管理员权限的用户。",
+  rbAdvAiAuth: "AI 路由鉴权", rbAdvSessionAuth: "Session 鉴权", rbAdvShell: "Shell 修改", rbAdvShellHint: "不修改 .bashrc / .profile", rbAdvCache: "SSH 凭据缓存", rbAdvCacheEmpty: "未缓存",
+  rbAdvCacheHelp: "仅符合条件的服务器密码可在本次桥接中使用 Windows 用户级加密缓存；断开桥接或清除后移除。不缓存私钥口令或验证码。",
+  rbAdvRecovery: "自动恢复", rbAdvReady: "就绪", rbAdvAuthentication: "认证", rbAdvTimings: "查看运行耗时", rbAdvNoTimings: "暂无连接阶段耗时。", rbAdvPhase: "阶段", rbAdvDuration: "耗时", rbAdvOutcome: "结果",
+  rbAdvReport: "诊断报告", rbAdvReportHelp: "打开现有脱敏报告预览，可选择语言并复制。生成报告不会发起新的网络请求。", rbAdvEnvironmentActions: "环境工具", rbAdvConfigActions: "配置工具", rbAdvSecurityActions: "会话安全", rbAdvNoConfig: "此连接没有可用的配置文件操作。", rbAdvNotSupported: "暂不支持验证", rbAdvVerified: "验证通过", rbAdvFailed: "验证失败",
+};
+const advancedJa: AdvancedLabels = {
+  rbAdvClearLogs:"ログを消去", rbAdvClearLogsTitle:"ブリッジログを消去しますか？", rbAdvClearLogsBody:"保存済みの ProxyEnv ブリッジログを空にします。元に戻せません。設定と復元ファイルには影響せず、新しいイベントは引き続き記録されます。", rbAdvLogsCleared:"ログを消去しました", rbAdvLogsClearing:"消去中…", rbAdvClearLogsError:"ログを消去できません。フォルダーの権限やファイルの使用状況を確認し、ProxyEnv を再起動して再試行してください。",
+  rbAdvCopyShort:"コピー",
+  rbAdvOpenLogs:"ログフォルダーを開く", rbAdvLogsHelp:"匿名化した JSONL イベントのみ。AI 内容、パス、認証情報は記録しません。2 MB でローテーションし、最大 3 ファイル保持します。", rbAdvLogsUnavailable:"ローカルログは利用できません。ブリッジには影響しません。フォルダーの権限を確認して ProxyEnv を再起動してください。",
+  rbAdvEvents:"最近のイベント", rbAdvNoEvents:"このブリッジのイベントはまだありません。", rbAdvPending:"保留中", rbAdvPreparing:"準備中", rbAdvWarning:"対応が必要", rbAdvIdle:"待機",
+  rbAdvConnect:"接続", rbAdvDisconnect:"切断", rbAdvTransportLost:"接続中断", rbAdvReconnect:"再接続", rbAdvServerDirect:"サーバー直接接続の確認", rbAdvEgressTest:"外部接続テスト", rbAdvToolVerify:"モデル検証", rbAdvEnvironmentSetup:"端末環境設定", rbAdvVscodeSetup:"VS Code ネットワーク設定", rbAdvToolSetup:"クライアント設定", rbAdvCredentialClear:"認証情報キャッシュ消去", rbAdvEnable:"有効化", rbAdvDisable:"無効化", rbAdvSuccess:"成功", rbAdvStarted:"開始", rbAdvErrorCategory:"エラー分類", rbAdvLastChecked:"検証日時", rbAdvPostConnect:"接続後の設定",
+  rbAdvErrorNetwork:"ネットワークエラー", rbAdvErrorSsh:"SSH 通信エラー", rbAdvErrorAuthentication:"認証が必要", rbAdvErrorConflict:"設定の競合", rbAdvErrorUnsupported:"非対応", rbAdvErrorUnavailable:"利用不可", rbAdvErrorResponse:"リモート応答が無効", rbAdvErrorUnknown:"不明なエラー",
+  rbAdvCommandUnavailable:"プレビューできません。コピーで現在のコマンドを取得できます。",
+  rbAdvCached:"現在のセッションでキャッシュ", rbAdvClearCache:"SSH 認証情報キャッシュを消去", rbAdvConfigured:"設定済み", rbAdvManualLoadHelp:"ここで端末設定コマンドをコピーし、接続済みの外部 SSH または MobaXterm 端末で実行してからツールを起動します。新しい端末ごとに実行してください。",
+  rbAdvEnvironment: "環境と設定", rbAdvLinks: "接続の検証", rbAdvSecurity: "安全性と境界", rbAdvManual: "手動ツール",
+  rbAdvTerminal: "端末環境", rbAdvManagedTerminal: "ProxyEnv で開く端末", rbAdvExternalTerminal: "外部 SSH / MobaXterm", rbAdvAutoLoad: "自動読み込み", rbAdvManualLoad: "手動実行が必要",
+  rbAdvVscodeTerminal: "端末環境", rbAdvRuntimePort: "ユーザープロキシポート", rbAdvPortUnknown: "不明", rbAdvUserProxyHelp: "ローカルの VS Code 既定ユーザー設定のプロキシポートをリモートブリッジと比較します。Profile、リモート設定、ワークスペース設定、拡張環境で上書きされる場合があります。不明は拡張が利用できないという意味ではなく、実行プロセスの検査ではありません。", rbAdvMatched: "一致", rbAdvMismatch: "不一致",
+  rbAdvLink: "トンネル", rbAdvEgress: "実際の外部接続", rbAdvModelRequest: "モデルリクエスト", rbAdvEstablished: "確立済み", rbAdvNotVerified: "未検証", rbAdvRun: "診断を再実行",
+  rbAdvVerificationHelp: "サーバーの直接接続と、有効なネットワークプロキシの外部接続を確認します。設定済みで検証に対応する AI ツールには最小限のモデルリクエストを送り、利用料金が発生する場合があります。トンネルの確立はリクエストの成功を意味しません。",
+  rbAdvSessionOnly: "現在のセッションのみ", rbAdvBind: "リモート待受", rbAdvLoopback: "Loopback のみ", rbAdvProxyAuth: "ネットワークプロキシ認証", rbAdvNoProxyAuth: "プロキシ認証なし",
+  rbAdvProxyRisk: "ネットワークプロキシは認証なしでリモート 127.0.0.1 のみに待ち受けます。同じ Linux ホストの他のアカウントがこのポートにアクセスする可能性があります。AI は別のセッション認証を使用します。管理者権限には対抗できません。",
+  rbAdvAiAuth: "AI ルート認証", rbAdvSessionAuth: "セッション認証", rbAdvShell: "Shell の変更", rbAdvShellHint: ".bashrc / .profile は変更しません", rbAdvCache: "SSH 認証情報キャッシュ", rbAdvCacheEmpty: "キャッシュなし",
+  rbAdvCacheHelp: "対象のサーバーパスワードのみ、このブリッジ中に Windows ユーザー単位の暗号化でキャッシュできます。切断または消去で削除します。秘密鍵のパスフレーズと認証コードは保存しません。",
+  rbAdvRecovery: "自動復旧", rbAdvReady: "準備完了", rbAdvAuthentication: "認証", rbAdvTimings: "段階別の所要時間", rbAdvNoTimings: "所要時間の記録はありません。", rbAdvPhase: "段階", rbAdvDuration: "所要時間", rbAdvOutcome: "結果",
+  rbAdvReport: "診断レポート", rbAdvReportHelp: "既存の匿名化レポートを開き、言語を選択してコピーします。生成時に新しいネットワーク要求は送りません。", rbAdvEnvironmentActions: "環境", rbAdvConfigActions: "設定", rbAdvSecurityActions: "セッション安全性", rbAdvNoConfig: "この接続では設定ファイルの操作を利用できません。", rbAdvNotSupported: "検証非対応", rbAdvVerified: "検証成功", rbAdvFailed: "検証失敗",
+};
+const advancedKo: AdvancedLabels = {
+  rbAdvClearLogs:"로그 지우기", rbAdvClearLogsTitle:"브리지 로그를 지울까요?", rbAdvClearLogsBody:"저장된 ProxyEnv 브리지 로그를 비웁니다. 복구할 수 없습니다. 설정 및 복원 파일에는 영향을 주지 않으며 새 이벤트는 계속 기록됩니다.", rbAdvLogsCleared:"로그를 지웠습니다", rbAdvLogsClearing:"지우는 중…", rbAdvClearLogsError:"로그를 지우지 못했습니다. 폴더 권한이나 파일 사용 여부를 확인하고 ProxyEnv를 다시 시작한 뒤 재시도하세요.",
+  rbAdvCopyShort:"복사",
+  rbAdvOpenLogs:"로그 폴더 열기", rbAdvLogsHelp:"비식별 JSONL 이벤트만 기록합니다. AI 내용, 경로, 자격 증명은 기록하지 않습니다. 파일당 2 MB, 최대 3개를 유지합니다.", rbAdvLogsUnavailable:"로컬 로그를 사용할 수 없습니다. 브리지에는 영향이 없습니다. 폴더 권한을 확인한 뒤 ProxyEnv를 다시 시작하세요.",
+  rbAdvEvents:"최근 이벤트", rbAdvNoEvents:"현재 브리지에 기록된 이벤트가 없습니다.", rbAdvPending:"대기 중", rbAdvPreparing:"준비 중", rbAdvWarning:"조치 필요", rbAdvIdle:"대기",
+  rbAdvConnect:"연결", rbAdvDisconnect:"연결 해제", rbAdvTransportLost:"연결 중단", rbAdvReconnect:"다시 연결", rbAdvServerDirect:"서버 직접 연결 확인", rbAdvEgressTest:"외부 연결 테스트", rbAdvToolVerify:"모델 검증", rbAdvEnvironmentSetup:"터미널 환경 설정", rbAdvVscodeSetup:"VS Code 네트워크 설정", rbAdvToolSetup:"클라이언트 설정", rbAdvCredentialClear:"자격 증명 캐시 삭제", rbAdvEnable:"활성화", rbAdvDisable:"비활성화", rbAdvSuccess:"성공", rbAdvStarted:"시작", rbAdvErrorCategory:"오류 유형", rbAdvLastChecked:"검증 시간", rbAdvPostConnect:"연결 후 설정",
+  rbAdvErrorNetwork:"네트워크 오류", rbAdvErrorSsh:"SSH 전송 오류", rbAdvErrorAuthentication:"인증 필요", rbAdvErrorConflict:"설정 충돌", rbAdvErrorUnsupported:"지원하지 않음", rbAdvErrorUnavailable:"사용 불가", rbAdvErrorResponse:"잘못된 원격 응답", rbAdvErrorUnknown:"알 수 없는 오류",
+  rbAdvCommandUnavailable:"미리 볼 수 없습니다. 복사로 현재 명령을 가져오세요.",
+  rbAdvCached:"현재 세션 캐시", rbAdvClearCache:"현재 SSH 자격 증명 캐시 삭제", rbAdvConfigured:"설정됨", rbAdvManualLoadHelp:"여기서 터미널 설정 명령을 복사하고 연결된 외부 SSH 또는 MobaXterm 터미널에서 실행한 뒤 도구를 시작하세요. 새 터미널마다 실행해야 합니다.",
+  rbAdvEnvironment: "환경 및 설정", rbAdvLinks: "연결 검증", rbAdvSecurity: "보안 및 경계", rbAdvManual: "수동 도구",
+  rbAdvTerminal: "터미널 환경", rbAdvManagedTerminal: "ProxyEnv에서 연 터미널", rbAdvExternalTerminal: "외부 SSH / MobaXterm", rbAdvAutoLoad: "자동 로드", rbAdvManualLoad: "수동 실행 필요",
+  rbAdvVscodeTerminal: "터미널 환경", rbAdvRuntimePort: "사용자 프록시 포트", rbAdvPortUnknown: "확인 불가", rbAdvUserProxyHelp: "로컬 VS Code 기본 사용자 설정의 프록시 포트를 원격 브리지와 비교합니다. Profile, 원격/작업 공간 설정과 확장 환경이 이를 덮어쓸 수 있습니다. 확인 불가는 확장을 사용할 수 없다는 뜻이 아니며 실행 중인 프로세스를 검사하지 않습니다.", rbAdvMatched: "일치", rbAdvMismatch: "불일치",
+  rbAdvLink: "터널", rbAdvEgress: "실제 외부 연결", rbAdvModelRequest: "모델 요청", rbAdvEstablished: "연결됨", rbAdvNotVerified: "검증하지 않음", rbAdvRun: "진단 다시 실행",
+  rbAdvVerificationHelp: "서버 직접 연결과 활성화된 네트워크 프록시의 실제 외부 연결을 확인합니다. 설정되고 검증을 지원하는 AI 도구에만 최소 모델 요청을 보내며 제공업체 사용량이 발생할 수 있습니다. 터널 연결은 요청 성공을 의미하지 않습니다.",
+  rbAdvSessionOnly: "현재 세션만", rbAdvBind: "원격 수신", rbAdvLoopback: "Loopback만", rbAdvProxyAuth: "네트워크 프록시 인증", rbAdvNoProxyAuth: "프록시 인증 없음",
+  rbAdvProxyRisk: "네트워크 프록시는 인증 없이 원격 127.0.0.1에만 수신합니다. 같은 Linux 호스트의 다른 계정이 포트에 접근할 수 있습니다. AI 라우팅은 별도 세션 인증을 사용합니다. 관리자 권한을 가진 사용자를 차단하지 못합니다.",
+  rbAdvAiAuth: "AI 라우트 인증", rbAdvSessionAuth: "세션 인증", rbAdvShell: "Shell 변경", rbAdvShellHint: ".bashrc / .profile 수정 없음", rbAdvCache: "SSH 자격 증명 캐시", rbAdvCacheEmpty: "캐시 없음",
+  rbAdvCacheHelp: "적합한 서버 비밀번호만 현재 브리지에서 Windows 사용자별 암호화로 캐시할 수 있습니다. 연결 해제 또는 삭제 시 제거됩니다. 개인 키 암호와 인증 코드는 캐시하지 않습니다.",
+  rbAdvRecovery: "자동 복구", rbAdvReady: "준비됨", rbAdvAuthentication: "인증", rbAdvTimings: "단계별 소요 시간", rbAdvNoTimings: "기록된 소요 시간이 없습니다.", rbAdvPhase: "단계", rbAdvDuration: "소요 시간", rbAdvOutcome: "결과",
+  rbAdvReport: "진단 보고서", rbAdvReportHelp: "기존 비식별 보고서를 열고 언어를 선택한 뒤 복사하세요. 보고서 생성은 새 네트워크 요청을 보내지 않습니다.", rbAdvEnvironmentActions: "환경", rbAdvConfigActions: "설정", rbAdvSecurityActions: "세션 보안", rbAdvNoConfig: "이 연결은 설정 파일 작업을 지원하지 않습니다.", rbAdvNotSupported: "검증 미지원", rbAdvVerified: "검증 성공", rbAdvFailed: "검증 실패",
+};
+
 const en = {
+  ...advancedEn,
   ...overviewEn,
   ...extensionEn,
   ...flowEn,
@@ -656,6 +743,7 @@ rbDependencyError: "The remote operation is missing a required capability.", rbR
 };
 type Labels = { [K in keyof typeof en]: K extends "rbStates" ? Record<keyof typeof en.rbStates, string> : string };
 const zh: Labels = {
+  ...advancedZh,
   ...overviewZh,
   ...extensionZh,
   ...flowZh,
@@ -678,6 +766,7 @@ const zh: Labels = {
   rbStates:{disconnected:"未连接",connecting:"正在连接",connected:"已连接",stale:"配置已变化",unavailable:"当前不可用",error:"连接失败"},
 };
 const ja: Labels = {
+  ...advancedJa,
   ...overviewJa,
   ...extensionJa,
   ...flowJa,
@@ -691,6 +780,7 @@ const ja: Labels = {
   rbTitle:"リモート環境ブリッジ",rbHint:"SSH 経由でサーバーや VM と現在のプロキシ・CC Switch を共有します。",rbOpen:"ブリッジを設定",rbView:"ブリッジを表示",rbTarget:"接続先を選択",rbCapabilities:"機能を選択",rbPreview:"設定を確認",rbStatus:"ブリッジの状態",rbAlias:"SSH ホスト別名",rbEmpty:"~/.ssh/config に明示的な Host がありません。OpenSSH で追加して更新してください。",rbRequirements:"既存の鍵と Agent を使用します。先にターミナルでホスト鍵を確認してください。接続先は非 root の Linux、ss・flock・coreutils が必要です。",rbCheck:"接続を確認",rbChecked:"SSH 接続を確認済み",rbRefresh:"ホストを更新",rbNext:"次へ",rbBack:"戻る",rbClose:"閉じる",rbProxy:"現在のローカルプロキシ",rbNoProxy:"プロキシが利用できません。ホームで利用可能なプロキシを選択してください。",rbCc:"CC Switch ローカルルーティング",rbCcHint:"ポートの待ち受けのみ確認します。CC Switch のポートと CLI のルーティング有効化を確認してください。",rbLocalPort:"ローカルポート",rbDetect:"ポートを確認",rbDetected:"ポートは待ち受け中です",rbRemotePort:"リモートポート",rbPortHint:"1024～65535 の異なるポートを指定してください。",rbSafety:"リモートは 127.0.0.1 のみ。ProxyEnv の実行中だけ有効です。Shell 起動ファイルは変更しません。",rbConnect:"ブリッジを接続",rbDisconnect:"ブリッジを切断",rbDisconnectHint:"リモートプログラムの接続が失われます。保存済み CLI 設定は復元できます。",rbConfirm:"確認",rbCancel:"キャンセル",rbReconnect:"再設定",rbStaleHint:"現在のプロキシが変更されました。既存の接続先は保持されています。切断してから再接続してください。",rbUnavailableHint:"ローカルの接続先を利用できません。プロキシまたは CC Switch を確認してください。自動切替は行いません。",rbLocal:"ローカル",rbRemote:"リモート",rbCopy:"環境変数をコピー",rbCopied:"コピーしました",rbTest:"ブリッジをテスト",rbTestHint:"この操作のみがリモートプロキシ経由で gstatic.com に接続します。AI リクエストは送りません。",rbTested:"ネットワークテスト成功",rbCodex:"Codex を設定",rbClaude:"Claude Code を設定",rbRestoreCodex:"Codex 設定を復元",rbRestoreClaude:"Claude 設定を復元",rbConfigHint:"選択した CLI 設定を確認して適用します。",rbCodexConfigHint:"Codex CLI 0.134+（0.x）用の専用 Profile を作成し、既定設定と認証情報は変更しません。",rbClaudeConfigHint:"Claude Code 2.x のユーザー設定を更新し、通常の `claude` 起動でブリッジ経路を使います。無関係な設定は保持し、経路と競合する認証キーはバックアップと確認後のみ置換します。",rbBefore:"変更前",rbAfter:"管理対象の変更",rbAbsent:"ファイルなし",rbExistingConfigProtected:"既存設定を検出しました。内容と認証情報は表示せず、リモートバックアップに完全保存します。",rbConfigBackupHint:"書き込み前に元ファイルを保存し、置換後に検証します。失敗時は即時ロールバックし、第三者変更があれば復元せず停止します。",rbApply:"バックアップして適用",rbApplied:"設定を検証済み",rbLaunch:"リモート起動コマンド",rbCopyLaunch:"起動コマンドをコピー",rbRestoreHint:"リモートバックアップから元ファイルを正確に復元します。管理対象ファイルが変更されていれば上書きせず停止します。",rbRestored:"元の設定を復元しました",rbBusy:"処理中…",rbFailed:"操作に失敗しました。SSH とローカル接続先を確認して再試行してください。",rbSshError:"SSH 接続に失敗しました。ターミナルでホスト鍵、認証、設定を確認してください。サーバー設定は変更していません。",rbForwardError:"転送できません。ポートの使用状況と SSH 転送ポリシーを確認してください。サーバー設定は変更していません。",rbBindingError:"Loopback のみの待ち受けを確認できず、新しい接続を閉じました。管理者に GatewayPorts を確認してください。",rbConfigError:"設定が競合するか未対応です。競合を上書きしていません。対象設定と ProxyEnv の復元ファイルを確認してください。",rbDependencyError:"現在の操作に必要な機能がありません。",rbRemoteUnsupportedError:"このリモートシステムは未対応です。現在は Linux のみ対応します。",rbDependencyMissingError:"必要なツールがありません。ss、flock、GNU coreutils を導入してください。",rbCliUnsupportedError:"対応 CLI がありません。Codex 0.134+（0.x）または Claude Code 2.x を使用してください。",rbCustomHomeError:"カスタム設定ディレクトリが有効です。ProxyEnv はその場所を推測・変更しません。",rbRootForbiddenError:"root アカウントは未対応です。非 root Linux アカウントを使用してください。",rbJsonEditorMissingError:"Claude ユーザー設定の安全な JSON 結合と復元には Python 2.7 または Python 3 が必要です。",rbPortError:"ポートが無効か使用中です。1024～65535 の空きポートを選択してください。",rbActiveError:"プロキシが変更されたか利用できません。ホームで確認して再設定してください。",rbStates:{disconnected:"未接続",connecting:"接続中",connected:"接続済み",stale:"設定変更あり",unavailable:"利用不可",error:"接続失敗"},
 };
 const ko: Labels = {
+  ...advancedKo,
   ...overviewKo,
   ...extensionKo,
   ...flowKo,
@@ -757,6 +847,7 @@ export function bridgeErrorCode(error: unknown): string {
 
 export function bridgeError(code: unknown, copy: Labels): string {
   const value = bridgeErrorCode(code);
+  if (value === "logUnavailable") return copy.rbAdvLogsUnavailable;
   if (value === "bridgeBusy") return copy.rbCapabilityBusy;
   if (value === "capabilityPartialFailure") return copy.rbCapabilityPartialFailure;
   if (value === "backendCommandMissing") return copy.rbBackendRestartRequired;

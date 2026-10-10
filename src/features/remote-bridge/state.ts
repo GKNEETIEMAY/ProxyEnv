@@ -7,6 +7,14 @@ export type BridgeStatus = "disconnected" | "connecting" | "connected" | "stale"
 export type PostConnectStatus = "idle" | "preparing" | "ready" | "partial";
 export type RemoteRuntimeState = "pending" | "preparing" | "ready" | "warning";
 export interface PhaseTiming { phase:string; durationMs:number; outcome:string }
+export type DiagnosticState = "notTested" | "testing" | "passed" | "failed";
+export type BridgeErrorCategory = "network" | "ssh" | "authentication" | "conflict" | "unsupported" | "unavailable" | "invalidResponse" | "unknown";
+export interface DiagnosticObservation { state:DiagnosticState; checkedAt:number|null; errorCode:BridgeErrorCategory|null; durationMs:number|null }
+export interface DiagnosticSnapshot { generalProxyEgress:DiagnosticObservation; aiRouteVerification:DiagnosticObservation; serverDirect?:DiagnosticObservation; serverInternet?:"reachable"|"unreachable"|"unknown"|null }
+export interface SecuritySnapshot { generalProxyAuth:"none"; aiRouteAuth:"session"; remoteBindScope:"loopback"; shellScope:"sessionOnly" }
+export interface RuntimeDiagnostics { running:boolean; observations:DiagnosticSnapshot; ssh:BridgeStatus; vscode:RemoteRuntimeState; serverInternet:"reachable"|"unreachable"|"unknown"|null }
+export interface BridgeSummary { diagnostics?:DiagnosticSnapshot; security?:SecuritySnapshot }
+export interface BridgeEvent { timestamp:number; level:"info"|"warning"|"error"; component:"ssh"|"generalProxy"|"aiRoute"|"sessionEnvironment"|"vscode"|"codex"|"claude"|"skills"; action:"connect"|"disconnect"|"transportLost"|"reconnect"|"serverDirect"|"egressTest"|"toolVerify"|"environmentSetup"|"vscodeSetup"|"toolSetup"|"credentialClear"|"enable"|"disable"; outcome:"success"|"warning"|"failed"|"started"; errorCode:BridgeErrorCategory|null; durationMs:number|null }
 export type RemoteTargetSource = "openssh" | "vscode" | "mobaxterm" | "manual";
 export type SshAuthMode = "nonInteractive" | "interactive";
 export type SshAuthMethod = "identityFile" | "agent" | "password" | "keyboardInteractive" | "unknown";
@@ -68,6 +76,12 @@ export interface ExtensionPreview { id: string; alias: string; tool: RemoteToolI
 export const emptySummary = (): BridgeSummary => ({ status:"disconnected", target:null, proxy:null, cc:null, proxyStatus:null, ccStatus:null, activeProxyRevision:null, environment:"", codexConfigured:false, claudeConfigured:false, error:null, sshAuth:{mode:"nonInteractive",method:"unknown",authenticated:false,passwordStored:false} });
 export const targetLabel = (target:RemoteTarget|null|undefined) => target ? `${target.displayName} · ${target.sourceLabel}` : "";
 export const remoteBackend = {
+  runDiagnostics: () => invoke<RuntimeDiagnostics>("remote_bridge_run_diagnostics"),
+  diagnosticsSnapshot: () => invoke<RuntimeDiagnostics>("remote_bridge_diagnostics_snapshot"),
+  logStatus: () => invoke<{available:boolean}>("remote_bridge_log_status"),
+  openLogDirectory: () => invoke<void>("remote_bridge_open_log_directory"),
+  clearLogs: () => invoke<void>("remote_bridge_clear_logs"),
+  events: (limit=50) => invoke<BridgeEvent[]>("remote_bridge_events", {limit}),
   modelSettings: () => invoke<RemoteBridgeModelSettings>("remote_bridge_model_settings"),
   saveModelSettings: (settings: { followLocalCodexProfile:boolean }) => invoke<RemoteBridgeModelSettings>("remote_bridge_save_model_settings", { settings }),
   extensionInspect: (targetId: string) => invoke<ExtensionInspection>("remote_bridge_extension_inspect", { targetId }),

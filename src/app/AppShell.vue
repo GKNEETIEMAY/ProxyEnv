@@ -726,6 +726,7 @@ onBeforeUnmount(() => {
       :review-preview="reviewPreview"
       @refresh="refreshRemoteBridge"
       @connected="acceptRemoteBridgeSummary"
+      @open-report="reportDialog?.open()"
     />
     </div>
 

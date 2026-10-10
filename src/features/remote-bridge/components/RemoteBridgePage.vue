@@ -4,8 +4,6 @@ import type { ActiveProxyContext, CheckState } from "../../../shared/types";
 import { bridgeError, bridgeErrorCode, type RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
 import { copyText } from "../../../shared/utils/clipboard";
 import { withoutWindowsExtendedPathPrefix } from "../../../shared/utils/path";
-import CheckRow from "../../../shared/components/CheckRow.vue";
-import LastChecked from "../../../shared/components/LastChecked.vue";
 import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 import FieldValidation from "../../../shared/components/FieldValidation.vue";
@@ -13,6 +11,7 @@ import RemoteToolDialog from "./RemoteToolDialog.vue";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
+import RemoteBridgeAdvancedView from "./RemoteBridgeAdvancedView.vue";
 import BridgeLaunchBar from "./BridgeLaunchBar.vue";
 import { overviewServerDirectStatus, overviewToolChecking } from "../overview-presentation";
 import { sshTargetAddress as targetAddress, needsInteractiveSshAuth } from "../ssh-presentation";
@@ -28,9 +27,6 @@ import {
   type PortAllocation,
   type RemoteTarget,
   type RemoteSkill,
-  type RemoteToolVerification,
-  type ProfileSyncState,
-  type RemoteRuntimeState,
   type SshAuthOperation,
   type SshAuthSnapshot,
 } from "../state";
@@ -38,7 +34,7 @@ import {
 const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; ccDetection: CcDetection | null; reviewPreview?: boolean; visible?: boolean }>();
 const capabilityPending = ref<BridgeCapability>();
 const skillPending = ref<string>();
-const emit = defineEmits<{ refresh: []; connected: [summary: BridgeSummary] }>();
+const emit = defineEmits<{ refresh: []; connected: [summary: BridgeSummary]; openReport: [] }>();
 const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
 const confirmation = ref<HTMLDialogElement>();
 const authDialog = ref<HTMLDialogElement>();
@@ -97,6 +93,14 @@ let networkRefreshRevision = 0;
 const busy = ref(false);
 const error = ref<unknown>();
 const feedback = ref<"copied" | "tested" | "ports" | "terminal">();
+const sessionCopying = ref(false);
+const sessionCopied = ref(false);
+let sessionCopyTimer:ReturnType<typeof setTimeout>|undefined;
+let sessionCopyRevision = 0;
+function resetSessionCopyFeedback() {
+  clearTimeout(sessionCopyTimer);
+  sessionCopied.value = false;
+}
 const vscodeOpened = ref(false);
 const mobaOpened = ref(false);
 const authSession = ref<SshAuthSnapshot>();
@@ -108,6 +112,30 @@ const authSubmitting = ref(false);
 const authCopyState = ref<"idle" | "copied" | "failed">("idle");
 const showAuthDiagnostic = ref(false);
 const advancedView = ref(false);
+const contentFields = ref<HTMLFieldSetElement>();
+watch(advancedView, async () => {
+  await nextTick();
+  // A shared viewport must not carry the other tab's scroll offset into this view.
+  if (contentFields.value) contentFields.value.scrollTop = 0;
+});
+const diagnosing = ref(false);
+const sessionCommand = ref("");
+const commandLoading = ref(false);
+let commandRevision = 0;
+watch(() => JSON.stringify([advancedView.value, props.visible, props.summary.target?.id, props.summary.proxy, props.summary.proxyStatus, props.summary.sessionEnvironmentState, props.summary.reconnectState]), async () => {
+  const revision = ++commandRevision;
+  sessionCommand.value = "";
+  commandLoading.value = false;
+  // The command API can prepare a missing env.sh. Preview only an already-ready
+  // environment, so visiting Advanced does not initiate optional setup.
+  if (!advancedView.value || props.visible === false || !props.summary.proxy || props.summary.proxyStatus !== "connected" || props.summary.sessionEnvironmentState !== "ready") return;
+  commandLoading.value = true;
+  try {
+    const command = await remoteBackend.sessionEnvironmentCommand();
+    if (revision === commandRevision) sessionCommand.value = command;
+  } catch { /* An unavailable preview must not invent a command or disclose raw errors. */ }
+  finally { if (revision === commandRevision) commandLoading.value = false; }
+});
 type ConnectionPhase = "idle" | "checking" | "authenticating" | "building" | "succeeded" | "failed";
 const connectionPhase = ref<ConnectionPhase>("idle");
 const establishingBridge = computed(() => ["checking", "authenticating", "building"].includes(connectionPhase.value));
@@ -124,12 +152,6 @@ const connectionTouched = ref<Record<ConnectionField, boolean>>({ displayName: f
 let authPollTimer: ReturnType<typeof setTimeout> | undefined;
 let skillsPollTimer: ReturnType<typeof setTimeout> | undefined;
 let authBeginRevision = 0;
-const remoteTools = computed(() => remoteToolAdapters.map((adapter) => ({
-  adapter,
-  inspection: adapter.inspect(props.summary),
-  checking: overviewToolChecking(props.summary, adapter.id),
-  launch: adapter.launch(props.summary),
-})));
 const skills = ref<RemoteSkill[]>([]);
 type RemoteSkillGroup = {
   name: string;
@@ -152,28 +174,6 @@ const skillGroups = computed<RemoteSkillGroup[]>(() => {
       ],
     }));
 });
-const synchronizedSkillCount = computed(() => skills.value.filter((skill) => skill.state === "synced").length);
-const skillsSummaryState = computed<CheckState>(() => {
-  if (skills.value.length === 0) return "disabled";
-  if (synchronizedSkillCount.value === skills.value.length) return "healthy";
-  return "warning";
-});
-const skillsSummaryLabel = computed(() => props.copy.rbSkillsSummary
-  .replace("{synced}", String(synchronizedSkillCount.value))
-  .replace("{total}", String(skills.value.length)));
-const postConnectRows = computed(() => [
-  { label: props.copy.rbPostEnvironment, state: props.summary.sessionEnvironmentState },
-  { label: props.copy.rbPostVscode, state: props.summary.vscodeState },
-  { label: props.copy.rbPostCodex, state: props.summary.codexState },
-  { label: props.copy.rbPostClaude, state: props.summary.claudeState },
-  { label: props.copy.rbPostSkills, state: props.summary.skillsState },
-].filter((row): row is { label:string; state:RemoteRuntimeState } => !!row.state));
-const postConnectLabel = computed(() => ({
-  preparing: props.copy.rbPostConnectPreparing,
-  ready: props.copy.rbPostConnectReady,
-  partial: props.copy.rbPostConnectPartial,
-  idle: "",
-})[props.summary.postConnectStatus ?? "idle"]);
 
 const selectedTarget = computed(() => targets.value.find((target) => target.id === targetId.value));
 const reconnecting = computed(() => ["waiting", "retrying"].includes(props.summary.reconnectState ?? ""));
@@ -284,7 +284,6 @@ const serverInternetLabel = computed(() => serverInternetCheck.value.state === "
 const serverDirectStatus = computed(() => overviewServerDirectStatus(props.copy, serverInternetCheck.value.state));
 const localProxyLabel = computed(() => localProxyCheck.value.state === "healthy" ? props.copy.rbLocalProxyReady : localProxyCheck.value.state === "failed" ? props.copy.rbLocalProxyUnavailable : genericStateLabel(localProxyCheck.value.state));
 const ccStateLabel = computed(() => ccCheck.value.state === "healthy" ? props.copy.rbCcConfirmed : ccCheck.value.state === "warning" ? props.copy.rbCcUnknown : ccCheck.value.state === "failed" ? props.copy.rbCcMissing : ccCheck.value.state === "disabled" ? props.copy.rbCcDisabled : genericStateLabel(ccCheck.value.state));
-const lastNetworkChecked = computed(() => Math.max(0, sshCheck.value.checkedAt ?? 0, serverInternetCheck.value.checkedAt ?? 0, localProxyCheck.value.checkedAt ?? 0, ccCheck.value.checkedAt ?? 0) || null);
 const networkChecking = computed(() => serverInternetCheck.value.state === "checking" || ccCheck.value.state === "checking");
 const sshRuntimeState = computed<CheckState>(() => needsAttention.value ? "failed" : live.value ? (props.summary.status === "connecting" ? "checking" : "healthy") : bridgeCheckState(props.summary.status));
 const sshRuntimeLabel = computed(() => sshRuntimeState.value === "healthy" ? props.copy.rbHealthy : genericStateLabel(sshRuntimeState.value));
@@ -349,44 +348,6 @@ async function copyAuthPrompt() {
 
 watch([() => visibleAuthPrompt.value?.message, authErrorMessage], () => { authCopyState.value = "idle"; });
 
-function toolVerificationState(verification: RemoteToolVerification): CheckState {
-  if (verification === "verified") return "healthy";
-  if (["authenticationRequired", "routeUnavailable", "timedOut", "failed"].includes(verification)) return "warning";
-  return verification === "verifyPending" ? "warning" : "idle";
-}
-
-function runtimeCheckState(state: RemoteRuntimeState): CheckState {
-  if (state === "ready") return "healthy";
-  if (state === "warning") return "warning";
-  if (state === "preparing") return "checking";
-  return "idle";
-}
-
-function toolVerificationLabel(verification: RemoteToolVerification): string {
-  return ({
-    notConfigured: props.copy.rbNotConfigured,
-    verifyPending: props.copy.rbToolVerifyPending,
-    verified: props.copy.rbToolVerified,
-    authenticationRequired: props.copy.rbToolAuthRequired,
-    routeUnavailable: props.copy.rbToolRouteUnavailable,
-    timedOut: props.copy.rbToolVerifyTimedOut,
-    failed: props.copy.rbToolVerifyFailed,
-  })[verification];
-}
-
-function claudeProfileLabel(state: ProfileSyncState | undefined): string {
-  return ({
-    disabled: props.copy.rbProfileDisabled,
-    notStarted: props.copy.rbProfileNotStarted,
-    synced: props.copy.rbProfileSynced,
-    localChanged: props.copy.rbProfileLocalChanged,
-    remoteChanged: props.copy.rbProfileRemoteChanged,
-    conflict: props.copy.rbProfileConflict,
-    invalidLocalProfile: props.copy.rbProfileInvalid,
-    remoteUnavailable: props.copy.rbProfileUnavailable,
-    restartRequired: props.copy.rbExtPending,
-  })[state ?? "notStarted"];
-}
 
 function bridgeCheckState(status: BridgeSummary["status"] | null, enabled = true): CheckState {
   if (!enabled) return "disabled";
@@ -402,7 +363,7 @@ function updateLocalProxyCheck() {
 }
 
 async function refreshNetworkChecks() {
-  const currentTarget = selectedTarget.value ?? props.summary.target;
+  const currentTarget = props.summary.target ?? selectedTarget.value;
   if (!currentTarget?.available) return;
   if (props.reviewPreview) {
     const checkedAt = Date.now();
@@ -1027,9 +988,16 @@ function toggleCapability(capability: BridgeCapability, enabled: boolean) {
   });
 }
 
-function verifyTool(adapter: RemoteToolAdapter) {
+function runDiagnostics() {
   void perform(async () => {
-    await adapter.verify();
+    diagnosing.value = true;
+    try {
+      const revision = ++networkRefreshRevision;
+      const result = await remoteBackend.runDiagnostics();
+      if (revision === networkRefreshRevision) {
+        serverInternetCheck.value = { state:result.serverInternet === "reachable" ? "healthy" : result.serverInternet === "unreachable" ? "failed" : "warning", checkedAt:Date.now() };
+      }
+    } finally { diagnosing.value = false; }
   });
 }
 
@@ -1064,15 +1032,6 @@ function scheduleSkillsPolling() {
   }, 2200);
 }
 
-function skillStateLabel(skill: RemoteSkill): string {
-  return ({
-    notSynced: props.copy.rbSkillNotSynced,
-    synced: props.copy.rbSkillSynced,
-    localChanged: props.copy.rbSkillChanged,
-    conflict: props.copy.rbSkillConflict,
-    unavailable: props.copy.rbSkillUnavailable,
-  })[skill.state];
-}
 
 function toggleSkill(skill: RemoteSkill) {
   if (busy.value || !sshConnected.value) return;
@@ -1108,11 +1067,28 @@ function launchTerminal() {
   void perform(() => remoteBackend.launchManualTerminal());
 }
 
-function copySessionEnvironment() {
-  void perform(async () => {
-    await copyText(await remoteBackend.sessionEnvironmentCommand());
-    feedback.value = "copied";
-  });
+async function copySessionEnvironment() {
+  if (busy.value || sessionCopying.value || !sshConnected.value || !props.summary.proxy || props.summary.proxyStatus !== "connected") return;
+  const revision = ++sessionCopyRevision;
+  sessionCopying.value = true;
+  resetSessionCopyFeedback();
+  error.value = undefined;
+  try {
+    const command = await remoteBackend.sessionEnvironmentCommand();
+    if (revision !== sessionCopyRevision) return;
+    await copyText(command);
+    if (revision !== sessionCopyRevision) return;
+    sessionCommand.value = command;
+    sessionCopied.value = true;
+    sessionCopyTimer = setTimeout(resetSessionCopyFeedback,2000);
+  } catch (cause) {
+    if (revision === sessionCopyRevision) error.value = cause;
+  } finally {
+    sessionCopying.value = false;
+    // This API may prepare env.sh; refresh its state without putting the whole
+    // page into the mutation/loading state for a clipboard-only action.
+    if (revision === sessionCopyRevision) emit("refresh");
+  }
 }
 
 function confirmDisconnect() {
@@ -1176,6 +1152,10 @@ watch(sshConnected, (connected) => {
 watch(() => props.visible, (visible) => {
   if (visible && !live.value && !busy.value) void initializeCapabilities(false);
 });
+watch(() => JSON.stringify([props.visible === false,props.summary.target?.id,sshConnected.value,props.summary.proxy,props.summary.proxyStatus]), () => {
+  sessionCopyRevision++;
+  resetSessionCopyFeedback();
+});
 
 onMounted(() => {
   void initializeCapabilities();
@@ -1208,6 +1188,8 @@ onMounted(() => {
   }
 });
 onBeforeUnmount(() => {
+  sessionCopyRevision++;
+  resetSessionCopyFeedback();
   authBeginRevision += 1;
   const sessionId = authSession.value?.sessionId;
   clearAuthPoll();
@@ -1217,8 +1199,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="page remote-bridge-page" :class="{ 'remote-setup-page': !live, 'remote-overview-page': live && !advancedView }">
-    <section class="remote-workspace" :class="{ 'remote-workspace-configure': !live, 'remote-workspace-advanced': live && advancedView, 'remote-workspace-simple': live && !advancedView }">
+  <main class="page remote-bridge-page" :class="{ 'remote-setup-page': !live, 'remote-connected-page': live, 'remote-overview-page': live && !advancedView }">
+    <section class="remote-workspace" :class="{ 'remote-workspace-configure': !live, 'remote-workspace-connected': live, 'remote-workspace-advanced': live && advancedView, 'remote-workspace-simple': live && !advancedView }">
       <div v-if="live" class="remote-workspace-heading">
         <h1>{{ copy.rbStatus }}</h1>
         <div class="remote-status-toolbar">
@@ -1226,7 +1208,6 @@ onBeforeUnmount(() => {
             <button type="button" :class="{ active: !advancedView }" :aria-pressed="!advancedView" @click="advancedView = false">{{ copy.rbSimpleView }}</button>
             <button type="button" :class="{ active: advancedView }" :aria-pressed="advancedView" @click="advancedView = true">{{ copy.rbAdvancedView }}</button>
           </div>
-          <LastChecked v-if="advancedView" :label="copy.rbLastChecked" :checked-at="lastNetworkChecked" />
           <button class="secondary-action" type="button" :disabled="busy || networkChecking" @click="refreshNetworkChecks">{{ copy.rbRefreshStatus }}</button>
           <button class="secondary-action remote-danger remote-disconnect" type="button" :disabled="busy" @click="confirmation?.showModal()"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 15-1.5 1.5a3.5 3.5 0 0 1-5-5L6 8m9 1 1.5-1.5a3.5 3.5 0 0 1 5 5L18 16M9 3v3M3 9h3m9 12v-3m6-3h-3M4 20 20 4"/></svg>{{ copy.rbDisconnect }}</button>
         </div>
@@ -1234,7 +1215,20 @@ onBeforeUnmount(() => {
       <header v-else class="remote-page-intro">
         <h1>{{ copy.rbWorkspaceTitle }}</h1>
       </header>
-      <fieldset :disabled="busy" class="remote-fields">
+      <div v-if="live && activeTarget" class="remote-selected-target">
+        <div class="remote-target-identity"><div class="remote-target-name"><strong>{{ activeTarget.displayName }}</strong>
+          <StatusIndicator :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
+          </div><div class="remote-target-metadata"><span>{{ activeTarget.host ? targetAddress(activeTarget) : `SSH Target · ${activeTarget.sshAlias ?? activeTarget.displayName}` }}</span><span>{{ sourceLabel(activeTarget) }}</span><code v-if="activeTarget.configPath" :title="withoutWindowsExtendedPathPrefix(activeTarget.configPath)">{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></div>
+          <span v-if="reconnecting" class="remote-reconnect-inline" role="status">{{ copy.rbReconnectWaiting }}</span>
+        </div>
+        <div class="remote-server-direct">
+          <svg class="remote-server-globe" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5h14M5 17.5h14"/></svg>
+          <span>{{ copy.rbOverviewServerDirectNetwork }}</span>
+          <HelpTooltip pinnable :label="copy.rbOverviewServerDirectNetwork" :text="copy.rbOverviewServerHelp" />
+          <StatusIndicator :state="serverDirectStatus.state" :label="serverDirectStatus.label" />
+        </div>
+      </div>
+      <fieldset ref="contentFields" :disabled="busy" class="remote-fields">
         <div v-if="!live" class="remote-setup-grid">
           <section class="remote-connections-panel">
             <header class="remote-panel-heading">
@@ -1320,29 +1314,7 @@ onBeforeUnmount(() => {
         </div>
 
         <template v-else>
-          <div v-if="activeTarget" class="remote-selected-target">
-            <div class="remote-target-identity"><div class="remote-target-name"><strong>{{ activeTarget.displayName }}</strong>
-              <StatusIndicator :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
-              </div><div class="remote-target-metadata"><span>{{ activeTarget.host ? targetAddress(activeTarget) : `SSH Target · ${activeTarget.sshAlias ?? activeTarget.displayName}` }}</span><span>{{ sourceLabel(activeTarget) }}</span><code v-if="activeTarget.configPath" :title="withoutWindowsExtendedPathPrefix(activeTarget.configPath)">{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></div>
-              <span v-if="reconnecting" class="remote-reconnect-inline" role="status">{{ copy.rbReconnectWaiting }}</span>
-            </div>
-            <div v-if="!advancedView" class="remote-server-direct">
-              <svg class="remote-server-globe" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5h14M5 17.5h14"/></svg>
-              <span>{{ copy.rbOverviewServerDirectNetwork }}</span>
-              <HelpTooltip pinnable :label="copy.rbOverviewServerDirectNetwork" :text="copy.rbOverviewServerHelp" />
-              <StatusIndicator :state="serverDirectStatus.state" :label="serverDirectStatus.label" />
-            </div>
-          </div>
           <p v-if="summary.status === 'stale'" class="notice notice-warning">{{ copy.rbStaleHint }}</p>
-          <section v-if="summary.postConnectStatus && summary.postConnectStatus !== 'idle'" v-show="advancedView" class="remote-post-connect" :class="`state-${summary.postConnectStatus}`">
-            <div class="remote-section-heading">
-              <div><h3>{{ copy.rbPostConnectTitle }}</h3><p class="remote-hint">{{ postConnectLabel }}</p></div>
-              <StatusIndicator :state="summary.postConnectStatus === 'ready' ? 'healthy' : summary.postConnectStatus === 'partial' ? 'warning' : 'checking'" :label="postConnectLabel" />
-            </div>
-            <div v-if="advancedView || summary.postConnectStatus !== 'ready'" class="remote-post-connect-grid">
-              <div v-for="row in postConnectRows" :key="row.label"><span>{{ row.label }}</span><StatusIndicator :state="runtimeCheckState(row.state)" :label="genericStateLabel(runtimeCheckState(row.state))" /></div>
-            </div>
-          </section>
           <div v-if="needsAttention" class="notice notice-warning" role="alert">
             <p>{{ copy.rbReconnectAttention }} {{ summary.error ? bridgeError(summary.error, copy) : '' }}</p>
             <button class="primary-action" type="button" :disabled="busy" @click="reconnectManually">{{ copy.rbReconnectAction }}</button>
@@ -1350,109 +1322,18 @@ onBeforeUnmount(() => {
           <p v-if="summary.status === 'unavailable'" class="notice notice-warning">{{ copy.rbUnavailableHint }}</p>
           <RemoteBridgeOverview v-show="!advancedView" :copy="copy" :summary="summary" :active-proxy="activeProxy" :skills="skillGroups" :connected="sshConnected" :busy="busy" :cc-available="ccDetection?.state === 'confirmed'" :capability-pending="capabilityPending" :skill-pending="skillPending" @toggle-capability="toggleCapability" @toggle-tool="(id, configured) => toggleTool(remoteToolAdapters.find((adapter) => adapter.id === id)!, configured)" @toggle-skill="toggleSkill" />
 
-          <section v-show="advancedView" class="remote-health remote-advanced-group">
-              <h3>{{ copy.rbSshHealth }}</h3>
-              <CheckRow :label="copy.rbSshHealth" :state="sshRuntimeState" :state-label="sshRuntimeLabel" :checked-at="sshCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.ssh">
-                <template v-if="advancedView" #detail><p class="check-row-detail">{{ summary.target?.displayName }}</p></template>
-              </CheckRow>
-              <CheckRow v-show="advancedView" :label="copy.rbServerInternet" :state="serverInternetCheck.state" :state-label="serverInternetLabel" :checked-at="serverInternetCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.internet" />
-              <CheckRow v-if="summary.proxy" :label="copy.rbLocalProxyHealth" :state="bridgeCheckState(summary.proxyStatus)" :state-label="summary.proxyStatus ? copy.rbStates[summary.proxyStatus] : copy.rbCheckIdle" :checked-at="localProxyCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.proxy">
-                <template v-if="advancedView" #detail><p class="check-row-detail"><code>{{ summary.proxy.local.host }}:{{ summary.proxy.local.port }}</code> → <code>127.0.0.1:{{ summary.proxy.remotePort }}</code></p></template>
-              </CheckRow>
-              <div v-if="summary.proxy && summary.target?.canOpenVscode" v-show="advancedView" class="remote-runtime-observation">
-                <p v-if="summary.runtimeExpectedProxyPort" class="remote-hint">{{ copy.rbRuntimeSetting }} · <code>127.0.0.1:{{ summary.runtimeExpectedProxyPort }}</code></p>
-                <p class="remote-hint" :class="{ 'notice notice-warning': summary.runtimeProxyMatch === 'mismatch' }">{{ summary.runtimeProxyMatch === 'mismatch' ? copy.rbRuntimeMismatch : summary.runtimeProxyMatch === 'matched' ? copy.rbRuntimeMatched : copy.rbRuntimeUnknown }}</p>
-              </div>
-              <CheckRow v-if="summary.cc" :label="copy.rbLocalCcHealth" :state="bridgeCheckState(summary.ccStatus)" :state-label="summary.ccStatus ? copy.rbStates[summary.ccStatus] : copy.rbCheckIdle" :checked-at="ccCheck.checkedAt" :last-checked-label="copy.rbLastChecked" :help-label="copy.rbHelpLabel" :help-headings="helpHeadings" :help-content="helpContent.cc">
-                <template v-if="advancedView" #detail><p class="check-row-detail"><code>{{ summary.cc.local.host }}:{{ summary.cc.local.port }}</code> → <code>127.0.0.1:{{ summary.cc.remotePort }}</code></p></template>
-              </CheckRow>
-          </section>
-
-          <p v-if="advancedView && summary.proxy && summary.target?.canOpenVscode" class="remote-hint">{{ copy.rbVscodeAutoAuth }}</p>
-          <p v-if="vscodeOpened" class="remote-success" role="status">{{ copy.rbExtOpened }}</p>
-          <section v-if="mobaOpened && sshConnected" v-show="advancedView" class="remote-external-client" aria-labelledby="remote-moba-heading">
-            <h4 id="remote-moba-heading">MobaXterm</h4>
-            <p class="remote-hint">{{ copy.rbMobaConnectionHint }}</p>
-            <template v-if="summary.proxy">
-              <p class="remote-hint">{{ copy.rbMobaProxyHint }}</p>
-              <button class="secondary-action" type="button" :disabled="busy || summary.proxyStatus !== 'connected'" @click="copySessionEnvironment">{{ copy.rbCopySessionEnvironment }}</button>
-            </template>
-            <p v-if="summary.cc" class="remote-hint">{{ copy.rbMobaAiHint }}</p>
-          </section>
-
-          <section v-if="summary.proxy" v-show="advancedView" class="remote-next-section remote-advanced-group">
-              <h3>{{ copy.rbProxyUseTitle }}</h3>
-              <p class="remote-terminal-lead">{{ copy.rbTerminalLaunchHint }}</p>
-              <div class="remote-actions"><button class="secondary-action" type="button" :disabled="busy || summary.proxyStatus !== 'connected'" @click="perform(async () => { await remoteBackend.test(); feedback = 'tested'; })">{{ copy.rbTest }}</button></div>
-              <p class="remote-hint">{{ copy.rbTerminalAuthHint }}</p>
-              <p class="remote-hint">{{ copy.rbManagedShellScope }}</p>
-              <div class="remote-actions">
-                <button class="secondary-action" type="button" :disabled="busy || summary.proxyStatus !== 'connected'" @click="copySessionEnvironment">{{ copy.rbCopySessionEnvironment }}</button>
-              </div>
-              <p class="remote-hint">{{ copy.rbVscodeEnvironmentScope }}</p>
-              <div class="remote-advanced-panel">
-                <h4>{{ copy.rbAdvancedCopy }}</h4>
-                <div class="remote-actions">
-                  <button class="secondary-action" type="button" :disabled="busy || summary.proxyStatus !== 'connected'" @click="perform(() => remoteBackend.launchManualTerminal())">{{ copy.rbLaunchManualTerminal }}</button>
-                </div>
-              </div>
-          </section>
-
-          <section v-if="summary.cc" v-show="advancedView" class="remote-next-section remote-advanced-group">
-              <h3>{{ copy.rbToolsTitle }}</h3>
-              <div class="remote-tool-access-list">
-                <label v-for="tool in remoteTools" :key="tool.adapter.id" class="remote-tool-access">
-                  <span class="remote-tool-access-copy"><strong>{{ tool.adapter.displayName }}</strong><StatusIndicator v-if="tool.checking" state="checking" :label="copy.rbCheckChecking" /><small v-else>{{ toolVerificationLabel(tool.inspection.verification) }}</small><small v-if="!tool.checking && tool.adapter.id === 'claude' && tool.inspection.configured">{{ claudeProfileLabel(summary.claudeProfileState) }}</small></span>
-                  <span class="remote-tool-access-control">
-                    <span>{{ tool.checking ? copy.rbCheckChecking : tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled }}</span>
-                    <input class="switch-input" type="checkbox" role="switch" :checked="tool.inspection.configured" :disabled="busy || tool.checking || !sshConnected || (!tool.inspection.configured && summary.ccStatus !== 'connected')" :aria-busy="tool.checking" :aria-label="`${tool.adapter.displayName} · ${tool.checking ? copy.rbCheckChecking : tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled}`" @click.prevent="toggleTool(tool.adapter, tool.inspection.configured)" />
-                  </span>
-                </label>
-              </div>
-              <div v-for="tool in remoteTools" v-show="advancedView" :key="tool.adapter.id" class="remote-command"><span>{{ tool.adapter.displayName }}</span><template v-if="tool.launch"><code>{{ tool.launch }}</code><button type="button" :aria-label="copy.rbCopyLaunch" @click="copyValue(tool.launch)">{{ copy.rbCopyLaunch }}</button></template><em v-else>{{ copy.rbCliOverlayMissing }}</em></div>
-              <template v-if="advancedView">
-                <template v-for="tool in remoteTools" :key="`${tool.adapter.id}-verify`">
-                  <div v-if="tool.inspection.configured && tool.inspection.verificationSupported" class="remote-tool-verification">
-                    <p class="remote-hint">{{ copy.rbVerifyClaudeHint }}</p>
-                    <button class="secondary-action" type="button" :disabled="busy || summary.ccStatus !== 'connected'" @click="verifyTool(tool.adapter)">{{ tool.adapter.verifyLabel(copy) }}</button>
-                  </div>
-                </template>
-              </template>
-          </section>
-
-          <section v-show="advancedView" class="remote-next-section remote-skills">
-              <div class="remote-section-heading"><div><h3>{{ copy.rbSkillsTitle }}</h3><p v-if="advancedView" class="remote-hint">{{ copy.rbSkillsHint }}</p></div><StatusIndicator v-if="!advancedView" :state="skillsSummaryState" :label="skillsSummaryLabel" /></div>
-              <p v-if="advancedView && skills.length === 0" class="remote-hint">{{ copy.rbSkillsEmpty }}</p>
-              <div v-if="skillGroups.length" v-show="advancedView" class="remote-tool-access-list remote-skill-list">
-                <div v-for="group in skillGroups" :key="group.name" class="remote-tool-access remote-skill-row">
-                  <span class="remote-tool-access-copy"><strong>{{ group.name }}</strong></span>
-                  <span class="remote-skill-agents" role="group" :aria-label="group.name">
-                    <label v-for="agent in group.agents" :key="agent.tool" class="remote-skill-agent" :class="{ unavailable: !agent.skill }">
-                      <input class="remote-skill-checkbox" type="checkbox" :checked="!!agent.skill?.enabled" :disabled="!agent.skill || busy || !sshConnected" :aria-label="`${group.name} · ${agent.label} · ${agent.skill?.enabled ? copy.rbSkillDisable : copy.rbSkillEnable}`" @click.prevent="agent.skill && toggleSkill(agent.skill)" />
-                      <span><strong>{{ agent.label }}</strong><small>{{ agent.skill ? skillStateLabel(agent.skill) : copy.rbSkillNotLinked }}</small></span>
-                    </label>
-                  </span>
-                </div>
-              </div>
-              <p v-if="skills.some((skill) => skill.enabled)" v-show="advancedView" class="remote-hint">{{ copy.rbSkillRestart }}</p>
-          </section>
-
-          <section v-show="advancedView" class="remote-vscode remote-advanced-group">
-              <h3>{{ copy.rbDiagnostics }}</h3>
-              <p class="remote-hint">{{ copy.rbVscodeHint }}</p>
-              <div class="remote-actions">
-              <button v-if="summary.target && summary.target.source !== 'mobaxterm'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openTargetConfig(summary.target!.id))">{{ copy.rbOpenSshConfig }}</button>
-              <button v-if="summary.target && summary.target.source !== 'manual'" class="secondary-action" type="button" @click="perform(async () => remoteBackend.revealTargetConfig(summary.target!.id))">{{ copy.rbRevealConfig }}</button>
-              <button v-if="summary.target?.source === 'vscode'" class="secondary-action" type="button" @click="perform(() => remoteBackend.openVscodeSettings())">{{ copy.rbOpenVscodeSettings }}</button>
-              </div>
-          </section>
+          <RemoteBridgeAdvancedView v-show="advancedView" :active="advancedView && visible !== false" :copy="copy" :summary="summary" :busy="busy" :connected="sshConnected" :diagnosing="diagnosing" :session-command="sessionCommand" :command-loading="commandLoading" :copying="sessionCopying" :copied="sessionCopied"
+            @copy-environment="copySessionEnvironment" @manual-terminal="perform(() => remoteBackend.launchManualTerminal())"
+            @open-config="perform(() => remoteBackend.openTargetConfig(summary.target!.id))" @reveal-config="perform(() => remoteBackend.revealTargetConfig(summary.target!.id))"
+            @vscode-settings="perform(() => remoteBackend.openVscodeSettings())" @clear-credential="perform(() => remoteBackend.clearSessionCredential())"
+            @run-diagnostics="runDiagnostics" @open-report="emit('openReport')" @open-logs="perform(() => remoteBackend.openLogDirectory())" />
         </template>
       </fieldset>
 
       <p v-if="vscodeSetupWarning" class="remote-error" role="alert">{{ copy.rbVscodeSetupWarning }} {{ bridgeError(vscodeSetupWarning, copy) }}</p>
       <p v-if="errorText" class="remote-error" role="alert">{{ errorText }}</p>
       <p v-if="feedbackText && !establishingBridge && !busy" class="remote-feedback" role="status">{{ feedbackText }}</p>
-      <BridgeLaunchBar v-if="live" v-show="!advancedView" :copy="copy" :target="summary.target" :connected="sshConnected" :busy="busy" :can-copy="!!summary.proxy && summary.proxyStatus === 'connected'" :copied="feedback === 'copied'" @terminal="launchTerminal" @vscode="perform(openVscode)" @mobaxterm="perform(openMobaxterm)" @copy-environment="copySessionEnvironment" />
+      <BridgeLaunchBar v-if="live" v-show="!advancedView" :copy="copy" :target="summary.target" :connected="sshConnected" :busy="busy" :can-copy="!!summary.proxy && summary.proxyStatus === 'connected'" :copying="sessionCopying" :copied="sessionCopied" @terminal="launchTerminal" @vscode="perform(openVscode)" @mobaxterm="perform(openMobaxterm)" @copy-environment="copySessionEnvironment" />
     </section>
   </main>
 
@@ -1544,21 +1425,21 @@ onBeforeUnmount(() => {
 <style>
 .remote-bridge-page { display:grid; gap:24px; }
 .remote-bridge-page:not(.remote-setup-page) { padding:20px 24px; }
-.remote-bridge-page.remote-overview-page { display:flex; height:100%; min-height:0; padding:12px 24px; overflow:hidden; }
-.remote-overview-page .remote-workspace-simple { display:flex; width:100%; min-height:0; flex-direction:column; padding:16px 20px; }
+.remote-bridge-page.remote-connected-page { display:flex; height:100%; min-height:0; padding:12px 24px; overflow:hidden; }
+.remote-connected-page .remote-workspace-connected { display:flex; width:100%; min-height:0; flex-direction:column; padding:16px 20px; }
 /* Keep the scroll lane allocated even when the embedded browser ignores scrollbar-gutter. */
-.remote-overview-page .remote-fields { flex:1; min-height:0; overflow-y:scroll; scrollbar-gutter:stable; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
-.remote-overview-page .remote-fields::-webkit-scrollbar { width:6px; }
-.remote-overview-page .remote-fields::-webkit-scrollbar-thumb { background:var(--line); border-radius:6px; }
-.remote-overview-page .remote-fields:hover { scrollbar-color:var(--line-strong) transparent; }
-.remote-overview-page .remote-fields:hover::-webkit-scrollbar-thumb { background:var(--line-strong); }
-.remote-overview-page .remote-fields::-webkit-scrollbar-track { background:transparent; }
-.remote-overview-page .remote-fields::-webkit-scrollbar-button { display:none; width:0; height:0; }
+.remote-connected-page .remote-fields { flex:1; min-height:0; overflow-y:scroll; scrollbar-gutter:stable; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+.remote-connected-page .remote-fields::-webkit-scrollbar { width:6px; }
+.remote-connected-page .remote-fields::-webkit-scrollbar-thumb { background:var(--line); border-radius:6px; }
+.remote-connected-page .remote-fields:hover { scrollbar-color:var(--line-strong) transparent; }
+.remote-connected-page .remote-fields:hover::-webkit-scrollbar-thumb { background:var(--line-strong); }
+.remote-connected-page .remote-fields::-webkit-scrollbar-track { background:transparent; }
+.remote-connected-page .remote-fields::-webkit-scrollbar-button { display:none; width:0; height:0; }
 .remote-overview-page .remote-fields:not(:has(.bridge-skills-manage[aria-expanded="true"])) { scrollbar-color:transparent transparent; }
 .remote-overview-page .remote-fields:not(:has(.bridge-skills-manage[aria-expanded="true"]))::-webkit-scrollbar-thumb { background:transparent; }
-.remote-overview-page .remote-workspace-heading { flex:none; margin-bottom:8px; }
-.remote-overview-page .remote-error { flex:none; max-height:60px; overflow-y:auto; margin:8px 0 0; }
-.remote-overview-page .remote-feedback { flex:none; margin:8px 0 0; }
+.remote-connected-page .remote-workspace-heading { flex:none; margin-bottom:8px; }
+.remote-connected-page .remote-error { flex:none; max-height:60px; overflow-y:auto; margin:8px 0 0; }
+.remote-connected-page .remote-feedback { flex:none; margin:8px 0 0; }
 .remote-bridge-page.remote-setup-page { height:100%; min-height:0; padding:20px 24px; gap:0; overflow:hidden; }
 .remote-setup-page .remote-workspace-configure { display:flex; min-height:0; flex-direction:column; }
 .remote-setup-page .remote-fields { display:flex; min-height:0; flex:1; }
@@ -1610,7 +1491,7 @@ onBeforeUnmount(() => {
 .remote-current-empty p { max-width:34ch; margin:0; font-size:11px; line-height:1.55; }
 .remote-workspace-heading { display:flex; margin-bottom:14px; align-items:center; justify-content:space-between; gap:18px; }
 .remote-workspace-heading h1 { margin:0; font-size:24px; font-weight:700; letter-spacing:-.025em; }
-.remote-workspace-simple .remote-selected-target { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:0 0 12px; margin-bottom:0; border:0; background:none; }
+.remote-workspace-connected .remote-selected-target { display:flex; flex:none; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:0 0 12px; margin-bottom:0; border:0; background:none; }
 .remote-target-identity { min-width:0; flex:1; }
 .remote-target-name { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
 .remote-selected-target .remote-target-name > strong { font-size:20px; }
