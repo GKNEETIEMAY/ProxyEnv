@@ -1,9 +1,22 @@
 import type { CheckState } from "../../shared/types";
 import type { RemoteBridgeCopy } from "../../shared/i18n/remote-bridge";
-import type { BridgeStatus, BridgeSummary, RemoteSkill } from "./state";
+import type { BridgeStatus, BridgeSummary, DiagnosticState, RemoteSkill } from "./state";
 import type { RemoteToolId } from "./tool-adapters";
 
 export const bridgeEndpointLabel = (host: string, port: number) => `${host.includes(":") ? `[${host}]` : host}:${port}`;
+
+export function diagnosticCheckState(state: DiagnosticState | undefined): CheckState {
+  return state === "passed" ? "healthy" : state === "failed" ? "failed" : state === "testing" ? "checking" : "idle";
+}
+
+export function serverDirectCheckState(summary: BridgeSummary): CheckState {
+  if (!summary.target || !summary.sshAuth.authenticated || !["connected", "stale", "unavailable"].includes(summary.status)) return "idle";
+  const state = diagnosticCheckState(summary.diagnostics?.serverDirect?.state);
+  if (state === "idle" || state === "checking") return state;
+  // A failed probe is not proof that the server cannot reach the internet.
+  const internet = summary.diagnostics?.serverInternet;
+  return internet === "reachable" ? "healthy" : internet === "unreachable" ? "failed" : "warning";
+}
 
 export function overviewServerDirectStatus(copy: RemoteBridgeCopy, state: CheckState): { state: CheckState; label: string } {
   if (state === "healthy") return { state, label: copy.rbOverviewDirectAvailable };

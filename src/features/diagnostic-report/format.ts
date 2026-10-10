@@ -43,7 +43,7 @@ export function formatDiagnosticReport(data: DiagnosticReportData, copy: Copy): 
     }
     if (bridge.reconnectState) bridgeDetails.push(field(copy.rbAdvRecovery, ({idle:copy.rbAdvIdle, waiting:copy.rbReconnectWaiting, retrying:copy.rbReconnectWaiting, attentionRequired:copy.rbReconnectAttention})[bridge.reconnectState]));
     if (bridge.sshAuthMethod) bridgeDetails.push(field(copy.rbAdvAuthentication, ({identityFile:copy.rbTargetAuthIdentity, agent:copy.rbTargetAuthAgent, password:copy.rbTargetAuthPassword, keyboardInteractive:"Keyboard Interactive", unknown})[bridge.sshAuthMethod]));
-    if (bridge.runtimeProxyMatch) bridgeDetails.push(field(copy.rbAdvRuntimePort, ({matched:copy.rbAdvMatched, mismatch:copy.rbAdvMismatch, unknown})[bridge.runtimeProxyMatch]));
+    if (bridge.runtimeProxyMatch) bridgeDetails.push(field(copy.rbAdvRuntimePort, ({matched:copy.rbAdvMatched, mismatch:copy.rbAdvMismatch, unknown:copy.rbAdvPortUnknown, notSet:copy.rbAdvProxyNotSet, disabled:copy.rbAdvProxyDisabled, invalidSettings:copy.rbAdvProxyInvalid, readFailed:copy.rbAdvProxyReadFailed, unsupportedProxy:copy.rbAdvProxyUnsupported, notCompared:copy.rbAdvProxyNotCompared})[bridge.runtimeProxyMatch]));
     if (bridge.postConnectStatus) bridgeDetails.push(field(copy.rbAdvPostConnect, ({idle:copy.rbAdvIdle, preparing:copy.rbAdvPreparing, ready:copy.rbAdvReady, partial:copy.rbAdvWarning})[bridge.postConnectStatus]));
     for (const [name,state] of [[copy.rbAdvTerminal,bridge.sessionEnvironmentState],["VS Code",bridge.vscodeState],["Codex",bridge.codexState],["Claude Code",bridge.claudeState],["Skills",bridge.skillsState]] as const) {
       if (state) bridgeDetails.push(field(name, runtime[state]));

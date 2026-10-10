@@ -13,7 +13,7 @@ import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
 import RemoteBridgeAdvancedView from "./RemoteBridgeAdvancedView.vue";
 import BridgeLaunchBar from "./BridgeLaunchBar.vue";
-import { overviewServerDirectStatus, overviewToolChecking } from "../overview-presentation";
+import { serverDirectCheckState, overviewServerDirectStatus, overviewToolChecking } from "../overview-presentation";
 import { sshTargetAddress as targetAddress, needsInteractiveSshAuth } from "../ssh-presentation";
 import { remoteToolAdapters, type RemoteToolAdapter, type RemoteToolId } from "../tool-adapters";
 import {
@@ -86,7 +86,8 @@ const ccLocalPort = ref(props.summary.cc?.local.port ?? props.ccDetection?.local
 const ccDetection = ref<CcDetection>(props.ccDetection ?? { state: "notDetected", localPort: ccLocalPort.value });
 type CheckSnapshot = { state: CheckState; checkedAt: number | null };
 const sshCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
-const serverInternetCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
+const serverDirectState = computed(() => serverDirectCheckState(props.summary));
+const networkCheckPending = ref(false);
 const localProxyCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
 const ccCheck = ref<CheckSnapshot>({ state: "idle", checkedAt: null });
 let networkRefreshRevision = 0;
@@ -119,23 +120,11 @@ watch(advancedView, async () => {
   if (contentFields.value) contentFields.value.scrollTop = 0;
 });
 const diagnosing = ref(false);
-const sessionCommand = ref("");
-const commandLoading = ref(false);
-let commandRevision = 0;
-watch(() => JSON.stringify([advancedView.value, props.visible, props.summary.target?.id, props.summary.proxy, props.summary.proxyStatus, props.summary.sessionEnvironmentState, props.summary.reconnectState]), async () => {
-  const revision = ++commandRevision;
-  sessionCommand.value = "";
-  commandLoading.value = false;
-  // The command API can prepare a missing env.sh. Preview only an already-ready
-  // environment, so visiting Advanced does not initiate optional setup.
-  if (!advancedView.value || props.visible === false || !props.summary.proxy || props.summary.proxyStatus !== "connected" || props.summary.sessionEnvironmentState !== "ready") return;
-  commandLoading.value = true;
-  try {
-    const command = await remoteBackend.sessionEnvironmentCommand();
-    if (revision === commandRevision) sessionCommand.value = command;
-  } catch { /* An unavailable preview must not invent a command or disclose raw errors. */ }
-  finally { if (revision === commandRevision) commandLoading.value = false; }
-});
+const resolvedSessionCommand = ref("");
+let sessionCommandRequest:Promise<string>|undefined;
+let sessionCommandGeneration = 0;
+const sessionCommand = computed(() => props.summary.sessionEnvironmentCommand || resolvedSessionCommand.value);
+const commandLoading = computed(() => ["pending", "preparing"].includes(props.summary.sessionEnvironmentState ?? ""));
 type ConnectionPhase = "idle" | "checking" | "authenticating" | "building" | "succeeded" | "failed";
 const connectionPhase = ref<ConnectionPhase>("idle");
 const establishingBridge = computed(() => ["checking", "authenticating", "building"].includes(connectionPhase.value));
@@ -280,11 +269,10 @@ const helpContent = computed(() => ({
   cc: { check: props.copy.rbCcHelpCheck, success: props.copy.rbCcHelpSuccess, failure: props.copy.rbCcHelpFailure, next: props.copy.rbCcHelpNext },
 }));
 const genericStateLabel = (state: CheckState) => ({ idle: props.copy.rbCheckIdle, checking: props.copy.rbCheckChecking, healthy: props.copy.rbCheckHealthy, warning: props.copy.rbCheckWarning, failed: props.copy.rbCheckFailed, disabled: props.copy.rbCheckDisabled })[state];
-const serverInternetLabel = computed(() => serverInternetCheck.value.state === "healthy" ? props.copy.rbServerInternetReachable : serverInternetCheck.value.state === "failed" ? props.copy.rbServerInternetUnreachable : serverInternetCheck.value.state === "warning" ? props.copy.rbServerInternetUnknown : genericStateLabel(serverInternetCheck.value.state));
-const serverDirectStatus = computed(() => overviewServerDirectStatus(props.copy, serverInternetCheck.value.state));
+const serverDirectStatus = computed(() => overviewServerDirectStatus(props.copy, serverDirectState.value));
 const localProxyLabel = computed(() => localProxyCheck.value.state === "healthy" ? props.copy.rbLocalProxyReady : localProxyCheck.value.state === "failed" ? props.copy.rbLocalProxyUnavailable : genericStateLabel(localProxyCheck.value.state));
 const ccStateLabel = computed(() => ccCheck.value.state === "healthy" ? props.copy.rbCcConfirmed : ccCheck.value.state === "warning" ? props.copy.rbCcUnknown : ccCheck.value.state === "failed" ? props.copy.rbCcMissing : ccCheck.value.state === "disabled" ? props.copy.rbCcDisabled : genericStateLabel(ccCheck.value.state));
-const networkChecking = computed(() => serverInternetCheck.value.state === "checking" || ccCheck.value.state === "checking");
+const networkChecking = computed(() => networkCheckPending.value || serverDirectState.value === "checking" || ccCheck.value.state === "checking");
 const sshRuntimeState = computed<CheckState>(() => needsAttention.value ? "failed" : live.value ? (props.summary.status === "connecting" ? "checking" : "healthy") : bridgeCheckState(props.summary.status));
 const sshRuntimeLabel = computed(() => sshRuntimeState.value === "healthy" ? props.copy.rbHealthy : genericStateLabel(sshRuntimeState.value));
 const authPrompt = computed(() => authSession.value?.prompt);
@@ -364,29 +352,23 @@ function updateLocalProxyCheck() {
 
 async function refreshNetworkChecks() {
   const currentTarget = props.summary.target ?? selectedTarget.value;
-  if (!currentTarget?.available) return;
+  if (!currentTarget?.available || networkCheckPending.value) return;
   if (props.reviewPreview) {
     const checkedAt = Date.now();
     sshCheck.value = { state: "healthy", checkedAt };
-    serverInternetCheck.value = { state: "healthy", checkedAt };
     updateLocalProxyCheck();
     ccDetection.value = { state: "confirmed", localPort: ccLocalPort.value };
     ccCheck.value = cc.value || props.summary.cc ? { state: "healthy", checkedAt } : { state: "disabled", checkedAt };
     return;
   }
   const revision = ++networkRefreshRevision;
+  networkCheckPending.value = true;
   updateLocalProxyCheck();
-  serverInternetCheck.value = { ...serverInternetCheck.value, state: "checking" };
   ccCheck.value = cc.value ? { ...ccCheck.value, state: "checking" } : { state: "disabled", checkedAt: Date.now() };
-  const serverTask = remoteBackend.checkNetwork(currentTarget.id).then((result) => {
-    if (revision !== networkRefreshRevision) return;
-    serverInternetCheck.value = {
-      state: result.serverInternet === "reachable" ? "healthy" : result.serverInternet === "unreachable" ? "failed" : "warning",
-      checkedAt: Date.now(),
-    };
-  }).catch(() => {
-    if (revision === networkRefreshRevision) serverInternetCheck.value = { state: "warning", checkedAt: Date.now() };
-  });
+  // All diagnostic results live in summary.diagnostics, just like egress and AI
+  // verification. The backend owns tickets, timestamps and session invalidation.
+  const serverTask = remoteBackend.checkNetwork(currentTarget.id).catch(() => undefined);
+  emit("refresh");
   const ccTask = cc.value ? remoteBackend.detectCc(ccLocalPort.value).then((result) => {
     if (revision !== networkRefreshRevision) return;
     ccDetection.value = result;
@@ -395,6 +377,8 @@ async function refreshNetworkChecks() {
     if (revision === networkRefreshRevision) ccCheck.value = { state: "failed", checkedAt: Date.now() };
   }) : Promise.resolve();
   await Promise.allSettled([serverTask, ccTask]);
+  networkCheckPending.value = false;
+  if (revision === networkRefreshRevision) emit("refresh");
 }
 
 const vscodeSetupWarning = ref<string>();
@@ -1007,11 +991,7 @@ function runDiagnostics() {
   void perform(async () => {
     diagnosing.value = true;
     try {
-      const revision = ++networkRefreshRevision;
-      const result = await remoteBackend.runDiagnostics();
-      if (revision === networkRefreshRevision) {
-        serverInternetCheck.value = { state:result.serverInternet === "reachable" ? "healthy" : result.serverInternet === "unreachable" ? "failed" : "warning", checkedAt:Date.now() };
-      }
+      await remoteBackend.runDiagnostics();
     } finally { diagnosing.value = false; }
   });
 }
@@ -1082,27 +1062,39 @@ function launchTerminal() {
   void perform(() => remoteBackend.launchManualTerminal());
 }
 
+async function resolveSessionCommand():Promise<string> {
+  if (sessionCommand.value) return sessionCommand.value;
+  if (sessionCommandRequest) return sessionCommandRequest;
+  const generation = sessionCommandGeneration;
+  const request = remoteBackend.sessionEnvironmentCommand().then(command => {
+    if (generation === sessionCommandGeneration) resolvedSessionCommand.value = command;
+    return command;
+  });
+  sessionCommandRequest = request;
+  try { return await request; }
+  finally { if (sessionCommandRequest === request) sessionCommandRequest = undefined; }
+}
+
 async function copySessionEnvironment() {
   if (busy.value || sessionCopying.value || !sshConnected.value || !props.summary.proxy || props.summary.proxyStatus !== "connected") return;
   const revision = ++sessionCopyRevision;
   sessionCopying.value = true;
   resetSessionCopyFeedback();
   error.value = undefined;
+  const needsPreparation = !sessionCommand.value;
   try {
-    const command = await remoteBackend.sessionEnvironmentCommand();
+    const command = await resolveSessionCommand();
     if (revision !== sessionCopyRevision) return;
     await copyText(command);
     if (revision !== sessionCopyRevision) return;
-    sessionCommand.value = command;
     sessionCopied.value = true;
     sessionCopyTimer = setTimeout(resetSessionCopyFeedback,2000);
   } catch (cause) {
     if (revision === sessionCopyRevision) error.value = cause;
   } finally {
     sessionCopying.value = false;
-    // This API may prepare env.sh; refresh its state without putting the whole
-    // page into the mutation/loading state for a clipboard-only action.
-    if (revision === sessionCopyRevision) emit("refresh");
+    // Only explicit preparation needs a refresh. Ready snapshots copy locally.
+    if (needsPreparation && revision === sessionCopyRevision) emit("refresh");
   }
 }
 
@@ -1135,7 +1127,6 @@ watch(targetId, (nextTarget, previousTarget) => {
   vscodeOpened.value = false;
   mobaOpened.value = false;
   sshCheck.value = { state: "idle", checkedAt: null };
-  serverInternetCheck.value = { state: "idle", checkedAt: null };
 });
 watch([() => props.ccDetection, live, establishingBridge], () => initializeCapabilities(false), { immediate: true });
 watch(proxyAvailable, (available) => {
@@ -1144,13 +1135,10 @@ watch(proxyAvailable, (available) => {
   // without overriding a user's choice or an established bridge's endpoint.
   if (!live.value && !establishingBridge.value) proxy.value = available && proxyPreferred.value;
 });
-watch(cc, (enabled) => {
-  if (enabled && (checked.value || live.value)) void refreshNetworkChecks();
-});
-watch(() => props.summary.target?.id, (id) => {
+watch([() => props.summary.target?.id, () => props.summary.status, () => props.summary.sshAuth.authenticated], ([id]) => {
   if (id && live.value) {
     targetId.value = id;
-    void refreshNetworkChecks();
+    if (props.summary.status === "connected" && props.summary.sshAuth.authenticated && serverDirectState.value === "idle") void refreshNetworkChecks();
     void refreshSkills().catch(() => undefined);
   }
 });
@@ -1167,9 +1155,25 @@ watch(sshConnected, (connected) => {
 watch(() => props.visible, (visible) => {
   if (visible && !live.value && !busy.value) void initializeCapabilities(false);
 });
-watch(() => JSON.stringify([props.visible === false,props.summary.target?.id,sshConnected.value,props.summary.proxy,props.summary.proxyStatus]), () => {
+watch(() => JSON.stringify([props.summary.target?.id,props.summary.proxy,props.summary.proxyStatus,props.summary.reconnectState]), () => {
   sessionCopyRevision++;
+  sessionCommandGeneration++;
+  resolvedSessionCommand.value = "";
+  sessionCommandRequest = undefined;
   resetSessionCopyFeedback();
+});
+watch([() => props.summary.target?.id, () => props.summary.sessionEnvironmentState, () => props.summary.sessionEnvironmentCommand, () => props.summary.proxyStatus, () => props.summary.reconnectState], () => {
+  // A ready bridge may not yet include the command in its snapshot. Fetch once
+  // for this state, and share the confirmed result with every copy entry.
+  if (sshConnected.value && props.summary.proxy && props.summary.proxyStatus === "connected" && props.summary.sessionEnvironmentState === "ready" && !sessionCommand.value) {
+    void resolveSessionCommand().catch(() => undefined);
+  }
+}, { immediate:true });
+watch(sessionCommand, (next, previous) => {
+  if (previous && next !== previous) {
+    sessionCopyRevision++;
+    resetSessionCopyFeedback();
+  }
 });
 
 onMounted(() => {
@@ -1177,7 +1181,7 @@ onMounted(() => {
   updateLocalProxyCheck();
   void perform(load);
   if (props.summary.target) {
-    void refreshNetworkChecks();
+    if (props.summary.sshAuth.authenticated && serverDirectState.value === "idle") void refreshNetworkChecks();
     void refreshSkills().catch(() => undefined);
   }
   scheduleSkillsPolling();
@@ -1204,6 +1208,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   sessionCopyRevision++;
+  sessionCommandGeneration++;
   resetSessionCopyFeedback();
   authBeginRevision += 1;
   const sessionId = authSession.value?.sessionId;
@@ -1223,7 +1228,7 @@ onBeforeUnmount(() => {
             <button type="button" :class="{ active: !advancedView }" :aria-pressed="!advancedView" @click="advancedView = false">{{ copy.rbSimpleView }}</button>
             <button type="button" :class="{ active: advancedView }" :aria-pressed="advancedView" @click="advancedView = true">{{ copy.rbAdvancedView }}</button>
           </div>
-          <button class="secondary-action" type="button" :disabled="busy || networkChecking" @click="refreshNetworkChecks">{{ copy.rbRefreshStatus }}</button>
+          <button class="secondary-action" type="button" :disabled="busy || networkChecking" @click="runDiagnostics">{{ copy.rbRefreshStatus }}</button>
           <button class="secondary-action remote-danger remote-disconnect" type="button" :disabled="busy" @click="confirmation?.showModal()"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 15-1.5 1.5a3.5 3.5 0 0 1-5-5L6 8m9 1 1.5-1.5a3.5 3.5 0 0 1 5 5L18 16M9 3v3M3 9h3m9 12v-3m6-3h-3M4 20 20 4"/></svg>{{ copy.rbDisconnect }}</button>
         </div>
       </div>
