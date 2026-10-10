@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import type { RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
 import type { RemoteTarget, RemoteTargetSource } from "../state";
+import { sshTargetAddress as address } from "../ssh-presentation";
 
 const props = defineProps<{
   targets: RemoteTarget[];
@@ -66,14 +67,6 @@ onBeforeUnmount(() => {
   document.removeEventListener("scroll", closeMenus, true);
 });
 
-function address(target: RemoteTarget): string {
-  if (target.host) {
-    const host = target.host.includes(":") ? `[${target.host}]` : target.host;
-    const destination = target.user ? `${target.user}@${host}` : host;
-    return target.port ? `${destination}:${target.port}` : destination;
-  }
-  return target.sshAlias ?? target.displayName;
-}
 
 function authentication(target: RemoteTarget): string {
   return ({

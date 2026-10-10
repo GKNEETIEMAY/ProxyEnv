@@ -21,7 +21,15 @@ export function bridgeCapabilityState(status: BridgeStatus | null, enabled: bool
   return "warning";
 }
 
+export function overviewToolChecking(summary: BridgeSummary, id: RemoteToolId): boolean {
+  if (!summary.cc) return false;
+  const state = id === "codex" ? summary.codexState : summary.claudeState;
+  // Completed tools must not wait for unrelated post-connect jobs.
+  return state === "pending" || state === "preparing" || (state === undefined && summary.postConnectStatus === "preparing");
+}
+
 export function overviewToolLabel(copy: RemoteBridgeCopy, summary: BridgeSummary, id: RemoteToolId, configured: boolean): string {
+  if (overviewToolChecking(summary, id)) return copy.rbCheckChecking;
   if (!configured) return copy.rbNotConfigured;
   if (!summary.cc || summary.ccStatus !== "connected") return copy.rbToolRouteUnavailable;
   const profile = id === "claude" ? summary.claudeProfileState : undefined;

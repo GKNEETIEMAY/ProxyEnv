@@ -25,7 +25,7 @@ const extensionEn = {
   rbVscodeNetworkConflict: 'Remote VS Code settings or the ProxyEnv network recovery record no longer match the managed transaction. No conflicting changes were overwritten. Check these network settings and their recovery record, not the Codex/Claude access files.',
   rbVscodeNetworkUnsafe: 'Remote VS Code settings, their parent directories, or the network recovery files failed ownership, permission, or symlink checks. Automatic network setup stopped without changing them.',
   rbMobaConnectionHint: 'MobaXterm was opened. Connect to the same SSH host and account shown above; this does not create a second bridge.',
-  rbMobaProxyHint: 'To use the network proxy, copy the terminal setup command and run it in the connected MobaXterm terminal before starting your tools. Repeat this for each new terminal.',
+  rbMobaProxyHint: 'To use the network proxy, click the copy button on the right of the bottom action bar, then paste and run the terminal setup command in your connected MobaXterm terminal before starting tools. Repeat this for each new terminal; no need to open Advanced.',
   rbMobaAiHint: 'For AI routing, enable Codex or Claude Code access below, then start a new codex or claude process in this remote terminal. Opening MobaXterm does not enable AI access.',
   rbVscodeEnvironmentScope: 'For an external terminal, run the setup command before launching CLI tools. The General Proxy uses the loopback address without credentials. Open in VS Code keeps AI traffic on the separately authenticated AI Route.',
   rbExtCodexRouteImpact: 'Backs up the shared remote Codex config, then synchronizes the local selected model and opaque model catalog with the ProxyEnv provider route. Credentials, provider URLs, MCP settings and unrelated fields are never copied.',
@@ -97,7 +97,7 @@ const extensionZh: ExtensionLabels = {
   rbVscodeNetworkConflict: '远端 VS Code 设置或 ProxyEnv 网络恢复记录与受管理事务不一致，未覆盖冲突修改。需要检查这组网络设置与恢复记录，不是 Codex／Claude 接入文件。',
   rbVscodeNetworkUnsafe: '远端 VS Code 设置、上级目录或网络恢复文件未通过所有者、权限或符号链接检查。已停止自动网络配置，未修改这些文件。',
   rbMobaConnectionHint: '已打开 MobaXterm。请连接上方显示的同一 SSH 主机与账户；此操作不会再建立一条桥接。',
-  rbMobaProxyHint: '要使用桥接网络，请复制终端配置命令，在已连接的 MobaXterm 终端执行后再启动应用。每个新终端都需要执行一次。',
+  rbMobaProxyHint: '要使用桥接网络，请点击底部操作栏右侧的复制按钮，将终端配置命令粘贴到已连接的 MobaXterm 终端执行，再启动应用。每个新终端都需要执行一次，无需进入高级界面。',
   rbMobaAiHint: '要使用 AI 路由，请先启用下方 Codex 或 Claude Code 接入，再在此远端终端启动新的 codex 或 claude 进程。打开 MobaXterm 不会自动启用 AI 接入。',
   rbVscodeEnvironmentScope: '使用外部终端时，先执行配置命令再启动 CLI。普通代理直接使用回环地址，不需要账号密码；“在 VS Code 中打开”会让 AI 流量继续使用独立鉴权的 AI 路由。',
   rbExtCodexRouteImpact:'先备份远端共享 Codex 配置，再同步本机选中模型、原样模型目录与 ProxyEnv Provider 路由。不会复制凭据、Provider 地址、MCP 设置或其它无关字段。',
@@ -168,7 +168,7 @@ const extensionJa: ExtensionLabels = {
   rbVscodeNetworkConflict: 'リモート VS Code の設定または ProxyEnv のネットワーク復元記録が管理対象の状態と一致しません。競合した変更は上書きしていません。Codex／Claude の接続ファイルではなく、このネットワーク設定と復元記録を確認してください。',
   rbVscodeNetworkUnsafe: 'リモート VS Code の設定、親ディレクトリ、またはネットワーク復元ファイルが所有者・権限・シンボリックリンクの検証に失敗しました。自動設定を停止し、ファイルは変更していません。',
   rbMobaConnectionHint: 'MobaXterm を開きました。上に表示された同じ SSH ホストとアカウントに接続してください。新しいブリッジは作成しません。',
-  rbMobaProxyHint: 'ネットワークプロキシを使うには、端末の設定コマンドをコピーし、接続済みの MobaXterm 端末で実行してからツールを起動してください。新しい端末ごとに実行が必要です。',
+  rbMobaProxyHint: 'ネットワークプロキシを使うには、下部操作バーの右側のコピーボタンを押し、設定コマンドを接続済みの MobaXterm 端末に貼り付けて実行してからツールを起動してください。新しい端末ごとに実行が必要です。詳細画面を開く必要はありません。',
   rbMobaAiHint: 'AI ルートを使うには、下の Codex または Claude Code 接続を有効にし、このリモート端末で新しい codex または claude プロセスを起動してください。MobaXterm を開くだけでは有効になりません。',
   rbVscodeEnvironmentScope: '外部ターミナルでは CLI 起動前に設定コマンドを実行します。General Proxy は資格情報なしのループバック URL を使い、「VS Code で開く」の AI 通信は別認証の AI ルートを維持します。',
   rbExtCodexRouteImpact:'リモート共有 Codex 設定をバックアップし、ローカルで選択されたモデル、モデルカタログの原文、ProxyEnv Provider 経路を同期します。認証情報、Provider URL、MCP 設定、無関係な項目はコピーしません。',
@@ -239,7 +239,7 @@ const extensionKo: ExtensionLabels = {
   rbVscodeNetworkConflict: '원격 VS Code 설정 또는 ProxyEnv 네트워크 복구 기록이 관리 상태와 일치하지 않습니다. 충돌한 변경을 덮어쓰지 않았습니다. Codex／Claude 연결 파일이 아닌 이 네트워크 설정과 복구 기록을 확인하세요.',
   rbVscodeNetworkUnsafe: '원격 VS Code 설정, 상위 디렉터리 또는 네트워크 복구 파일이 소유자, 권한 또는 심볼릭 링크 검사에 실패했습니다. 자동 네트워크 설정을 중단했으며 파일은 변경하지 않았습니다.',
   rbMobaConnectionHint: 'MobaXterm을 열었습니다. 위에 표시된 동일한 SSH 호스트와 계정에 연결하세요. 새 브리지는 만들지 않습니다.',
-  rbMobaProxyHint: '네트워크 프록시를 사용하려면 터미널 설정 명령을 복사해 연결된 MobaXterm 터미널에서 실행한 뒤 도구를 시작하세요. 새 터미널마다 실행해야 합니다.',
+  rbMobaProxyHint: '네트워크 프록시를 사용하려면 하단 작업 표시줄 오른쪽 복사 버튼을 누르고 설정 명령을 연결된 MobaXterm 터미널에 붙여 넣어 실행한 뒤 도구를 시작하세요. 새 터미널마다 실행해야 하며 고급 화면을 열 필요는 없습니다.',
   rbMobaAiHint: 'AI 라우팅을 사용하려면 아래 Codex 또는 Claude Code 연결을 활성화하고 이 원격 터미널에서 새 codex 또는 claude 프로세스를 시작하세요. MobaXterm을 여는 것만으로 AI 연결은 활성화되지 않습니다.',
   rbVscodeEnvironmentScope: '외부 터미널에서는 CLI를 시작하기 전에 설정 명령을 실행하세요. General Proxy는 자격 증명 없는 루프백 URL을 사용하고, “VS Code에서 열기”의 AI 트래픽은 별도 인증 AI 경로를 유지합니다.',
   rbExtCodexRouteImpact:'원격 공유 Codex 설정을 백업한 뒤 로컬 선택 모델, 원본 모델 카탈로그와 ProxyEnv Provider 경로를 동기화합니다. 자격 증명, Provider URL, MCP 설정 및 무관한 필드는 복사하지 않습니다.',
@@ -551,6 +551,8 @@ const connectionKo: ConnectionLabels = {
   rbWorkspaceTitle:"원격 브리지",rbWorkspaceSubtitle:"SSH 연결을 선택하고 이 원격 환경에 제공할 기능을 설정하세요.",rbConnectionList:"SSH 연결",rbRefreshShort:"새로 고침",rbCurrentConnection:"현재 연결",rbNoSelectionTitle:"선택한 SSH 연결이 없습니다",rbNoSelectionHint:"왼쪽에서 SSH 연결을 선택하거나 추가하세요.",rbConnectionMoreActions:"연결 작업",rbConnectionHide:"목록에서 숨기기",rbConnectionHideTitle:"이 SSH 연결을 숨길까요?",rbConnectionHideHint:"ProxyEnv 목록에서만 숨기며 원본 OpenSSH, VS Code 또는 MobaXterm 설정은 변경하지 않습니다.",
 };
 const overviewEn = {
+  rbOverviewCollapse: "Collapse", rbOverviewSkillsCount: "{count} Skills found", rbOverviewSkillsSearch: "Search Skills by name", rbOverviewSkillsNoResults: "No matching Skills.",
+  rbOverviewSkillSync: "Sync", rbOverviewSkillUnsync: "Stop syncing", rbOverviewSkillsManageHint: "Manage each agent separately. Sync creates a managed remote copy; stopping removes only that copy, not your local Skill or other remote files.",
   rbCapabilityBusy: "Bridge setup or configuration is still running. Wait a moment and retry.",
   rbCapabilityPartialFailure: "The capability change did not finish. Some managed configuration may have been restored. Check the tool states and retry; conflicting edits were not overwritten.",
   rbOverviewServerDirectNetwork: "Server direct network", rbOverviewDirectAvailable: "Available", rbOverviewDirectUnavailable: "Unavailable", rbOverviewDirectUnknown: "Unknown",
@@ -567,6 +569,8 @@ const overviewEn = {
 };
 type OverviewLabels = { [K in keyof typeof overviewEn]: string };
 const overviewZh: OverviewLabels = {
+  rbOverviewCollapse: "收起", rbOverviewSkillsCount: "读取到 {count} 个 Skills", rbOverviewSkillsSearch: "按名称搜索 Skills", rbOverviewSkillsNoResults: "没有找到匹配的 Skills。",
+  rbOverviewSkillSync: "同步", rbOverviewSkillUnsync: "取消同步", rbOverviewSkillsManageHint: "可分别管理每个智能体。同步会创建远端副本；取消同步仅移除 ProxyEnv 管理的副本，不删除本机 Skill 或远端其它文件。",
   rbCapabilityBusy: "桥接初始化或配置操作尚未完成，请稍后再试。",
   rbCapabilityPartialFailure: "能力切换未完成，部分管理配置可能已恢复。请检查工具状态后重试；未覆盖冲突修改。",
   rbOverviewServerDirectNetwork: "服务器直连网络", rbOverviewDirectAvailable: "可用", rbOverviewDirectUnavailable: "不可用", rbOverviewDirectUnknown: "未知",
@@ -582,6 +586,8 @@ const overviewZh: OverviewLabels = {
   rbOverviewMobaUnavailable: "此目标暂时无法使用 MobaXterm，请在高级页检查安装与连接设置。",
 };
 const overviewJa: OverviewLabels = {
+  rbOverviewCollapse: "折りたたむ", rbOverviewSkillsCount: "{count} 件の Skills を検出", rbOverviewSkillsSearch: "名前で Skills を検索", rbOverviewSkillsNoResults: "一致する Skills はありません。",
+  rbOverviewSkillSync: "同期", rbOverviewSkillUnsync: "同期を停止", rbOverviewSkillsManageHint: "エージェントごとに管理できます。同期は管理対象のリモートコピーを作成し、停止はそのコピーだけを削除します。ローカル Skill や他のリモートファイルは削除しません。",
   rbCapabilityBusy: "ブリッジの初期化または設定処理中です。少し待って再試行してください。",
   rbCapabilityPartialFailure: "機能の切り替えが完了しませんでした。一部の管理設定が復元された可能性があります。ツールの状態を確認し再試行してください。競合する変更は上書きしていません。",
   rbOverviewServerDirectNetwork: "サーバー直接接続", rbOverviewDirectAvailable: "利用可能", rbOverviewDirectUnavailable: "利用不可", rbOverviewDirectUnknown: "不明",
@@ -597,6 +603,8 @@ const overviewJa: OverviewLabels = {
   rbOverviewMobaUnavailable: "この接続では MobaXterm を利用できません。詳細画面でインストールと接続設定を確認してください。",
 };
 const overviewKo: OverviewLabels = {
+  rbOverviewCollapse: "접기", rbOverviewSkillsCount: "Skills {count}개 발견", rbOverviewSkillsSearch: "이름으로 Skills 검색", rbOverviewSkillsNoResults: "일치하는 Skills가 없습니다.",
+  rbOverviewSkillSync: "동기화", rbOverviewSkillUnsync: "동기화 중지", rbOverviewSkillsManageHint: "에이전트별로 관리하세요. 동기화는 원격 관리 사본을 만들고 중지는 그 사본만 제거합니다. 로컬 Skill이나 다른 원격 파일은 삭제하지 않습니다.",
   rbCapabilityBusy: "브리지 초기화 또는 설정 작업이 진행 중입니다. 잠시 후 다시 시도하세요.",
   rbCapabilityPartialFailure: "기능 전환을 완료하지 못했습니다. 일부 관리 설정이 복원되었을 수 있습니다. 도구 상태를 확인하고 다시 시도하세요. 충돌한 변경은 덮어쓰지 않았습니다.",
   rbOverviewServerDirectNetwork: "서버 직접 연결", rbOverviewDirectAvailable: "사용 가능", rbOverviewDirectUnavailable: "사용 불가", rbOverviewDirectUnknown: "알 수 없음",

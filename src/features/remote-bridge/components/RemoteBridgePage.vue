@@ -13,7 +13,9 @@ import RemoteToolDialog from "./RemoteToolDialog.vue";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
-import { overviewServerDirectStatus } from "../overview-presentation";
+import BridgeLaunchBar from "./BridgeLaunchBar.vue";
+import { overviewServerDirectStatus, overviewToolChecking } from "../overview-presentation";
+import { sshTargetAddress as targetAddress, needsInteractiveSshAuth } from "../ssh-presentation";
 import { remoteToolAdapters, type RemoteToolAdapter, type RemoteToolId } from "../tool-adapters";
 import {
   remoteBackend,
@@ -35,6 +37,7 @@ import {
 
 const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; ccDetection: CcDetection | null; reviewPreview?: boolean; visible?: boolean }>();
 const capabilityPending = ref<BridgeCapability>();
+const skillPending = ref<string>();
 const emit = defineEmits<{ refresh: []; connected: [summary: BridgeSummary] }>();
 const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
 const confirmation = ref<HTMLDialogElement>();
@@ -105,13 +108,6 @@ const authSubmitting = ref(false);
 const authCopyState = ref<"idle" | "copied" | "failed">("idle");
 const showAuthDiagnostic = ref(false);
 const advancedView = ref(false);
-const skillsPanel = ref<HTMLElement>();
-async function manageSkills() {
-  advancedView.value = true;
-  await nextTick();
-  skillsPanel.value?.scrollIntoView({ block: "start", behavior: "instant" });
-  skillsPanel.value?.focus({ preventScroll: true });
-}
 type ConnectionPhase = "idle" | "checking" | "authenticating" | "building" | "succeeded" | "failed";
 const connectionPhase = ref<ConnectionPhase>("idle");
 const establishingBridge = computed(() => ["checking", "authenticating", "building"].includes(connectionPhase.value));
@@ -131,6 +127,7 @@ let authBeginRevision = 0;
 const remoteTools = computed(() => remoteToolAdapters.map((adapter) => ({
   adapter,
   inspection: adapter.inspect(props.summary),
+  checking: overviewToolChecking(props.summary, adapter.id),
   launch: adapter.launch(props.summary),
 })));
 const skills = ref<RemoteSkill[]>([]);
@@ -201,11 +198,6 @@ const feedbackText = computed(() => feedback.value ? ({ copied: props.copy.rbCop
 const activeTarget = computed(() => props.summary.target ?? selectedTarget.value);
 const sourceLabel = (target: RemoteTarget) => ({ openssh: props.copy.rbSourceOpenSsh, vscode: props.copy.rbSourceVscode, mobaxterm: props.copy.rbSourceMoba, manual: props.copy.rbSourceManual })[target.source];
 const removingImportedConnection = computed(() => connectionToRemove.value?.source !== "manual");
-function targetAddress(target: RemoteTarget): string {
-  if (!target.host) return target.sshAlias ?? target.displayName;
-  const host = target.host.includes(":") ? `[${target.host}]` : target.host;
-  return `${target.user ? `${target.user}@` : ""}${host}${target.port ? `:${target.port}` : ""}`;
-}
 function targetAuthenticationLabel(target: RemoteTarget): string {
   return ({
     identityFile: props.copy.rbTargetAuthIdentity,
@@ -492,7 +484,7 @@ async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
       connectionPhase.value = "succeeded";
       await new Promise((resolve) => setTimeout(resolve, 180));
     } catch (cause) {
-      if (bridgeErrorCode(cause) === "sshAuth") {
+      if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
         await beginInteractiveAuth("connect", request());
         return;
       }
@@ -554,6 +546,7 @@ async function beginInteractiveAuth(operation: SshAuthOperation, request: Bridge
     session = await remoteBackend.sshAuthBegin(operation, targetId.value, request);
   } catch (cause) {
     if (revision === authBeginRevision) {
+      authDialog.value?.close();
       connectionPhase.value = "failed";
       error.value = cause;
     }
@@ -759,9 +752,13 @@ function startConnection() {
       connectionPhase.value = "succeeded";
       void refreshNetworkChecks();
     } catch (cause) {
-      if (bridgeErrorCode(cause) === "sshAuth") {
+      if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
         busy.value = false;
-        await beginInteractiveAuth("check");
+        try {
+          await beginInteractiveAuth("check");
+        } catch (authError) {
+          error.value = authError;
+        }
         return;
       }
       sshCheck.value = { state: "failed", checkedAt: Date.now() };
@@ -947,7 +944,7 @@ function connect() {
         error.value = allocationError;
       }
     } else {
-      if (bridgeErrorCode(cause) === "sshAuth") {
+      if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
         try {
           await beginInteractiveAuth("connect", selected);
         } catch (authError) {
@@ -999,6 +996,7 @@ function restore(tool: RemoteToolId, id = targetId.value) {
 }
 
 function toggleTool(adapter: RemoteToolAdapter, configured: boolean) {
+  if (busy.value || overviewToolChecking(props.summary, adapter.id)) return;
   const target = props.summary.target ?? selectedTarget.value;
   if (!target) return;
   if (!adapter.directToggle) {
@@ -1077,10 +1075,14 @@ function skillStateLabel(skill: RemoteSkill): string {
 }
 
 function toggleSkill(skill: RemoteSkill) {
+  if (busy.value || !sshConnected.value) return;
+  skillPending.value = skill.id;
   void perform(async () => {
-    if (skill.enabled) await remoteBackend.disableSkill(skill.id);
-    else await remoteBackend.enableSkill(skill.id);
-    await refreshSkills();
+    try {
+      const updated = skill.enabled ? await remoteBackend.disableSkill(skill.id) : await remoteBackend.enableSkill(skill.id);
+      skills.value = skills.value.map((item) => item.id === updated.id ? updated : item);
+      if (!props.reviewPreview) await refreshSkills();
+    } finally { skillPending.value = undefined; }
   });
 }
 
@@ -1215,7 +1217,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="page remote-bridge-page" :class="{ 'remote-setup-page': !live }">
+  <main class="page remote-bridge-page" :class="{ 'remote-setup-page': !live, 'remote-overview-page': live && !advancedView }">
     <section class="remote-workspace" :class="{ 'remote-workspace-configure': !live, 'remote-workspace-advanced': live && advancedView, 'remote-workspace-simple': live && !advancedView }">
       <div v-if="live" class="remote-workspace-heading">
         <h1>{{ copy.rbStatus }}</h1>
@@ -1226,7 +1228,7 @@ onBeforeUnmount(() => {
           </div>
           <LastChecked v-if="advancedView" :label="copy.rbLastChecked" :checked-at="lastNetworkChecked" />
           <button class="secondary-action" type="button" :disabled="busy || networkChecking" @click="refreshNetworkChecks">{{ copy.rbRefreshStatus }}</button>
-          <button class="secondary-action remote-danger" type="button" :disabled="busy" @click="confirmation?.showModal()">{{ copy.rbDisconnect }}</button>
+          <button class="secondary-action remote-danger remote-disconnect" type="button" :disabled="busy" @click="confirmation?.showModal()"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 15-1.5 1.5a3.5 3.5 0 0 1-5-5L6 8m9 1 1.5-1.5a3.5 3.5 0 0 1 5 5L18 16M9 3v3M3 9h3m9 12v-3m6-3h-3M4 20 20 4"/></svg>{{ copy.rbDisconnect }}</button>
         </div>
       </div>
       <header v-else class="remote-page-intro">
@@ -1346,7 +1348,7 @@ onBeforeUnmount(() => {
             <button class="primary-action" type="button" :disabled="busy" @click="reconnectManually">{{ copy.rbReconnectAction }}</button>
           </div>
           <p v-if="summary.status === 'unavailable'" class="notice notice-warning">{{ copy.rbUnavailableHint }}</p>
-          <RemoteBridgeOverview v-show="!advancedView" :copy="copy" :summary="summary" :active-proxy="activeProxy" :skills="skillGroups" :connected="sshConnected" :busy="busy" :cc-available="ccDetection?.state === 'confirmed'" :capability-pending="capabilityPending" @toggle-capability="toggleCapability" @toggle-tool="(id, configured) => toggleTool(remoteToolAdapters.find((adapter) => adapter.id === id)!, configured)" @manage-skills="manageSkills" @terminal="launchTerminal" @vscode="perform(openVscode)" @mobaxterm="perform(openMobaxterm)" />
+          <RemoteBridgeOverview v-show="!advancedView" :copy="copy" :summary="summary" :active-proxy="activeProxy" :skills="skillGroups" :connected="sshConnected" :busy="busy" :cc-available="ccDetection?.state === 'confirmed'" :capability-pending="capabilityPending" :skill-pending="skillPending" @toggle-capability="toggleCapability" @toggle-tool="(id, configured) => toggleTool(remoteToolAdapters.find((adapter) => adapter.id === id)!, configured)" @toggle-skill="toggleSkill" />
 
           <section v-show="advancedView" class="remote-health remote-advanced-group">
               <h3>{{ copy.rbSshHealth }}</h3>
@@ -1400,10 +1402,10 @@ onBeforeUnmount(() => {
               <h3>{{ copy.rbToolsTitle }}</h3>
               <div class="remote-tool-access-list">
                 <label v-for="tool in remoteTools" :key="tool.adapter.id" class="remote-tool-access">
-                  <span class="remote-tool-access-copy"><strong>{{ tool.adapter.displayName }}</strong><small>{{ toolVerificationLabel(tool.inspection.verification) }}</small><small v-if="tool.adapter.id === 'claude' && tool.inspection.configured">{{ claudeProfileLabel(summary.claudeProfileState) }}</small></span>
+                  <span class="remote-tool-access-copy"><strong>{{ tool.adapter.displayName }}</strong><StatusIndicator v-if="tool.checking" state="checking" :label="copy.rbCheckChecking" /><small v-else>{{ toolVerificationLabel(tool.inspection.verification) }}</small><small v-if="!tool.checking && tool.adapter.id === 'claude' && tool.inspection.configured">{{ claudeProfileLabel(summary.claudeProfileState) }}</small></span>
                   <span class="remote-tool-access-control">
-                    <span>{{ tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled }}</span>
-                    <input class="switch-input" type="checkbox" role="switch" :checked="tool.inspection.configured" :disabled="busy" :aria-label="`${tool.adapter.displayName} · ${tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled}`" @click.prevent="toggleTool(tool.adapter, tool.inspection.configured)" />
+                    <span>{{ tool.checking ? copy.rbCheckChecking : tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled }}</span>
+                    <input class="switch-input" type="checkbox" role="switch" :checked="tool.inspection.configured" :disabled="busy || tool.checking || !sshConnected || (!tool.inspection.configured && summary.ccStatus !== 'connected')" :aria-busy="tool.checking" :aria-label="`${tool.adapter.displayName} · ${tool.checking ? copy.rbCheckChecking : tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled}`" @click.prevent="toggleTool(tool.adapter, tool.inspection.configured)" />
                   </span>
                 </label>
               </div>
@@ -1418,7 +1420,7 @@ onBeforeUnmount(() => {
               </template>
           </section>
 
-          <section ref="skillsPanel" v-show="advancedView" tabindex="-1" class="remote-next-section remote-skills">
+          <section v-show="advancedView" class="remote-next-section remote-skills">
               <div class="remote-section-heading"><div><h3>{{ copy.rbSkillsTitle }}</h3><p v-if="advancedView" class="remote-hint">{{ copy.rbSkillsHint }}</p></div><StatusIndicator v-if="!advancedView" :state="skillsSummaryState" :label="skillsSummaryLabel" /></div>
               <p v-if="advancedView && skills.length === 0" class="remote-hint">{{ copy.rbSkillsEmpty }}</p>
               <div v-if="skillGroups.length" v-show="advancedView" class="remote-tool-access-list remote-skill-list">
@@ -1450,6 +1452,7 @@ onBeforeUnmount(() => {
       <p v-if="vscodeSetupWarning" class="remote-error" role="alert">{{ copy.rbVscodeSetupWarning }} {{ bridgeError(vscodeSetupWarning, copy) }}</p>
       <p v-if="errorText" class="remote-error" role="alert">{{ errorText }}</p>
       <p v-if="feedbackText && !establishingBridge && !busy" class="remote-feedback" role="status">{{ feedbackText }}</p>
+      <BridgeLaunchBar v-if="live" v-show="!advancedView" :copy="copy" :target="summary.target" :connected="sshConnected" :busy="busy" :can-copy="!!summary.proxy && summary.proxyStatus === 'connected'" :copied="feedback === 'copied'" @terminal="launchTerminal" @vscode="perform(openVscode)" @mobaxterm="perform(openMobaxterm)" @copy-environment="copySessionEnvironment" />
     </section>
   </main>
 
@@ -1541,6 +1544,21 @@ onBeforeUnmount(() => {
 <style>
 .remote-bridge-page { display:grid; gap:24px; }
 .remote-bridge-page:not(.remote-setup-page) { padding:20px 24px; }
+.remote-bridge-page.remote-overview-page { display:flex; height:100%; min-height:0; padding:12px 24px; overflow:hidden; }
+.remote-overview-page .remote-workspace-simple { display:flex; width:100%; min-height:0; flex-direction:column; padding:16px 20px; }
+/* Keep the scroll lane allocated even when the embedded browser ignores scrollbar-gutter. */
+.remote-overview-page .remote-fields { flex:1; min-height:0; overflow-y:scroll; scrollbar-gutter:stable; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+.remote-overview-page .remote-fields::-webkit-scrollbar { width:6px; }
+.remote-overview-page .remote-fields::-webkit-scrollbar-thumb { background:var(--line); border-radius:6px; }
+.remote-overview-page .remote-fields:hover { scrollbar-color:var(--line-strong) transparent; }
+.remote-overview-page .remote-fields:hover::-webkit-scrollbar-thumb { background:var(--line-strong); }
+.remote-overview-page .remote-fields::-webkit-scrollbar-track { background:transparent; }
+.remote-overview-page .remote-fields::-webkit-scrollbar-button { display:none; width:0; height:0; }
+.remote-overview-page .remote-fields:not(:has(.bridge-skills-manage[aria-expanded="true"])) { scrollbar-color:transparent transparent; }
+.remote-overview-page .remote-fields:not(:has(.bridge-skills-manage[aria-expanded="true"]))::-webkit-scrollbar-thumb { background:transparent; }
+.remote-overview-page .remote-workspace-heading { flex:none; margin-bottom:8px; }
+.remote-overview-page .remote-error { flex:none; max-height:60px; overflow-y:auto; margin:8px 0 0; }
+.remote-overview-page .remote-feedback { flex:none; margin:8px 0 0; }
 .remote-bridge-page.remote-setup-page { height:100%; min-height:0; padding:20px 24px; gap:0; overflow:hidden; }
 .remote-setup-page .remote-workspace-configure { display:flex; min-height:0; flex-direction:column; }
 .remote-setup-page .remote-fields { display:flex; min-height:0; flex:1; }
@@ -1592,7 +1610,7 @@ onBeforeUnmount(() => {
 .remote-current-empty p { max-width:34ch; margin:0; font-size:11px; line-height:1.55; }
 .remote-workspace-heading { display:flex; margin-bottom:14px; align-items:center; justify-content:space-between; gap:18px; }
 .remote-workspace-heading h1 { margin:0; font-size:24px; font-weight:700; letter-spacing:-.025em; }
-.remote-workspace-simple .remote-selected-target { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:0 0 18px; margin-bottom:0; border:0; background:none; }
+.remote-workspace-simple .remote-selected-target { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:0 0 12px; margin-bottom:0; border:0; background:none; }
 .remote-target-identity { min-width:0; flex:1; }
 .remote-target-name { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
 .remote-selected-target .remote-target-name > strong { font-size:20px; }
@@ -1603,9 +1621,11 @@ onBeforeUnmount(() => {
 .remote-server-direct { display:flex; align-items:center; gap:8px; white-space:nowrap; font-size:12px; font-weight:600; }
 .remote-server-globe { flex:none; width:18px; height:18px; fill:none; stroke:var(--muted); stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 .remote-target-name :deep(.check-status),.remote-server-direct :deep(.check-status) { padding:5px 9px; border-radius:999px; background:color-mix(in srgb,currentColor 8%,transparent); }
-.remote-skills:focus-visible { outline:2px solid var(--focus); outline-offset:4px; }
 .remote-status-toolbar { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
 .remote-status-toolbar .secondary-action { min-height:30px; padding:6px 10px; font-size:10px; }
+.remote-status-toolbar .remote-disconnect { display:inline-flex; align-items:center; gap:6px; color:var(--danger); }
+.remote-disconnect svg { width:15px; height:15px; flex:none; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.remote-status-toolbar .remote-disconnect:hover:not(:disabled) { background:var(--danger-soft); border-color:var(--danger); }
 .remote-view-switch { display:flex; padding:2px; border:1px solid var(--line); border-radius:10px; background:var(--surface-strong); }
 .remote-view-switch button { min-height:26px; padding:4px 9px; border:0; border-radius:8px; color:var(--muted); background:transparent; cursor:pointer; font-size:10px; font-weight:650; }
 .remote-view-switch button:hover { color:var(--ink); }
