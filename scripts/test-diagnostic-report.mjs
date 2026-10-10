@@ -97,3 +97,19 @@ test("remote bridge report contains only localized allowlisted summaries", () =>
     assert.ok(!report.includes("undefined"));
   }
 });
+
+test("cached remote diagnostics and runtime summaries are localized without leaking extra fields", () => {
+  const remoteBridge = {configured:true,reachable:true,status:"connected",protocol:"mixed",proxyPort:7897,ccDetected:true,ccPort:15721,codexConfigured:true,claudeConfigured:true,
+    reconnectState:"idle",sshAuthMethod:"password",runtimeProxyMatch:"matched",postConnectStatus:"partial",sessionEnvironmentState:"ready",vscodeState:"warning",codexState:"ready",claudeState:"ready",skillsState:"ready",postConnectErrorCategory:"conflict",
+    diagnostics:{generalProxyEgress:{state:"failed",checkedAt:1791260000000,errorCode:"network",durationMs:183},aiRouteVerification:{state:"passed",checkedAt:1791260001000,errorCode:null,durationMs:45}},
+    security:{generalProxyAuth:"none",aiRouteAuth:"session",remoteBindScope:"loopback",shellScope:"sessionOnly"},
+    phaseTimings:[{phase:"ssh.authenticate",durationMs:84,outcome:"success"},{phase:"private-token",durationMs:6,outcome:"/home/private"}],
+    password:"private-password",host:"private-host",request:"private-prompt"};
+  const before = JSON.stringify(remoteBridge);
+  for (const copy of Object.values(messages)) {
+    const report = formatDiagnosticReport({...data,remoteBridge},copy);
+    for (const text of [copy.rbAdvFailed,copy.rbAdvVerified,copy.rbAdvErrorNetwork,copy.rbAdvErrorConflict,copy.rbAdvRuntimePort,copy.rbAdvAuthentication,copy.rbAdvNoProxyAuth,copy.rbAdvSessionAuth,copy.rbAdvLoopback,copy.rbAdvSessionOnly,"183 ms","45 ms","ssh.authenticate"]) assert.ok(report.includes(text));
+    for (const secret of ["private-token","private-password","private-host","private-prompt","/home/private","undefined"]) assert.ok(!report.includes(secret));
+  }
+  assert.equal(JSON.stringify(remoteBridge),before);
+});

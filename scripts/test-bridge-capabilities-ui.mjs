@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 const require = createRequire(process.env.PROXYENV_LAYOUT_PLAYWRIGHT || import.meta.url);
 const { chromium } = require("playwright");
-const screenshots = process.argv.includes("--screenshots") ? resolve(".debug-tmp/remote-layout") : null;
+const screenshots = process.argv.includes("--screenshots") ? resolve(".impeccable/review/remote-advanced") : null;
 if (screenshots) mkdirSync(screenshots, { recursive: true });
 const browser = await chromium.launch({ headless: true, ...(process.env.PROXYENV_LAYOUT_BROWSER ? { executablePath: process.env.PROXYENV_LAYOUT_BROWSER } : {}) });
 try {
@@ -18,6 +18,11 @@ try {
     window.environmentCalls = 0;
     window.copiedCommands = [];
     window.mobaCalls = 0;
+    window.egressCalls = 0;
+    window.verifyCalls = [];
+    window.eventsCalls = 0;
+    window.bridgeEvents = [];
+    window.clearCredentialCalls = 0;
     Object.defineProperty(navigator, 'clipboard', { configurable:true, value:{ writeText:async value => window.copiedCommands.push(value) } });
     // Synthetic IPC: no real SSH, relay, credentials or configuration writes.
     window.bridgeFixture = {
@@ -27,16 +32,56 @@ try {
       proxyStatus: "connected", ccStatus: "connected", activeProxyRevision: 1, environment: "", codexConfigured: true, claudeConfigured: false,
       postConnectStatus: "preparing", codexState: "preparing", claudeState: "pending",
       error: null, sshAuth: { mode: "nonInteractive", method: "identityFile", authenticated: true, passwordStored: false },
+      diagnostics: {generalProxyEgress:{state:"notTested",checkedAt:null,errorCode:null,durationMs:null}, aiRouteVerification:{state:"notTested",checkedAt:null,errorCode:null,durationMs:null}},
+      security: {generalProxyAuth:"none",aiRouteAuth:"session",remoteBindScope:"loopback",shellScope:"sessionOnly"},
     };
     window.originalRoutes = { proxy: structuredClone(window.bridgeFixture.proxy), cc: structuredClone(window.bridgeFixture.cc) };
     window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
       if (command === "remote_bridge_detect_cc") return { state: "confirmed", localPort: 15721 };
       if (command === "remote_bridge_summary") return structuredClone(window.bridgeFixture);
+      if (command === "remote_bridge_events") { window.eventsCalls++; if(window.eventPollDelayMs) await new Promise(resolve=>setTimeout(resolve,window.eventPollDelayMs)); return structuredClone(window.bridgeEvents); }
+      if (command === "remote_bridge_log_status") { if(window.logStatusDelayMs) await new Promise(resolve=>setTimeout(resolve,window.logStatusDelayMs)); return {available:window.logsAvailable !== false}; }
+      if (command === "remote_bridge_open_log_directory") { window.logsOpened = (window.logsOpened ?? 0) + 1; return; }
+      if (command === "remote_bridge_clear_logs") {
+        window.clearLogCalls = (window.clearLogCalls ?? 0) + 1;
+        return new Promise((resolve,reject) => { window.finishClearLogs = success => success ? resolve() : reject({code:"logUnavailable"}); });
+      }
+      if (command === "remote_bridge_run_diagnostics") {
+        const ipc = window.__TAURI_INTERNALS__.invoke;
+        const jobs=[ipc("remote_bridge_test")];
+        for (const tool of window.bridgeFixture.tools ?? []) {
+          if (tool.configured && tool.verificationSupported) jobs.push(ipc("remote_bridge_tool_verify",{tool:tool.id}));
+        }
+        await Promise.allSettled(jobs);
+        return {running:false,observations:structuredClone(window.bridgeFixture.diagnostics),ssh:"connected",vscode:"warning",serverInternet:"reachable"};
+      }
+      if (command === "remote_bridge_check_network") return {serverInternet:"reachable"};
+      if (command === "remote_bridge_clear_session_credential") { window.clearCredentialCalls++; window.bridgeFixture.sshAuth.passwordStored = false; return; }
+      if (command === "remote_bridge_test") {
+        window.egressCalls++;
+        window.bridgeFixture.diagnostics.generalProxyEgress.state = "testing";
+        return new Promise((resolve,reject) => { window.finishEgress = success => {
+          window.bridgeFixture.diagnostics.generalProxyEgress = {state:success?"passed":"failed",checkedAt:Date.now(),errorCode:success?null:"network",durationMs:183};
+          window.bridgeEvents.unshift({timestamp:Date.now(),level:success?"info":"error",component:"generalProxy",action:"egressTest",outcome:success?"success":"failed",errorCode:success?null:"network",durationMs:183});
+          success ? resolve() : reject("networkFailed");
+        }; });
+      }
+      if (command === "remote_bridge_tool_verify") {
+        window.verifyCalls.push(args.tool);
+        if(window.modelVerifyError) {
+          window.bridgeFixture.diagnostics.aiRouteVerification = {state:"failed",checkedAt:Date.now(),errorCode:"network",durationMs:45};
+          window.bridgeEvents.unshift({timestamp:Date.now(),level:"error",component:"aiRoute",action:"toolVerify",outcome:"failed",errorCode:"network",durationMs:45});
+          throw 'networkFailed';
+        }
+        window.bridgeFixture.tools.find(tool => tool.id === args.tool).verification = "verified";
+        window.bridgeFixture.diagnostics.aiRouteVerification = {state:"passed",checkedAt:Date.now(),errorCode:null,durationMs:45};
+        return {tool:args.tool,verification:"verified"};
+      }
       if (command === 'remote_bridge_launch_mobaxterm') { window.mobaCalls += 1; return; }
       if (command === 'remote_bridge_session_environment_command') {
         window.environmentCalls += 1;
-        return new Promise((resolve, reject) => { window.finishEnvironment = success => success
-          ? resolve('source "$HOME/.config/proxyenv/session-preview/env.sh"') : reject('bridgeUnavailable'); });
+        return new Promise((resolve, reject) => { window.finishEnvironment = (success,command='source "$HOME/.config/proxyenv/session-preview/env.sh"') => success
+          ? resolve(command) : reject('bridgeUnavailable'); });
       }
       if (["remote_bridge_config_preview", "remote_bridge_config_restore_preview"].includes(command)) window.toolCalls.push(command);
       if (["remote_bridge_enable_skill", "remote_bridge_disable_skill"].includes(command)) {
@@ -85,11 +130,10 @@ try {
     await toolSwitches.nth(index).evaluate(input => input.click());
   }
   await page.locator('.remote-view-switch button').nth(1).click();
-  const advancedTools = page.locator('.remote-tool-access-list .remote-tool-access-control .switch-input');
-  for (const input of await advancedTools.all()) {
-    assert.equal(await input.isDisabled(), true, 'Advanced uses the same checking lock');
-    await input.evaluate(input => input.click());
-  }
+  const advanced = page.locator('.bridge-advanced-view');
+  await advanced.waitFor({state:'visible'});
+  assert.equal(await advanced.locator('.switch-input').count(),0,'Advanced is diagnostic-only; tool controls remain in Overview');
+  assert.doesNotMatch(await advanced.locator('[aria-labelledby="advanced-environment-title"]').innerText(),/AI 工具|Codex|Claude Code|Skills/,'Advanced does not repeat Overview AI tool or Skills detection');
   assert.equal(await page.evaluate(() => window.toolCalls.length), 0, 'Blocked clicks never issue configuration requests');
   await page.locator('.remote-view-switch button').first().click();
   await page.evaluate(() => window.bridgeFixture.codexState = 'ready');
@@ -155,6 +199,8 @@ try {
     await copySetup.click();
     await page.waitForFunction(count => window.environmentCalls === count + 1, callsBefore);
     assert.equal(await copySetup.isDisabled(), true, 'Pending copy locks duplicate requests');
+    assert.equal(await page.locator('.remote-workspace > .remote-fields').evaluate(element=>element.disabled),false,'Overview copy also leaves the rest of the page enabled');
+    assert.equal(await page.locator('.remote-workspace > .remote-fields').evaluate(element=>getComputedStyle(element).opacity),'1');
     await copySetup.evaluate(button => button.click());
     assert.equal(await page.evaluate(() => window.environmentCalls), callsBefore + 1);
     await page.evaluate(result => window.finishEnvironment(result), success);
@@ -164,6 +210,279 @@ try {
     assert.deepEqual(await copySetup.boundingBox(), boxBefore, 'Copy feedback does not resize or move the fixed button');
     if (success) assert.equal(await page.evaluate(() => window.copiedCommands.at(-1)), 'source "$HOME/.config/proxyenv/session-preview/env.sh"', 'Copy uses the shared backend command, not displayed exports or AI credentials');
   }
+  await page.waitForFunction(()=>!document.querySelector('.bridge-launch-copy').classList.contains('is-copied'),{},{timeout:3000});
+  await page.evaluate(() => {
+    window.bridgeFixture.sessionEnvironmentState = "ready";
+    window.bridgeFixture.vscodeState = "warning";
+    window.bridgeFixture.runtimeProxyMatch = "mismatch";
+    window.bridgeFixture.sshAuth.passwordStored = true;
+    window.bridgeFixture.timings = [{phase:"bridgePrepare",durationMs:84,outcome:"ready"}];
+    window.bridgeFixture.claudeConfigured = true;
+    window.bridgeFixture.claudeState = "ready";
+    window.bridgeFixture.tools = [
+      {id:"codex",configured:true,verification:"verifyPending",verificationSupported:false},
+      {id:"claude",configured:true,verification:"verifyPending",verificationSupported:true}
+    ];
+  });
+  await page.locator('.remote-view-switch button').nth(1).click();
+  const links = page.locator('.advanced-card').filter({has:page.locator('#advanced-links-title')});
+  const egressRow = links.locator('.advanced-status-row').filter({hasText:'实际出口'});
+  const modelRow = links.locator('.advanced-status-row').filter({hasText:'模型请求'});
+  await advanced.waitFor({state:'visible'});
+  for(const width of [1280,880,560]) {
+    await page.setViewportSize({width,height:720});
+    if(width>760) {
+      const cards=await advanced.locator(':scope > .advanced-card').all();
+      for(let i=0;i<cards.length;i+=2) {
+        assert.equal((await cards[i].boundingBox()).height,(await cards[i+1].boundingBox()).height,'Each left/right card pair has equal height');
+      }
+    }
+    for(const pair of await links.locator('.advanced-proof-grid').all()) {
+      const [left,right] = await pair.locator('.advanced-status-row').all();
+      const a = await left.boundingBox(), b = await right.boundingBox();
+      assert.equal(a.y,b.y,`${width}: paired link checks share the same row`);
+      assert.ok(b.x>=a.x+a.width,'Link verification is a left/right layout');
+      assert.equal(await pair.evaluate(element=>element.scrollWidth<=element.clientWidth+1),true,'Paired verification never overflows');
+    }
+  }
+  await page.setViewportSize({width:880,height:720});
+  await page.waitForFunction(() => document.querySelector('.bridge-advanced-view')?.textContent.includes('不匹配'));
+  const userPortRow=advanced.locator('.advanced-status-row').filter({hasText:'用户代理端口'});
+  assert.equal(await userPortRow.locator('.check-status').getAttribute('data-state'),'warning','A settings mismatch is not proof of extension failure');
+  const authRow=links.locator('.advanced-status-row').filter({hasText:'认证'});
+  assert.equal(await authRow.locator('.check-status').getAttribute('data-state'),'healthy','Authenticated SSH uses the shared green check');
+  await page.evaluate(()=>{window.bridgeFixture.runtimeProxyMatch='unknown';window.bridgeFixture.sshAuth.authenticated=false;});
+  await page.waitForFunction(()=>document.querySelector('.bridge-advanced-view')?.textContent.includes('无法确认'));
+  assert.equal(await userPortRow.locator('.check-status').getAttribute('data-state'),'idle','Unknown user settings must not be shown as a failed runtime probe');
+  assert.equal(await authRow.locator('.check-status').getAttribute('data-state'),'idle','No green authentication check without backend evidence');
+  await page.evaluate(()=>{window.bridgeFixture.runtimeProxyMatch='mismatch';window.bridgeFixture.sshAuth.authenticated=true;});
+  await page.waitForFunction(() => document.querySelector('.advanced-command')?.textContent.includes('检测中'));
+  await page.evaluate(() => window.finishEnvironment(true));
+  await page.locator('.advanced-command code').waitFor();
+  assert.equal(await page.locator('.advanced-command code').innerText(),'source "$HOME/.config/proxyenv/session-preview/env.sh"','Command preview uses the actual existing API, never a fabricated session path');
+  const longCommand = `source "$HOME/.config/proxyenv/${'long-session-'.repeat(100)}/env.sh"`;
+  const commandRow = page.locator('.advanced-command');
+  assert.equal(await commandRow.locator('button').innerText(),'','Inline copy is an accessible icon-only action');
+  assert.equal(await commandRow.locator('button svg').count(),1);
+  assert.match(await advanced.innerText(),/需手动执行/);
+  for(const width of [1280,880,560]) {
+    await page.setViewportSize({width,height:720});
+    const before = await commandRow.boundingBox();
+    await page.locator('.remote-view-switch button').first().click();
+    const callsBefore = await page.evaluate(() => window.environmentCalls);
+    await page.locator('.remote-view-switch button').nth(1).click();
+    await page.waitForFunction(count => window.environmentCalls > count,callsBefore);
+    assert.deepEqual(await commandRow.boundingBox(),before,'Loading does not resize the terminal command row');
+    await page.evaluate(command => window.finishEnvironment(true,command),longCommand);
+    await page.waitForFunction(command => document.querySelector('.advanced-command code')?.textContent === command,longCommand);
+    assert.deepEqual(await commandRow.boundingBox(),before,'Long commands cannot grow the row in either direction');
+    assert.equal(await commandRow.locator('code').evaluate(element => {
+      const style = getComputedStyle(element);
+      return style.whiteSpace === 'nowrap' && style.textOverflow === 'ellipsis' && element.scrollWidth > element.clientWidth;
+    }),true,'Long commands stay on one line with ellipsis');
+    assert.equal(await commandRow.locator('code').getAttribute('title'),longCommand,'Hover retains the complete command');
+    assert.equal(before.height,32,'Terminal command row has a fixed height');
+    const [codeBox,buttonBox] = await Promise.all([commandRow.locator('code').boundingBox(),commandRow.locator('button').boundingBox()]);
+    assert.equal(codeBox.x,before.x,'Configuration path stays left-aligned');
+    assert.ok(Math.abs(buttonBox.x+buttonBox.width-before.x-before.width)<1,'Copy icon stays at the right edge');
+    assert.equal(buttonBox.width,32,'Copy icon keeps a fixed width');
+  }
+  const copiesBeforeLong = await page.evaluate(() => window.copiedCommands.length);
+  const feedbackBeforeCopy = await page.locator('.remote-bridge-page .remote-feedback').allTextContents();
+  const commandBeforeCopy = await commandRow.boundingBox();
+  await commandRow.locator('button').click();
+  assert.equal(await page.locator('.remote-workspace > .remote-fields').evaluate(element=>element.disabled),false,'Copy must not disable or dim the entire connected page');
+  assert.equal(await page.locator('.remote-workspace > .remote-fields').evaluate(element=>getComputedStyle(element).opacity),'1','Pending copy leaves the page opacity unchanged');
+  assert.equal(await page.locator('dialog[open]').count(),0,'Copy does not create a blurred modal backdrop');
+  await page.evaluate(command => window.finishEnvironment(true,command),longCommand);
+  await page.waitForFunction(count => window.copiedCommands.length===count+1,copiesBeforeLong);
+  assert.equal(await page.evaluate(() => window.copiedCommands.at(-1)),longCommand,'Copy retains the full command, not the truncated preview');
+  assert.equal(await commandRow.locator('button').getAttribute('aria-label'),'已复制');
+  assert.equal(await commandRow.locator('button').evaluate(button=>button.classList.contains('is-copied')),true,'Only successful copy shows the shared green feedback');
+  if(screenshots) await page.screenshot({path:resolve(screenshots,'advanced-copy-success.png')});
+  assert.deepEqual(await page.locator('.remote-bridge-page .remote-feedback').allTextContents(),feedbackBeforeCopy,'Copy feedback stays on the button; existing unrelated feedback is unchanged');
+  assert.deepEqual(await commandRow.boundingBox(),commandBeforeCopy,'Successful copy does not move the command row');
+  await page.waitForFunction(()=>!document.querySelector('.advanced-copy').classList.contains('is-copied'),{},{timeout:3000});
+  assert.equal(await commandRow.locator('button').getAttribute('aria-label'),'复制终端配置命令','Copy resets without requiring another action');
+  await page.setViewportSize({width:880,height:720});
+  await page.locator('.remote-view-switch button').first().click();
+  await page.locator('.remote-view-switch button').nth(1).click();
+  await page.waitForFunction(() => document.querySelector('.advanced-command')?.textContent.includes('检测中'));
+  await page.evaluate(() => window.finishEnvironment(true));
+  await page.locator('.advanced-command code').waitFor();
+  assert.equal(await advanced.locator('.capability-switch,.switch-input').count(),0);
+  assert.equal(await egressRow.locator('.check-status').getAttribute('data-state'),'idle','A connected tunnel is not verified egress');
+  assert.equal(await modelRow.locator('.check-status').getAttribute('data-state'),'idle','A configured tool is not a verified model request');
+  assert.equal(await page.evaluate(() => window.egressCalls + window.verifyCalls.length),0,'Viewing Advanced sends no test requests');
+  const run = links.locator('.advanced-card-actions button');
+  for (const success of [true,false]) {
+    const before = await page.evaluate(() => window.egressCalls);
+    await run.click();
+    await page.waitForFunction(count => window.egressCalls === count + 1,before);
+    assert.equal(await page.evaluate(()=>window.verifyCalls.length),before+1,'Model checks start without waiting for proxy egress');
+    await page.waitForFunction(() => [...document.querySelectorAll('#advanced-links-title ~ .advanced-group .advanced-status-row')].find(row=>row.textContent.includes('实际出口'))?.querySelector('.check-status')?.dataset.state === 'checking');
+    assert.equal(await run.isDisabled(),true);
+    await run.evaluate(button => button.click());
+    assert.equal(await page.evaluate(() => window.egressCalls),before+1,'Diagnostics block duplicate runs');
+    await page.evaluate(result => window.finishEgress(result),success);
+    await run.waitFor({state:'visible'});
+    await page.waitForFunction(() => ![...document.querySelectorAll('.advanced-card-actions button')][0].disabled);
+    await page.waitForFunction(expected => [...document.querySelectorAll('#advanced-links-title ~ .advanced-group .advanced-status-row')].find(row=>row.textContent.includes('实际出口'))?.querySelector('.check-status')?.dataset.state === expected,success?'healthy':'failed');
+    assert.equal(await egressRow.locator('.check-status').getAttribute('data-state'),success?'healthy':'failed');
+  }
+  assert.deepEqual(await page.evaluate(() => window.verifyCalls),['claude','claude'],'Only configured tools with verification support are tested, even if egress fails');
+  await page.evaluate(()=>{window.modelVerifyError=true;});
+  await run.click();
+  await page.waitForFunction(()=>window.egressCalls===3);
+  await page.waitForFunction(()=>[...document.querySelectorAll('#advanced-links-title ~ .advanced-group .advanced-status-row')].find(row=>row.textContent.includes('模型请求'))?.querySelector('.check-status')?.dataset.state==='failed');
+  assert.doesNotMatch(await modelRow.innerText(),/网络错误/,'Failure reasons do not appear beneath Model request');
+  await page.evaluate(()=>window.finishEgress(false));
+  await page.waitForFunction(()=>![...document.querySelectorAll('.advanced-card-actions button')][0].disabled);
+  await page.waitForFunction(()=>[...document.querySelectorAll('.advanced-event-list li')].some(row=>row.textContent.includes('验证失败 · 网络错误')));
+  const failedModelEvent=advanced.locator('.advanced-event-list li').filter({hasText:'模型请求验证'}).first();
+  assert.equal(await failedModelEvent.locator('.check-status').getAttribute('data-state'),'failed','Recent events carry the red failure icon and reason');
+  await page.evaluate(()=>{window.modelVerifyError=false;window.bridgeFixture.tools.find(tool=>tool.id==='claude').configured=false;window.bridgeFixture.claudeConfigured=false;});
+  await run.click();
+  await page.waitForFunction(()=>window.egressCalls===4);
+  assert.equal(await page.evaluate(()=>window.verifyCalls.length),3,'An off model switch skips verification');
+  await page.evaluate(()=>window.finishEgress(false));
+  await page.waitForFunction(()=>![...document.querySelectorAll('.advanced-card-actions button')][0].disabled);
+  await page.evaluate(()=>{window.bridgeFixture.tools.find(tool=>tool.id==='claude').configured=true;window.bridgeFixture.claudeConfigured=true;});
+  const openLogs = advanced.getByRole('button',{name:'打开日志目录',exact:true});
+  await openLogs.click();
+  await page.waitForFunction(() => window.logsOpened === 1);
+  const clearButton=advanced.locator('.advanced-clear-logs');
+  const clearDialog=page.locator('.advanced-clear-logs-dialog');
+  assert.equal(await openLogs.evaluate(button=>button.closest('.advanced-log-action').nextElementSibling.classList.contains('advanced-clear-logs')),true,'Clear logs follows Open log folder');
+  assert.equal(await page.locator('.advanced-log-action .help-tooltip').count(),0,'Log help is consolidated in the Diagnostics title');
+  assert.equal(await advanced.locator('.advanced-diagnostics > .advanced-note').count(),0,'Report explanation is not duplicated in the body');
+  await clearButton.click();
+  if(screenshots) await page.screenshot({path:resolve(screenshots,'clear-logs-confirm-light.png')});
+  await clearDialog.getByRole('button',{name:'取消',exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.clearLogCalls??0),0,'Cancel does not touch logs');
+  await clearButton.click();
+  const confirmClear=clearDialog.getByRole('button',{name:'清除日志',exact:true});
+  await confirmClear.click();
+  await page.waitForFunction(()=>window.clearLogCalls===1);
+  assert.equal(await clearButton.isDisabled(),true);
+  assert.equal(await clearDialog.getByRole('button',{name:'取消',exact:true}).isDisabled(),true);
+  await clearDialog.getByRole('button',{name:'正在清除…',exact:true}).evaluate(button=>button.click());
+  assert.equal(await page.evaluate(()=>window.clearLogCalls),1,'Pending clears prevent duplicate operations');
+  await page.evaluate(()=>window.finishClearLogs(false));
+  await clearDialog.getByRole('alert').waitFor();
+  assert.match(await clearDialog.getByRole('alert').innerText(),/未能清除日志/);
+  await confirmClear.click();
+  await page.waitForFunction(()=>window.clearLogCalls===2);
+  await page.evaluate(()=>window.finishClearLogs(true));
+  await clearDialog.waitFor({state:'hidden'});
+  assert.equal(await clearButton.innerText(),'日志已清除');
+  assert.equal(await clearButton.evaluate(button=>button.classList.contains('is-cleared')),true);
+  await page.evaluate(() => window.logsAvailable = false);
+  await page.waitForFunction(() => [...document.querySelectorAll('.advanced-diagnostics button')].find(button=>button.textContent==='打开日志目录')?.disabled);
+  assert.equal(await openLogs.isDisabled(),true,'Unavailable log storage cannot expose a dead action');
+  assert.equal(await clearButton.isDisabled(),true,'Unavailable log storage also disables clearing');
+  await page.locator('#advanced-diagnostics-title .help-tooltip').hover();
+  await page.getByRole('tooltip').waitFor();
+  assert.match(await page.getByRole('tooltip').innerText(),/本地日志暂不可用/);
+  assert.match(await page.getByRole('tooltip').innerText(),/生成报告不会发起新的网络请求/);
+  await page.mouse.move(0,0);
+  await page.getByRole('tooltip').waitFor({state:'hidden'});
+  await page.evaluate(() => window.logsAvailable = true);
+  await page.locator('.remote-view-switch button').first().click();
+  await page.locator('.remote-view-switch button').nth(1).click();
+  assert.equal(await egressRow.locator('.check-status').getAttribute('data-state'),'failed','Cached proof survives tab navigation');
+  await page.locator('.advanced-event-list li').first().waitFor();
+  assert.match(await page.locator('.advanced-event-list').innerText(),/实际出口测试/,'Recent events come from the backend snapshot');
+  await page.evaluate(() => {
+    window.eventPollDelayMs = 120;
+    window.logStatusDelayMs = 80;
+    window.stableEventList = document.querySelector('.advanced-event-list');
+    window.eventListRemovals = 0;
+    window.logDisableFlashes = 0;
+    window.advancedObserver = new MutationObserver(records => {
+      for(const record of records) {
+        if(record.type==='childList') for(const node of record.removedNodes) {
+          if(node===window.stableEventList || node.contains?.(window.stableEventList)) window.eventListRemovals++;
+        }
+        if(record.type==='attributes' && record.target.matches('.advanced-log-action button') && record.target.disabled) window.logDisableFlashes++;
+      }
+    });
+    window.advancedObserver.observe(document.querySelector('.bridge-advanced-view'),{subtree:true,childList:true,attributes:true,attributeFilter:['disabled']});
+  });
+  const eventCallsStable = await page.evaluate(()=>window.eventsCalls);
+  await page.waitForTimeout(4600); // Multiple fresh, but logically identical, summary snapshots.
+  assert.equal(await page.evaluate(()=>window.eventListRemovals),0,'Unchanged summary polling never removes the event list');
+  assert.equal(await page.evaluate(()=>window.logDisableFlashes),0,'Unchanged summary polling never flashes the log action disabled');
+  assert.equal(await page.evaluate(()=>window.stableEventList===document.querySelector('.advanced-event-list')),true,'The same event-list DOM survives polling');
+  assert.ok(await page.evaluate(()=>window.eventsCalls)>=eventCallsStable+2,'Background event refresh still runs');
+  await page.evaluate(()=>{window.advancedObserver.disconnect();window.eventPollDelayMs=0;window.logStatusDelayMs=0;});
+  await page.evaluate(() => { window.bridgeFixture.activeProxyRevision++; window.bridgeFixture.diagnostics.generalProxyEgress = {state:'notTested',checkedAt:null,errorCode:null,durationMs:null}; });
+  await page.waitForFunction(() => [...document.querySelectorAll('#advanced-links-title ~ .advanced-group .advanced-status-row')].find(row=>row.textContent.includes('实际出口'))?.querySelector('.check-status')?.dataset.state === 'idle');
+  assert.equal(await advanced.getByRole('button',{name:'打开 SSH 配置',exact:true}).count(),0,'Manual targets expose no source configuration file');
+  const cacheClearsBefore = await page.evaluate(() => window.clearCredentialCalls);
+  await advanced.getByRole('button',{name:'清除本次 SSH 凭据缓存',exact:true}).click();
+  await page.waitForFunction(count => window.clearCredentialCalls === count + 1,cacheClearsBefore);
+  await page.waitForFunction(() => document.querySelector('.bridge-advanced-view')?.textContent.includes('未缓存'));
+  assert.equal(await advanced.getByRole('button',{name:'清除本次 SSH 凭据缓存',exact:true}).count(),0,'No session-security action when no credential is cached');
+  for(const label of ['Shell 修改','SSH 凭据缓存']) {
+    const row=advanced.locator('.advanced-status-row').filter({hasText:label});
+    assert.equal(await row.locator('.check-status').getAttribute('data-state'),'healthy',`${label} confirms a safe policy with the shared green check`);
+  }
+  const securityCard=advanced.locator('.advanced-card').filter({has:page.locator('#advanced-security-title')});
+  const manualCard=advanced.locator('.advanced-card').filter({has:page.locator('#advanced-manual-title')});
+  assert.equal((await securityCard.boundingBox()).height,(await manualCard.boundingBox()).height,'Second-row cards stay equal height without a cache action');
+  await advanced.getByRole('button',{name:'查看运行耗时',exact:true}).click();
+  await page.locator('.advanced-timing-dialog[open]').waitFor();
+  assert.match(await page.locator('.advanced-timing-dialog').innerText(),/84 ms/);
+  assert.equal(await page.locator('.advanced-timing-dialog').evaluate(dialog=>parseFloat(getComputedStyle(dialog).padding)),20);
+  assert.equal(await page.locator('.advanced-timing-dialog form').evaluate(form=>parseFloat(getComputedStyle(form).padding)),0);
+  if(screenshots) await page.screenshot({path:resolve(screenshots,'advanced-timing-light.png')});
+  await page.keyboard.press('Escape');
+  await advanced.getByRole('button',{name:'诊断报告',exact:true}).click();
+  await page.locator('.diagnostic-report-dialog[open]').waitFor();
+  assert.equal(await page.locator('.diagnostic-report-dialog').count(),1,'Advanced reuses the existing report dialog');
+  await page.keyboard.press('Escape');
+  // Both tabs reuse one fixed shell and one header, including when content was scrolled.
+  for (const [width,height,theme] of [[1280,800,'light'],[880,720,'light'],[560,620,'dark']]) {
+    await page.setViewportSize({width,height});
+    await page.evaluate(value => document.documentElement.dataset.theme=value,theme);
+    await page.locator('.remote-view-switch button').first().click();
+    const shellGeometry = () => page.evaluate(() => ['.remote-workspace-connected','.remote-workspace-heading','.remote-status-toolbar','.remote-selected-target','.remote-server-direct'].map(selector => {
+      const {x,y,width,height} = document.querySelector(selector).getBoundingClientRect();
+      return {x,y,width,height};
+    }));
+    const before = await shellGeometry();
+    await page.evaluate(() => window.sharedBridgeHeader = document.querySelector('.remote-selected-target'));
+    await page.locator('.remote-workspace-connected > .remote-fields').evaluate(element => element.scrollTop=element.scrollHeight);
+    assert.deepEqual(await shellGeometry(),before,'Overview scroll leaves the shared header fixed');
+    await page.locator('.remote-view-switch button').nth(1).click();
+    assert.deepEqual(await shellGeometry(),before,`${width}/${theme}: Advanced keeps the same shell and header geometry`);
+    assert.equal(await page.locator('.remote-workspace-connected > .remote-fields').evaluate(element => element.scrollTop),0,'New tab starts at its content top');
+    assert.equal(await page.evaluate(() => window.sharedBridgeHeader === document.querySelector('.remote-selected-target')),true,'Both views retain the same header instance');
+    await page.locator('.remote-workspace-connected > .remote-fields').evaluate(element => element.scrollTop=element.scrollHeight);
+    assert.deepEqual(await shellGeometry(),before,'Advanced scroll leaves the shared header fixed');
+    await page.locator('.remote-view-switch button').first().click();
+    assert.deepEqual(await shellGeometry(),before,'Returning to Overview cannot shift the shell or toolbar');
+  }
+  await page.locator('.remote-view-switch button').nth(1).click();
+  if (screenshots) for (const [width,height,theme] of [[1280,1080,'light'],[880,720,'light'],[560,620,'dark']]) {
+    await page.setViewportSize({width,height});
+    await page.evaluate(value => document.documentElement.dataset.theme=value,theme);
+    await page.locator('.remote-workspace-connected > .remote-fields').evaluate(element => element.scrollTop=0);
+    assert.equal(await advanced.evaluate(element => element.scrollWidth<=element.clientWidth+1),true);
+    await page.screenshot({path:resolve(screenshots,`advanced-${theme}-${width}.png`)});
+    if(width===560){
+      await page.locator('.remote-workspace-connected > .remote-fields').evaluate(element=>element.scrollTop=element.scrollHeight);
+      await page.screenshot({path:resolve(screenshots,'advanced-dark-560-lower.png')});
+    }
+  }
+  await page.setViewportSize({width:880,height:720});
+  await page.evaluate(() => document.documentElement.dataset.theme='light');
+  await page.locator('.remote-view-switch button').first().click();
+  assert.equal(await advanced.isVisible(),false,'Returning to Overview hides the whole Advanced view including its native dialog');
+  const eventCallsBefore = await page.evaluate(() => window.eventsCalls);
+  await page.waitForTimeout(2200);
+  assert.equal(await page.evaluate(() => window.eventsCalls),eventCallsBefore,'Hidden Advanced does not keep polling events');
   const manager = page.locator('#bridge-skills-manager');
   const manage = page.locator('.bridge-skills-heading button');
   const skillsHelp = page.locator('.bridge-skills-heading .help-tooltip');
@@ -288,7 +607,9 @@ try {
   assert.equal(await page.evaluate(() => window.bridgeFixture.status), 'connected', 'Clicking disconnect still requires confirmation');
   await page.locator('dialog[open]').getByRole('button', {name:'取消',exact:true}).click();
   console.log("Capability UI: independent enable/disable, controlled loading, duplicate click prevention and failure rollback passed.");
-  console.log("AI tool UI: independent checking indicators, enable/disable locks in Overview/Advanced, warning recovery and reconnect passed.");
+  console.log("AI tool UI: independent checking indicators and enable/disable locks in Overview only, warning recovery and reconnect passed.");
+  console.log("Advanced UI: independent egress/request proof, explicit diagnostic runs, capability/support gates, failure handling, stale-proof reset, real credential action, existing report dialog and timings passed.");
+  console.log("Advanced polling: delayed identical snapshots preserve the event-list DOM and never flash log controls disabled.");
   console.log("Skills UI: collapsed summary, inline search, independent sync/unsync, failure handling, persistent launch actions and bundled app icons passed.");
   console.log("Skills scrolling: expand/collapse across scrollbar threshold preserves content and footer geometry.");
   console.log("Terminal copy: fixed right-side button, Moba help, shared command, proxy-only gating, duplicate lock and error handling passed.");

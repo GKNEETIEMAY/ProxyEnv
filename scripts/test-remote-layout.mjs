@@ -84,7 +84,7 @@ try {
             const launch = [...bar.querySelectorAll('button')];
             return { cards, actions: launch.length, mobaDisabled: launch[2].disabled, terminalVisible: launch[0].getBoundingClientRect().bottom <= stage.getBoundingClientRect().bottom, capabilityInteractive: [...document.querySelectorAll('.capability-switch')].every(input => !input.disabled) };
           });
-          assert.equal(overview.actions,3,`${label}: launch actions must stay visible even when unavailable`);
+          assert.equal(overview.actions,4,`${label}: launch and terminal-copy actions stay visible even when unavailable`);
           assert.equal(overview.terminalVisible,true,`${label}: launch actions stay at the viewport bottom`);
           assert.equal(overview.mobaDisabled,true,`${label}: unavailable MobaXterm must stay disabled`);
           assert.equal(overview.capabilityInteractive,true,`${label}: connected capabilities must be interactive`);
