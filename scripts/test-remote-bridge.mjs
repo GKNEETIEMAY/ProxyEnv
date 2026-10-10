@@ -16,19 +16,22 @@ const python = process.env.PROXYENV_TEST_PYTHON || (process.platform === "win32"
 const root = resolve(".debug-tmp");
 mkdirSync(root,{recursive:true});
 const script = readFileSync("src-tauri/src/features/remote_bridge/remote.sh","utf8");
+const probeScript = script.split("\numask 077\n",1)[0];
 
 test("terminal copy isolates pending feedback, expires success and rejects stale sessions", async () => {
   const source = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const reset = source.match(/function resetSessionCopyFeedback\(\) \{[\s\S]*?\n\}/)?.[0];
   const handler = source.match(/async function copySessionEnvironment\(\) \{[\s\S]*?\n\}/)?.[0];
-  assert.ok(reset && handler);
+  const resolver = source.match(/async function resolveSessionCommand\(\):Promise<string> \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(reset && handler && resolver);
   assert.doesNotMatch(handler,/perform\(/);
-  const compiled = ts.transpileModule(`${reset}\n${handler}`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
-  for (const outcome of ["success","backendFailure","clipboardFailure","stale"]) {
+  const compiled = ts.transpileModule(`${reset}\n${resolver}\n${handler}`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  for (const outcome of ["success","cached","backendFailure","clipboardFailure","stale"]) {
     let finish, calls=0, copied=0, refreshes=0;
     const timers = [];
     const context = {
-      busy:{value:false},sessionCopying:{value:false},sessionCopied:{value:false},sessionCopyRevision:0,sessionCopyTimer:undefined,error:{value:undefined},sessionCommand:{value:""},sshConnected:{value:true},
+      busy:{value:false},sessionCopying:{value:false},sessionCopied:{value:false},sessionCopyRevision:0,sessionCopyTimer:undefined,error:{value:undefined},sessionCommand:{value:outcome==="cached"?"source env.sh":""},sshConnected:{value:true},
+      resolvedSessionCommand:{value:""},sessionCommandRequest:undefined,sessionCommandGeneration:0,
       props:{summary:{proxy:{remotePort:7897},proxyStatus:"connected"}},
       remoteBackend:{sessionEnvironmentCommand:()=>{ calls++; return new Promise((resolve,reject)=>{finish=()=>outcome==="backendFailure"?reject("networkFailed"):resolve("source env.sh");}); }},
       copyText:async()=>{ if(outcome==="clipboardFailure") throw new Error("clipboard denied"); copied++; },
@@ -40,20 +43,56 @@ test("terminal copy isolates pending feedback, expires success and rejects stale
     assert.equal(context.busy.value,false,"Clipboard actions must not activate page-level dimming");
     assert.equal(context.sessionCopying.value,true);
     await context.copySessionEnvironment();
-    assert.equal(calls,1,"Only the copy buttons lock; duplicate copies are blocked");
-    if(outcome==="stale") { context.sessionCopyRevision++; context.resetSessionCopyFeedback(); }
-    finish(); await pending;
+    assert.equal(calls,outcome==="cached"?0:1,"Ready commands copy locally; duplicate backend preparation is blocked");
+    if(outcome==="stale") { context.sessionCopyRevision++; context.sessionCommandGeneration++; context.resetSessionCopyFeedback(); }
+    finish?.(); await pending;
     assert.equal(context.sessionCopying.value,false);
-    assert.equal(context.sessionCopied.value,outcome==="success");
-    assert.equal(copied,Number(outcome==="success"));
-    assert.equal(refreshes,Number(outcome!=="stale"));
-    if(outcome==="success") {
+    assert.equal(context.sessionCopied.value,["success","cached"].includes(outcome));
+    assert.equal(copied,Number(["success","cached"].includes(outcome)));
+    assert.equal(refreshes,Number(!["stale","cached"].includes(outcome)));
+    assert.equal(context.resolvedSessionCommand.value,["success","clipboardFailure"].includes(outcome)?"source env.sh":"","Confirmed commands populate the preview even if clipboard access fails; stale responses do not");
+    if(["success","cached"].includes(outcome)) {
       assert.equal(timers[0].delay,2000);
       timers[0].callback();
       assert.equal(context.sessionCopied.value,false,"The check expires without another user action");
     } else assert.equal(timers.length,0,"Failures and stale contexts never turn the icon green");
   }
   assert.equal((source.match(/:copied="sessionCopied"/g)??[]).length,2,"Overview and Advanced share one feedback state");
+});
+
+test("terminal command and copy feedback survive navigation without reloading or disabling one copy entry", () => {
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(page,/const sessionCommand = computed\(\(\) => props.summary.sessionEnvironmentCommand \|\| resolvedSessionCommand.value\)/);
+  assert.doesNotMatch(page,/commandRevision|sessionCommand\.value\s*=(?!=)/);
+  const invalidation=page.match(/watch\(\(\) => JSON.stringify\(\[props.summary.target\?\.id[\s\S]*?\n\}\);/)?.[0];
+  assert.ok(invalidation);
+  assert.doesNotMatch(invalidation,/visible|advancedView|sshConnected/);
+  assert.match(invalidation,/sessionCommandGeneration\+\+[\s\S]*resolvedSessionCommand.value = ""/);
+  assert.match(page,/sessionEnvironmentState === "ready" && !sessionCommand.value[\s\S]*resolveSessionCommand\(\)/);
+  assert.match(page,/watch\(sessionCommand,[\s\S]*previous && next !== previous[\s\S]*resetSessionCopyFeedback/);
+  const advanced=readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8");
+  assert.doesNotMatch(advanced,/:disabled="[^"]*commandLoading/);
+  assert.equal((advanced.match(/'is-copied':copied/g)??[]).length,2,"Both advanced copy buttons share success feedback");
+});
+
+test("advanced cards place recent events beside security and manual tools beside diagnostics", () => {
+  const source=readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8");
+  const headings=[...source.matchAll(/<section[^>]*aria-labelledby="([^"]+)"/g)].map(match=>match[1]);
+  assert.deepEqual(headings,[
+    "advanced-environment-title","advanced-links-title","advanced-security-title",
+    "advanced-events-title","advanced-manual-title","advanced-diagnostics-title",
+  ]);
+});
+
+test("diagnostic actions reuse the manual tools grouped two-column layout", () => {
+  const source=readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8");
+  const card=source.match(/<section class="advanced-card advanced-diagnostics"[\s\S]*?<\/section>/)?.[0];
+  assert.ok(card);
+  assert.equal((card.match(/class="advanced-group"/g)??[]).length,2);
+  assert.equal((card.match(/class="advanced-tool-actions"/g)??[]).length,2);
+  assert.match(card,/rbAdvDiagnosticActions[\s\S]*emit\('openReport'\)[\s\S]*timingDialog\?\.showModal\(\)/);
+  assert.match(card,/rbAdvLogActions[\s\S]*emit\('openLogs'\)[\s\S]*confirmClearLogs/);
+  assert.doesNotMatch(source,/advanced-log-action|\.advanced-diagnostics \.advanced-tool-actions/);
 });
 
 test("SSH labels hide only port 22, and first-use host keys enter interactive confirmation", async () => {
@@ -106,6 +145,76 @@ test("the real start-connection handler confirms new host keys without retrying 
     assert.equal(context.busy.value, false);
   }
 });
+
+test("post-auth SSH errors release the modal and stale polls cannot reopen it", async () => {
+  const source=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const complete=source.slice(source.indexOf("async function completeInteractiveAuth("),source.indexOf("async function beginInteractiveAuth("));
+  const compiled=ts.transpileModule(complete,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  const ref=value=>({value});
+  for(const failure of ["state","finish","connect","cancelledPoll"]) {
+    let finishPoll,finishCalls=0,refreshes=0;
+    const snapshot={sessionId:"test-session",status:"succeeded",auth:{authenticated:true}};
+    const context={
+      authSession:ref(snapshot),authBeginRevision:0,connectionPhase:ref("authenticating"),busy:ref(false),error:ref(),sshCheck:ref({state:"checking"}),
+      checked:ref(false),authPollTimer:undefined,authDialog:ref({close:()=>{}}),lastAuthPrompt:ref(null),authResponse:ref(""),submittedAuthMask:ref("••••••••"),submittedAuthPromptId:ref("prompt-1"),
+      clearAuthPoll:()=>{},usePorts:()=>{},request:()=>({}),emit:()=>{refreshes++;},
+      needsInteractiveSshAuth:()=>false,bridgeErrorCode:value=>value,beginInteractiveAuth:async()=>{},refreshNetworkChecks:async()=>{},
+      remoteBackend:{
+        sshAuthState:async()=>{
+          if(failure==="state") throw "sshFailed";
+          if(failure==="cancelledPoll") return new Promise(resolve=>{finishPoll=()=>resolve(snapshot);});
+          return snapshot;
+        },
+        sshAuthFinish:async()=>{
+          finishCalls++;
+          assert.equal(context.connectionPhase.value,"building","Authentication success is not bridge completion");
+          if(failure==="finish") throw "sshFailed";
+          return {operation:"check",ports:{proxyPort:7897,ccPort:15721}};
+        },
+      },
+      connectPrepared:async()=>{throw "sshFailed";},
+      Date,setTimeout,clearTimeout,
+    };
+    runInNewContext(compiled,context);
+    const pending=context.pollInteractiveAuth();
+    if(failure==="cancelledPoll") {
+      context.authBeginRevision++;
+      context.authSession.value=undefined;
+      context.connectionPhase.value="idle";
+      finishPoll();
+    }
+    await pending;
+    assert.equal(context.busy.value,false);
+    assert.equal(context.connectionPhase.value,failure==="cancelledPoll"?"idle":"failed");
+    assert.equal(context.error.value,failure==="cancelledPoll"?undefined:"sshFailed");
+    assert.equal(finishCalls,["finish","connect"].includes(failure)?1:0);
+    if(failure==="cancelledPoll") assert.equal(refreshes,0,"Cancelled callbacks do not restore modal state");
+  }
+  assert.match(source,/v-if="authPromptUnavailable \|\| connectionPhase === 'failed'"[^>]*@click="retryInteractiveAuth"/);
+  assert.match(source,/connectionPhase === 'failed' \|\| authSession\?\.status !== 'succeeded'/);
+});
+
+test("server direct, proxy egress and AI verification derive from the shared diagnostic snapshot", async () => {
+  const source=readFileSync("src/features/remote-bridge/overview-presentation.ts","utf8");
+  const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
+  const {serverDirectCheckState,diagnosticCheckState}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+  const base={target:{id:"test"},status:"connected",sshAuth:{authenticated:true},diagnostics:{serverDirect:{state:"passed",checkedAt:1234},serverInternet:"reachable"}};
+  assert.equal(serverDirectCheckState(base),"healthy");
+  assert.equal(serverDirectCheckState({...base,diagnostics:{serverDirect:{state:"failed",checkedAt:1234},serverInternet:"unreachable"}}),"failed");
+  assert.equal(serverDirectCheckState({...base,diagnostics:{serverDirect:{state:"failed",checkedAt:1234},serverInternet:null}}),"warning");
+  assert.equal(serverDirectCheckState({...base,diagnostics:{serverDirect:{state:"notTested",checkedAt:null},serverInternet:"reachable"}}),"idle");
+  assert.equal(serverDirectCheckState({...base,diagnostics:{serverDirect:{state:"testing",checkedAt:null}}}),"checking");
+  for(const overrides of [{target:null},{status:"connecting"},{status:"disconnected"},{status:"error"},{sshAuth:{authenticated:false}},{diagnostics:undefined}]) assert.equal(serverDirectCheckState({...base,...overrides}),"idle");
+  assert.equal(serverDirectCheckState({...base,proxyStatus:"unavailable",ccStatus:"unavailable"}),"healthy");
+  for(const [state,expected] of [[undefined,"idle"],["notTested","idle"],["testing","checking"],["passed","healthy"],["failed","failed"]]) assert.equal(diagnosticCheckState(state),expected);
+  assert.equal(base.diagnostics.serverDirect.checkedAt,1234,"Formatting never rewrites the check timestamp");
+  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  assert.match(page,/const serverDirectState = computed\(\(\) => serverDirectCheckState\(props\.summary\)\)/);
+  assert.doesNotMatch(page,/restoreServerInternetCheck|serverInternetCheck|serverDirectState\.value\s*=(?!=)/,"No page-owned result or restore watcher");
+  assert.match(page,/@click="runDiagnostics">\{\{ copy\.rbRefreshStatus/);
+  const advanced=readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8");
+  for(const lane of ["generalProxyEgress","aiRouteVerification"]) assert.ok(advanced.includes(`diagnosticCheckState(props.summary.diagnostics?.${lane}.state)`));
+});
 const legacyCatalogJson = script.match(/codex_catalog_json\(\) \{\s+printf '%s\\n' '([^']+)'/)?.[1];
 const posix = p => p.replaceAll("\\", "/").replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
 function fixture({jsonEngine="python3",claudeLocation="path",privateGroup=false,sharedGroup=false}={}) {
@@ -142,13 +251,29 @@ function fixture({jsonEngine="python3",claudeLocation="path",privateGroup=false,
     const claudeProfileHash=createHash("sha256").update(claudeProfile).digest("hex");
     const needsClaudeProfile=tool==="claude" && ["preview","apply"].includes(operation);
     const sessionToken=env.TEST_SESSION_TOKEN || "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nport=${port}\nports='${env.TEST_REMOTE_PORT ?? 17897}'\nexpected='${expected}'\nexpected_backup='${backupHash}'\nrepair_permissions='${env.TEST_REPAIR_PERMISSIONS === "1" ? "true" : "false"}'\nprotocol='http'\nscheme='http'\nsession_id='0123456789abcdef0123456789abcdef'\nsession_token='${sessionToken}'\nPROXYENV_SESSION_TOKEN="$session_token"\nexport PROXYENV_SESSION_TOKEN\nprofile_model_b64='${needsProfile ? Buffer.from(profileModel).toString("base64") : ""}'\nprofile_catalog_b64='${needsProfile ? Buffer.from(profileCatalog).toString("base64") : ""}'\nprofile_settings_b64='${needsClaudeProfile ? Buffer.from(claudeProfile).toString("base64") : ""}'\nprofile_hash='${needsProfile ? profileHash : needsClaudeProfile ? claudeProfileHash : ""}'\n${script}`;
+    const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nport=${port}\nports='${env.TEST_REMOTE_PORT ?? 17897}'\nexpected='${expected}'\nexpected_backup='${backupHash}'\nrepair_permissions='${env.TEST_REPAIR_PERMISSIONS === "1" ? "true" : "false"}'\nprotocol='http'\nscheme='http'\nsession_id='0123456789abcdef0123456789abcdef'\nsession_token='${sessionToken}'\nPROXYENV_SESSION_TOKEN="$session_token"\nexport PROXYENV_SESSION_TOKEN\nprofile_model_b64='${needsProfile ? Buffer.from(profileModel).toString("base64") : ""}'\nprofile_catalog_b64='${needsProfile ? Buffer.from(profileCatalog).toString("base64") : ""}'\nprofile_settings_b64='${needsClaudeProfile ? Buffer.from(claudeProfile).toString("base64") : ""}'\nprofile_hash='${needsProfile ? profileHash : needsClaudeProfile ? claudeProfileHash : ""}'\n${env.TEST_COMPACT_PROBE === "1" ? probeScript : script}`;
     const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:{...process.env,CODEX_HOME:"",CLAUDE_CONFIG_DIR:"",HOME:posix(home),PATH:`${posix(bin)}:/usr/bin:/bin`,...env}});
     assert.equal(result.status,0,result.stderr || result.error?.message);
     return JSON.parse(result.stdout.trim());
   };
   return {home,run,cleanup:()=>{ assert.ok(resolve(directory).startsWith(root + (process.platform==="win32"?"\\":"/"))); rmSync(directory,{recursive:true,force:true}); }};
 }
+test("compact read-only SSH probes retain port and network checks without configuration writes",{skip:!available},()=>{
+  assert.ok(Buffer.byteLength(probeScript)<4096);
+  assert.doesNotMatch(probeScript,/claude_json|umask 077/);
+  const f=fixture();try {
+    const compact={TEST_COMPACT_PROBE:"1"};
+    const listener={...compact,TEST_LISTENERS:"LISTEN 0 128 127.0.0.1:17897 0.0.0.0:*"};
+    assert.equal(f.run("check","codex",25721,"absent",compact).verified,true);
+    assert.equal(f.run("check","codex",25721,"absent",listener).error,"portInUse");
+    assert.equal(f.run("verify","codex",25721,"absent",listener).verified,true);
+    assert.equal(f.run("verify","codex",25721,"absent",{...compact,TEST_LISTENERS:"LISTEN 0 128 0.0.0.0:17897 0.0.0.0:*"}).error,"unsafeBinding");
+    assert.equal(f.run("internet","codex",25721,"absent",compact).internet,"reachable");
+    assert.equal(f.run("test","codex",25721,"absent",listener).tested,true);
+    assert.equal(existsSync(join(f.home,".claude")),false);
+    assert.equal(existsSync(join(f.home,".codex")),false);
+  } finally { f.cleanup(); }
+});
 test("remote port preflight rejects occupation and wildcard listeners",{skip:!available},()=>{
   const f=fixture();try {
     for(const remotePort of [17897, 10809]) {
@@ -422,7 +547,7 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   assert.match(advanced,/<AdvancedStatusRow/);
   assert.match(page,/remoteBackend\.checkNetwork/);
   assert.match(page,/remoteBackend\.detectCc/);
-  assert.match(page,/serverInternetCheck/);
+  assert.match(page,/serverDirectState/);
   assert.match(page,/localProxyCheck/);
   assert.match(page,/ccCheck/);
   assert.match(page,/emit\("connected", outcome\.summary\)/);
@@ -723,6 +848,8 @@ test("all remote UI labels and error categories are localized",async()=>{
   for(const [locale,copy] of Object.entries(messages)) {
     assert.deepEqual(Object.keys(copy).sort(),Object.keys(messages.en).sort(),locale);
     for(const state of ["disconnected","connecting","connected","stale","unavailable","error"]) assert.ok(copy.rbStates[state]);
+    const firstConnection = {en:/first connection.*does not send/i,"zh-CN":/默认首次连接不发送模型验证请求/,ja:/初回接続ではモデル検証リクエストを送信しません/,ko:/첫 연결에서는 기본적으로 모델 검증 요청을 보내지 않습니다/}[locale];
+    for (const key of ["rbVerifyClaudeHint","rbAdvVerificationHelp"]) assert.match(copy[key],firstConnection,`${locale}:${key} must explain that initial model verification is opt-in`);
     for(const key of ["rbAuthInteractionError","rbAuthCompleting","rbAuthCompletingTitle","rbAuthCompletingDescription","rbAuthRemoteCheckFailure","rbAuthRemoteCheckFailureTitle","rbAuthPromptUnavailableTitle","rbAuthPromptUnavailableDescription","rbAuthPromptUnavailableHint","rbAuthRetry","rbAuthOpenDiagnostic","rbAuthDiagnosticBytes","rbAuthDiagnosticPrintable","rbAuthDiagnosticCpr","rbAuthDiagnosticPrompt","rbAuthDiagnosticMarker","rbAuthDiagnosticResult","rbAuthDiagnosticClosed","rbAuthCompletionTimeout","rbVerifyClaude","rbVerifyClaudeHint","rbToolVerifyPending","rbToolVerified","rbToolAuthRequired","rbToolRouteUnavailable","rbToolVerifyTimedOut","rbToolVerifyFailed"]) assert.ok(copy[key],`${locale}:${key}`);
 for(const code of ["sshAuth","sshAuthRejected","sshAuthPromptChanged","sshAuthCompletionTimeout","hostKeyChanged","ptyUnavailable","sshAuthSessionMissing","forwardDenied","unsafeBinding","configConflict","legacyModelSelectionRequired","routeOutdated","rootForbidden","dependencyMissing","jsonEditorMissing","cliMissing","cliUnsupported","customHome","remoteUnsupported","portInUse","activeChanged","ccUnavailable","bridgeUnavailable","toolNotConfigured","toolVerificationUnsupported","noCapability","alreadyConnected","stateUnavailable","processFailed","remoteFailed","networkFailed","targetUnsupported","portAllocationFailed","portRace","random-secret"]) assert.ok(bridgeError(code,copy) && !bridgeError(code,copy).includes("random-secret"));
     assert.equal(
@@ -1126,7 +1253,7 @@ test("overview preserves independent statuses, public port mappings, and existin
   assert.match(page,/if \(busy\.value \|\| overviewToolChecking\(props\.summary, adapter\.id\)\) return/);
   assert.match(overview,/:disabled="busy \|\| tool\.checking \|\| !connected/);
   assert.match(page,/emit\("connected", summary\)/);
-  assert.match(page,/overviewServerDirectStatus\(props\.copy, serverInternetCheck\.value\.state\)/);
+  assert.match(page,/overviewServerDirectStatus\(props\.copy, serverDirectState\.value\)/);
   assert.match(page,/class="remote-server-globe" aria-hidden="true"/);
   assert.match(page,/copy\.rbOverviewServerDirectNetwork/);
   const launch=readFileSync("src/features/remote-bridge/components/BridgeLaunchBar.vue","utf8");
@@ -1354,7 +1481,7 @@ test("MobaXterm handoff exposes the shared environment action without claiming A
   assert.match(launch,/class="secondary-action bridge-launch-copy"/);
   assert.match(launch,/@click="emit\('copyEnvironment'\)"/);
   assert.match(launch,/\.bridge-launch-copy \{ margin-left:auto; \}/);
-  assert.match(page,/const command = await remoteBackend\.sessionEnvironmentCommand\(\)[\s\S]*await copyText\(command\)/);
+  assert.match(page,/const command = await resolveSessionCommand\(\)[\s\S]*await copyText\(command\)/);
   assert.match(page,/async function openMobaxterm\(\)[\s\S]*await remoteBackend\.launchMobaxterm[\s\S]*mobaOpened\.value = true/);
   assert.match(page,/@mobaxterm="perform\(openMobaxterm\)"/);
   assert.match(launch,/rbMobaProxyHint[\s\S]*rbMobaAiHint/);

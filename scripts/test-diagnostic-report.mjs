@@ -22,6 +22,15 @@ const data = {
   assistant: { category: "unrecognized", state: "environmentConfigured", action: "none" }
 };
 
+test("VS Code proxy configuration states use specific localized descriptions", () => {
+  for (const copy of Object.values(messages)) {
+    for (const [state,key] of Object.entries({notSet:'rbAdvProxyNotSet',disabled:'rbAdvProxyDisabled',invalidSettings:'rbAdvProxyInvalid',readFailed:'rbAdvProxyReadFailed',unsupportedProxy:'rbAdvProxyUnsupported',notCompared:'rbAdvProxyNotCompared',unknown:'rbAdvPortUnknown'})) {
+      const report=formatDiagnosticReport({...data,remoteBridge:{runtimeProxyMatch:state}},copy);
+      assert.ok(report.includes(copy[key]),`${state} must have a specific localized report description`);
+    }
+  }
+});
+
 test("all four locales format the same snapshot without mutating its diagnosis", () => {
   const before = JSON.stringify(data);
   const titles = { en: "ProxyEnv Diagnostic Report", "zh-CN": "ProxyEnv 诊断报告", ja: "ProxyEnv 診断レポート", ko: "ProxyEnv 진단 보고서" };
