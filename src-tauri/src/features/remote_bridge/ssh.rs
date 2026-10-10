@@ -536,10 +536,13 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
     let default = dirs::home_dir()
         .ok_or("sshConfigMissing")?
         .join(".ssh/config");
-    let vscode_config = super::vscode::custom_ssh_config().ok().flatten();
+    let vscode_setting = super::vscode::custom_ssh_config();
+    let vscode_config = vscode_setting.as_ref().ok().and_then(|path| path.clone());
     let default_canonical = default.canonicalize().ok();
-    let vscode_uses_default = vscode_config.is_none()
-        || (default_canonical.is_some() && vscode_config.as_ref() == default_canonical.as_ref());
+    let vscode_uses_default = vscode_setting.is_ok()
+        && (vscode_config.is_none()
+            || (default_canonical.is_some()
+                && vscode_config.as_ref() == default_canonical.as_ref()));
     let mut result = config_targets(
         &default,
         RemoteTargetSource::Openssh,
@@ -619,6 +622,22 @@ fn discovered() -> BridgeResult<Vec<ResolvedTarget>> {
     for connection in connections::all()? {
         let mut public = connections::target(&connection);
         public.can_open_mobaxterm = can_open_mobaxterm;
+        // Remote - SSH accepts a structured direct authority. A non-default
+        // identity or a different config cannot be silently dropped at launch.
+        if let Some(alias) = result.iter().find(|candidate| {
+            candidate.public.can_open_vscode
+                && candidate.public.ssh_alias.is_some()
+                && candidate.public.host == public.host
+                && candidate.public.user == public.user
+                && candidate.public.port == public.port
+                && candidate.public.identity_file == public.identity_file
+        }) {
+            public.ssh_alias = alias.public.ssh_alias.clone();
+            public.can_open_vscode = public.available;
+        } else {
+            public.can_open_vscode =
+                super::vscode::supports_direct_target(&public, vscode_uses_default);
+        }
         result.push(ResolvedTarget {
             public,
             connection: Connection::Direct {
@@ -1150,19 +1169,30 @@ pub fn output(
         return Err("sshConfigUnsafe".into());
     }
     if !status.success() {
-        let error = String::from_utf8_lossy(&error).to_lowercase();
-        return Err(if error.contains("host key") {
-            "hostKey"
-        } else if error.contains("permission denied") {
-            "sshAuth"
-        } else if error.contains("forward") {
-            "forwardDenied"
-        } else {
-            "sshFailed"
-        }
-        .into());
+        return Err(classify_ssh_error(&String::from_utf8_lossy(&error)));
     }
     String::from_utf8(output).map_err(|_| "remoteFailed".into())
+}
+
+pub(super) fn classify_ssh_error(transcript: &str) -> String {
+    let text = transcript.to_ascii_lowercase();
+    if text.contains("remote host identification has changed")
+        || text.contains("offending") && text.contains("known_hosts")
+    {
+        "hostKeyChanged"
+    } else if text.contains("host key") {
+        "hostKey"
+    } else if text.contains("forward") {
+        "forwardDenied"
+    } else if text.contains("permission denied")
+        || text.contains("authentication failed")
+        || text.contains("password")
+    {
+        "sshAuth"
+    } else {
+        "sshFailed"
+    }
+    .into()
 }
 
 pub(super) fn remote_payload(
@@ -1698,6 +1728,33 @@ pub(super) fn extension_remote(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_host_key_can_request_confirmation_but_changed_keys_remain_blocked() {
+        assert_eq!(
+            classify_ssh_error("No ED25519 host key is known; Host key verification failed."),
+            "hostKey"
+        );
+        assert_eq!(
+            classify_ssh_error(
+                "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! Host key verification failed."
+            ),
+            "hostKeyChanged"
+        );
+        assert_eq!(
+            classify_ssh_error("Offending ED25519 key in C:/test/known_hosts:1"),
+            "hostKeyChanged"
+        );
+        assert_eq!(
+            classify_ssh_error("Permission denied (publickey,password)."),
+            "sshAuth"
+        );
+        assert_eq!(
+            classify_ssh_error("remote port forwarding failed for listen port"),
+            "forwardDenied"
+        );
+        assert_eq!(classify_ssh_error("Connection refused"), "sshFailed");
+    }
     #[cfg(windows)]
     #[test]
     fn skill_upload_uses_a_windows_path_scp_recognizes_as_local() {

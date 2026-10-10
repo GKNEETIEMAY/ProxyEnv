@@ -281,17 +281,57 @@ pub fn open(target: String) -> BridgeResult<()> {
     if !selected.can_open_vscode {
         return Err("vscodeConfigMismatch".into());
     }
-    let alias = selected
-        .ssh_alias
-        .as_deref()
-        .ok_or("vscodeConfigMismatch")?;
+    let authority = target_authority(&selected)?;
     let executable = executable().ok_or("vscodeMissing")?;
-    launch(&executable, alias)
+    launch(&executable, &authority)
 }
-fn launch(executable: &Path, alias: &str) -> BridgeResult<()> {
+
+pub(super) fn supports_direct_target(target: &super::RemoteTarget, same_config: bool) -> bool {
+    target.available && target.host.is_some() && target.identity_file.is_none() && same_config
+}
+
+fn target_authority(target: &super::RemoteTarget) -> BridgeResult<String> {
+    if let Some(alias) = target.ssh_alias.as_deref() {
+        if !ssh::safe_name(alias) {
+            return Err("invalidTarget".into());
+        }
+        return Ok(alias.to_owned());
+    }
+    if target.identity_file.is_some() {
+        return Err("vscodeConfigMismatch".into());
+    }
+    let host = target.host.as_deref().ok_or("invalidTarget")?;
+    if !ssh::safe_host(host)
+        || target
+            .user
+            .as_deref()
+            .is_some_and(|user| !ssh::safe_name(user) || user == "root")
+        || target.port == Some(0)
+    {
+        return Err("invalidTarget".into());
+    }
+    // Match Remote - SSH's HostInfo.toAuthorityString protocol: hexadecimal
+    // UTF-8 JSON, with user and port as separate fields (not host:port syntax).
+    let mut destination = serde_json::json!({ "hostName": host });
+    if let Some(user) = target.user.as_deref() {
+        destination["user"] = user.into();
+    }
+    if let Some(port) = target.port {
+        destination["port"] = port.into();
+    }
+    Ok(hex::encode(
+        serde_json::to_vec(&destination).map_err(|_| "invalidTarget")?,
+    ))
+}
+
+fn launch(executable: &Path, authority: &str) -> BridgeResult<()> {
     let mut command = Command::new(executable);
     command
-        .args(["--new-window", "--remote", &format!("ssh-remote+{alias}")])
+        .args([
+            "--new-window",
+            "--remote",
+            &format!("ssh-remote+{authority}"),
+        ])
         .env_remove("ELECTRON_RUN_AS_NODE")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -389,6 +429,59 @@ pub fn reveal_target_config(target: String) -> BridgeResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn direct_target() -> super::super::RemoteTarget {
+        serde_json::from_value(serde_json::json!({
+            "id":"manual-test", "displayName":"Test", "source":"manual",
+            "sourceLabel":"ProxyEnv", "configPath":"ProxyEnv", "sshAlias":null,
+            "host":"lab.example.test", "user":"student", "port":22, "identityFile":null,
+            "authenticationMethod":"password", "available":true,
+            "compatibility":"compatible", "unavailableReason":null,
+            "canOpenVscode":true, "canOpenMobaxterm":false
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn manual_vscode_authority_keeps_user_and_port_separate_from_the_host() {
+        let mut target = direct_target();
+        for (host, port) in [
+            ("lab.example.test", 22),
+            ("39.108.54.44", 2222),
+            ("2001:db8::1", 2222),
+        ] {
+            target.host = Some(host.into());
+            target.port = Some(port);
+            let encoded = target_authority(&target).unwrap();
+            let decoded: serde_json::Value =
+                serde_json::from_slice(&hex::decode(encoded).unwrap()).unwrap();
+            assert_eq!(
+                decoded,
+                serde_json::json!({"hostName":host,"user":"student","port":port})
+            );
+        }
+        target.ssh_alias = Some("existing-alias".into());
+        assert_eq!(target_authority(&target).unwrap(), "existing-alias");
+    }
+
+    #[test]
+    fn manual_vscode_launch_does_not_discard_identity_or_config_constraints() {
+        let mut target = direct_target();
+        assert!(supports_direct_target(&target, true));
+        assert!(!supports_direct_target(&target, false));
+        target.identity_file = Some("C:/keys/nondefault-identity".into());
+        assert!(!supports_direct_target(&target, true));
+        assert_eq!(
+            target_authority(&target).unwrap_err(),
+            "vscodeConfigMismatch"
+        );
+        target.identity_file = None;
+        target.user = Some("root".into());
+        assert_eq!(target_authority(&target).unwrap_err(), "invalidTarget");
+        target.user = Some("student".into());
+        target.host = Some("host; command".into());
+        assert_eq!(target_authority(&target).unwrap_err(), "invalidTarget");
+    }
 
     #[cfg(windows)]
     #[test]

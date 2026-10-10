@@ -581,24 +581,7 @@ fn parse_ssh_prompt(text: &str, attempt: u16) -> Option<AuthPrompt> {
 }
 
 fn classify_error(transcript: &str) -> String {
-    let text = transcript.to_ascii_lowercase();
-    if text.contains("remote host identification has changed")
-        || text.contains("offending") && text.contains("known_hosts")
-    {
-        "hostKeyChanged"
-    } else if text.contains("host key verification failed") || text.contains("host key") {
-        "hostKey"
-    } else if text.contains("forwarding") || text.contains("remote port forwarding failed") {
-        "forwardDenied"
-    } else if text.contains("permission denied")
-        || text.contains("authentication failed")
-        || text.contains("password")
-    {
-        "sshAuth"
-    } else {
-        "sshFailed"
-    }
-    .into()
+    ssh::classify_ssh_error(transcript)
 }
 
 fn valid_response(response: &str) -> bool {
