@@ -13,6 +13,8 @@ Remote Bridge connects a selected Windows local proxy or AI route to a non-root 
 
 ## Connection phases
 
+Remote CLI installation, routing configuration and real request verification are separate. After connection, Overview shows Codex/Claude installation states and offers official, user-executed installation commands. See [Remote CLI readiness (Stage 2)](REMOTE_TOOL_READINESS.md).
+
 - **Authentication:** native OpenSSH key/Agent/password/KBI flow and host-key confirmation.
 - **Core Bridge:** the SSH process is alive, requested reverse forwards exist, local relays are alive and every requested remote listener is verified. This is the only gate for showing Connected.
 - **Post-connect:** session environment, remote VS Code network isolation, Codex/Claude inspection or owned-route refresh, and Skills state are independent background jobs. A warning here never rewrites core transport readiness.

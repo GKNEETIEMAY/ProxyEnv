@@ -339,7 +339,15 @@ The single-instance plugin establishes process ownership before tray and window 
 
 单实例插件先于托盘和窗口初始化。第二次启动不会多开，而是恢复并聚焦现有窗口。关闭按钮是否隐藏到托盘由已保存设置决定。
 
+## Operation feedback / 操作反馈
+
+`NotificationCenter` is mounted once in the app shell. Localized operation outcomes use the shared session-only `notify` / `useNotification` service instead of page-bottom messages. The upper-right stack reuses theme tokens and `StatusIndicator`, merges duplicate operation keys, keeps at most three notices, supports dismissal and pauses expiry during pointer/keyboard interaction. A manual popover keeps notices visible above dialogs without changing page layout or taking input focus. Notifications are never persisted, uploaded or logged and do not enable the separate system-notification or sound feature. Field validation, safety confirmations and durable diagnostic/workflow results stay beside their controls.
+
+操作成功、错误与提示统一显示在右上角；不再在页面底部保留通用返回消息。字段校验、安全确认和需要持续查看的诊断状态保留原位；通知内容只存在当前会话中。
+
 ## Verification / 验证
+
+Stage 2 remote tool discovery uses the existing adapters and one bounded `tool-discover` SSH operation for both CLIs, then reuses the read-only Remote SSH extension inspector for both plugins. CLI and plugin installation observations are independent from configuration and request verification, protected by target fingerprints, connection generation and request tickets. A compatible remote plugin can use the existing shared-profile transaction without a standalone CLI; the backend rechecks plugin evidence for preview, apply and background sync. CLI-dependent model probes remain unavailable in plugin-only setups. Post-connect and reconnect detection do not delay Core Bridge readiness. When the user enables the CC Switch AI capability, completed discovery automatically configures compatible tools through the existing preview/apply/read-back/rollback transaction; enabling the capability after discovery triggers the same path. Explicit per-tool OFF survives refresh and reconnect for this bridge session. The installation dialog provides static official commands, copy, existing terminal launch and recheck; it never automatically installs software or sends a model request. See [Remote tool readiness](remote-bridge/REMOTE_TOOL_READINESS.md).
 
 ```powershell
 pnpm build
