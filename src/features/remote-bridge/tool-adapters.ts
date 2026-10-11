@@ -1,10 +1,14 @@
 import type { RemoteBridgeCopy } from "../../shared/i18n/remote-bridge";
-import { remoteBackend, type BridgeSummary, type ConfigPreview, type RemoteToolState, type RemoteToolVerification, type ToolVerificationResult } from "./state";
+import { remoteBackend, type BridgeSummary, type ConfigPreview, type RemoteToolState, type RemoteToolVerification, type ToolVerificationResult, type RemoteToolInstallState } from "./state";
 
 export type RemoteToolId = "codex" | "claude";
 export type RemoteToolRouteMode = "ccSwitch";
 export type RemoteToolCompatibility = "compatible" | "unsupported";
 export interface RemoteToolInspection {
+  installation: RemoteToolInstallState;
+  version: string | null;
+  extensionInstallation: RemoteToolInstallState;
+  extensionVersion: string | null;
   configured: boolean;
   verification: RemoteToolVerification;
   verificationSupported: boolean;
@@ -61,7 +65,16 @@ function createAdapter(definition: AdapterDefinition): RemoteToolAdapter {
   return {
     ...definition,
     detect: (preview) => Boolean(preview?.version),
-    inspect: (summary) => ({ configured: configured(summary), verification: verification(summary), verificationSupported: state(summary)?.verificationSupported ?? definition.verificationSupported }),
+    inspect: (summary) => {
+      const installation=summary.toolInstallations?.find(tool => tool.tool === definition.id);
+      return {
+        installation:installation?.state ?? "unknown", version:installation?.version ?? null,
+        extensionInstallation:installation?.extensionState ?? "unknown", extensionVersion:installation?.extensionVersion ?? null,
+        configured:configured(summary), verification:verification(summary),
+        // The paid Claude probe executes a CLI, not the VS Code extension.
+        verificationSupported:(state(summary)?.verificationSupported ?? definition.verificationSupported) && (!installation || installation.state === "installed"),
+      };
+    },
     preview: (targetId, restoring) => restoring
       ? remoteBackend.configRestorePreview(targetId, definition.id)
       : remoteBackend.configPreview(definition.id),
@@ -123,4 +136,11 @@ export function getRemoteToolAdapter(id: RemoteToolId): RemoteToolAdapter {
   const adapter = remoteToolAdapters.find((candidate) => candidate.id === id);
   if (!adapter) throw new Error("invalid remote tool adapter");
   return adapter;
+}
+
+export function canToggleRemoteTool(summary:BridgeSummary, id:RemoteToolId):boolean {
+  const inspection=getRemoteToolAdapter(id).inspect(summary);
+  if (inspection.installation === "checking" || inspection.extensionInstallation === "checking") return false;
+  // Disabling existing configuration must remain possible even after CLI removal.
+  return inspection.configured || ((inspection.installation === "installed" || inspection.extensionInstallation === "installed") && summary.ccStatus === "connected");
 }

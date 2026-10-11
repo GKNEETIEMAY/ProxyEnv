@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import type { Copy } from "../../../shared/i18n";
 import type { ProxyCandidate } from "../../../shared/types";
 import { copyText } from "../../../shared/utils/clipboard";
+import { useNotification } from "../../../shared/state/notifications";
 
 const props = defineProps<{
   copy: Copy;
@@ -17,6 +18,9 @@ const copiedField = ref<"host" | "port" | "endpoint">();
 const copyError = ref("");
 const launchError = ref("");
 const launchResult = ref("");
+useNotification(copyError, "error", "assistant-copy");
+useNotification(launchError, "error", "assistant-launch");
+useNotification(launchResult, "success", "assistant-launch");
 const launching = ref(false);
 const confirmingRestart = ref(false);
 let copyTimer: number | undefined;
@@ -126,11 +130,8 @@ defineExpose({ open });
       </dl>
       <span class="proxy-guide-copy-status" role="status" aria-live="polite">{{ copiedField ? copy.endpointCopied : "" }}</span>
 
-      <p v-if="copyError" class="proxy-guide-copy-error" role="alert">{{ copyError }}</p>
       <div class="proxy-guide-feedback" aria-live="polite">
-        <div v-if="launchResult" class="proxy-guide-launch-result" role="status"><strong>{{ copy.assistantManualProxyProcessStarted }}</strong><p>{{ launchResult }}</p></div>
-        <p v-else-if="launchError" class="proxy-guide-copy-error" role="alert">{{ launchError }}</p>
-        <div v-else-if="confirmingRestart" class="proxy-guide-restart-confirm" role="alert"><strong>{{ copy.assistantRestartProcessConfirmTitle }}</strong><p>{{ copy.assistantRestartProcessConfirmBody }}</p></div>
+        <div v-if="confirmingRestart && !launchResult" class="proxy-guide-restart-confirm" role="alert"><strong>{{ copy.assistantRestartProcessConfirmTitle }}</strong><p>{{ copy.assistantRestartProcessConfirmBody }}</p></div>
         <p v-else class="proxy-guide-credentials">{{ copy.assistantProxyCredentials }}</p>
       </div>
       <div class="confirmation-actions">

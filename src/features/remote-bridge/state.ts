@@ -16,7 +16,7 @@ export interface RuntimeDiagnostics { running:boolean; observations:DiagnosticSn
 export interface BridgeSummary { diagnostics?:DiagnosticSnapshot; security?:SecuritySnapshot }
 export interface BridgeSummary { sessionEnvironmentCommand?:string|null }
 export type UserProxyPortState = "unknown" | "matched" | "mismatch" | "notSet" | "disabled" | "invalidSettings" | "readFailed" | "unsupportedProxy" | "notCompared";
-export interface BridgeEvent { timestamp:number; level:"info"|"warning"|"error"; component:"ssh"|"generalProxy"|"aiRoute"|"sessionEnvironment"|"vscode"|"codex"|"claude"|"skills"; action:"connect"|"disconnect"|"transportLost"|"reconnect"|"serverDirect"|"egressTest"|"toolVerify"|"environmentSetup"|"vscodeSetup"|"toolSetup"|"credentialClear"|"enable"|"disable"; outcome:"success"|"warning"|"failed"|"started"; errorCode:BridgeErrorCategory|null; durationMs:number|null }
+export interface BridgeEvent { timestamp:number; level:"info"|"warning"|"error"; component:"ssh"|"generalProxy"|"aiRoute"|"sessionEnvironment"|"vscode"|"codex"|"claude"|"skills"; action:"connect"|"disconnect"|"transportLost"|"reconnect"|"serverDirect"|"egressTest"|"toolVerify"|"toolDiscovery"|"environmentSetup"|"vscodeSetup"|"toolSetup"|"credentialClear"|"enable"|"disable"; outcome:"success"|"warning"|"failed"|"started"; errorCode:BridgeErrorCategory|null; durationMs:number|null }
 export type RemoteTargetSource = "openssh" | "vscode" | "mobaxterm" | "manual";
 export type SshAuthMode = "nonInteractive" | "interactive";
 export type SshAuthMethod = "identityFile" | "agent" | "password" | "keyboardInteractive" | "unknown";
@@ -32,6 +32,12 @@ export interface RemoteTarget { id: string; displayName: string; source: RemoteT
 export interface ManualConnectionInput { displayName:string; destination:string; port:number; authentication:"automatic"|"password"|"identityFile"; identityFile:string|null }
 export interface BridgeEndpoint { local: ProxyEndpoint; remotePort: number }
 export type RemoteToolVerification = "notConfigured" | "verifyPending" | "verified" | "authenticationRequired" | "routeUnavailable" | "timedOut" | "failed";
+export type RemoteToolInstallState = "unknown" | "checking" | "installed" | "missing" | "unsupported" | "broken";
+export type RemoteToolInstallError = "cliMissing" | "cliUnsupported" | "cliBroken" | "dependencyMissing" | "sshUnavailable" | "remoteUnsupported";
+export interface RemoteToolInstallation { tool:RemoteToolId; state:RemoteToolInstallState; version:string|null; checkedAt:number|null; errorCode:RemoteToolInstallError|null; extensionState?:RemoteToolInstallState; extensionVersion?:string|null }
+export interface RemoteInstallCapabilities { curl:boolean; npm:boolean; brew:boolean; nodeVersion:string|null }
+export interface RemoteToolDiscoverySnapshot { tools:RemoteToolInstallation[]; capabilities:RemoteInstallCapabilities }
+export interface BridgeSummary { toolInstallations?:RemoteToolInstallation[]; installCapabilities?:RemoteInstallCapabilities }
 export interface RemoteToolState { id: RemoteToolId; displayName: string; configured: boolean; verification: RemoteToolVerification; verificationSupported: boolean; supportedRouteModes: "ccSwitch"[]; requestPolicy: "passthrough"; configProjection: "routeOnly" | "routeAndClientProfile" }
 export type ProfileSyncState = "disabled" | "notStarted" | "synced" | "localChanged" | "remoteChanged" | "conflict" | "invalidLocalProfile" | "remoteUnavailable" | "restartRequired";
 export interface RemoteBridgeModelSettings { followLocalCodexProfile:boolean; profileState:ProfileSyncState; model:string|null; profileHash:string|null }
@@ -78,6 +84,7 @@ export interface ExtensionPreview { id: string; alias: string; tool: RemoteToolI
 export const emptySummary = (): BridgeSummary => ({ status:"disconnected", target:null, proxy:null, cc:null, proxyStatus:null, ccStatus:null, activeProxyRevision:null, environment:"", codexConfigured:false, claudeConfigured:false, error:null, sshAuth:{mode:"nonInteractive",method:"unknown",authenticated:false,passwordStored:false} });
 export const targetLabel = (target:RemoteTarget|null|undefined) => target ? `${target.displayName} · ${target.sourceLabel}` : "";
 export const remoteBackend = {
+  discoverTools: (targetId:string) => invoke<RemoteToolDiscoverySnapshot>("remote_bridge_discover_tools", {targetId}),
   runDiagnostics: () => invoke<RuntimeDiagnostics>("remote_bridge_run_diagnostics"),
   diagnosticsSnapshot: () => invoke<RuntimeDiagnostics>("remote_bridge_diagnostics_snapshot"),
   logStatus: () => invoke<{available:boolean}>("remote_bridge_log_status"),

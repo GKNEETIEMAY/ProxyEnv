@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useNotification } from "../../../shared/state/notifications";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ActiveProxyContext, CheckState } from "../../../shared/types";
 import { bridgeError, bridgeErrorCode, type RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
@@ -8,6 +9,8 @@ import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 import FieldValidation from "../../../shared/components/FieldValidation.vue";
 import RemoteToolDialog from "./RemoteToolDialog.vue";
+import RemoteToolInstallDialog from "./RemoteToolInstallDialog.vue";
+import { canToggleRemoteTool } from "../tool-adapters";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
@@ -36,6 +39,7 @@ const capabilityPending = ref<BridgeCapability>();
 const skillPending = ref<string>();
 const emit = defineEmits<{ refresh: []; connected: [summary: BridgeSummary]; openReport: [] }>();
 const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
+const installDialog = ref<InstanceType<typeof RemoteToolInstallDialog>>();
 const confirmation = ref<HTMLDialogElement>();
 const authDialog = ref<HTMLDialogElement>();
 const authInput = ref<HTMLInputElement>();
@@ -184,6 +188,9 @@ const canStartConnection = computed(() => !!selectedTarget.value?.available
   && ccLocalPort.value >= 1024 && ccLocalPort.value <= 65535);
 const errorText = computed(() => error.value ? bridgeError(error.value, props.copy) : "");
 const feedbackText = computed(() => feedback.value ? ({ copied: props.copy.rbCopied, tested: props.copy.rbTested, ports: props.copy.rbPortsGenerated, terminal: props.copy.rbTerminalLaunched })[feedback.value] : "");
+useNotification(errorText, "error", "remote-operation");
+useNotification(() => feedback.value && feedback.value !== "ports" ? feedbackText.value : "", "success", "remote-feedback");
+useNotification(connectionSaveErrorText, "error", "remote-connection-save");
 const activeTarget = computed(() => props.summary.target ?? selectedTarget.value);
 const sourceLabel = (target: RemoteTarget) => ({ openssh: props.copy.rbSourceOpenSsh, vscode: props.copy.rbSourceVscode, mobaxterm: props.copy.rbSourceMoba, manual: props.copy.rbSourceManual })[target.source];
 const removingImportedConnection = computed(() => connectionToRemove.value?.source !== "manual");
@@ -321,6 +328,7 @@ const authErrorMessage = computed(() => {
   const cause = authSession.value?.error ?? error.value;
   return cause && connectionPhase.value !== "succeeded" ? bridgeError(cause, props.copy) : "";
 });
+useNotification(() => authSession.value?.error ? authErrorMessage.value : "", "error", "remote-operation");
 const authCopyLabel = computed(() => authCopyState.value === "copied" ? props.copy.rbCopied : authCopyState.value === "failed" ? props.copy.rbAuthCopyFailed : props.copy.rbAuthCopyPrompt);
 
 async function copyAuthPrompt() {
@@ -382,6 +390,7 @@ async function refreshNetworkChecks() {
 }
 
 const vscodeSetupWarning = ref<string>();
+useNotification(() => vscodeSetupWarning.value ? `${props.copy.rbVscodeSetupWarning} ${bridgeError(vscodeSetupWarning.value, props.copy)}` : "", "warning", "vscode-setup");
 async function openVscode() {
   const warning = await remoteBackend.openVscode(props.summary.target!.id);
   vscodeOpened.value = true;
@@ -956,7 +965,7 @@ function restore(tool: RemoteToolId, id = targetId.value) {
 }
 
 function toggleTool(adapter: RemoteToolAdapter, configured: boolean) {
-  if (busy.value || overviewToolChecking(props.summary, adapter.id)) return;
+  if (busy.value || overviewToolChecking(props.summary, adapter.id) || !canToggleRemoteTool(props.summary,adapter.id)) return;
   const target = props.summary.target ?? selectedTarget.value;
   if (!target) return;
   if (!adapter.directToggle) {
@@ -1340,7 +1349,7 @@ onBeforeUnmount(() => {
             <button class="primary-action" type="button" :disabled="busy" @click="reconnectManually">{{ copy.rbReconnectAction }}</button>
           </div>
           <p v-if="summary.status === 'unavailable'" class="notice notice-warning">{{ copy.rbUnavailableHint }}</p>
-          <RemoteBridgeOverview v-show="!advancedView" :copy="copy" :summary="summary" :active-proxy="activeProxy" :skills="skillGroups" :connected="sshConnected" :busy="busy" :cc-available="ccDetection?.state === 'confirmed'" :capability-pending="capabilityPending" :skill-pending="skillPending" @toggle-capability="toggleCapability" @toggle-tool="(id, configured) => toggleTool(remoteToolAdapters.find((adapter) => adapter.id === id)!, configured)" @toggle-skill="toggleSkill" />
+          <RemoteBridgeOverview v-show="!advancedView" :copy="copy" :summary="summary" :active-proxy="activeProxy" :skills="skillGroups" :connected="sshConnected" :busy="busy" :cc-available="ccDetection?.state === 'confirmed'" :capability-pending="capabilityPending" :skill-pending="skillPending" @toggle-capability="toggleCapability" @toggle-tool="(id, configured) => toggleTool(remoteToolAdapters.find((adapter) => adapter.id === id)!, configured)" @install-tool="installDialog?.open" @toggle-skill="toggleSkill" />
 
           <RemoteBridgeAdvancedView v-show="advancedView" :active="advancedView && visible !== false" :copy="copy" :summary="summary" :busy="busy" :connected="sshConnected" :diagnosing="diagnosing" :session-command="sessionCommand" :command-loading="commandLoading" :copying="sessionCopying" :copied="sessionCopied"
             @copy-environment="copySessionEnvironment" @manual-terminal="perform(() => remoteBackend.launchManualTerminal())"
@@ -1350,9 +1359,6 @@ onBeforeUnmount(() => {
         </template>
       </fieldset>
 
-      <p v-if="vscodeSetupWarning" class="remote-error" role="alert">{{ copy.rbVscodeSetupWarning }} {{ bridgeError(vscodeSetupWarning, copy) }}</p>
-      <p v-if="errorText" class="remote-error" role="alert">{{ errorText }}</p>
-      <p v-if="feedbackText && !establishingBridge && !busy" class="remote-feedback" role="status">{{ feedbackText }}</p>
       <BridgeLaunchBar v-if="live" v-show="!advancedView" :copy="copy" :target="summary.target" :connected="sshConnected" :busy="busy" :can-copy="!!summary.proxy && summary.proxyStatus === 'connected'" :copying="sessionCopying" :copied="sessionCopied" @terminal="launchTerminal" @vscode="perform(openVscode)" @mobaxterm="perform(openMobaxterm)" @copy-environment="copySessionEnvironment" />
     </section>
   </main>
@@ -1374,7 +1380,6 @@ onBeforeUnmount(() => {
           </div>
         </fieldset>
       </div>
-      <p v-if="connectionSaveErrorText" class="remote-connection-error" role="alert">{{ connectionSaveErrorText }}</p>
       <div class="confirmation-actions"><button class="secondary-action" type="button" :disabled="busy || pickingIdentity" @click="connectionDialog?.close()">{{ copy.rbCancel }}</button><button class="primary-action" type="submit" :disabled="busy || pickingIdentity">{{ editingManualId ? copy.rbConnectionUpdate : copyingSourceId ? copy.rbConnectionCopySave : copy.rbConnectionSave }}</button></div>
     </form>
   </dialog>
@@ -1427,10 +1432,9 @@ onBeforeUnmount(() => {
 
       <label v-if="authSurfaceVisible" class="remote-auth-field">
         <span :class="{ 'remote-auth-field-placeholder': !visibleAuthPrompt }">{{ visibleAuthPrompt ? (authPromptCopy.label || copy.rbAuthResponseLabel) : copy.rbAuthResponseLabel }}</span>
-        <input ref="authInput" :value="authInputValue" :type="visibleAuthPrompt?.secret !== false ? 'password' : 'text'" autocomplete="off" maxlength="4096" :aria-invalid="authSession?.error === 'sshAuthRejected'" :aria-describedby="authErrorMessage ? 'remote-auth-error' : undefined" :disabled="authIsHostConfirmation || !authCanRespond || authSubmitting" @input="updateAuthResponse" />
+        <input ref="authInput" :value="authInputValue" :type="visibleAuthPrompt?.secret !== false ? 'password' : 'text'" autocomplete="off" maxlength="4096" :aria-invalid="authSession?.error === 'sshAuthRejected'" :disabled="authIsHostConfirmation || !authCanRespond || authSubmitting" @input="updateAuthResponse" />
       </label>
 
-      <div id="remote-auth-error" class="remote-auth-error-slot" :class="{ 'has-error': !!authErrorMessage }" role="alert" aria-atomic="true"><svg v-if="authErrorMessage" aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 6v5m0 3h.01"/></svg><p v-if="authErrorMessage">{{ authErrorMessage }}</p></div>
       <div class="confirmation-actions">
         <button v-if="connectionPhase === 'failed' || authSession?.status !== 'succeeded'" class="secondary-action" type="button" :disabled="authSubmitting" @click="cancelInteractiveAuth">{{ connectionPhase === 'failed' || authSession?.status === 'failed' ? copy.rbClose : copy.rbAuthCancel }}</button>
         <button v-if="authDiagnosticAvailable" class="secondary-action" type="button" :aria-expanded="showAuthDiagnostic" :disabled="authSubmitting" @click="showAuthDiagnostic = !showAuthDiagnostic">{{ showAuthDiagnostic ? copy.rbAuthHideDiagnostic : copy.rbAuthOpenDiagnostic }}</button>
@@ -1440,6 +1444,7 @@ onBeforeUnmount(() => {
     </form>
   </dialog>
   <RemoteToolDialog ref="toolDialog" :copy="copy" :session-alias="summary.target?.id ?? targetId" :session-status="summary.status" @refresh="emit('refresh')" />
+  <RemoteToolInstallDialog ref="installDialog" :copy="copy" :summary="summary" @refresh="emit('refresh')" />
 </template>
 
 <style>
@@ -1458,8 +1463,6 @@ onBeforeUnmount(() => {
 .remote-overview-page .remote-fields:not(:has(.bridge-skills-manage[aria-expanded="true"])) { scrollbar-color:transparent transparent; }
 .remote-overview-page .remote-fields:not(:has(.bridge-skills-manage[aria-expanded="true"]))::-webkit-scrollbar-thumb { background:transparent; }
 .remote-connected-page .remote-workspace-heading { flex:none; margin-bottom:8px; }
-.remote-connected-page .remote-error { flex:none; max-height:60px; overflow-y:auto; margin:8px 0 0; }
-.remote-connected-page .remote-feedback { flex:none; margin:8px 0 0; }
 .remote-bridge-page.remote-setup-page { height:100%; min-height:0; padding:20px 24px; gap:0; overflow:hidden; }
 .remote-setup-page .remote-workspace-configure { display:flex; min-height:0; flex-direction:column; }
 .remote-setup-page .remote-fields { display:flex; min-height:0; flex:1; }
@@ -1655,7 +1658,7 @@ onBeforeUnmount(() => {
 .remote-command em { color:var(--muted); font-size:11px; font-style:normal; }
 .remote-tool-verification { display:flex; margin:8px 0 14px; align-items:center; justify-content:space-between; gap:16px; }
 .remote-tool-verification .remote-hint { max-width:68ch; margin:0; }
-.remote-error,.remote-danger { color:var(--danger); }.remote-error { font-size:12px; line-height:1.65; }.remote-feedback { min-height:18px; color:var(--muted); font-size:12px; }.remote-fields:disabled { opacity:.7; }
+.remote-danger { color:var(--danger); }.remote-fields:disabled { opacity:.7; }
 .remote-disconnect-dialog { width:min(520px,calc(100vw - 40px)); }
 .remote-connection-dialog { width:min(520px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow-y:auto; }
 .remote-connection-heading,.remote-connection-label { display:flex; align-items:center; gap:6px; }
@@ -1669,7 +1672,6 @@ onBeforeUnmount(() => {
 .remote-identity-option.invalid .secondary-action { border-color:var(--danger); }
 .remote-name-count { margin-inline-start:auto; color:var(--muted); font-size:11px; font-weight:400; font-variant-numeric:tabular-nums; }
 .remote-name-count.invalid { color:var(--danger); }
-.remote-connection-error { margin:12px 0 0; color:var(--danger); font-size:12px; line-height:1.5; user-select:text; }
 .remote-connection-fields input[type=text],.remote-connection-fields input[type=number] { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--line-strong); border-radius:8px; color:var(--text); background:var(--surface-strong); outline:none; }
 .remote-connection-fields input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
 .remote-connection-fields small { color:var(--muted); font-size:10px; font-weight:400; line-height:1.55; }
@@ -1701,11 +1703,7 @@ onBeforeUnmount(() => {
 .remote-auth-field input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
 .remote-auth-connect-action { display:inline-flex; min-width:126px; align-items:center; justify-content:center; gap:7px; }
 .remote-auth-field-placeholder { visibility:hidden; }
-.remote-auth-error-slot { display:flex; flex:none; gap:7px; height:32px; margin-top:4px; padding:0 9px; border-radius:7px; overflow:hidden; color:var(--danger); }
-.remote-auth-error-slot.has-error { background:color-mix(in srgb,var(--danger) 7%,var(--surface)); }
-.remote-auth-error-slot svg { flex:none; width:15px; height:15px; margin-top:1px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; }
-.remote-auth-error-slot p { min-width:0; margin:0; overflow:auto; overflow-wrap:anywhere; font-size:12px; line-height:16px; }
-.remote-auth-dialog pre,.remote-auth-error-slot p { -webkit-user-select:text; user-select:text; cursor:text; }
+.remote-auth-dialog pre { -webkit-user-select:text; user-select:text; cursor:text; }
 .remote-auth-heading h2,.remote-auth-heading :deep(.check-status span),.remote-auth-field > span,.remote-auth-terminal > header > span,.remote-auth-fingerprint dt,.remote-auth-fingerprint dd,.remote-auth-diagnostic dt,.remote-auth-diagnostic dd { -webkit-user-select:text; user-select:text; cursor:text; }
 .remote-auth-diagnostic { padding:12px 14px; margin:16px 0; border:1px solid var(--line); border-radius:12px; background:var(--surface-strong); }
 .remote-auth-diagnostic dl { display:grid; margin:0; gap:7px; }

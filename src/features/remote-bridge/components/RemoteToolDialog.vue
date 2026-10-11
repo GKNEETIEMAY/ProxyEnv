@@ -7,6 +7,7 @@ import type { CheckState } from '../../../shared/types';
 import StatusIndicator from '../../../shared/components/StatusIndicator.vue';
 import { remoteBackend, type ConfigPreview, type ExtensionInspection, type ExtensionPreview, type RemoteBridgeModelSettings } from '../state';
 import { getRemoteToolAdapter, type RemoteToolId } from '../tool-adapters';
+import { useNotification } from '../../../shared/state/notifications';
 
 const props = defineProps<{ copy: RemoteBridgeCopy; sessionAlias: string | null; sessionStatus: string }>();
 const emit = defineEmits<{ refresh: [] }>();
@@ -62,6 +63,8 @@ const serverVersions = computed(() => inspection.value?.vscode.serverVersions.jo
 const title = computed(() => `${adapter.value.displayName} · ${phase.value === 'select' ? props.copy.rbExtTitle : restoring.value ? props.copy.rbExtRestoreTitle : props.copy.rbExtEnableTitle}`);
 const impact = computed(() => adapter.value.impact(props.copy, restoring.value));
 const errorText = computed(() => operationSurface.value === 'extension' && ['configConflict','unsafePath','noBackup','rollbackConflict','rollbackFailed','writeRolledBack','verifyFailed'].includes(bridgeErrorCode(error.value)) ? props.copy.rbExtError : bridgeError(error.value, props.copy));
+useNotification(() => error.value ? `${cliResult.value === 'success' || extensionResult.value === 'success' ? props.copy.rbExtPartial + ' ' : ''}${errorText.value}` : '', 'error', 'remote-tool-operation');
+useNotification(() => modelSettingsError.value ? props.copy.rbModelSaveError : '', 'error', 'remote-model-settings');
 const after = computed(() => {
   const p = extensionPreview.value;
   if (!p) return '';
@@ -201,7 +204,6 @@ defineExpose({ open, close });
             <p class="remote-hint">{{ copy.rbProfileHint }}</p>
             <dl v-if="modelSettings" class="model-current"><dt>{{ copy.rbProfileModel }}</dt><dd><strong>{{ modelSettings.model || copy.rbProfileInvalid }}</strong></dd></dl>
             <p class="remote-hint">{{ copy.rbProfilePrivacy }}</p>
-            <p v-if="modelSettingsError" role="alert" class="remote-error">{{ copy.rbModelSaveError }}</p>
           </section>
           <label v-if="adapter.supportsExtensionConfiguration || restoring" class="remote-choice"><input v-model="extension" type="checkbox">{{ copy.rbExtGui }}</label>
           <section v-if="extension" class="remote-capability">
@@ -237,13 +239,10 @@ defineExpose({ open, close });
         <template v-else>
           <StatusIndicator v-if="cliPreview" :state="resultState(cliResult)" :label="`${cliPreviewLabel} · ${outcome(cliResult)}`" />
           <StatusIndicator v-if="extensionPreview || sharedExtensionProfile" :state="resultState(extensionResult)" :label="`${copy.rbExtGui} · ${outcome(extensionResult)}`" />
-          <p v-if="error && (cliResult === 'success' || extensionResult === 'success')" class="notice notice-warning">{{ copy.rbExtPartial }}</p>
           <p v-if="extensionResult === 'success'" class="remote-hint">{{ restoring ? copy.rbExtRestored : copy.rbExtRestart }}</p>
           <template v-if="cliResult === 'success' && cliPreview?.launch && !restoring"><p class="remote-success">{{ copy.rbCliOverlayReady }}</p><p><code>{{ cliPreview.path }}</code></p><pre>{{ cliPreview.launch }}</pre><button class="secondary-action" type="button" @click="perform(async () => { await copyText(cliPreview!.launch); copied = true; })">{{ copied ? copy.rbCopied : copy.rbCopyLaunch }}</button></template>
         </template>
       </fieldset>
-      <p v-if="error" role="alert" class="remote-error">{{ errorText }}<br v-if="operationSurface === 'extension'"><code v-if="operationSurface === 'extension'">{{ path }}</code></p>
-      <p role="status" class="remote-feedback">{{ busy ? copy.rbBusy : '' }}</p>
       <div class="confirmation-actions">
         <button v-if="phase !== 'select'" type="button" class="secondary-action" :disabled="busy" @click="phase = 'select'; locationConfirmed = false; cliResult = 'waiting'; extensionResult = 'waiting'">{{ copy.rbBack }}</button>
         <button v-if="phase !== 'result'" type="submit" class="primary-action" :disabled="busy || (phase === 'select' && !canPreview)">{{ phase === 'select' ? copy.rbExtReview : restoring ? copy.rbExtConfirmRestore : copy.rbConfirm }}</button>

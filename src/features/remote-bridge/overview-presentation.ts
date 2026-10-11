@@ -2,6 +2,7 @@ import type { CheckState } from "../../shared/types";
 import type { RemoteBridgeCopy } from "../../shared/i18n/remote-bridge";
 import type { BridgeStatus, BridgeSummary, DiagnosticState, RemoteSkill } from "./state";
 import type { RemoteToolId } from "./tool-adapters";
+import { getRemoteToolAdapter } from "./tool-adapters";
 
 export const bridgeEndpointLabel = (host: string, port: number) => `${host.includes(":") ? `[${host}]` : host}:${port}`;
 
@@ -35,6 +36,8 @@ export function bridgeCapabilityState(status: BridgeStatus | null, enabled: bool
 }
 
 export function overviewToolChecking(summary: BridgeSummary, id: RemoteToolId): boolean {
+  const inspection=getRemoteToolAdapter(id).inspect(summary);
+  if (inspection.installation === "checking" || inspection.extensionInstallation === "checking") return true;
   if (!summary.cc) return false;
   const state = id === "codex" ? summary.codexState : summary.claudeState;
   // Completed tools must not wait for unrelated post-connect jobs.
@@ -43,6 +46,8 @@ export function overviewToolChecking(summary: BridgeSummary, id: RemoteToolId): 
 
 export function overviewToolLabel(copy: RemoteBridgeCopy, summary: BridgeSummary, id: RemoteToolId, configured: boolean): string {
   if (overviewToolChecking(summary, id)) return copy.rbCheckChecking;
+  const inspection=getRemoteToolAdapter(id).inspect(summary);
+  if (inspection.installation !== "installed" && inspection.extensionInstallation !== "installed") return `${toolInstallationLabel(copy, summary, id)}${configured ? ` · ${copy.rbInstallConfigured}` : ""}`;
   if (!configured) return copy.rbNotConfigured;
   if (!summary.cc || summary.ccStatus !== "connected") return copy.rbToolRouteUnavailable;
   const profile = id === "claude" ? summary.claudeProfileState : undefined;
@@ -53,6 +58,17 @@ export function overviewToolLabel(copy: RemoteBridgeCopy, summary: BridgeSummary
   if (profile === "remoteUnavailable") return copy.rbToolRouteUnavailable;
   // No Codex profile-sync evidence is returned by BridgeSummary. Do not invent it.
   return profile === "synced" ? copy.rbOverviewSynced : copy.rbOverviewConfigured;
+}
+
+export function toolInstallationLabel(copy:RemoteBridgeCopy, summary:BridgeSummary, id:RemoteToolId):string {
+  return toolInstallationLines(copy,summary,id).join(" / ");
+}
+
+export function toolInstallationLines(copy:RemoteBridgeCopy, summary:BridgeSummary, id:RemoteToolId):string[] {
+  const {installation,version,extensionInstallation,extensionVersion}=getRemoteToolAdapter(id).inspect(summary);
+  const labels={unknown:copy.rbInstallUnknown,checking:copy.rbInstallChecking,installed:copy.rbInstallInstalled,missing:copy.rbInstallMissing,unsupported:copy.rbInstallUnsupported,broken:copy.rbInstallBroken};
+  const cli=`CLI ${labels[installation]}${version ? ` · ${version}` : ""}`;
+  return summary.toolInstallations?.find(tool => tool.tool === id)?.extensionState === undefined ? [cli] : [cli, `${copy.rbInstallExtension} ${labels[extensionInstallation]}${extensionVersion ? ` · ${extensionVersion}` : ""}`];
 }
 
 export function overviewSkillStatus(copy: RemoteBridgeCopy, skill?: RemoteSkill): { state: CheckState; label: string } {

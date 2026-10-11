@@ -404,7 +404,6 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .report-language-row .compact-select { width: 168px; max-width: 70%; }
 .report-preview { flex: 1 1 auto; min-height: 120px; height: 320px; width: 100%; resize: none; padding: 15px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--canvas); font: 12px/1.65 "Cascadia Mono", "SFMono-Regular", Consolas, "Microsoft YaHei UI", monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; scrollbar-width: thin; scrollbar-color: var(--line-strong) var(--canvas); }
 .report-feedback { flex-shrink: 0; min-height: 54px; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.report-error { color: var(--danger); }
 .diagnostic-report-dialog .confirmation-actions { flex-shrink: 0; margin-top: 12px; }
 .proxy-guide-dialog { width: min(470px, calc(100vw - 40px)); height: min(510px, calc(100vh - 40px)); overflow: auto; }
 .proxy-guide-dialog > form { display: flex; min-height: 100%; flex-direction: column; }
@@ -419,21 +418,11 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .proxy-guide-copy-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .proxy-guide-feedback { min-height: 72px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .proxy-guide-credentials { margin: 0 !important; color: var(--muted); font-family: "Aptos", "Segoe UI Variable", "Noto Sans SC", "Microsoft YaHei UI", sans-serif; font-size: 12px; font-weight: 400; line-height: 1.55; }
-.proxy-guide-copy-error { color: var(--danger) !important; }
-.proxy-guide-feedback > .proxy-guide-copy-error { margin: 0 !important; }
-.proxy-guide-launch-result { padding: 12px 14px; border-radius: 13px; color: var(--success); background: var(--success-soft); text-align: start; }
-.proxy-guide-launch-result strong { display: block; font-size: 12px; font-weight: 680; }
-.proxy-guide-launch-result p { margin: 3px 0 0; color: color-mix(in srgb, var(--success) 76%, var(--ink)); font-size: 11px; line-height: 1.5; }
 .proxy-guide-restart-confirm { min-height: 68px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--danger) 24%, var(--line)); border-radius: 13px; color: var(--ink); background: color-mix(in srgb, var(--danger) 8%, var(--surface-strong)); }
 .proxy-guide-restart-confirm strong { display: block; color: var(--danger); font-size: 12px; font-weight: 680; }
 .proxy-guide-restart-confirm p { margin: 3px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .danger-confirm-action { background: var(--danger); }
 .warning-action { background: var(--warning); }
-.instance-toast { position: fixed; z-index: 40; top: 82px; right: 22px; display: flex; width: min(390px, calc(100vw - 44px)); padding: 12px 14px; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 13px; color: var(--ink); background: var(--surface-strong); box-shadow: 0 14px 34px rgba(62, 48, 34, .14); font-size: 12px; line-height: 1.5; }
-.instance-toast svg { width: 18px; flex: none; fill: none; stroke: var(--success); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.instance-toast-enter-active { transition: opacity .2s ease-out, transform .24s cubic-bezier(.16, 1, .3, 1); }
-.instance-toast-leave-active { transition: opacity .14s ease-in, transform .14s ease-in; }
-.instance-toast-enter-from, .instance-toast-leave-to { opacity: 0; transform: translateY(-8px); }
 
 .settings-page { display: grid; gap: 24px; padding-bottom: 30px; }
 .settings-tabs { display: flex; margin: -8px 0 -8px; gap: 26px; border-bottom: 1px solid var(--line); }
@@ -503,7 +492,6 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .update-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width .18s ease; }
 .update-progress span.indeterminate { width: 34%; animation: update-indeterminate 1.2s ease-in-out infinite; }
 .automatic-update-hint { width: min(520px, 100%); margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
-.release-action-error { margin: 10px 0 0; color: var(--danger); font-size: 11px; line-height: 1.5; }
 .changelog-section { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line-strong); }
 .changelog-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
 .changelog-heading h3 { margin: 0; font-size: 16px; font-weight: 660; letter-spacing: -.02em; }

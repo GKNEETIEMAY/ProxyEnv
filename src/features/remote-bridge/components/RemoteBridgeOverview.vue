@@ -4,10 +4,10 @@ import type { ActiveProxyContext } from "../../../shared/types";
 import type { RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
-import { remoteToolAdapters, type RemoteToolId } from "../tool-adapters";
+import { remoteToolAdapters, canToggleRemoteTool, type RemoteToolId } from "../tool-adapters";
 import type { BridgeSummary, BridgeStatus, RemoteSkill, BridgeCapability } from "../state";
 import RemoteToolIcon from "./RemoteToolIcon.vue";
-import { bridgeEndpointLabel as endpoint, bridgeCapabilityState as capabilityState, overviewToolChecking, overviewToolLabel, overviewSkillStatus } from "../overview-presentation";
+import { bridgeEndpointLabel as endpoint, bridgeCapabilityState as capabilityState, overviewToolChecking, overviewToolLabel, overviewSkillStatus, toolInstallationLines } from "../overview-presentation";
 
 const props = defineProps<{
   copy: RemoteBridgeCopy;
@@ -20,7 +20,7 @@ const props = defineProps<{
   capabilityPending?: BridgeCapability;
   skillPending?: string;
 }>();
-const emit = defineEmits<{ toggleCapability: [id: BridgeCapability, enabled: boolean]; toggleTool: [id: RemoteToolId, configured: boolean]; toggleSkill: [skill: RemoteSkill] }>();
+const emit = defineEmits<{ toggleCapability: [id: BridgeCapability, enabled: boolean]; toggleTool: [id: RemoteToolId, configured: boolean]; toggleSkill: [skill: RemoteSkill]; installTool:[id:RemoteToolId] }>();
 const skillsExpanded = ref(false);
 const skillSearch = ref("");
 const filteredSkills = computed(() => {
@@ -86,8 +86,16 @@ const skillsSummary = computed(() => {
       <div class="bridge-tool-grid">
         <div v-for="tool in tools" :key="tool.id" class="bridge-tool">
           <RemoteToolIcon :tool="tool.id" />
-          <div class="bridge-tool-copy"><span><strong>{{ tool.name }}</strong><HelpTooltip pinnable :label="tool.name" :text="copy.rbOverviewToolHelp" /></span><StatusIndicator v-if="tool.checking" state="checking" :label="copy.rbCheckChecking" /><small v-else :class="{ 'needs-attention': tool.inspection.configured && (!summary.cc || summary.ccStatus !== 'connected' || (tool.id === 'claude' && ['conflict', 'remoteChanged', 'restartRequired', 'invalidLocalProfile', 'localChanged', 'remoteUnavailable'].includes(summary.claudeProfileState ?? ''))) }">{{ toolLabel(tool.id, tool.inspection.configured) }}</small></div>
-          <input class="switch-input" type="checkbox" role="switch" :checked="tool.inspection.configured" :disabled="busy || tool.checking || !connected || (!tool.inspection.configured && summary.ccStatus !== 'connected')" :aria-busy="tool.checking" :aria-label="`${tool.name} · ${tool.checking ? copy.rbCheckChecking : tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled}`" @click.prevent="emit('toggleTool', tool.id, tool.inspection.configured)" />
+          <div class="bridge-tool-copy">
+            <span><strong>{{ tool.name }}</strong><HelpTooltip pinnable :label="tool.name" :text="copy.rbOverviewToolHelp" /></span>
+            <StatusIndicator v-if="tool.checking" state="checking" :label="copy.rbInstallChecking" />
+            <template v-else>
+              <small v-for="(line,index) in toolInstallationLines(copy,summary,tool.id)" :key="index" class="bridge-tool-installation" :class="{'needs-attention':index === 0 && ['broken','unsupported'].includes(tool.inspection.installation) && tool.inspection.extensionInstallation !== 'installed'}">{{ line }}</small>
+              <small v-if="tool.inspection.installation === 'installed' || tool.inspection.extensionInstallation === 'installed' || tool.inspection.configured">{{ tool.inspection.installation !== 'installed' && tool.inspection.extensionInstallation !== 'installed' ? copy.rbInstallConfigured : toolLabel(tool.id,tool.inspection.configured) }}</small>
+            </template>
+            <button class="bridge-install-link" type="button" :disabled="!connected || tool.checking" @click="emit('installTool',tool.id)">{{ tool.inspection.installation === 'unsupported' ? copy.rbInstallUpgrade : copy.rbInstallView }}</button>
+          </div>
+          <input class="switch-input" type="checkbox" role="switch" :checked="tool.inspection.configured" :disabled="busy || tool.checking || !connected || !canToggleRemoteTool(summary,tool.id)" :aria-busy="tool.checking" :aria-label="`${tool.name} · ${tool.checking ? copy.rbCheckChecking : tool.inspection.configured ? copy.rbAccessEnabled : copy.rbAccessDisabled}`" @click.prevent="emit('toggleTool', tool.id, tool.inspection.configured)" />
         </div>
       </div>
       <header class="bridge-skills-heading">
@@ -148,8 +156,11 @@ const skillsSummary = computed(() => {
 .bridge-tool-copy { display:grid; min-width:0; gap:3px; flex:1; }
 .bridge-tool-copy > span { display:flex; align-items:center; gap:8px; }
 .bridge-tool-copy strong { font-size:14px; }
-.bridge-tool-copy small { color:var(--muted); font-size:11px; line-height:1.5; }
+.bridge-tool-copy small { color:var(--muted); font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
 .bridge-tool-copy small.needs-attention { color:var(--warning); }
+.bridge-install-link { justify-self:start; padding:0; border:0; background:transparent; color:var(--accent-strong); font-size:11px; line-height:1.5; cursor:pointer; }
+.bridge-install-link:disabled { color:var(--muted); cursor:default; }
+.bridge-install-link:focus-visible { outline:2px solid var(--focus); outline-offset:3px; }
 .bridge-skills-heading { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:12px 0 0; padding-top:12px; border-top:1px solid var(--line); }
 .bridge-skills-heading h3 { display:flex; align-items:center; gap:8px; margin:0; font-size:14px; }
 .bridge-skills-heading > span { margin-left:auto; color:var(--muted); font-size:11px; }

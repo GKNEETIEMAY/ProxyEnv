@@ -41,10 +41,6 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
 
     <p class="settings-intro">{{ tab === 'general' ? copy.settingsIntro : copy.aboutIntro }}</p>
 
-    <div v-if="settingsLoadError || settingsError" class="notice notice-error" role="alert">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
-      <p><strong>{{ settingsLoadError ? copy.settingsLoadFailed : copy.saveFailed }}</strong><span>{{ settingsLoadError || settingsError }}</span></p>
-    </div>
 
     <template v-if="tab === 'general'">
       <section class="settings-group">
@@ -133,7 +129,6 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
       <div v-if="updateState === 'downloading'" class="update-progress" role="progressbar" :aria-label="copy.downloadingUpdate" :aria-valuenow="updateProgress ?? undefined" aria-valuemin="0" aria-valuemax="100">
         <span :class="{ indeterminate: updateProgress === null }" :style="updateProgress === null ? undefined : { width: `${updateProgress}%` }"></span>
       </div>
-      <p v-if="releaseActionError" class="release-action-error" role="alert">{{ releaseActionError }}</p>
       <section class="changelog-section">
         <div class="changelog-heading">
           <h3>{{ copy.changelog }}</h3>

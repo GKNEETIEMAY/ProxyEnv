@@ -6,6 +6,7 @@ import type { DiagnosticReportData } from "../../../shared/types";
 import { copyText } from "../../../shared/utils/clipboard";
 import { formatDiagnosticReport } from "../format";
 import CompactSelect from "../../../shared/components/CompactSelect.vue";
+import { useNotification } from "../../../shared/state/notifications";
 
 // Operate: extend the warm native-dialog vocabulary. Language, readable snapshot, then Copy.
 // Keep a stable preview height; read-only collection never writes files or starts network tests.
@@ -17,6 +18,9 @@ const loading = ref(false);
 const failed = ref(false);
 const copyFailed = ref(false);
 const copied = ref(false);
+useNotification(() => failed.value ? props.copy.reportLoadFailed : "", "error", "report-load");
+useNotification(() => copyFailed.value ? props.copy.reportCopyFailed : "", "error", "report-copy");
+useNotification(() => copied.value ? props.copy.reportCopied : "", "success", "report-copy");
 let requestId = 0;
 const reportLocale = computed(() => language.value === "interface" ? props.locale : language.value);
 const report = computed(() => data.value ? formatDiagnosticReport(data.value, messages[reportLocale.value]) : "");
@@ -96,9 +100,6 @@ defineExpose({ open });
       <textarea class="report-preview" :value="report" :lang="reportLocale" :aria-label="copy.reportPreview" :aria-busy="loading" readonly spellcheck="false"></textarea>
       <div class="report-feedback" aria-live="polite">
         <span v-if="loading">{{ copy.reportLoading }}</span>
-        <span v-else-if="failed" class="report-error" role="alert">{{ copy.reportLoadFailed }}</span>
-        <span v-else-if="copyFailed" class="report-error" role="alert">{{ copy.reportCopyFailed }}</span>
-        <span v-else-if="copied">{{ copy.reportCopied }}</span>
         <span v-else>{{ copy.reportSnapshot }}</span>
       </div>
       <div class="confirmation-actions">

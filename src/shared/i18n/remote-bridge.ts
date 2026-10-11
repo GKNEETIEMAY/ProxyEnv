@@ -713,7 +713,33 @@ const advancedKo: AdvancedLabels = {
   rbAdvReport: "진단 보고서", rbAdvReportHelp: "기존 비식별 보고서를 열고 언어를 선택한 뒤 복사하세요. 보고서 생성은 새 네트워크 요청을 보내지 않습니다.", rbAdvEnvironmentActions: "환경", rbAdvConfigActions: "설정", rbAdvSecurityActions: "세션 보안", rbAdvNoConfig: "이 연결은 설정 파일 작업을 지원하지 않습니다.", rbAdvNotSupported: "검증 미지원", rbAdvVerified: "검증 성공", rbAdvFailed: "검증 실패",
 };
 
+const installationEn = {
+  rbInstallExtension:"VS Code extension", rbInstallExtensionOnly:"A compatible remote VS Code extension was detected. You can enable its route without installing a standalone CLI; the commands below are optional CLI installation options.",
+  rbInstallUnknown:"Not checked", rbInstallChecking:"Checking installation", rbInstallInstalled:"Installed", rbInstallMissing:"Not installed", rbInstallUnsupported:"Needs update", rbInstallBroken:"Found, but cannot run", rbInstallConfigured:"Existing route configuration",
+  rbInstallView:"Installation options", rbInstallUpgrade:"Update options", rbInstallTitle:"Installation options", rbInstallRecommended:"Recommended", rbInstallCopy:"Copy command", rbInstallRecheck:"Check again", rbInstallOfficial:"Official documentation", rbInstallVerify:"Verify installation", rbInstallSection:"CLI installation",
+  rbInstallIntro:"Choose an official method and run the command in the remote terminal. ProxyEnv does not install or update software automatically.", rbInstallNetwork:"If the server cannot access the internet directly, enable Bridge local network and run the command in a terminal opened by ProxyEnv.", rbInstallDirect:"Network bridge is off. The terminal will use the server’s own network.", rbInstallRequirement:"Not detected remotely: {requirement}", rbInstallOfficialError:"Could not open documentation. Copy the official URL from the link and open it in your browser.", rbInstallNoSudo:"Do not use sudo with npm installation.", rbInstallNode:"Node.js 18+", rbInstallNodeRecommended:"Official recommendation: Node.js 22+.", rbInstallRecheckError:"Could not check installation. Check the SSH connection and try again.", rbInstallTerminalError:"Could not open the terminal. Check the SSH connection and try again.", rbInstallCopyError:"Could not copy. Select and copy the command manually.", rbInstallDiscovery:"CLI discovery",
+};
+type InstallationLabels = {[K in keyof typeof installationEn]:string};
+const installationZh:InstallationLabels = {
+  rbInstallExtension:"VS Code 插件", rbInstallExtensionOnly:"已检测到兼容的远端 VS Code 插件，无需安装独立 CLI 即可启用接入。下方命令仅供需要 CLI 的用户选择。",
+  rbInstallUnknown:"尚未检测", rbInstallChecking:"正在检测安装状态", rbInstallInstalled:"已安装", rbInstallMissing:"未安装", rbInstallUnsupported:"需要更新", rbInstallBroken:"已发现，但无法正常运行", rbInstallConfigured:"已有路由配置",
+  rbInstallView:"查看安装方式", rbInstallUpgrade:"查看升级方式", rbInstallTitle:"安装方式", rbInstallRecommended:"推荐", rbInstallCopy:"复制命令", rbInstallRecheck:"重新检测", rbInstallOfficial:"官方文档", rbInstallVerify:"验证安装", rbInstallSection:"CLI 安装状态",
+  rbInstallIntro:"选择一种官方方式，在远端终端中执行命令。ProxyEnv 不会自动安装或更新软件。", rbInstallNetwork:"如果服务器无法直连外网，请先开启“桥接本机网络”，再通过 ProxyEnv 打开的终端执行命令。", rbInstallDirect:"网络桥接未开启，终端将使用服务器自身网络。", rbInstallRequirement:"远端未检测到：{requirement}", rbInstallOfficialError:"未能打开文档，请复制官方链接并在浏览器中打开。", rbInstallNoSudo:"npm 安装请勿使用 sudo。", rbInstallNode:"Node.js 18+", rbInstallNodeRecommended:"官方推荐 Node.js 22+。", rbInstallRecheckError:"未能检测安装状态，请检查 SSH 连接后重试。", rbInstallTerminalError:"未能打开终端，请检查 SSH 连接后重试。", rbInstallCopyError:"复制失败，请手动选择并复制命令。", rbInstallDiscovery:"CLI 安装检测",
+};
+const installationJa:InstallationLabels = {
+  rbInstallExtension:"VS Code 拡張機能", rbInstallExtensionOnly:"互換性のあるリモート VS Code 拡張機能を検出しました。単独の CLI をインストールせずにルートを有効にできます。以下は CLI が必要な場合の任意のインストール方法です。",
+  rbInstallUnknown:"未確認", rbInstallChecking:"インストールを確認中", rbInstallInstalled:"インストール済み", rbInstallMissing:"未インストール", rbInstallUnsupported:"更新が必要", rbInstallBroken:"検出済み・実行できません", rbInstallConfigured:"既存のルート設定あり",
+  rbInstallView:"インストール方法", rbInstallUpgrade:"更新方法", rbInstallTitle:"インストール方法", rbInstallRecommended:"推奨", rbInstallCopy:"コマンドをコピー", rbInstallRecheck:"再確認", rbInstallOfficial:"公式ドキュメント", rbInstallVerify:"インストール確認", rbInstallSection:"CLI インストール",
+  rbInstallIntro:"公式の方法を選び、リモート端末でコマンドを実行してください。ProxyEnv はソフトウェアを自動でインストール・更新しません。", rbInstallNetwork:"サーバーがインターネットに直接接続できない場合は、ローカルネットワークのブリッジを有効にし、ProxyEnv から開いた端末で実行してください。", rbInstallDirect:"ネットワークブリッジは無効です。端末はサーバー自身のネットワークを使用します。", rbInstallRequirement:"リモートで未検出：{requirement}", rbInstallOfficialError:"ドキュメントを開けませんでした。公式リンクをコピーしてブラウザーで開いてください。", rbInstallNoSudo:"npm インストールに sudo を使用しないでください。", rbInstallNode:"Node.js 18+", rbInstallNodeRecommended:"公式推奨：Node.js 22+。", rbInstallRecheckError:"確認できませんでした。SSH 接続を確認して再試行してください。", rbInstallTerminalError:"端末を開けませんでした。SSH 接続を確認してください。", rbInstallCopyError:"コピーできませんでした。コマンドを選択して手動でコピーしてください。", rbInstallDiscovery:"CLI 検出",
+};
+const installationKo:InstallationLabels = {
+  rbInstallExtension:"VS Code 확장", rbInstallExtensionOnly:"호환되는 원격 VS Code 확장을 감지했습니다. 별도의 CLI 없이 라우트를 활성화할 수 있습니다. 아래 명령은 CLI가 필요한 경우에만 선택적으로 사용하세요.",
+  rbInstallUnknown:"미확인", rbInstallChecking:"설치 상태 확인 중", rbInstallInstalled:"설치됨", rbInstallMissing:"설치되지 않음", rbInstallUnsupported:"업데이트 필요", rbInstallBroken:"발견했으나 실행 불가", rbInstallConfigured:"기존 라우트 설정 있음",
+  rbInstallView:"설치 방법", rbInstallUpgrade:"업데이트 방법", rbInstallTitle:"설치 방법", rbInstallRecommended:"권장", rbInstallCopy:"명령 복사", rbInstallRecheck:"다시 확인", rbInstallOfficial:"공식 문서", rbInstallVerify:"설치 확인", rbInstallSection:"CLI 설치 상태",
+  rbInstallIntro:"공식 방법을 선택한 후 원격 터미널에서 명령을 실행하세요. ProxyEnv는 소프트웨어를 자동으로 설치하거나 업데이트하지 않습니다.", rbInstallNetwork:"서버가 인터넷에 직접 연결할 수 없다면 로컬 네트워크 브리지를 켜고 ProxyEnv에서 연 터미널에서 실행하세요.", rbInstallDirect:"네트워크 브리지가 꺼져 있습니다. 터미널은 서버 자체 네트워크를 사용합니다.", rbInstallRequirement:"원격에서 감지되지 않음: {requirement}", rbInstallOfficialError:"문서를 열지 못했습니다. 공식 링크를 복사하여 브라우저에서 여세요.", rbInstallNoSudo:"npm 설치에 sudo를 사용하지 마세요.", rbInstallNode:"Node.js 18+", rbInstallNodeRecommended:"공식 권장: Node.js 22+.", rbInstallRecheckError:"설치 상태를 확인하지 못했습니다. SSH 연결을 확인하고 다시 시도하세요.", rbInstallTerminalError:"터미널을 열지 못했습니다. SSH 연결을 확인하세요.", rbInstallCopyError:"복사하지 못했습니다. 명령을 선택하여 직접 복사하세요.", rbInstallDiscovery:"CLI 감지",
+};
 const en = {
+  ...installationEn,
   ...advancedEn,
   ...overviewEn,
   ...extensionEn,
@@ -752,6 +778,7 @@ rbDependencyError: "The remote operation is missing a required capability.", rbR
 type Labels = { [K in keyof typeof en]: K extends "rbStates" ? Record<keyof typeof en.rbStates, string> : string };
 const zh: Labels = {
   ...advancedZh,
+  ...installationZh,
   ...overviewZh,
   ...extensionZh,
   ...flowZh,
@@ -775,6 +802,7 @@ const zh: Labels = {
 };
 const ja: Labels = {
   ...advancedJa,
+  ...installationJa,
   ...overviewJa,
   ...extensionJa,
   ...flowJa,
@@ -789,6 +817,7 @@ const ja: Labels = {
 };
 const ko: Labels = {
   ...advancedKo,
+  ...installationKo,
   ...overviewKo,
   ...extensionKo,
   ...flowKo,

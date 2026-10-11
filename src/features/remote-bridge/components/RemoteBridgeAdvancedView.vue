@@ -8,6 +8,7 @@ import { remoteToolAdapters } from "../tool-adapters";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
 import AdvancedStatusRow from "./AdvancedStatusRow.vue";
+import { useNotification } from "../../../shared/state/notifications";
 
 // Operate: inherit the warm Overview vocabulary; separate preparation, proof and risk.
 // Two columns at desktop widths; all actions use the page's existing command handlers.
@@ -22,6 +23,8 @@ const clearLogsDialog = ref<HTMLDialogElement>();
 const clearingLogs = ref(false);
 const logsCleared = ref(false);
 const clearLogsError = ref(false);
+useNotification(() => clearLogsError.value ? props.copy.rbAdvClearLogsError : "", "error", "clear-logs");
+useNotification(() => logsCleared.value ? props.copy.rbAdvLogsCleared : "", "success", "clear-logs");
 let clearedTimer:ReturnType<typeof setTimeout>|undefined;
 const diagnosticHelp = computed(() => `${props.copy.rbAdvReportHelp}\n\n${logsAvailable.value ? props.copy.rbAdvLogsHelp : props.copy.rbAdvLogsUnavailable}`);
 function confirmClearLogs() {
@@ -74,7 +77,7 @@ watch([() => props.active, () => props.summary.target?.id], async ([active,targe
 onBeforeUnmount(() => { eventsRevision++; clearTimeout(eventsTimer); clearTimeout(clearedTimer); });
 const eventRows = computed(() => recentEvents.value.map(event => {
   const components = {ssh:"SSH", generalProxy:props.copy.rbLocalNetworkTitle, aiRoute:props.copy.rbCcUseTitle, sessionEnvironment:props.copy.rbAdvTerminal, vscode:"VS Code", codex:"Codex", claude:"Claude Code", skills:"Skills"};
-  const actions = {connect:props.copy.rbAdvConnect, disconnect:props.copy.rbAdvDisconnect, transportLost:props.copy.rbAdvTransportLost, reconnect:props.copy.rbAdvReconnect, serverDirect:props.copy.rbAdvServerDirect, egressTest:props.copy.rbAdvEgressTest, toolVerify:props.copy.rbAdvToolVerify, environmentSetup:props.copy.rbAdvEnvironmentSetup, vscodeSetup:props.copy.rbAdvVscodeSetup, toolSetup:props.copy.rbAdvToolSetup, credentialClear:props.copy.rbAdvCredentialClear, enable:props.copy.rbAdvEnable, disable:props.copy.rbAdvDisable};
+  const actions = {connect:props.copy.rbAdvConnect, disconnect:props.copy.rbAdvDisconnect, transportLost:props.copy.rbAdvTransportLost, reconnect:props.copy.rbAdvReconnect, serverDirect:props.copy.rbAdvServerDirect, egressTest:props.copy.rbAdvEgressTest, toolVerify:props.copy.rbAdvToolVerify, toolDiscovery:props.copy.rbInstallDiscovery, environmentSetup:props.copy.rbAdvEnvironmentSetup, vscodeSetup:props.copy.rbAdvVscodeSetup, toolSetup:props.copy.rbAdvToolSetup, credentialClear:props.copy.rbAdvCredentialClear, enable:props.copy.rbAdvEnable, disable:props.copy.rbAdvDisable};
   const outcomes = {success:props.copy.rbAdvSuccess, warning:props.copy.rbAdvWarning, failed:props.copy.rbAdvFailed, started:props.copy.rbAdvStarted};
   const states = {success:"healthy", warning:"warning", failed:"failed", started:"idle"} as const;
   const outcome = event.action === "toolVerify" && event.outcome === "failed" ? props.copy.rbAdvFailed : outcomes[event.outcome];
@@ -204,7 +207,6 @@ const configActions = computed(() => !!props.summary.target && ["openssh","vscod
   <dialog ref="clearLogsDialog" class="confirmation-dialog advanced-clear-logs-dialog" aria-labelledby="advanced-clear-logs-title" aria-describedby="advanced-clear-logs-description" @cancel.prevent="!clearingLogs && clearLogsDialog?.close()">
     <h2 id="advanced-clear-logs-title">{{ copy.rbAdvClearLogsTitle }}</h2>
     <p id="advanced-clear-logs-description">{{ copy.rbAdvClearLogsBody }}</p>
-    <p v-if="clearLogsError" class="advanced-clear-error" role="alert">{{ copy.rbAdvClearLogsError }}</p>
     <div class="confirmation-actions"><button class="secondary-action" type="button" :disabled="clearingLogs" @click="clearLogsDialog?.close()">{{ copy.rbCancel }}</button><button class="secondary-action danger-action" type="button" :disabled="busy || clearingLogs" @click="clearLogs">{{ clearingLogs ? copy.rbAdvLogsClearing : copy.rbAdvClearLogs }}</button></div>
   </dialog>
   <dialog ref="timingDialog" class="confirmation-dialog advanced-timing-dialog" aria-labelledby="advanced-timing-title" @cancel.prevent="timingDialog?.close()">
@@ -259,7 +261,7 @@ const configActions = computed(() => !!props.summary.target && ["openssh","vscod
 .advanced-clear-logs-dialog h2 { margin:0 0 12px; font-size:17px; }
 .advanced-clear-logs-dialog p { font-size:13px; line-height:1.65; }
 .advanced-clear-logs-dialog .confirmation-actions { margin-top:18px; }
-.advanced-clear-error,.advanced-clear-logs-dialog .danger-action { color:var(--danger); }
+.advanced-clear-logs-dialog .danger-action { color:var(--danger); }
 .advanced-timing-dialog { width:min(500px,calc(100vw - 40px)); max-height:calc(100dvh - 40px); padding:20px; overflow:auto; }
 .advanced-timing-dialog h2 { margin:0 0 14px; font-size:16px; }
 .advanced-timing-dialog table { width:100%; border-collapse:collapse; font-size:12px; }

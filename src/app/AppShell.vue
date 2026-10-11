@@ -23,6 +23,8 @@ import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandida
 import { copyText } from "../shared/utils/clipboard";
 import AppHeader from "./components/AppHeader.vue";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
+import NotificationCenter from "../shared/components/NotificationCenter.vue";
+import { notify, useNotification } from "../shared/state/notifications";
 
 import RemoteBridgePage from "../features/remote-bridge/components/RemoteBridgePage.vue";
 import { useRemoteBridge, type BridgeSummary } from "../features/remote-bridge/state";
@@ -51,7 +53,6 @@ const error = ref("");
 const settingsError = ref("");
 const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
-const instanceNoticeVisible = ref(false);
 function openBridgeNotice() { openRemote(); void refreshRemoteBridge(); }
 const appVersion = ref("0.2.0");
 const latestVersion = ref("");
@@ -81,7 +82,6 @@ const reviewPreview = import.meta.env.DEV && new URLSearchParams(window.location
 const appWindow = reviewPreview ? undefined : getCurrentWindow();
 let refreshTimer: number | undefined;
 let copyTimer: number | undefined;
-let instanceNoticeTimer: number | undefined;
 let refreshPending = false;
 let settingsSaveTimer: number | undefined;
 let settingsReady = false;
@@ -93,6 +93,10 @@ let unlisten: UnlistenFn[] = [];
 
 const locale = computed(() => resolveLocale(draftSettings.value.language));
 const copy = computed(() => messages[locale.value]);
+useNotification(error, "error", "app-operation");
+useNotification(settingsError, "error", "settings-save");
+useNotification(settingsLoadError, "error", "settings-load");
+useNotification(releaseActionError, "error", "release-action");
 const activeProxyContext = computed(() => environment.value.activeProxy);
 const detected = computed(() => activeProxyContext.value.candidate ?? undefined);
 const systemProxy = computed(() => candidates.value.find((candidate) => candidate.source.includes("windowsSystemProxy")));
@@ -487,11 +491,7 @@ function onSystemThemeChange() {
 }
 
 function showSecondInstanceNotice() {
-  instanceNoticeVisible.value = true;
-  if (instanceNoticeTimer !== undefined) window.clearTimeout(instanceNoticeTimer);
-  instanceNoticeTimer = window.setTimeout(() => {
-    instanceNoticeVisible.value = false;
-  }, 3200);
+  notify(copy.value.secondInstanceOpened, "info", "second-instance");
 }
 
 watch([draftSettings, locale], applyPresentation, { deep: true, immediate: true });
@@ -652,7 +652,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
   if (copyTimer !== undefined) window.clearTimeout(copyTimer);
-  if (instanceNoticeTimer !== undefined) window.clearTimeout(instanceNoticeTimer);
   if (settingsSaveTimer !== undefined) window.clearTimeout(settingsSaveTimer);
   unlistenResize?.();
   window.removeEventListener("keydown", onViewShortcut);
@@ -663,12 +662,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-frame" :class="{ maximized }">
-    <Transition name="instance-toast">
-      <div v-if="instanceNoticeVisible" class="instance-toast" role="status" aria-live="polite">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8" /></svg>
-        <span>{{ copy.secondInstanceOpened }}</span>
-      </div>
-    </Transition>
+    <NotificationCenter :close-label="copy.rbNotificationClose" />
     <AppHeader
       :copy="copy"
       :maximized="maximized"
