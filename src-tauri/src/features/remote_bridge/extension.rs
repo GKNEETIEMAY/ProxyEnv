@@ -171,28 +171,83 @@ fn checked_inspection(value: serde_json::Value) -> BridgeResult<Inspection> {
     Ok(result)
 }
 pub fn inspect(alias: String) -> BridgeResult<Inspection> {
-    let fingerprint = ssh::fingerprint(&alias)?;
-    let mut inspection = checked_inspection(ssh::extension_remote(
-        &alias,
-        &json!({"operation":"inspect"}),
-    )?)?;
-    if ssh::fingerprint(&alias)? != fingerprint {
-        return Err("sshConfigChanged".into());
-    }
+    let mut inspection = discover(&alias)?;
     let mut state = lock()?;
     if state.summary.target.as_ref().map(|target| &target.id) == Some(&alias) {
         if state.summary.codex_configured
             && inspection.extensions[0].detected
             && inspection.extensions[0].configuration == "notConfigured"
         {
-            // Remote Codex CLI and VS Code share one managed user profile.
-            // This inspection mirrors that switch; it does not write a second profile.
+            // Both entry points consume the same managed user profile.
             inspection.extensions[0].configuration = "configured".into();
         }
         state.summary.codex_extension = Some(inspection.extensions[0].configuration.clone());
         state.summary.claude_extension = Some(inspection.extensions[1].configuration.clone());
     }
     Ok(inspection)
+}
+
+// No store lock: discovery and configuration already guard their own generation.
+pub(super) fn discover(alias: &str) -> BridgeResult<Inspection> {
+    let fingerprint = ssh::fingerprint(alias)?;
+    let inspection = checked_inspection(ssh::extension_remote(
+        alias,
+        &json!({"operation":"inspect"}),
+    )?)?;
+    if ssh::fingerprint(alias)? != fingerprint {
+        return Err("sshConfigChanged".into());
+    }
+    Ok(inspection)
+}
+
+pub(super) fn profile_version(
+    inspection: &Inspection,
+    tool: super::tool_adapter::RemoteToolId,
+) -> BridgeResult<String> {
+    use super::tool_adapter::{by_id, valid_version, RemoteToolCompatibility};
+    if inspection.vscode.status != "detected" {
+        return Err("extensionContextChanged".into());
+    }
+    let capability = inspection
+        .extensions
+        .iter()
+        .find(|entry| entry.tool == tool.as_str())
+        .ok_or("extensionMissing")?;
+    if !capability.detected {
+        return Err("extensionMissing".into());
+    }
+    let versions = if tool == super::tool_adapter::RemoteToolId::Codex {
+        &capability.runtime_versions
+    } else {
+        &capability.versions
+    };
+    // VS Code bundles may ship a version such as 0.151.0-alpha.7.2.
+    // Keep standalone CLI discovery strict; use the plugin's measured core version.
+    let versions: Vec<_> = versions
+        .iter()
+        .map(|version| version.split('-').next().unwrap_or_default())
+        .collect();
+    if !capability.supported
+        || versions.is_empty()
+        || versions.iter().any(|version| {
+            !valid_version(version)
+                || by_id(tool).compatibility(version) != RemoteToolCompatibility::Compatible
+        })
+    {
+        return Err("extensionUnsupported".into());
+    }
+    // Old extension folders can coexist after an update. All must be compatible;
+    // use the oldest measured core, without claiming which extension is active.
+    Ok(versions
+        .into_iter()
+        .min_by_key(|version| {
+            version
+                .split('.')
+                .map(|part| part.parse::<u16>().unwrap_or_default())
+                .collect::<Vec<_>>()
+        })
+        .ok_or("extensionUnsupported")?
+        .to_owned())
 }
 pub fn preview(selection: Selection) -> BridgeResult<Preview> {
     // Codex CLI and VS Code share the managed user profile. The old extension
@@ -413,6 +468,52 @@ mod tests {
         .expect("valid inspection");
         assert_eq!(inspection.vscode.status, "detected");
         assert_eq!(inspection.extensions[0].candidate_count, 2);
+
+        use super::super::tool_adapter::{RemoteToolId as T, RemoteToolInstallState as S};
+        assert_eq!(profile_version(&inspection, T::Codex).unwrap(), "0.151.0");
+        let mut candidate = inspection.clone();
+        candidate.extensions[0].runtime_version = "0.151.0-alpha.7.2".into();
+        candidate.extensions[0].runtime_versions =
+            vec!["0.151.0-alpha.7.2".into(), "0.152.0".into()];
+        assert_eq!(profile_version(&candidate, T::Codex).unwrap(), "0.151.0");
+        let mut tools = super::super::tool_adapter::unknown_installations();
+        super::super::tool_discovery::project_extensions(&mut tools, &candidate);
+        assert_eq!(
+            tools[0].state,
+            S::Unknown,
+            "Plugin evidence never fabricates a CLI"
+        );
+        assert_eq!(tools[0].extension_state, S::Installed);
+        assert_eq!(tools[1].extension_state, S::Missing);
+        assert!(profile_version(&candidate, T::Claude).is_err());
+        for version in ["0.133.9", "1.0.0", "", "0.151.0;echo"] {
+            candidate.extensions[0].runtime_version = version.into();
+            candidate.extensions[0].runtime_versions = vec![version.into()];
+            assert!(profile_version(&candidate, T::Codex).is_err());
+        }
+        candidate.extensions[0].runtime_version = "0.151.0".into();
+        candidate.extensions[0].runtime_versions = vec!["0.151.0".into()];
+        candidate.extensions[0].detected = false;
+        assert!(
+            profile_version(&candidate, T::Codex).is_err(),
+            "Removed plugins cannot authorize writes"
+        );
+        candidate.extensions[0].detected = true;
+        candidate.vscode.status = "ambiguous".into();
+        assert!(profile_version(&candidate, T::Codex).is_err());
+        candidate.vscode.status = "detected".into();
+        candidate.extensions[1].detected = true;
+        candidate.extensions[1].supported = true;
+        for (version, supported) in [
+            ("2.1.226", false),
+            ("2.1.227", true),
+            ("2.2.0", true),
+            ("3.0.0", false),
+        ] {
+            candidate.extensions[1].version = version.into();
+            candidate.extensions[1].versions = vec![version.into()];
+            assert_eq!(profile_version(&candidate, T::Claude).is_ok(), supported);
+        }
 
         let mut value = serde_json::to_value(inspection).unwrap();
         value["vscode"]["remoteSettingsPath"] = json!("~/../private/settings.json");

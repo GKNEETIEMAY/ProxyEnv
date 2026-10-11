@@ -159,6 +159,12 @@ mod tests {
             cc_status: Some(Status::Connected),
             ..Default::default()
         };
+        summary.tool_installations = vec![super::super::tool_adapter::project_installation(
+            super::super::tool_adapter::RemoteToolId::Claude,
+            true,
+            true,
+            Some("2.1.227"),
+        )];
         super::super::sync_tool_states(&mut summary);
         assert!(summary
             .tools

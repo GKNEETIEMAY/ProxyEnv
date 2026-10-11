@@ -1210,6 +1210,7 @@ pub(super) fn remote_payload(
         "restore",
         "restore-preview",
         "tool-verify",
+        "tool-discover",
         "session-env-apply",
         "session-env-remove",
     ]
@@ -1291,6 +1292,15 @@ pub(super) fn remote_payload(
     {
         return Err("invalidRequest".into());
     }
+    let extension_version = request["extensionVersion"].as_str().unwrap_or("");
+    if !extension_version.is_empty()
+        && (!super::tool_adapter::valid_version(extension_version)
+            || super::tool_adapter::by_name(tool)?.compatibility(extension_version)
+                != super::tool_adapter::RemoteToolCompatibility::Compatible
+            || !matches!(operation, "preview" | "apply"))
+    {
+        return Err("invalidRequest".into());
+    }
     let bundled = include_str!("remote.sh");
     // Read-only transport probes return before any configuration code runs.
     // Do not keep writing the entire configuration helper after the remote
@@ -1300,9 +1310,15 @@ pub(super) fn remote_payload(
             .split_once("\numask 077\n")
             .ok_or("stateUnavailable")?
             .0
+    } else if operation == "tool-discover" {
+        bundled
+            .split_once("\n# PROXYENV_CONFIG_DEPENDENCIES\n")
+            .ok_or("stateUnavailable")?
+            .0
     } else {
         bundled
     };
+    let script = format!("extension_version='{extension_version}'\n{script}");
     let source = Zeroizing::new(format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nrepair_permissions={repair_permissions}\nprotocol='{protocol}'\nscheme='{scheme}'\nprofile_model_b64='{profile_model}'\nprofile_catalog_b64='{profile_catalog}'\nprofile_settings_b64='{profile_settings}'\nprofile_hash='{profile_hash}'\nsession_id='{session_id}'\nsession_token='{session_token}'\nPROXYENV_SESSION_TOKEN=\"$session_token\"\nexport PROXYENV_SESSION_TOKEN\n{script}", ports.join(" ")));
     let operation = match operation {
         "check" => "check",
@@ -1315,6 +1331,7 @@ pub(super) fn remote_payload(
         "restore" => "restore",
         "restore-preview" => "restore-preview",
         "tool-verify" => "tool-verify",
+        "tool-discover" => "tool-discover",
         "session-env-apply" => "session-env-apply",
         "session-env-remove" => "session-env-remove",
         _ => return Err("invalidRequest".into()),
@@ -1323,6 +1340,9 @@ pub(super) fn remote_payload(
 }
 
 pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<serde_json::Value> {
+    if operation == "tool-discover" && text.len() > 4096 {
+        return Err("remoteUnsupported".into());
+    }
     let value: serde_json::Value =
         serde_json::from_str(text.trim()).map_err(|_| "remoteUnsupported")?;
     if let Some(code) = value.get("error").and_then(|v| v.as_str()) {
@@ -1408,11 +1428,37 @@ pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<s
             "verification": value["verification"].as_str().ok_or("remoteFailed")?
         }));
     }
+    if operation == "tool-discover" {
+        super::tool_discovery::parse(value.clone())?;
+    }
     Ok(value)
 }
 
-pub fn remote(alias: &str, request: serde_json::Value) -> BridgeResult<serde_json::Value> {
-    let (source, operation) = remote_payload(&request)?;
+pub fn remote(alias: &str, mut request: serde_json::Value) -> BridgeResult<serde_json::Value> {
+    // Runtime evidence can only come from our checked SSH extension probe.
+    // Preview, apply and each background profile update re-probe independently.
+    if let Some(object) = request.as_object_mut() {
+        object.remove("extensionVersion");
+    }
+    let result = remote_execute(alias, &request);
+    if matches!(request["operation"].as_str(), Some("preview" | "apply"))
+        && result
+            .as_ref()
+            .err()
+            .is_some_and(|error| matches!(error.as_str(), "cliMissing" | "cliUnsupported"))
+    {
+        let tool =
+            super::tool_adapter::by_name(request["tool"].as_str().ok_or("invalidRequest")?)?.id();
+        let inspection = super::extension::discover(alias)?;
+        request["extensionVersion"] =
+            serde_json::json!(super::extension::profile_version(&inspection, tool)?);
+        return remote_execute(alias, &request);
+    }
+    result
+}
+
+fn remote_execute(alias: &str, request: &serde_json::Value) -> BridgeResult<serde_json::Value> {
+    let (source, operation) = remote_payload(request)?;
     let (mut cmd, destination) = remote_target_command(alias)?;
     cmd.arg("-oClearAllForwardings=yes")
         .arg(destination)
@@ -1838,6 +1884,17 @@ mod tests {
     }
     #[test]
     fn read_only_probes_do_not_upload_configuration_helpers() {
+        let (source, _) =
+            remote_payload(&serde_json::json!({"operation":"tool-discover"})).unwrap();
+        assert!(source.contains("discover_version codex"));
+        assert!(source.contains("discover_version claude"));
+        assert!(!source.contains("claude_json"));
+        assert!(!source.contains("profile_decode"));
+        assert!(!source.contains("# PROXYENV_CONFIG_DEPENDENCIES"));
+        assert!(source.len() < 12000);
+        for text in ["{", "{\"HOME\":\"private\"}", &" ".repeat(4097)] {
+            assert!(parse_remote_output("tool-discover", text).is_err());
+        }
         for operation in ["check", "verify", "internet", "test"] {
             let (source, _) = remote_payload(&serde_json::json!({
                 "operation": operation, "ports": [17897]
@@ -1859,6 +1916,32 @@ mod tests {
         .unwrap();
         assert!(source.contains("umask 077"));
         assert!(source.contains("claude_json"));
+    }
+    #[test]
+    fn extension_profile_payload_accepts_only_compatible_normalized_versions() {
+        let valid = serde_json::json!({"operation":"preview","tool":"claude","port":25721,"sessionToken":"a".repeat(64),"profileHash":"b".repeat(64),"profileSettingsBase64":"e30=","extensionVersion":"2.1.227"});
+        assert!(remote_payload(&valid)
+            .unwrap()
+            .0
+            .contains("extension_version='2.1.227'"));
+        for version in [
+            "2.1.226",
+            "3.0.0",
+            "2.1.227;id",
+            "2.1.227\nsecret",
+            "/home/private",
+            "2.1.227-alpha",
+        ] {
+            let mut invalid = valid.clone();
+            invalid["extensionVersion"] = serde_json::json!(version);
+            assert!(remote_payload(&invalid).is_err());
+        }
+        let mut invalid = valid;
+        invalid["operation"] = serde_json::json!("tool-verify");
+        assert!(
+            remote_payload(&invalid).is_err(),
+            "Plugin proof cannot invent an executable CLI"
+        );
     }
     #[test]
     fn openssh_parameters_keep_security_overrides_and_have_no_shell() {

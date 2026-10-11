@@ -21,6 +21,7 @@ mod skills;
 mod ssh;
 pub mod ssh_auth;
 pub mod tool_adapter;
+pub mod tool_discovery;
 pub(crate) mod vscode;
 mod vscode_network;
 #[cfg(test)]
@@ -176,6 +177,8 @@ pub struct Summary {
     #[serde(skip)]
     pub(crate) claude_verification: tool_adapter::RemoteToolVerification,
     pub tools: Vec<tool_adapter::RemoteToolState>,
+    pub tool_installations: Vec<tool_adapter::RemoteToolInstallation>,
+    pub install_capabilities: tool_discovery::RemoteInstallCapabilities,
     pub codex_extension: Option<String>,
     pub claude_extension: Option<String>,
     pub error: Option<String>,
@@ -195,6 +198,7 @@ pub struct Summary {
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
+    pub tool_installations: Vec<tool_adapter::RemoteToolInstallation>,
     pub configured: bool,
     pub reachable: bool,
     pub status: Status,
@@ -374,6 +378,10 @@ struct Store {
     cc_detected: bool,
     reachable: bool,
     target_fingerprint: Option<String>,
+    tool_discovery_fingerprint: Option<String>,
+    tool_discovery_ticket: u64,
+    // Explicit per-tool OFF survives discovery and transport recovery in this bridge.
+    disabled_tools: Vec<tool_adapter::RemoteToolId>,
     proxy_status: Status,
     cc_status: Status,
     ssh_auth: SshAuthState,
@@ -406,6 +414,9 @@ impl Default for Store {
             cc_detected: false,
             reachable: false,
             target_fingerprint: None,
+            tool_discovery_fingerprint: None,
+            tool_discovery_ticket: 0,
+            disabled_tools: Vec::new(),
             proxy_status: Status::Disconnected,
             cc_status: Status::Disconnected,
             ssh_auth: SshAuthState::default(),
@@ -600,6 +611,9 @@ fn refresh(state: &mut Store) {
 }
 
 fn sync_tool_states(summary: &mut Summary) {
+    if summary.tool_installations.is_empty() {
+        summary.tool_installations = tool_adapter::unknown_installations();
+    }
     summary.tools = tool_adapter::adapters()
         .iter()
         .map(|adapter| adapter.inspect(summary))
@@ -684,116 +698,6 @@ fn timing(phase: &str, started: Instant, success: bool) -> PhaseTiming {
         duration_ms: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
         outcome: if success { "success" } else { "failed" }.into(),
     }
-}
-
-fn refresh_tool_configuration(
-    summary: &mut Summary,
-    session_token: Option<&str>,
-) -> (Vec<PhaseTiming>, bool) {
-    let Some(target_id) = summary.target.as_ref().map(|target| target.id.clone()) else {
-        return (Vec::new(), false);
-    };
-    let Some(route_port) = summary.cc.as_ref().map(|endpoint| endpoint.remote_port) else {
-        for adapter in tool_adapter::adapters() {
-            adapter.restore(summary);
-        }
-        sync_tool_states(summary);
-        return (Vec::new(), true);
-    };
-    let statuses = Mutex::new(Vec::new());
-    std::thread::scope(|scope| {
-        for adapter in tool_adapter::adapters().iter().copied() {
-            let target_id = &target_id;
-            let statuses = &statuses;
-            scope.spawn(move || {
-                let started = Instant::now();
-                let status = ssh::remote(
-                    target_id,
-                    remote_request("status", adapter, route_port, None, session_token),
-                );
-                if let Ok(mut entries) = statuses.lock() {
-                    entries.push((adapter, status, started.elapsed()));
-                }
-            });
-        }
-    });
-    let mut statuses = statuses.into_inner().unwrap_or_default();
-    statuses.sort_by_key(|(adapter, _, _)| adapter.id().as_str());
-    let mut timings = Vec::new();
-    let mut all_ready = true;
-    for (adapter, status, elapsed) in statuses {
-        let status_ok = status.is_ok();
-        timings.push(PhaseTiming {
-            phase: format!("{}.status", adapter.id().as_str()),
-            duration_ms: elapsed.as_millis().try_into().unwrap_or(u64::MAX),
-            outcome: if status_ok { "success" } else { "failed" }.into(),
-        });
-        let status = status.ok();
-        let mut configured = status
-            .as_ref()
-            .and_then(|value| value["configured"].as_bool())
-            .unwrap_or(false);
-
-        // An explicit replacement connection rotates the session token. If this tool is already
-        // ProxyEnv-owned and still points at the same route, refresh the
-        // allowlisted projection transactionally instead of forcing the user
-        // through configuration again. Unowned files are never touched.
-        let owned_route = status.as_ref().is_some_and(|value| {
-            value["owned"] == true && value["previousPort"].as_u64() == Some(u64::from(route_port))
-        });
-        if !configured && owned_route {
-            if let (Some(session_token), Ok(profile)) =
-                (session_token, LocalToolProfile::inspect(adapter.id()))
-            {
-                let preview_started = Instant::now();
-                let preview = ssh::remote(
-                    &target_id,
-                    remote_request(
-                        "preview",
-                        adapter,
-                        route_port,
-                        Some(&profile),
-                        Some(session_token),
-                    ),
-                );
-                timings.push(timing(
-                    &format!("{}.preview", adapter.id().as_str()),
-                    preview_started,
-                    preview.is_ok(),
-                ));
-                if let Ok(preview) = preview {
-                    if let Some(expected_hash) = preview["expectedHash"].as_str() {
-                        let mut apply = remote_request(
-                            "apply",
-                            adapter,
-                            route_port,
-                            Some(&profile),
-                            Some(session_token),
-                        );
-                        apply["expectedHash"] = json!(expected_hash);
-                        apply["repairPermissions"] =
-                            json!(preview["permissionHardening"].as_bool().unwrap_or(false));
-                        let apply_started = Instant::now();
-                        let result = ssh::remote(&target_id, apply);
-                        configured = result.is_ok();
-                        timings.push(timing(
-                            &format!("{}.apply", adapter.id().as_str()),
-                            apply_started,
-                            configured,
-                        ));
-                    }
-                }
-            }
-        }
-        if configured {
-            adapter.apply(summary);
-        } else {
-            adapter.restore(summary);
-            all_ready = false;
-        }
-    }
-    sync_tool_states(summary);
-    (timings, all_ready)
 }
 
 fn invalidate_tool_verification(summary: &mut Summary) {
@@ -1276,8 +1180,251 @@ pub fn disable_skill(id: String) -> BridgeResult<SkillView> {
     result
 }
 pub fn summary() -> BridgeResult<Summary> {
-    let state = lock()?;
+    let mut state = lock()?;
+    if state.tool_discovery_fingerprint.is_some() {
+        let fingerprint = state
+            .summary
+            .target
+            .as_ref()
+            .and_then(|target| ssh::fingerprint(&target.id).ok());
+        invalidate_tool_discovery(&mut state, fingerprint.as_deref());
+    }
     Ok(exposed_state_summary(&state))
+}
+
+fn invalidate_tool_discovery(state: &mut Store, fingerprint: Option<&str>) {
+    if state.tool_discovery_fingerprint.is_some()
+        && state.tool_discovery_fingerprint.as_deref() != fingerprint
+    {
+        state.tool_discovery_ticket = state.tool_discovery_ticket.wrapping_add(1);
+        state.tool_discovery_fingerprint = None;
+        state.summary.tool_installations = tool_adapter::unknown_installations();
+        state.summary.install_capabilities = tool_discovery::RemoteInstallCapabilities::default();
+    }
+}
+
+fn discovery_context_current(
+    state: &Store,
+    target_id: &str,
+    fingerprint: &str,
+    generation: u64,
+    ticket: u64,
+) -> bool {
+    state.child.is_some()
+        && state.connection_generation == generation
+        && state.tool_discovery_ticket == ticket
+        && state
+            .summary
+            .target
+            .as_ref()
+            .is_some_and(|target| target.id == target_id)
+        && state.target_fingerprint.as_deref() == Some(fingerprint)
+}
+
+fn automatic_tool_setup_allowed(state: &Store, tool: tool_adapter::RemoteToolId) -> bool {
+    use tool_adapter::RemoteToolInstallState as I;
+    capability_ready(state.child.is_some(), state.summary.cc_status)
+        && state.summary.cc.is_some()
+        && !state.disabled_tools.contains(&tool)
+        && !tool_adapter::by_id(tool).configured(&state.summary)
+        && state.summary.tool_installations.iter().any(|entry| {
+            entry.tool == tool
+                && entry.state != I::Checking
+                && entry.extension_state != I::Checking
+                && (entry.state == I::Installed || entry.extension_state == I::Installed)
+        })
+}
+
+fn configure_discovered_tools(target_id: &str, fingerprint: &str, generation: u64, ticket: u64) {
+    for adapter in tool_adapter::adapters() {
+        let Ok(mut state) = lock() else { return };
+        refresh(&mut state);
+        if !discovery_context_current(&state, target_id, fingerprint, generation, ticket)
+            || state.tool_discovery_fingerprint.as_deref() != Some(fingerprint)
+        {
+            return;
+        }
+        // Serialize with manual transactions; never replace their pending preview.
+        if state.pending.is_some() || state.extension_pending.is_some() || state.profile_syncing {
+            return;
+        }
+        let tool = adapter.id();
+        if !automatic_tool_setup_allowed(&state, tool) {
+            if tool == tool_adapter::RemoteToolId::Codex {
+                state.summary.codex_state = RuntimeState::Ready;
+            } else {
+                state.summary.claude_state = RuntimeState::Ready;
+            }
+            continue;
+        }
+        let started = Instant::now();
+        // The AI capability is the user's opt-in. Reuse the exact manual
+        // preview/apply/read-back/rollback transaction, including plugin fallback.
+        let result = config_preview_locked(&mut state, *adapter)
+            .and_then(|preview| config_apply_locked(&mut state, preview.id));
+        let runtime = if result.is_ok() {
+            RuntimeState::Ready
+        } else {
+            RuntimeState::Warning
+        };
+        if tool == tool_adapter::RemoteToolId::Codex {
+            state.summary.codex_state = runtime;
+        } else {
+            state.summary.claude_state = runtime;
+        }
+        let entry = timing(&format!("{}.setup", tool.as_str()), started, result.is_ok());
+        state.events.push(
+            if tool == tool_adapter::RemoteToolId::Codex {
+                EventComponent::Codex
+            } else {
+                EventComponent::Claude
+            },
+            EventAction::ToolSetup,
+            if result.is_ok() {
+                EventOutcome::Success
+            } else {
+                EventOutcome::Failed
+            },
+            result
+                .as_ref()
+                .err()
+                .map(|code| ErrorCategory::from_code(code)),
+            Some(entry.duration_ms),
+        );
+        if let Err(code) = result {
+            state.summary.post_connect_error.get_or_insert(code);
+        }
+        state.summary.timings.push(entry);
+    }
+}
+
+pub fn discover_tools(
+    target_id: String,
+) -> BridgeResult<tool_discovery::RemoteToolDiscoverySnapshot> {
+    discover_tools_for_generation(target_id, None)
+}
+
+fn discover_tools_for_generation(
+    target_id: String,
+    expected_generation: Option<u64>,
+) -> BridgeResult<tool_discovery::RemoteToolDiscoverySnapshot> {
+    let target = targets()?
+        .into_iter()
+        .find(|target| target.id == target_id && target.available)
+        .ok_or("targetUnsupported")?;
+    let fingerprint = ssh::fingerprint(&target.id)?;
+    let (generation, ticket, connected) = {
+        let mut state = lock()?;
+        let connected = state.child.is_some()
+            && state
+                .summary
+                .target
+                .as_ref()
+                .is_some_and(|target| target.id == target_id);
+        if expected_generation
+            .is_some_and(|generation| generation != state.connection_generation || !connected)
+        {
+            return Err("stateUnavailable".into());
+        }
+        if connected && state.target_fingerprint.as_deref() != Some(&fingerprint) {
+            return Err("sshConfigChanged".into());
+        }
+        if connected {
+            state.tool_discovery_ticket = state.tool_discovery_ticket.wrapping_add(1);
+            state.tool_discovery_fingerprint = Some(fingerprint.clone());
+            state.summary.tool_installations = tool_adapter::unknown_installations();
+            for tool in &mut state.summary.tool_installations {
+                tool.state = tool_adapter::RemoteToolInstallState::Checking;
+                tool.extension_state = tool_adapter::RemoteToolInstallState::Checking;
+            }
+        }
+        (
+            state.connection_generation,
+            state.tool_discovery_ticket,
+            connected,
+        )
+    };
+    let started = Instant::now();
+    let result = ssh::remote(&target_id, json!({"operation":"tool-discover"}))
+        .and_then(tool_discovery::parse)
+        .map(|mut snapshot| {
+            // Reuse the read-only Remote SSH extension detector, not configuration status.
+            if let Ok(inspection) = extension::discover(&target_id) {
+                tool_discovery::project_extensions(&mut snapshot.tools, &inspection);
+            }
+            snapshot
+        });
+    if ssh::fingerprint(&target_id).ok().as_ref() != Some(&fingerprint) {
+        return Err("sshConfigChanged".into());
+    }
+    if connected {
+        let mut state = lock()?;
+        if !discovery_context_current(&state, &target_id, &fingerprint, generation, ticket) {
+            return Err("stateUnavailable".into());
+        }
+        match &result {
+            Ok(snapshot) => {
+                state.summary.tool_installations = snapshot.tools.clone();
+                state.summary.install_capabilities = snapshot.capabilities.clone();
+                for tool in &snapshot.tools {
+                    let warning = matches!(
+                        tool.state,
+                        tool_adapter::RemoteToolInstallState::Unsupported
+                            | tool_adapter::RemoteToolInstallState::Broken
+                    );
+                    state.events.push(
+                        if tool.tool == tool_adapter::RemoteToolId::Codex {
+                            EventComponent::Codex
+                        } else {
+                            EventComponent::Claude
+                        },
+                        EventAction::ToolDiscovery,
+                        if warning {
+                            EventOutcome::Warning
+                        } else {
+                            EventOutcome::Success
+                        },
+                        if warning {
+                            Some(ErrorCategory::Unsupported)
+                        } else {
+                            None
+                        },
+                        Some(started.elapsed().as_millis().try_into().unwrap_or(u64::MAX)),
+                    );
+                }
+            }
+            Err(code) => {
+                state.summary.tool_installations = tool_adapter::unknown_installations();
+                if state.summary.cc.is_some() {
+                    state.summary.codex_state = RuntimeState::Warning;
+                    state.summary.claude_state = RuntimeState::Warning;
+                }
+                let error = if code == "dependencyMissing" {
+                    tool_adapter::RemoteToolInstallError::DependencyMissing
+                } else if code.starts_with("ssh") {
+                    tool_adapter::RemoteToolInstallError::SshUnavailable
+                } else {
+                    tool_adapter::RemoteToolInstallError::RemoteUnsupported
+                };
+                for tool in &mut state.summary.tool_installations {
+                    tool.checked_at = Some(observations::timestamp());
+                    tool.error_code = Some(error);
+                }
+                state.events.push(
+                    EventComponent::Ssh,
+                    EventAction::ToolDiscovery,
+                    EventOutcome::Warning,
+                    Some(ErrorCategory::from_code(code)),
+                    None,
+                );
+            }
+        }
+        drop(state);
+        if result.is_ok() {
+            configure_discovered_tools(&target_id, &fingerprint, generation, ticket);
+        }
+    }
+    result
 }
 
 pub fn recent_events(limit: usize) -> BridgeResult<Vec<events::BridgeEvent>> {
@@ -1326,6 +1473,11 @@ pub fn report() -> Report {
 fn project_report(state: &Store) -> Report {
     let s = &state.summary;
     Report {
+        tool_installations: if state.tool_discovery_fingerprint == state.target_fingerprint {
+            s.tool_installations.clone()
+        } else {
+            tool_adapter::unknown_installations()
+        },
         configured: s.target.is_some(),
         reachable: state.reachable,
         status: s.status,
@@ -1381,6 +1533,7 @@ fn safe_phase_timings(timings: &[PhaseTiming]) -> Vec<PhaseTiming> {
         "claude.preview",
         "claude.apply",
         "postConnect.total",
+        "remoteTools.discovery",
     ];
     timings
         .iter()
@@ -1898,12 +2051,20 @@ fn remove_session_environment(target_id: &str, session_id: Option<&str>) {
 }
 
 enum PostConnectResult {
+    ToolDiscovery(
+        BridgeResult<tool_discovery::RemoteToolDiscoverySnapshot>,
+        PhaseTiming,
+    ),
     Environment(BridgeResult<()>, PhaseTiming),
     Vscode(BridgeResult<()>, PhaseTiming),
-    Tools(Box<Summary>, Vec<PhaseTiming>, bool),
 }
 
 fn prepare_post_connect(summary: &mut Summary) {
+    summary.tool_installations = tool_adapter::unknown_installations();
+    for tool in &mut summary.tool_installations {
+        tool.state = tool_adapter::RemoteToolInstallState::Checking;
+        tool.extension_state = tool_adapter::RemoteToolInstallState::Checking;
+    }
     summary.post_connect_status = PostConnectStatus::Preparing;
     summary.session_environment_state = if summary.proxy.is_some() {
         RuntimeState::Preparing
@@ -1962,16 +2123,20 @@ fn start_post_connect(generation: u64) {
                     .as_ref()
                     .or(state.proxy_relay.as_ref())
                     .map(|relay| relay.session_id().to_owned()),
-                state
-                    .ai_relay
-                    .as_ref()
-                    .map(|relay| relay.token().to_owned()),
                 state.target_fingerprint.clone(),
             )
         };
-        let (target_id, summary, proxy_session, vscode_session, ai_token, fingerprint) = job;
+        let (target_id, summary, proxy_session, vscode_session, fingerprint) = job;
         let (sender, receiver) = std::sync::mpsc::channel();
         {
+            let discovery_sender = sender.clone();
+            let discovery_target = target_id.clone();
+            std::thread::spawn(move || {
+                let started = Instant::now();
+                let result = discover_tools_for_generation(discovery_target, Some(generation));
+                let entry = timing("remoteTools.discovery", started, result.is_ok());
+                let _ = discovery_sender.send(PostConnectResult::ToolDiscovery(result, entry));
+            });
             if summary.proxy.is_some() {
                 let sender = sender.clone();
                 let target_id = target_id.clone();
@@ -2014,21 +2179,6 @@ fn start_post_connect(generation: u64) {
                     ));
                 });
             }
-            if summary.cc.is_some() {
-                let sender = sender.clone();
-                let mut tool_summary = summary.clone();
-                std::thread::spawn(move || {
-                    let (timings, ready) = refresh_tool_configuration(
-                        &mut tool_summary,
-                        ai_token.as_deref().map(|token| token.as_str()),
-                    );
-                    let _ = sender.send(PostConnectResult::Tools(
-                        Box::new(tool_summary),
-                        timings,
-                        ready,
-                    ));
-                });
-            }
         }
         drop(sender);
 
@@ -2040,6 +2190,16 @@ fn start_post_connect(generation: u64) {
                 return;
             }
             match result {
+                PostConnectResult::ToolDiscovery(result, entry) => {
+                    // CLI states are observations, not bridge or configuration failures.
+                    if result.is_err() {
+                        state
+                            .summary
+                            .post_connect_error
+                            .get_or_insert_with(|| "remoteUnsupported".into());
+                    }
+                    state.summary.timings.push(entry);
+                }
                 PostConnectResult::Environment(result, entry) => {
                     state.events.push(
                         EventComponent::SessionEnvironment,
@@ -2089,46 +2249,6 @@ fn start_post_connect(generation: u64) {
                         state.summary.post_connect_error.get_or_insert(code);
                     }
                     state.summary.timings.push(entry);
-                }
-                PostConnectResult::Tools(tool_summary, entries, ready) => {
-                    for (component, configured) in [
-                        (EventComponent::Codex, tool_summary.codex_configured),
-                        (EventComponent::Claude, tool_summary.claude_configured),
-                    ] {
-                        state.events.push(
-                            component,
-                            EventAction::ToolSetup,
-                            if configured {
-                                EventOutcome::Success
-                            } else {
-                                EventOutcome::Warning
-                            },
-                            None,
-                            None,
-                        );
-                    }
-                    state.summary.codex_configured = tool_summary.codex_configured;
-                    state.summary.claude_configured = tool_summary.claude_configured;
-                    state.summary.codex_verification = tool_summary.codex_verification;
-                    state.summary.claude_verification = tool_summary.claude_verification;
-                    state.summary.codex_state = if tool_summary.codex_configured {
-                        RuntimeState::Ready
-                    } else {
-                        RuntimeState::Warning
-                    };
-                    state.summary.claude_state = if tool_summary.claude_configured {
-                        RuntimeState::Ready
-                    } else {
-                        RuntimeState::Warning
-                    };
-                    if !ready {
-                        state
-                            .summary
-                            .post_connect_error
-                            .get_or_insert_with(|| "toolSetupFailed".into());
-                    }
-                    state.summary.timings.extend(entries);
-                    sync_tool_states(&mut state.summary);
                 }
             }
         }
@@ -2203,6 +2323,7 @@ pub(super) fn mark_interactive_connecting() -> BridgeResult<()> {
         return Err("alreadyConnected".into());
     }
     reconnect::cancel(&mut state);
+    state.disabled_tools.clear();
     state.pending = None;
     state.extension_pending = None;
     state.summary.status = Status::Connecting;
@@ -2308,6 +2429,7 @@ pub fn connect(request: Request, confirmed: bool) -> BridgeResult<Summary> {
         return Err("alreadyConnected".into());
     }
     reconnect::cancel(&mut state);
+    state.disabled_tools.clear();
     state.pending = None;
     let connect_started = Instant::now();
     state.events.clear();
@@ -2900,11 +3022,36 @@ pub fn config_preview(tool: String) -> BridgeResult<ConfigPreview> {
     let adapter = tool_adapter::by_name(&tool)?;
     let mut state = lock()?;
     refresh(&mut state);
+    config_preview_locked(&mut state, adapter)
+}
+
+fn config_preview_locked(
+    state: &mut Store,
+    adapter: &'static dyn tool_adapter::RemoteToolAdapter,
+) -> BridgeResult<ConfigPreview> {
     if state.profile_syncing {
         return Err("configConflict".into());
     }
     if state.child.is_none() || state.summary.cc.is_none() {
         return Err("bridgeUnavailable".into());
+    }
+    if let Some(observation) = state
+        .summary
+        .tool_installations
+        .iter()
+        .find(|item| item.tool == adapter.id())
+    {
+        match observation.state {
+            _ if observation.extension_state == tool_adapter::RemoteToolInstallState::Installed => {
+            }
+            tool_adapter::RemoteToolInstallState::Missing => return Err("cliMissing".into()),
+            tool_adapter::RemoteToolInstallState::Unsupported => {
+                return Err("cliUnsupported".into())
+            }
+            tool_adapter::RemoteToolInstallState::Broken => return Err("cliUnsupported".into()),
+            tool_adapter::RemoteToolInstallState::Checking => return Err("stateUnavailable".into()),
+            _ => {}
+        }
     }
     let target_id = state
         .summary
@@ -3023,6 +3170,10 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
     }
     let mut state = lock()?;
     refresh(&mut state);
+    config_apply_locked(&mut state, id)
+}
+
+fn config_apply_locked(state: &mut Store, id: String) -> BridgeResult<()> {
     if state.child.is_none() {
         return Err("bridgeUnavailable".into());
     }
@@ -3112,13 +3263,16 @@ pub fn config_apply(id: String, confirmed: bool) -> BridgeResult<()> {
     tool_adapter::by_id(pending.preview.tool).apply(&mut state.summary);
     if let Some(profile) = pending.local_profile {
         let tool = pending.preview.tool;
-        set_cached_profile(&mut state, Some(profile));
+        set_cached_profile(state, Some(profile));
         if tool == tool_adapter::RemoteToolId::Codex {
             state.profile_sync_state = settings::ProfileSyncState::Synced;
         } else {
             state.summary.claude_profile_state = settings::ProfileSyncState::Synced;
         }
     }
+    state
+        .disabled_tools
+        .retain(|tool| *tool != pending.preview.tool);
     sync_tool_states(&mut state.summary);
     Ok(())
 }
@@ -3193,6 +3347,9 @@ pub fn config_restore(id: String, confirmed: bool) -> BridgeResult<()> {
         }),
     )?;
     if state.summary.target.as_ref().map(|target| &target.id) == Some(&pending.target_id) {
+        if !state.disabled_tools.contains(&pending.preview.tool) {
+            state.disabled_tools.push(pending.preview.tool);
+        }
         tool_adapter::by_id(pending.preview.tool).restore(&mut state.summary);
         if pending.preview.tool == tool_adapter::RemoteToolId::Codex {
             state.local_codex_profile = None;
@@ -3230,6 +3387,9 @@ fn verify_tool_for_generation(
         }
         if !adapter.configured(&state.summary) {
             return Err("toolNotConfigured".into());
+        }
+        if !adapter.inspect(&state.summary).verification_supported {
+            return Err("toolVerificationUnsupported".into());
         }
         if state.summary.diagnostics.ai_route_verification.state == DiagnosticState::Testing {
             return Err("bridgeBusy".into());
@@ -3368,6 +3528,177 @@ fn verify_tool_for_generation(
 
 #[cfg(test)]
 mod tests {
+    struct DiscoveryTransport;
+    impl super::ssh::ManagedSsh for DiscoveryTransport {
+        fn is_running(&mut self) -> super::BridgeResult<bool> {
+            Ok(true)
+        }
+    }
+    fn automatic_setup_fixture() -> super::Store {
+        use super::*;
+        Store {
+            child: Some(Box::new(DiscoveryTransport)),
+            summary: Summary {
+                cc: Some(Endpoint {
+                    local: ProxyEndpoint {
+                        host: "127.0.0.1".into(),
+                        port: 15721,
+                        protocol: ProxyProtocol::Http,
+                    },
+                    remote_port: 15721,
+                }),
+                cc_status: Some(Status::Connected),
+                tool_installations: tool_adapter::unknown_installations(),
+                ..Summary::default()
+            },
+            ..Store::default()
+        }
+    }
+    #[test]
+    fn automatic_setup_requires_an_enabled_route_and_compatible_cli_or_plugin() {
+        use super::*;
+        use tool_adapter::{RemoteToolId as T, RemoteToolInstallState as I};
+        for tool in [T::Codex, T::Claude] {
+            for cli in [
+                I::Unknown,
+                I::Checking,
+                I::Installed,
+                I::Missing,
+                I::Unsupported,
+                I::Broken,
+            ] {
+                for plugin in [
+                    I::Unknown,
+                    I::Checking,
+                    I::Installed,
+                    I::Missing,
+                    I::Unsupported,
+                    I::Broken,
+                ] {
+                    let mut state = automatic_setup_fixture();
+                    let item = state
+                        .summary
+                        .tool_installations
+                        .iter_mut()
+                        .find(|item| item.tool == tool)
+                        .unwrap();
+                    item.state = cli;
+                    item.extension_state = plugin;
+                    let eligible = cli != I::Checking
+                        && plugin != I::Checking
+                        && (cli == I::Installed || plugin == I::Installed);
+                    assert_eq!(
+                        automatic_tool_setup_allowed(&state, tool),
+                        eligible,
+                        "{tool:?}/{cli:?}/{plugin:?}"
+                    );
+                    state.summary.cc_status = Some(Status::Disconnected);
+                    assert!(!automatic_tool_setup_allowed(&state, tool));
+                    state.summary.cc_status = Some(Status::Connected);
+                    state.summary.cc = None;
+                    assert!(!automatic_tool_setup_allowed(&state, tool));
+                }
+            }
+        }
+    }
+    #[test]
+    fn automatic_setup_preserves_explicit_off_and_skips_already_configured_tools() {
+        use super::*;
+        use tool_adapter::{RemoteToolId as T, RemoteToolInstallState as I};
+        let mut state = automatic_setup_fixture();
+        for item in &mut state.summary.tool_installations {
+            item.state = I::Installed;
+        }
+        state.disabled_tools.push(T::Codex);
+        assert!(!automatic_tool_setup_allowed(&state, T::Codex));
+        assert!(automatic_tool_setup_allowed(&state, T::Claude));
+        // Discovery and a new transport do not clear the user's per-tool OFF.
+        state.summary.tool_installations = tool_adapter::unknown_installations();
+        state.summary.tool_installations[0].extension_state = I::Installed;
+        state.child = Some(Box::new(DiscoveryTransport));
+        assert!(!automatic_tool_setup_allowed(&state, T::Codex));
+        state.disabled_tools.clear();
+        assert!(automatic_tool_setup_allowed(&state, T::Codex));
+        state.summary.codex_configured = true;
+        assert!(!automatic_tool_setup_allowed(&state, T::Codex));
+        state.child = None;
+        assert!(!automatic_tool_setup_allowed(&state, T::Claude));
+    }
+    #[test]
+    fn installation_snapshot_invalidation_and_generation_guards_are_independent_of_core_bridge() {
+        use super::*;
+        let target:RemoteTarget=serde_json::from_value(json!({"id":"discovery-target","displayName":"Test","source":"manual","sourceLabel":"Test","configPath":"","sshAlias":null,"host":"test.example","user":null,"port":22,"identityFile":null,"authenticationMethod":"agent","available":true,"compatibility":"compatible","unavailableReason":null,"canOpenVscode":false,"canOpenMobaxterm":false})).unwrap();
+        let mut state = Store {
+            child: Some(Box::new(DiscoveryTransport)),
+            connection_generation: 7,
+            tool_discovery_ticket: 9,
+            target_fingerprint: Some("first".into()),
+            tool_discovery_fingerprint: Some("first".into()),
+            ..Store::default()
+        };
+        state.summary.target = Some(target);
+        state.summary.status = Status::Connected;
+        state.summary.codex_configured = true;
+        state.summary.tool_installations = vec![
+            tool_adapter::project_installation(
+                tool_adapter::RemoteToolId::Codex,
+                false,
+                false,
+                None,
+            ),
+            tool_adapter::project_installation(
+                tool_adapter::RemoteToolId::Claude,
+                true,
+                true,
+                Some("2.1.227"),
+            ),
+        ];
+        assert!(discovery_context_current(
+            &state,
+            "discovery-target",
+            "first",
+            7,
+            9
+        ));
+        for (target, fingerprint, generation, ticket) in [
+            ("other", "first", 7, 9),
+            ("discovery-target", "other", 7, 9),
+            ("discovery-target", "first", 6, 9),
+            ("discovery-target", "first", 7, 8),
+        ] {
+            assert!(!discovery_context_current(
+                &state,
+                target,
+                fingerprint,
+                generation,
+                ticket
+            ));
+        }
+        invalidate_tool_discovery(&mut state, Some("first"));
+        assert_eq!(
+            state.summary.tool_installations[0].state,
+            tool_adapter::RemoteToolInstallState::Missing
+        );
+        let report = serde_json::to_value(project_report(&state)).unwrap();
+        assert_eq!(report["toolInstallations"][1]["version"], "2.1.227");
+        assert!(!report.to_string().contains("test.example"));
+        invalidate_tool_discovery(&mut state, Some("changed"));
+        assert!(state
+            .summary
+            .tool_installations
+            .iter()
+            .all(|tool| tool.state == tool_adapter::RemoteToolInstallState::Unknown));
+        assert!(!discovery_context_current(
+            &state,
+            "discovery-target",
+            "first",
+            7,
+            9
+        ));
+        assert_eq!(state.summary.status, Status::Connected);
+        assert!(state.summary.codex_configured);
+        assert!(state.child.is_some());
+    }
     #[test]
     fn terminal_command_is_a_read_only_session_scoped_projection() {
         let mut summary = super::Summary {

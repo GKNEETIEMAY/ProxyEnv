@@ -17,6 +17,16 @@ pub struct BridgeCommandError {
 type CommandResult<T> = Result<T, BridgeCommandError>;
 
 #[tauri::command]
+pub async fn remote_bridge_discover_tools(
+    target_id: String,
+) -> CommandResult<bridge::tool_discovery::RemoteToolDiscoverySnapshot> {
+    run("toolDiscovery", Some("ssh"), move || {
+        bridge::discover_tools(target_id)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn remote_bridge_run_diagnostics(
 ) -> CommandResult<bridge::diagnostics::RuntimeDiagnostics> {
     run("diagnostics", None, bridge::diagnostics::run_all).await

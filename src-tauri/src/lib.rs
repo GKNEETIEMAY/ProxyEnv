@@ -95,6 +95,7 @@ pub fn run() {
             commands::remote_bridge::remote_bridge_config_restore,
             commands::remote_bridge::remote_bridge_config_restore_preview,
             commands::remote_bridge::remote_bridge_tool_verify,
+            commands::remote_bridge::remote_bridge_discover_tools,
             commands::remote_bridge::remote_bridge_open_vscode,
             commands::remote_bridge::remote_bridge_open_vscode_settings,
             commands::remote_bridge::remote_bridge_reveal_target_config,

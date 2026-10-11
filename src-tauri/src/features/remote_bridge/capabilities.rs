@@ -130,7 +130,33 @@ pub fn set_capability(change: CapabilityChange, confirmed: bool) -> BridgeResult
     state.extension_pending = None;
     sync_tool_states(&mut state.summary);
     refresh(&mut state);
-    Ok(exposed_state_summary(&state))
+    let auto_setup = change.enabled && change.capability == Capability::Cc;
+    if auto_setup {
+        for tool in [
+            tool_adapter::RemoteToolId::Codex,
+            tool_adapter::RemoteToolId::Claude,
+        ] {
+            if automatic_tool_setup_allowed(&state, tool) {
+                if tool == tool_adapter::RemoteToolId::Codex {
+                    state.summary.codex_state = RuntimeState::Preparing;
+                } else {
+                    state.summary.claude_state = RuntimeState::Preparing;
+                }
+            }
+        }
+    }
+    let snapshot = exposed_state_summary(&state);
+    let generation = state.connection_generation;
+    let ticket = state.tool_discovery_ticket;
+    drop(state);
+    if auto_setup {
+        // The same post-discovery path handles first enable and re-enable.
+        // Explicit per-tool OFF remains an opt-out for this bridge session.
+        std::thread::spawn(move || {
+            configure_discovered_tools(&change.target_id, &fingerprint, generation, ticket);
+        });
+    }
+    Ok(snapshot)
 }
 
 fn network_setup(

@@ -137,6 +137,11 @@ pub(super) fn tick() {
             state.ssh_auth.authenticated = true;
             state.summary.ssh_auth = state.ssh_auth;
             refresh(&mut state);
+            drop(state);
+            // Installation is independent from restoring tunnels; never delay recovery.
+            std::thread::spawn(move || {
+                let _ = discover_tools_for_generation(job.request.target_id, Some(job.generation));
+            });
         }
         Err(code) => {
             state.events.push(

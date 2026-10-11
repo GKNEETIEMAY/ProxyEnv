@@ -4,7 +4,9 @@ set -eu
 fail() { printf '{"error":"%s"}\n' "$1"; exit 0; }
 [ "$(uname -s)" = Linux ] || fail remoteUnsupported
 [ "$(id -u)" != 0 ] || fail rootForbidden
-for utility in ss awk sha256sum mktemp flock sync stat grep cut cp mv cat unlink rm rmdir chmod mkdir; do
+utilities='ss awk sha256sum mktemp flock sync stat grep cut cp mv cat unlink rm rmdir chmod mkdir'
+[ "$operation" != tool-discover ] || utilities='stat awk head timeout'
+for utility in $utilities; do
   command -v "$utility" >/dev/null 2>&1 || fail dependencyMissing
 done
 check_ports() {
@@ -202,6 +204,55 @@ for user_bin in "$HOME"/.nvm/versions/node/*/bin; do
   add_user_bin "$user_bin"
 done
 export PATH
+# Read-only discovery ends before JSON editors, configuration paths or transactions.
+if [ "$operation" = tool-discover ]; then
+  discover_version() {
+    found=false; runnable=false; normalized=null
+    if command -v "$1" >/dev/null 2>&1; then
+      found=true
+      # Cap untrusted version output and retain the exit status without a file.
+      output=$({
+        if timeout -k 1 8 "$1" --version 2>/dev/null; then version_exit=0; else version_exit=$?; fi
+        printf '\nPROXYENV_EXIT=%s\n' "$version_exit"
+      } | head -c 512)
+      normalized=$(printf '%s\n' "$output" | awk -v tool="$1" '
+        NR==1 {
+          version=$0
+          format = tool=="codex" ? version ~ /^codex-cli [0-9]+\.[0-9]+\.[0-9]+$/ : version ~ /^[0-9]+\.[0-9]+\.[0-9]+ \(Claude Code\)$/
+        }
+        NR>1 && $0!="" && $0!~/^PROXYENV_EXIT=/ { unexpected=1 }
+        /^PROXYENV_EXIT=/ { markers++; if($0=="PROXYENV_EXIT=0") ok=1 }
+        END {
+          if (tool=="codex") sub(/^codex-cli /,"",version)
+          else sub(/ \(Claude Code\)$/, "",version)
+          count=split(version,parts,"."); valid=count==3
+          for(i=1;i<=count;i++) if(length(parts[i])>5 || parts[i]+0>65535 || (length(parts[i])>1 && substr(parts[i],1,1)=="0")) valid=0
+          if (ok && markers==1 && format && !unexpected && valid && length(version)<=17) printf "\"%s\"",version
+          else printf "null"
+        }')
+      [ "$normalized" = null ] || runnable=true
+    fi
+    printf '{"tool":"%s","found":%s,"runnable":%s,"version":%s}' "$1" "$found" "$runnable" "$normalized"
+  }
+  has_curl=false; has_npm=false; has_brew=false; node_version=null
+  command -v curl >/dev/null 2>&1 && has_curl=true
+  command -v npm >/dev/null 2>&1 && has_npm=true
+  command -v brew >/dev/null 2>&1 && has_brew=true
+  if command -v node >/dev/null 2>&1; then
+    node_output=$(timeout -k 1 2 node --version 2>/dev/null | head -c 64)
+    node_version=$(printf '%s\n' "$node_output" | awk '
+      NR==1 && /^v[0-9]+\.[0-9]+\.[0-9]+$/ && length($0)<=18 {version=substr($0,2); valid=1}
+      END {
+        count=split(version,parts,".")
+        for(i=1;i<=count;i++) if(length(parts[i])>5 || parts[i]+0>65535 || (length(parts[i])>1 && substr(parts[i],1,1)=="0")) valid=0
+        if(valid && NR==1) printf "\"%s\"",version; else printf "null"
+      }')
+  fi
+  printf '{"tools":['; discover_version codex; printf ','; discover_version claude
+  printf '],"capabilities":{"curl":%s,"npm":%s,"brew":%s,"nodeVersion":%s}}\n' "$has_curl" "$has_npm" "$has_brew" "$node_version"
+  exit 0
+fi
+# PROXYENV_CONFIG_DEPENDENCIES
 if command -v python3 >/dev/null 2>&1; then
   config_python=python3
 elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(0 if sys.version_info >= (2, 7) else 1)' >/dev/null 2>&1; then
@@ -806,6 +857,11 @@ if [ "$operation" = status ]; then
   exit 0
 fi
 if [ "$operation" = preview ] || [ "$operation" = apply ] || [ "$operation" = tool-verify ]; then
+  # A checked Remote SSH plugin may consume the shared profile without a PATH CLI.
+  # Rust obtains this version from a fresh owner/permission-checked extension probe.
+  if [ -n "${extension_version:-}" ] && [ "$operation" != tool-verify ]; then
+    version="$extension_version"
+  else
   command -v "$tool" >/dev/null 2>&1 || fail cliMissing
   command -v timeout >/dev/null 2>&1 || fail dependencyMissing
   version=$(timeout 8 "$tool" --version 2>/dev/null) || fail cliUnsupported
@@ -820,6 +876,7 @@ if [ "$operation" = preview ] || [ "$operation" = apply ] || [ "$operation" = to
     claude_minor=$(printf '%s' "$version" | cut -d. -f2)
     claude_patch=$(printf '%s' "$version" | cut -d. -f3)
     { [ "$claude_minor" -gt 1 ] || { [ "$claude_minor" -eq 1 ] && [ "$claude_patch" -ge 227 ]; }; } || fail cliUnsupported
+  fi
   fi
 fi
 if [ "$operation" = preview ]; then

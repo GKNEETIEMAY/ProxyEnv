@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { fail, checkClaudeShared } from './config.mjs';
 import { safe, read, hash, digest, transaction } from './files.mjs';
 import { networkTransaction, networkSettingsPath } from './network.mjs';
-import { networkPrivateGroup } from './permissions.mjs';
+import { networkPrivateGroup, unsafeWriteMode } from './permissions.mjs';
 
 const codes = new Set(['configConflict','unsafePath','invalidPort','invalidRequest','noBackup','verifyFailed','rollbackConflict','rollbackFailed','writeRolledBack','extensionMissing','extensionUnsupported','extensionContextChanged','customHome','remoteUnsupported','vscodeServerMissing','vscodeServerAmbiguous']);
 for (const code of ['vscodeNetworkBusy', 'vscodeNetworkConflict', 'vscodeNetworkUnsafe']) codes.add(code);
@@ -13,27 +13,27 @@ const version = value => typeof value === 'string' && /^\d+(?:\.\d+){1,3}(?:-[a-
 const safeSegment = value => typeof value === 'string' && /^[a-zA-Z0-9._-]{1,96}$/.test(value);
 const displayPath = (root, value) => value === root ? '~' : `~/${path.relative(root, value).split(path.sep).join('/')}`;
 
-function list(root, directory, uid) {
-  safe(directory, root, uid);
+function list(root, directory, uid, privateGid = null) {
+  safe(directory, root, uid, privateGid);
   if (!fs.existsSync(directory)) return [];
   const stat = fs.lstatSync(directory);
-  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== uid || stat.mode & 0o022) fail('unsafePath');
+  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== uid || unsafeWriteMode(stat, privateGid)) fail('unsafePath');
   return fs.readdirSync(directory);
 }
 
-function serverVersions(root, serverRoot, uid) {
+function serverVersions(root, serverRoot, uid, privateGid) {
   const values = new Set();
-  for (const folder of list(root, path.join(serverRoot, 'bin'), uid)) {
+  for (const folder of list(root, path.join(serverRoot, 'bin'), uid, privateGid)) {
     if (safeSegment(folder)) values.add(folder);
   }
-  for (const folder of list(root, path.join(serverRoot, 'cli/servers'), uid)) {
+  for (const folder of list(root, path.join(serverRoot, 'cli/servers'), uid, privateGid)) {
     const match = /^(?:Stable|Insiders)-([a-zA-Z0-9._-]{1,96})$/.exec(folder);
     if (match) values.add(match[1]);
   }
   return [...values].sort();
 }
 
-function vscodeContexts(root, uid) {
+function vscodeContexts(root, uid, privateGid) {
   const definitions = [
     { edition: 'stable', actualRoot: path.join(root, '.vscode-server'), evidence: 'defaultStableRoot' },
     { edition: 'insiders', actualRoot: path.join(root, '.vscode-server-insiders'), evidence: 'defaultInsidersRoot' },
@@ -47,10 +47,10 @@ function vscodeContexts(root, uid) {
   const unique = new Map();
   for (const definition of definitions) {
     if (unique.has(definition.actualRoot) || !fs.existsSync(definition.actualRoot)) continue;
-    safe(definition.actualRoot, root, uid);
+    safe(definition.actualRoot, root, uid, privateGid);
     const stat = fs.lstatSync(definition.actualRoot);
-    if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== uid || stat.mode & 0o022) fail('unsafePath');
-    unique.set(definition.actualRoot, { ...definition, versions: serverVersions(root, definition.actualRoot, uid) });
+    if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== uid || unsafeWriteMode(stat, privateGid)) fail('unsafePath');
+    unique.set(definition.actualRoot, { ...definition, versions: serverVersions(root, definition.actualRoot, uid, privateGid) });
   }
   const contexts = [...unique.values()];
   const selected = contexts.length === 1 ? contexts[0] : null;
@@ -75,15 +75,15 @@ function vscodeContexts(root, uid) {
   };
 }
 
-function extensionCandidates(root, uid, contexts, tool) {
+function extensionCandidates(root, uid, contexts, tool, privateGid) {
   const id = tool === 'codex' ? 'openai.chatgpt' : 'anthropic.claude-code';
   const candidates = [];
   for (const context of contexts) {
     const extensions = path.join(context.actualRoot, 'extensions');
-    for (const folder of list(root, extensions, uid)) {
+    for (const folder of list(root, extensions, uid, privateGid)) {
       if (!folder.startsWith(id + '-') || !safeSegment(folder)) continue;
       const manifest = path.join(extensions, folder, 'package.json');
-      const raw = read(manifest, root, uid);
+      const raw = read(manifest, root, uid, privateGid);
       if (!raw) continue;
       let pkg;
       try { pkg = JSON.parse(raw); } catch { continue; }
@@ -92,10 +92,10 @@ function extensionCandidates(root, uid, contexts, tool) {
       if (tool === 'codex') {
         const architecture = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
         const executable = path.join(extensions, folder, 'bin', `linux-${architecture}`, 'codex');
-        safe(path.dirname(executable), root, uid);
+        safe(path.dirname(executable), root, uid, privateGid);
         if (fs.existsSync(executable)) {
           const stat = fs.lstatSync(executable);
-          if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== uid || stat.mode & 0o022) fail('unsafePath');
+          if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== uid || stat.nlink !== 1 || unsafeWriteMode(stat, privateGid)) fail('unsafePath');
           try {
             const text = execFileSync(executable, ['--version'], { timeout: 4000, maxBuffer: 1024, stdio: ['ignore','pipe','ignore'], env: { HOME: root, PATH: '/usr/bin:/bin' } }).toString().trim();
             runtimeVersion = version(text.replace(/^codex-cli /, ''));
@@ -139,11 +139,14 @@ function run(request) {
       throw error;
     }
   }
-  safe(root, root, uid);
-  const vscode = vscodeContexts(root, uid);
+  // Reuse the network boundary's proven private-group exception for read-only
+  // discovery. Shared laboratory groups, links and unknown NSS stay fail-closed.
+  const privateGid = request.operation === 'inspect' ? networkPrivateGroup(uid) : null;
+  safe(root, root, uid, privateGid);
+  const vscode = vscodeContexts(root, uid, privateGid);
   const installed = [];
   for (const tool of ['codex','claude']) {
-    const candidates = extensionCandidates(root, uid, vscode.contexts, tool);
+    const candidates = extensionCandidates(root, uid, vscode.contexts, tool, privateGid);
     const versions = [...new Set(candidates.map(candidate => candidate.version))].sort();
     const runtimeVersions = [...new Set(candidates.map(candidate => candidate.runtimeVersion).filter(Boolean))].sort();
     installed.push({

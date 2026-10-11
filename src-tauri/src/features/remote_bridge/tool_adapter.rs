@@ -43,6 +43,102 @@ pub enum RemoteToolCompatibility {
     Unsupported,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RemoteToolInstallState {
+    #[default]
+    Unknown,
+    Checking,
+    Installed,
+    Missing,
+    Unsupported,
+    Broken,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RemoteToolInstallError {
+    CliMissing,
+    CliUnsupported,
+    CliBroken,
+    DependencyMissing,
+    SshUnavailable,
+    RemoteUnsupported,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteToolInstallation {
+    pub tool: RemoteToolId,
+    pub state: RemoteToolInstallState,
+    pub version: Option<String>,
+    pub checked_at: Option<u64>,
+    pub error_code: Option<RemoteToolInstallError>,
+    pub extension_state: RemoteToolInstallState,
+    pub extension_version: Option<String>,
+}
+
+pub fn unknown_installations() -> Vec<RemoteToolInstallation> {
+    adapters()
+        .iter()
+        .map(|adapter| RemoteToolInstallation {
+            tool: adapter.id(),
+            state: RemoteToolInstallState::Unknown,
+            version: None,
+            checked_at: None,
+            error_code: None,
+            extension_state: RemoteToolInstallState::Unknown,
+            extension_version: None,
+        })
+        .collect()
+}
+
+pub(super) fn valid_version(version: &str) -> bool {
+    let fields: Vec<_> = version.split('.').collect();
+    fields.len() == 3
+        && fields.iter().all(|field| {
+            !field.is_empty()
+                && field.len() <= 5
+                && field.bytes().all(|byte| byte.is_ascii_digit())
+                && (field.len() == 1 || !field.starts_with('0'))
+                && field.parse::<u16>().is_ok()
+        })
+}
+
+pub fn project_installation(
+    tool: RemoteToolId,
+    found: bool,
+    runnable: bool,
+    version: Option<&str>,
+) -> RemoteToolInstallation {
+    use RemoteToolInstallState::*;
+    let version = version.filter(|value| valid_version(value));
+    let (state, error_code) = if !found {
+        (Missing, Some(RemoteToolInstallError::CliMissing))
+    } else if !runnable || version.is_none() {
+        (Broken, Some(RemoteToolInstallError::CliBroken))
+    } else if by_id(tool).compatibility(version.unwrap_or_default())
+        == RemoteToolCompatibility::Compatible
+    {
+        (Installed, None)
+    } else {
+        (Unsupported, Some(RemoteToolInstallError::CliUnsupported))
+    };
+    RemoteToolInstallation {
+        tool,
+        state,
+        version: if found && runnable {
+            version.map(str::to_owned)
+        } else {
+            None
+        },
+        checked_at: Some(super::observations::timestamp()),
+        error_code,
+        extension_state: RemoteToolInstallState::Unknown,
+        extension_version: None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum RemoteToolVerification {
@@ -104,7 +200,12 @@ pub trait RemoteToolAdapter: Sync {
             display_name: self.display_name(),
             configured,
             verification: self.verification(summary),
-            verification_supported: self.verification_supported(),
+            verification_supported: self.verification_supported()
+                && summary
+                    .tool_installations
+                    .iter()
+                    .find(|tool| tool.tool == self.id())
+                    .is_none_or(|tool| tool.state == RemoteToolInstallState::Installed),
             supported_route_modes: self.supported_route_modes(),
             request_policy: self.request_policy(),
             config_projection: self.config_projection(),
@@ -202,7 +303,8 @@ impl RemoteToolAdapter for CodexCliAdapter {
 
     fn compatibility(&self, version: &str) -> RemoteToolCompatibility {
         let mut fields = version.split('.');
-        let compatible = fields.next() == Some("0")
+        let compatible = valid_version(version)
+            && fields.next() == Some("0")
             && fields
                 .next()
                 .and_then(|minor| minor.parse::<u16>().ok())
@@ -273,16 +375,14 @@ impl RemoteToolAdapter for ClaudeCliAdapter {
 
     fn compatibility(&self, version: &str) -> RemoteToolCompatibility {
         let mut fields = version.split('.');
-        let compatible = fields.next() == Some("2")
-            && fields
-                .next()
-                .and_then(|minor| minor.parse::<u16>().ok())
-                .is_some()
-            && fields
-                .next()
-                .and_then(|patch| patch.parse::<u16>().ok())
-                .is_some()
-            && fields.next().is_none();
+        let major = fields.next();
+        let minor = fields.next().and_then(|value| value.parse::<u16>().ok());
+        let patch = fields.next().and_then(|value| value.parse::<u16>().ok());
+        let compatible = valid_version(version)
+            && major == Some("2")
+            && minor
+                .zip(patch)
+                .is_some_and(|(minor, patch)| minor > 1 || minor == 1 && patch >= 227);
         if compatible {
             RemoteToolCompatibility::Compatible
         } else {
@@ -375,7 +475,10 @@ mod tests {
     fn adapters_own_version_compatibility_and_configuration_content() {
         assert!(CODEX.detect("0.134.0"));
         assert!(!CODEX.detect("0.133.9"));
-        assert!(CLAUDE.detect("2.1.0"));
+        assert!(!CLAUDE.detect("2.1.226"));
+        assert!(CLAUDE.detect("2.1.227"));
+        assert!(CLAUDE.detect("2.2.0"));
+        assert!(!CLAUDE.detect("3.0.0"));
         assert!(!CLAUDE.detect("1.9.9"));
         assert!(CODEX
             .preview(25721, Some("deepseek-flash"))

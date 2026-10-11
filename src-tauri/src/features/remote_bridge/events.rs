@@ -27,6 +27,7 @@ pub enum Action {
     ServerDirect,
     EgressTest,
     ToolVerify,
+    ToolDiscovery,
     EnvironmentSetup,
     VscodeSetup,
     ToolSetup,
