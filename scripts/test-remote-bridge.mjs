@@ -154,6 +154,16 @@ test("Advanced statuses keep loopback inside its badge and localized controls at
   assert.match(advanced,/\.advanced-tool-actions button \{[^}]*text-overflow:ellipsis/);
 });
 
+test("advanced SSH connection help explains transport separately from network and model proof", () => {
+  const advanced=readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8");
+  const messages=readFileSync("src/shared/i18n/remote-bridge.ts","utf8");
+  assert.match(advanced,/<h3>\{\{ copy.rbSshHealth \}\}<HelpTooltip pinnable :label="copy.rbSshHealth" :text="copy.rbAdvSshHelp"/);
+  assert.doesNotMatch(advanced,/>SSH Transport</);
+  assert.equal((messages.match(/rbAdvSshHelp:/g) ?? []).length,4);
+  assert.match(messages,/SSH 连接正常不代表外网或 AI 已经可用/);
+  assert.match(advanced,/\.advanced-group h3 img \{ width:15px; height:15px; \}/);
+});
+
 test("SSH labels hide only port 22, and first-use host keys enter interactive confirmation", async () => {
   const source = readFileSync("src/features/remote-bridge/ssh-presentation.ts", "utf8");
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;

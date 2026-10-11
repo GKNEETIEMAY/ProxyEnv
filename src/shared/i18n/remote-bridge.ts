@@ -643,6 +643,7 @@ const advancedEn = {
   rbAdvProxyRisk: "The network proxy uses no username or password. It binds only to remote 127.0.0.1, but other accounts on the same Linux host may access that port. AI routing uses separate session authentication. This does not protect against a privileged administrator.",
   rbAdvAiAuth: "AI route authentication", rbAdvSessionAuth: "Session authentication", rbAdvShell: "Shell changes", rbAdvShellHint: "Does not modify .bashrc / .profile", rbAdvCache: "SSH credential cache", rbAdvCacheEmpty: "Not cached",
   rbAdvCacheHelp: "Only eligible server passwords may be cached for this bridge using Windows user-level encryption. Disconnecting or clearing removes the cache. Key passphrases and verification codes are not cached.",
+  rbAdvSshHelp: "The SSH connection carries bridge traffic between this computer and the server. Authentication shows how this session signed in, such as a key, Agent or password; automatic recovery shows its reconnect status after an interruption. A working SSH connection does not prove internet or AI access. Check Actual egress and Model request separately.",
   rbAdvRecovery: "Automatic recovery", rbAdvReady: "Ready", rbAdvAuthentication: "Authentication", rbAdvTimings: "View phase timings", rbAdvNoTimings: "No phase timings recorded yet.", rbAdvPhase: "Phase", rbAdvDuration: "Duration", rbAdvOutcome: "Outcome",
   rbAdvReport: "Diagnostic report", rbAdvReportHelp: "Open the existing redacted report preview, choose a language, and copy it. No new network requests are sent by report generation.", rbAdvEnvironmentActions: "Environment", rbAdvConfigActions: "Configuration", rbAdvSecurityActions: "Session security", rbAdvNoConfig: "This connection has no supported configuration-file action.", rbAdvNotSupported: "Verification unsupported", rbAdvVerified: "Verification passed", rbAdvFailed: "Verification failed",
 };
@@ -667,6 +668,7 @@ const advancedZh: AdvancedLabels = {
   rbAdvProxyRisk: "普通网络代理不要求账号密码，仅绑定远端 127.0.0.1；但同一 Linux 主机的其他账户可能访问此端口。AI 路由使用独立会话鉴权。此边界无法防范具有管理员权限的用户。",
   rbAdvAiAuth: "AI 路由鉴权", rbAdvSessionAuth: "Session 鉴权", rbAdvShell: "Shell 修改", rbAdvShellHint: "不修改 .bashrc / .profile", rbAdvCache: "SSH 凭据缓存", rbAdvCacheEmpty: "未缓存",
   rbAdvCacheHelp: "仅符合条件的服务器密码可在本次桥接中使用 Windows 用户级加密缓存；断开桥接或清除后移除。不缓存私钥口令或验证码。",
+  rbAdvSshHelp: "SSH 连接是本机与服务器之间传输桥接流量的通道。“认证”显示本次登录方式，例如密钥、Agent 或密码；“自动恢复”显示连接中断后的重连状态。SSH 连接正常不代表外网或 AI 已经可用，请分别查看“实际出口”和“模型请求”的验证结果。",
   rbAdvRecovery: "自动恢复", rbAdvReady: "就绪", rbAdvAuthentication: "认证", rbAdvTimings: "查看运行耗时", rbAdvNoTimings: "暂无连接阶段耗时。", rbAdvPhase: "阶段", rbAdvDuration: "耗时", rbAdvOutcome: "结果",
   rbAdvReport: "诊断报告", rbAdvReportHelp: "打开现有脱敏报告预览，可选择语言并复制。生成报告不会发起新的网络请求。", rbAdvEnvironmentActions: "环境工具", rbAdvConfigActions: "配置工具", rbAdvSecurityActions: "会话安全", rbAdvNoConfig: "此连接没有可用的配置文件操作。", rbAdvNotSupported: "暂不支持验证", rbAdvVerified: "验证通过", rbAdvFailed: "验证失败",
 };
@@ -690,6 +692,7 @@ const advancedJa: AdvancedLabels = {
   rbAdvProxyRisk: "ネットワークプロキシは認証なしでリモート 127.0.0.1 のみに待ち受けます。同じ Linux ホストの他のアカウントがこのポートにアクセスする可能性があります。AI は別のセッション認証を使用します。管理者権限には対抗できません。",
   rbAdvAiAuth: "AI ルート認証", rbAdvSessionAuth: "セッション認証", rbAdvShell: "Shell の変更", rbAdvShellHint: ".bashrc / .profile は変更しません", rbAdvCache: "SSH 認証情報キャッシュ", rbAdvCacheEmpty: "キャッシュなし",
   rbAdvCacheHelp: "対象のサーバーパスワードのみ、このブリッジ中に Windows ユーザー単位の暗号化でキャッシュできます。切断または消去で削除します。秘密鍵のパスフレーズと認証コードは保存しません。",
+  rbAdvSshHelp: "SSH 接続は、この PC とサーバーの間でブリッジ通信を運ぶ経路です。「認証」は鍵、Agent、パスワードなど今回のログイン方法を、「自動復旧」は切断後の再接続状態を示します。SSH 接続が正常でも、インターネットや AI の利用を保証しません。「実際の外部接続」と「モデルリクエスト」の検証結果を個別に確認してください。",
   rbAdvRecovery: "自動復旧", rbAdvReady: "準備完了", rbAdvAuthentication: "認証", rbAdvTimings: "段階別の所要時間", rbAdvNoTimings: "所要時間の記録はありません。", rbAdvPhase: "段階", rbAdvDuration: "所要時間", rbAdvOutcome: "結果",
   rbAdvReport: "診断レポート", rbAdvReportHelp: "既存の匿名化レポートを開き、言語を選択してコピーします。生成時に新しいネットワーク要求は送りません。", rbAdvEnvironmentActions: "環境", rbAdvConfigActions: "設定", rbAdvSecurityActions: "セッション安全性", rbAdvNoConfig: "この接続では設定ファイルの操作を利用できません。", rbAdvNotSupported: "検証非対応", rbAdvVerified: "検証成功", rbAdvFailed: "検証失敗",
 };
@@ -713,6 +716,7 @@ const advancedKo: AdvancedLabels = {
   rbAdvProxyRisk: "네트워크 프록시는 인증 없이 원격 127.0.0.1에만 수신합니다. 같은 Linux 호스트의 다른 계정이 포트에 접근할 수 있습니다. AI 라우팅은 별도 세션 인증을 사용합니다. 관리자 권한을 가진 사용자를 차단하지 못합니다.",
   rbAdvAiAuth: "AI 라우트 인증", rbAdvSessionAuth: "세션 인증", rbAdvShell: "Shell 변경", rbAdvShellHint: ".bashrc / .profile 수정 없음", rbAdvCache: "SSH 자격 증명 캐시", rbAdvCacheEmpty: "캐시 없음",
   rbAdvCacheHelp: "적합한 서버 비밀번호만 현재 브리지에서 Windows 사용자별 암호화로 캐시할 수 있습니다. 연결 해제 또는 삭제 시 제거됩니다. 개인 키 암호와 인증 코드는 캐시하지 않습니다.",
+  rbAdvSshHelp: "SSH 연결은 이 컴퓨터와 서버 사이에서 브리지 트래픽을 전달하는 통로입니다. 인증은 키, Agent, 비밀번호 등 이번 로그인 방식을, 자동 복구는 연결 중단 후 재연결 상태를 보여 줍니다. SSH 연결이 정상이어도 인터넷이나 AI 사용이 보장되지는 않습니다. 실제 외부 연결과 모델 요청의 검증 결과를 각각 확인하세요.",
   rbAdvRecovery: "자동 복구", rbAdvReady: "준비됨", rbAdvAuthentication: "인증", rbAdvTimings: "단계별 소요 시간", rbAdvNoTimings: "기록된 소요 시간이 없습니다.", rbAdvPhase: "단계", rbAdvDuration: "소요 시간", rbAdvOutcome: "결과",
   rbAdvReport: "진단 보고서", rbAdvReportHelp: "기존 비식별 보고서를 열고 언어를 선택한 뒤 복사하세요. 보고서 생성은 새 네트워크 요청을 보내지 않습니다.", rbAdvEnvironmentActions: "환경", rbAdvConfigActions: "설정", rbAdvSecurityActions: "세션 보안", rbAdvNoConfig: "이 연결은 설정 파일 작업을 지원하지 않습니다.", rbAdvNotSupported: "검증 미지원", rbAdvVerified: "검증 성공", rbAdvFailed: "검증 실패",
 };

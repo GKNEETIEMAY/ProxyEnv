@@ -165,7 +165,7 @@ const installationTools = computed(() => remoteToolAdapters.map(adapter => ({id:
         <AdvancedStatusRow :label="copy.rbAdvModelRequest" :state="aiProof.state" :status="aiProof.label" :help="copy.rbVerifyClaudeHint" />
         </div>
       </div>
-      <div class="advanced-group"><h3>SSH Transport</h3>
+      <div class="advanced-group"><h3>{{ copy.rbSshHealth }}<HelpTooltip pinnable :label="copy.rbSshHealth" :text="copy.rbAdvSshHelp" /></h3>
         <div class="advanced-proof-grid">
         <AdvancedStatusRow :label="copy.rbAdvAuthentication" :state="authState" :status="authLabel" />
         <AdvancedStatusRow :label="copy.rbAdvRecovery" :state="recovery.state" :status="recovery.label" />
@@ -238,7 +238,7 @@ const installationTools = computed(() => remoteToolAdapters.map(adapter => ({id:
 .advanced-card svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 .advanced-group + .advanced-group { border-top:1px solid var(--line); padding-top:9px; margin-top:8px; }
 .advanced-group h3 { display:flex; align-items:center; gap:7px; margin:0 0 5px; font-size:12px; font-weight:650; }
-.advanced-group h3 img { width:17px; height:17px; }
+.advanced-group h3 img { width:15px; height:15px; }
 .advanced-installations table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:11px; }
 .advanced-installation-name-column { width:110px; }
 .advanced-installations th,.advanced-installations td { height:32px; text-align:left; padding:3px 8px 3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
