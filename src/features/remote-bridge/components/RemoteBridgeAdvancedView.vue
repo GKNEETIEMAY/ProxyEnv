@@ -3,11 +3,12 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import type { CheckState } from "../../../shared/types";
 import type { RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
 import { remoteBackend, type BridgeEvent, type BridgeSummary, type RemoteRuntimeState } from "../state";
-import { diagnosticCheckState } from "../overview-presentation";
+import { diagnosticCheckState, toolInstallationRows } from "../overview-presentation";
 import { remoteToolAdapters } from "../tool-adapters";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
 import AdvancedStatusRow from "./AdvancedStatusRow.vue";
+import RemoteToolIcon from "./RemoteToolIcon.vue";
 import { useNotification } from "../../../shared/state/notifications";
 
 // Operate: inherit the warm Overview vocabulary; separate preparation, proof and risk.
@@ -120,12 +121,23 @@ const recovery = computed(() => {
   return state === "attentionRequired" ? {state:"warning" as const,label:props.copy.rbReconnectAttention} : state === "waiting" || state === "retrying" ? {state:"checking" as const,label:props.copy.rbReconnectWaiting} : state === "idle" && props.connected && props.summary.status === "connected" ? {state:"healthy" as const,label:props.copy.rbAdvReady} : {state:"idle" as const,label:props.copy.rbCheckIdle};
 });
 const configActions = computed(() => !!props.summary.target && ["openssh","vscode"].includes(props.summary.target.source));
+const installationTools = computed(() => remoteToolAdapters.map(adapter => ({id:adapter.id,name:adapter.id === "codex" ? "Codex" : "Claude Code",rows:toolInstallationRows(props.copy,props.summary,adapter.id)})));
 </script>
 
 <template>
   <div class="bridge-advanced-view">
-    <section class="advanced-card" aria-labelledby="advanced-environment-title">
+    <section class="advanced-card advanced-environment" aria-labelledby="advanced-environment-title">
       <h2 id="advanced-environment-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 3 1-1h4l1 1 .5 2 2 1 2-.5 1.5 2.5-.5 2 1 2-1 2 .5 2-1.5 2.5-2-.5-2 1-.5 2-1 1h-4l-1-1-.5-2-2-1-2 .5L3 16l.5-2-1-2 1-2L3 8l1.5-2.5 2 .5 2-1 .5-2Z"/><circle cx="12" cy="12" r="3"/></svg>{{ copy.rbAdvEnvironment }}</h2>
+      <div class="advanced-group advanced-installations">
+        <table :aria-label="copy.rbOverviewAiTools">
+          <colgroup><col class="advanced-installation-name-column" /><col /><col /></colgroup>
+          <thead><tr><th scope="col" :title="copy.rbOverviewAiTools">{{ copy.rbOverviewAiTools }}</th><th scope="col">CLI</th><th scope="col" :title="copy.rbInstallExtension">{{ copy.rbInstallExtension }}</th></tr></thead>
+          <tbody><tr v-for="tool in installationTools" :key="tool.id">
+            <th scope="row" :title="tool.name"><span class="advanced-installation-name"><RemoteToolIcon :tool="tool.id" /><span>{{ tool.name }}</span></span></th>
+            <td v-for="row in tool.rows" :key="row.label"><StatusIndicator :state="row.state" :label="row.state === 'healthy' ? row.version ?? '—' : row.status" :title="row.status" /></td>
+          </tr></tbody>
+        </table>
+      </div>
       <div class="advanced-group"><h3>{{ copy.rbAdvTerminal }}<HelpTooltip pinnable :label="copy.rbAdvTerminal" :text="copy.rbManagedShellScope" /></h3>
         <AdvancedStatusRow :label="copy.rbAdvManagedTerminal" :state="terminal.state" :status="terminal.state === 'healthy' ? copy.rbAdvAutoLoad : terminal.label" />
         <AdvancedStatusRow :label="copy.rbAdvExternalTerminal" :state="proxyOn ? 'warning' : 'disabled'" :status="proxyOn ? copy.rbAdvManualLoad : copy.rbOverviewNotEnabled" :help="copy.rbAdvManualLoadHelp" />
@@ -159,12 +171,12 @@ const configActions = computed(() => !!props.summary.target && ["openssh","vscod
         <AdvancedStatusRow :label="copy.rbAdvRecovery" :state="recovery.state" :status="recovery.label" />
         </div>
       </div>
-      <div class="advanced-card-actions"><button class="secondary-action" type="button" :disabled="busy || !connected" @click="emit('runDiagnostics')"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M20 12a8 8 0 1 1-2-6"/></svg>{{ diagnosing ? copy.rbCheckChecking : copy.rbAdvRun }}</button></div>
+      <div class="advanced-card-actions"><button class="secondary-action" type="button" :title="diagnosing ? copy.rbCheckChecking : copy.rbAdvRun" :disabled="busy || !connected" @click="emit('runDiagnostics')"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M20 12a8 8 0 1 1-2-6"/></svg><span>{{ diagnosing ? copy.rbCheckChecking : copy.rbAdvRun }}</span></button></div>
     </section>
 
     <section class="advanced-card" aria-labelledby="advanced-security-title">
       <h2 id="advanced-security-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/></svg>{{ copy.rbAdvSecurity }}</h2>
-      <AdvancedStatusRow :label="copy.rbAdvBind" :state="proxyOn || aiOn ? summary.security?.remoteBindScope === 'loopback' ? 'healthy' : 'idle' : 'disabled'" :status="proxyOn || aiOn ? summary.security?.remoteBindScope === 'loopback' ? copy.rbAdvLoopback : copy.rbCheckIdle : copy.rbOverviewNotEnabled" :detail="summary.security?.remoteBindScope === 'loopback' ? '127.0.0.1' : undefined" />
+      <AdvancedStatusRow :label="copy.rbAdvBind" :state="proxyOn || aiOn ? summary.security?.remoteBindScope === 'loopback' ? 'healthy' : 'idle' : 'disabled'" :status="proxyOn || aiOn ? summary.security?.remoteBindScope === 'loopback' ? `${copy.rbAdvLoopback} · 127.0.0.1` : copy.rbCheckIdle : copy.rbOverviewNotEnabled" />
       <AdvancedStatusRow :label="copy.rbAdvProxyAuth" :state="proxyOn ? 'warning' : 'disabled'" :status="proxyOn ? summary.security?.generalProxyAuth === 'none' ? copy.rbAdvNoProxyAuth : copy.rbCheckIdle : copy.rbOverviewNotEnabled" :help="copy.rbAdvProxyRisk" />
       <AdvancedStatusRow :label="copy.rbAdvAiAuth" :state="aiOn ? summary.security?.aiRouteAuth === 'session' ? 'healthy' : 'idle' : 'disabled'" :status="aiOn ? summary.security?.aiRouteAuth === 'session' ? copy.rbAdvSessionAuth : copy.rbCheckIdle : copy.rbOverviewNotEnabled" />
       <AdvancedStatusRow :label="copy.rbAdvShell" :state="summary.security?.shellScope === 'sessionOnly' ? 'healthy' : 'idle'" :status="summary.security?.shellScope === 'sessionOnly' ? copy.rbAdvSessionOnly : copy.rbCheckIdle" :help="copy.rbAdvShellHint" />
@@ -182,13 +194,13 @@ const configActions = computed(() => !!props.summary.target && ["openssh","vscod
     <section class="advanced-card advanced-manual" aria-labelledby="advanced-manual-title">
       <h2 id="advanced-manual-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m14 6 4 4 4-4a7 7 0 0 1-9 9l-6 6-4-4 6-6a7 7 0 0 1 9-9l-4 4Z"/></svg>{{ copy.rbAdvManual }}</h2>
       <div class="advanced-group"><h3>{{ copy.rbAdvEnvironmentActions }}</h3><div class="advanced-tool-actions">
-        <button class="secondary-action" type="button" :class="{'is-copied':copied}" :aria-busy="copying" :disabled="busy || copying || !connected || !proxyOn" @click="emit('copyEnvironment')">{{ copied ? copy.rbCopied : copy.rbCopySessionEnvironment }}</button>
-        <button class="secondary-action" type="button" :disabled="busy || !connected" @click="emit('manualTerminal')">{{ copy.rbLaunchManualTerminal }}</button>
+        <button class="secondary-action" type="button" :title="copied ? copy.rbCopied : copy.rbCopySessionEnvironment" :class="{'is-copied':copied}" :aria-busy="copying" :disabled="busy || copying || !connected || !proxyOn" @click="emit('copyEnvironment')">{{ copied ? copy.rbCopied : copy.rbCopySessionEnvironment }}</button>
+        <button class="secondary-action" type="button" :title="copy.rbLaunchManualTerminal" :disabled="busy || !connected" @click="emit('manualTerminal')">{{ copy.rbLaunchManualTerminal }}</button>
       </div></div>
       <div class="advanced-group"><h3>{{ copy.rbAdvConfigActions }}</h3><div v-if="configActions" class="advanced-tool-actions">
-        <button class="secondary-action" type="button" :disabled="busy" @click="emit('openConfig')">{{ copy.rbOpenSshConfig }}</button>
-        <button class="secondary-action" type="button" :disabled="busy" @click="emit('revealConfig')">{{ copy.rbRevealConfig }}</button>
-        <button v-if="summary.target?.source === 'vscode'" class="secondary-action" type="button" :disabled="busy" @click="emit('vscodeSettings')">{{ copy.rbOpenVscodeSettings }}</button>
+        <button class="secondary-action" type="button" :title="copy.rbOpenSshConfig" :disabled="busy" @click="emit('openConfig')">{{ copy.rbOpenSshConfig }}</button>
+        <button class="secondary-action" type="button" :title="copy.rbRevealConfig" :disabled="busy" @click="emit('revealConfig')">{{ copy.rbRevealConfig }}</button>
+        <button v-if="summary.target?.source === 'vscode'" class="secondary-action" type="button" :title="copy.rbOpenVscodeSettings" :disabled="busy" @click="emit('vscodeSettings')">{{ copy.rbOpenVscodeSettings }}</button>
       </div><p v-else class="advanced-note">{{ copy.rbAdvNoConfig }}</p></div>
       <div v-if="summary.sshAuth.passwordStored" class="advanced-group"><h3>{{ copy.rbAdvSecurityActions }}</h3><button class="secondary-action" type="button" :disabled="busy" @click="emit('clearCredential')">{{ copy.rbAdvClearCache }}</button></div>
     </section>
@@ -196,12 +208,12 @@ const configActions = computed(() => !!props.summary.target && ["openssh","vscod
     <section class="advanced-card advanced-diagnostics" aria-labelledby="advanced-diagnostics-title">
       <h2 id="advanced-diagnostics-title"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.1"/></svg>{{ copy.rbDiagnostics }}<HelpTooltip pinnable :label="copy.rbDiagnostics" :text="diagnosticHelp" /></h2>
       <div class="advanced-group"><h3>{{ copy.rbAdvDiagnosticActions }}</h3><div class="advanced-tool-actions">
-        <button class="secondary-action" type="button" :disabled="busy" @click="emit('openReport')">{{ copy.rbAdvReport }}</button>
-        <button class="secondary-action" type="button" @click="timingDialog?.showModal()">{{ copy.rbAdvTimings }}</button>
+        <button class="secondary-action" type="button" :title="copy.rbAdvReport" :disabled="busy" @click="emit('openReport')">{{ copy.rbAdvReport }}</button>
+        <button class="secondary-action" type="button" :title="copy.rbAdvTimings" @click="timingDialog?.showModal()">{{ copy.rbAdvTimings }}</button>
       </div></div>
       <div class="advanced-group"><h3>{{ copy.rbAdvLogActions }}</h3><div class="advanced-tool-actions">
-        <button class="secondary-action" type="button" :disabled="busy || clearingLogs || !logsAvailable" @click="emit('openLogs')">{{ copy.rbAdvOpenLogs }}</button>
-        <button class="secondary-action advanced-clear-logs" type="button" :class="{'is-cleared':logsCleared}" :disabled="busy || clearingLogs || !logsAvailable" @click="confirmClearLogs">{{ logsCleared ? copy.rbAdvLogsCleared : copy.rbAdvClearLogs }}</button>
+        <button class="secondary-action" type="button" :title="copy.rbAdvOpenLogs" :disabled="busy || clearingLogs || !logsAvailable" @click="emit('openLogs')">{{ copy.rbAdvOpenLogs }}</button>
+        <button class="secondary-action advanced-clear-logs" type="button" :title="logsCleared ? copy.rbAdvLogsCleared : copy.rbAdvClearLogs" :class="{'is-cleared':logsCleared}" :disabled="busy || clearingLogs || !logsAvailable" @click="confirmClearLogs">{{ logsCleared ? copy.rbAdvLogsCleared : copy.rbAdvClearLogs }}</button>
       </div></div>
     </section>
   <dialog ref="clearLogsDialog" class="confirmation-dialog advanced-clear-logs-dialog" aria-labelledby="advanced-clear-logs-title" aria-describedby="advanced-clear-logs-description" @cancel.prevent="!clearingLogs && clearLogsDialog?.close()">
@@ -227,19 +239,33 @@ const configActions = computed(() => !!props.summary.target && ["openssh","vscod
 .advanced-group + .advanced-group { border-top:1px solid var(--line); padding-top:9px; margin-top:8px; }
 .advanced-group h3 { display:flex; align-items:center; gap:7px; margin:0 0 5px; font-size:12px; font-weight:650; }
 .advanced-group h3 img { width:17px; height:17px; }
+.advanced-installations table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:11px; }
+.advanced-installation-name-column { width:110px; }
+.advanced-installations th,.advanced-installations td { height:32px; text-align:left; padding:3px 8px 3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.advanced-installations thead th { height:22px; font-size:10px; font-weight:500; color:var(--muted); }
+.advanced-installations th:last-child,.advanced-installations td:last-child { border-left:1px solid var(--line); padding-left:8px; padding-right:0; }
+.advanced-installation-name { display:flex; align-items:center; gap:6px; min-width:0; font-size:12px; font-weight:650; }
+.advanced-installation-name > span { overflow:hidden; text-overflow:ellipsis; }
+.advanced-installation-name :deep(.remote-tool-icon) { width:18px; height:18px; fill:currentColor; stroke:none; }
+.advanced-installations :deep(.check-status) { width:100%; height:26px; padding:3px 7px; border-radius:8px; background:color-mix(in srgb,currentColor 5%,transparent); font-size:11px; line-height:18px; white-space:nowrap; }
+.advanced-installations :deep(.check-status > span) { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .advanced-card-actions { display:flex; justify-content:flex-end; margin-top:10px; }
-.advanced-links { container-type:inline-size; }
+.advanced-links { display:flex; flex-direction:column; container-type:inline-size; }
+.advanced-links > .advanced-card-actions { flex:1; align-items:center; }
 .advanced-proof-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-.advanced-proof-grid :deep(.advanced-status-row) { display:grid; grid-template-columns:auto minmax(0,1fr); min-width:0; gap:5px 6px; }
+.advanced-proof-grid :deep(.advanced-status-row) { --advanced-status-width:min(160px,66%); min-width:0; gap:5px 6px; }
 .advanced-proof-grid :deep(.advanced-status-row + .advanced-status-row) { border-left:1px solid var(--line); padding-left:10px; }
 .advanced-proof-grid :deep(.advanced-row-label) { min-width:0; font-size:11px; }
 .advanced-proof-grid :deep(.check-status) { max-width:100%; justify-self:end; }
 .advanced-proof-grid :deep(small) { grid-column:1 / -1; }
-@container (max-width:270px) {
-  .advanced-proof-grid { grid-template-columns:minmax(0,1fr); gap:5px; }
-  .advanced-proof-grid :deep(.advanced-status-row + .advanced-status-row) { border-left:0; padding-left:0; }
+@container (max-width:490px) {
+  .advanced-proof-grid :deep(.advanced-status-row) { grid-template-columns:minmax(0,1fr); }
+  .advanced-proof-grid :deep(.advanced-row-label) { min-height:17px; }
+  .advanced-proof-grid :deep(.check-status) { justify-self:stretch; }
 }
-.advanced-card button { display:inline-flex; align-items:center; justify-content:center; gap:7px; font-size:11px; min-height:32px; padding:6px 9px; line-height:1.45; }
+.advanced-card button { display:inline-flex; align-items:center; justify-content:center; gap:7px; font-size:11px; height:32px; min-height:32px; padding:6px 9px; line-height:1.45; white-space:nowrap; }
+.advanced-card-actions button { width:min(180px,100%); }
+.advanced-card-actions button > span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .advanced-card button svg { width:16px; height:16px; flex:none; }
 .advanced-command { display:grid; grid-template-columns:minmax(0,1fr) 32px; align-items:center; gap:6px; width:100%; height:32px; min-width:0; margin-top:5px; }
 .advanced-command code,.advanced-command > span { display:block; min-width:0; height:32px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--canvas); font-size:11px; line-height:18px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; user-select:text; }
@@ -247,6 +273,7 @@ const configActions = computed(() => !!props.summary.target && ["openssh","vscod
 .advanced-command .advanced-copy { width:32px; height:32px; padding:6px; }
 .advanced-command .advanced-copy.is-copied { color:var(--success); }
 .advanced-tool-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.advanced-tool-actions button { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .advanced-tool-actions .is-copied { color:var(--success); }
 .advanced-note { margin:5px 0 9px; font-size:11px; line-height:1.6; color:var(--muted); }
 .advanced-event-list { list-style:none; margin:0; padding:0; max-height:150px; overflow:auto; scrollbar-gutter:stable; }

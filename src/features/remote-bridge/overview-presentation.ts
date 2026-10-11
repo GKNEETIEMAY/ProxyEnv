@@ -65,10 +65,18 @@ export function toolInstallationLabel(copy:RemoteBridgeCopy, summary:BridgeSumma
 }
 
 export function toolInstallationLines(copy:RemoteBridgeCopy, summary:BridgeSummary, id:RemoteToolId):string[] {
+  const rows=toolInstallationRows(copy,summary,id);
+  return (summary.toolInstallations?.find(tool => tool.tool === id)?.extensionState === undefined ? rows.slice(0,1) : rows).map(row => `${row.label} ${row.status}`);
+}
+
+export function toolInstallationRows(copy:RemoteBridgeCopy, summary:BridgeSummary, id:RemoteToolId):Array<{label:string;status:string;state:CheckState;version:string|null}> {
   const {installation,version,extensionInstallation,extensionVersion}=getRemoteToolAdapter(id).inspect(summary);
   const labels={unknown:copy.rbInstallUnknown,checking:copy.rbInstallChecking,installed:copy.rbInstallInstalled,missing:copy.rbInstallMissing,unsupported:copy.rbInstallUnsupported,broken:copy.rbInstallBroken};
-  const cli=`CLI ${labels[installation]}${version ? ` · ${version}` : ""}`;
-  return summary.toolInstallations?.find(tool => tool.tool === id)?.extensionState === undefined ? [cli] : [cli, `${copy.rbInstallExtension} ${labels[extensionInstallation]}${extensionVersion ? ` · ${extensionVersion}` : ""}`];
+  const states={unknown:"idle",checking:"checking",installed:"healthy",missing:"disabled",unsupported:"warning",broken:"failed"} as const;
+  return [
+    {label:"CLI",status:`${labels[installation]}${version ? ` · ${version}` : ""}`,state:states[installation],version},
+    {label:copy.rbInstallExtension,status:`${labels[extensionInstallation]}${extensionVersion ? ` · ${extensionVersion}` : ""}`,state:states[extensionInstallation],version:extensionVersion},
+  ];
 }
 
 export function overviewSkillStatus(copy: RemoteBridgeCopy, skill?: RemoteSkill): { state: CheckState; label: string } {
