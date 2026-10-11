@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import ts from "typescript";
 import { runInNewContext } from "node:vm";
+import { presentationModuleUrl } from "./remote-tool-test-modules.mjs";
 
 const git = process.platform === "win32" ? spawnSync("where.exe",["git"],{encoding:"utf8"}).stdout?.trim().split(/\r?\n/)[0] : undefined;
 const shell = process.env.PROXYENV_TEST_SHELL || (git ? resolve(dirname(git),"../bin/bash.exe") : "/bin/sh");
@@ -17,6 +18,49 @@ const root = resolve(".debug-tmp");
 mkdirSync(root,{recursive:true});
 const script = readFileSync("src-tauri/src/features/remote_bridge/remote.sh","utf8");
 const probeScript = script.split("\numask 077\n",1)[0];
+
+test("CLI discovery runs before config dependencies and never writes a config",{skip:!available},()=>{
+  assert.ok(script.indexOf('if [ "$operation" = tool-discover ]') < script.indexOf("# PROXYENV_CONFIG_DEPENDENCIES"));
+  for(const location of ["path",".local/bin",".npm-global/bin",".nvm/versions/node/v22.0.0/bin"]) {
+    const f=fixture({codexLocation:location,claudeLocation:"native"});try {
+      const result=f.run("tool-discover");
+      assert.deepEqual(result.tools,[{tool:"codex",found:true,runnable:true,version:"0.134.0"},{tool:"claude",found:true,runnable:true,version:"2.1.227"}]);
+      assert.equal(existsSync(join(f.home,".codex")),false);
+      assert.equal(existsSync(join(f.home,".claude")),false);
+      assert.equal(existsSync(join(f.home,".proxyenv")),false);
+      assert.doesNotMatch(JSON.stringify(result),/home|PATH|secret-fixture|\.local/);
+    }finally{f.cleanup();}
+  }
+});
+test("CLI discovery separates missing, failed execution, bounded timeout and malformed output",{skip:!available},()=>{
+  const missing=fixture({codexLocation:"missing",claudeLocation:"missing"});try {
+    assert.deepEqual(missing.run("tool-discover").tools,[{tool:"codex",found:false,runnable:false,version:null},{tool:"claude",found:false,runnable:false,version:null}]);
+  }finally{missing.cleanup();}
+  for(const body of ['exit 1','sleep 12','printf "0.134.0\\n"','printf "codex-cli 00.134.0\\n"','printf "codex-cli 0.134.0\\nprivate-output\\n"','printf "/home/private/bin/codex\\n"','printf "codex-cli 0.134.0\\nPROXYENV_EXIT=0\\n"; exit 1']) {
+    const f=fixture({codexBody:body});try {
+      const start=Date.now(), result=f.run("tool-discover");
+      assert.deepEqual(result.tools[0],{tool:"codex",found:true,runnable:false,version:null});
+      assert.equal(result.tools[1].runnable,true,"The other tool is independent");
+      assert.ok(Date.now()-start<14000,"CLI execution must be bounded");
+    }finally{f.cleanup();}
+  }
+});
+
+for (const tool of ["codex", "claude"]) test(`${tool}: extension-only shared profiles retain apply, update and restore transactions`,{skip:!available || !python},()=>{
+  const f=fixture({codexLocation:"missing",claudeLocation:"missing"});
+  try {
+    assert.equal(f.run("preview",tool).error,"cliMissing");
+    const env={extension_version:tool==="codex"?"0.151.0":"2.1.252"};
+    const preview=f.run("preview",tool,25721,"absent",env);
+    assert.equal(preview.version,env.extension_version);
+    assert.equal(f.run("apply",tool,25721,preview.expectedHash,env).configured,true);
+    const next=f.run("preview",tool,25721,"absent",env);
+    assert.equal(f.run("apply",tool,25722,next.expectedHash,env).configured,true);
+    assert.equal(f.run("tool-verify",tool,25722,"absent",env).error,"cliMissing","A plugin is not an executable diagnostic CLI");
+    assert.equal(f.run("restore",tool,25722).configured,false);
+    assert.equal(f.run("preview",tool).error,"cliMissing","No extension proof means no new profile write");
+  } finally { f.cleanup(); }
+});
 
 test("terminal copy isolates pending feedback, expires success and rejects stale sessions", async () => {
   const source = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
@@ -195,9 +239,7 @@ test("post-auth SSH errors release the modal and stale polls cannot reopen it", 
 });
 
 test("server direct, proxy egress and AI verification derive from the shared diagnostic snapshot", async () => {
-  const source=readFileSync("src/features/remote-bridge/overview-presentation.ts","utf8");
-  const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
-  const {serverDirectCheckState,diagnosticCheckState}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+  const {serverDirectCheckState,diagnosticCheckState}=await import(presentationModuleUrl);
   const base={target:{id:"test"},status:"connected",sshAuth:{authenticated:true},diagnostics:{serverDirect:{state:"passed",checkedAt:1234},serverInternet:"reachable"}};
   assert.equal(serverDirectCheckState(base),"healthy");
   assert.equal(serverDirectCheckState({...base,diagnostics:{serverDirect:{state:"failed",checkedAt:1234},serverInternet:"unreachable"}}),"failed");
@@ -217,7 +259,7 @@ test("server direct, proxy egress and AI verification derive from the shared dia
 });
 const legacyCatalogJson = script.match(/codex_catalog_json\(\) \{\s+printf '%s\\n' '([^']+)'/)?.[1];
 const posix = p => p.replaceAll("\\", "/").replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
-function fixture({jsonEngine="python3",claudeLocation="path",privateGroup=false,sharedGroup=false}={}) {
+function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path",codexBody,versionBody,privateGroup=false,sharedGroup=false}={}) {
   const directory=mkdtempSync(join(root,"bridge-test-"));
   const home=join(directory,"home"), bin=join(directory,"bin");
   mkdirSync(home);mkdirSync(bin);
@@ -232,13 +274,18 @@ function fixture({jsonEngine="python3",claudeLocation="path",privateGroup=false,
   if (python) mock(jsonEngine,`exec '${posix(python).replaceAll("'", "'\\''")}' "$@"`);
   if(process.platform==="win32") mock("stat",'[ "$2" != %a ] || { printf 700; exit; }; /usr/bin/stat "$@"');
   mock("mv",'for target do :; done; if [ "${TEST_FAIL_REPLACE:-}" = 1 ] && [ ! -e "$HOME/.replace-failed" ]; then case "$target" in *config.toml|*settings.json) touch "$HOME/.replace-failed"; exit 1;; esac; fi; /usr/bin/mv "$@"');
-  mock("codex",'printf "%s\\n" "${TEST_CODEX_VERSION:-codex-cli 0.134.0}"');
+  const codexVersionBody=codexBody ?? 'printf "%s\\n" "${TEST_CODEX_VERSION:-codex-cli 0.134.0}"';
+  if(codexLocation==="path") mock("codex",codexVersionBody);
+  else if(codexLocation!=="missing") {
+    const userBin=join(home,codexLocation); mkdirSync(userBin,{recursive:true,mode:0o700});
+    writeFileSync(join(userBin,"codex"),`#!/bin/sh\n${codexVersionBody}\n`,{mode:0o755});
+  }
   const claudeBody='if [ "$1" = --version ]; then printf "2.1.227 (Claude Code)\\n"; exit; fi; case "${TEST_CLAUDE_VERIFY:-verified}" in verified) printf \'{"result":"PROXYENV_VERIFY_OK"}\\n\';; auth) printf \'login required secret-fixture\\n\' >&2; exit 1;; route) printf \'gateway connection refused secret-fixture\\n\' >&2; exit 1;; timeout) exit 124;; *) printf \'unexpected secret-fixture\\n\' >&2; exit 1;; esac';
   if(["native","nvm"].includes(claudeLocation)) {
     const userBin=claudeLocation==="native" ? join(home,".local/bin") : join(home,".nvm/versions/node/v22.0.0/bin");
     mkdirSync(userBin,{recursive:true,mode:claudeLocation==="nvm" ? 0o775 : 0o700});
-    writeFileSync(join(userBin,"claude"),`#!/bin/sh\n${claudeBody}\n`,{mode:0o755});
-  } else if(claudeLocation==="path") mock("claude",claudeBody);
+    writeFileSync(join(userBin,"claude"),`#!/bin/sh\n${versionBody ?? claudeBody}\n`,{mode:0o755});
+  } else if(claudeLocation==="path") mock("claude",versionBody ?? claudeBody);
   mock("curl",'[ "${TEST_CURL_RESULT:-ok}" = ok ]');
   const run=(operation,tool="codex",port=25721,expected="absent",env={})=>{
     let backupHash="absent";
@@ -1028,12 +1075,29 @@ test("remote bridge resolves consumer and AI ports independently and restores en
   assert.match(bridge,/DEFAULT_CC_REMOTE_PORT: u16 = 15_721/);
   assert.match(bridge,/resolve_port_pair\(\s*&fingerprint,\s*local_port,\s*runtime_expected_proxy_port/);
   assert.match(bridge,/first_available_port\(/);
-  assert.match(bridge,/remote_request\(\s*"status",\s*adapter,\s*route_port,\s*None,\s*session_token/);
-  assert.match(bridge,/refresh_tool_configuration\(\s*&mut tool_summary,\s*ai_token/);
+  assert.match(bridge,/if result\.is_ok\(\) \{\s*configure_discovered_tools\(&target_id, &fingerprint, generation, ticket\)/);
+  assert.doesNotMatch(bridge,/PostConnectResult::Tools|refresh_tool_configuration/,'Tool setup must wait for discovery instead of racing an outdated summary');
   assert.equal(bridge.match(/start_post_connect\(generation\);/g)?.length,2,"Initial connection and resumed transport both restore tool state through post-connect work");
   assert.match(auth,/super::allocate_ports\(session\.target_id, true\)/);
   assert.match(state,/allocatePorts: \(targetId: string, preferDefaults = true\)/);
   assert.match(page,/remoteBackend\.allocatePorts\(selected\.targetId, false\)/);
+});
+
+test("enabled AI capability configures discovered tools through the existing guarded transaction",()=>{
+  const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const capabilities=readFileSync("src-tauri/src/features/remote_bridge/capabilities.rs","utf8");
+  const setup=bridge.slice(bridge.indexOf("fn configure_discovered_tools"),bridge.indexOf("pub fn discover_tools"));
+  assert.match(setup,/discovery_context_current\(&state, target_id, fingerprint, generation, ticket\)/);
+  assert.match(setup,/state\.pending\.is_some\(\) \|\| state\.extension_pending\.is_some\(\) \|\| state\.profile_syncing/);
+  assert.match(setup,/config_preview_locked\(&mut state, \*adapter\)[\s\S]*config_apply_locked\(&mut state, preview\.id\)/);
+  assert.doesNotMatch(setup,/tool_verify|verify_tool|operation.*verify|capabilities::apply_tool/);
+  assert.match(capabilities,/change\.enabled && change\.capability == Capability::Cc/);
+  assert.match(capabilities,/configure_discovered_tools\(&change\.target_id, &fingerprint, generation, ticket\)/);
+  const apply=bridge.slice(bridge.indexOf("fn config_apply_locked"),bridge.indexOf("pub fn config_restore_preview"));
+  assert.match(apply,/let rollback =/);
+  assert.match(apply,/profile_verified/);
+  assert.match(apply,/set_cached_profile\(state, Some\(profile\)\)/);
+  assert.match(bridge,/state\.disabled_tools\.push\(pending\.preview\.tool\)/);
 });
 
 test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debounced before parsing",()=>{
@@ -1200,7 +1264,7 @@ test("connected bridge defaults to a concise overview and preserves advanced sta
 test("overview preserves independent statuses, public port mappings, and existing action boundaries",async()=>{
   const compiled=(path)=>ts.transpileModule(readFileSync(path,"utf8"),{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
   const load=(path)=>import(`data:text/javascript;base64,${Buffer.from(compiled(path)).toString("base64")}`);
-  const {bridgeCapabilityState,bridgeEndpointLabel,overviewToolChecking,overviewToolLabel,overviewSkillStatus,overviewServerDirectStatus}=await load("src/features/remote-bridge/overview-presentation.ts");
+  const {bridgeCapabilityState,bridgeEndpointLabel,overviewToolChecking,overviewToolLabel,overviewSkillStatus,overviewServerDirectStatus}=await import(presentationModuleUrl);
   const {remoteBridgeMessages}=await load("src/shared/i18n/remote-bridge.ts");
   assert.equal(bridgeEndpointLabel("::1",7897),"[::1]:7897");
   assert.equal(bridgeCapabilityState("connected",false),"disabled");
@@ -1208,7 +1272,7 @@ test("overview preserves independent statuses, public port mappings, and existin
   assert.equal(bridgeCapabilityState("connecting",true),"checking");
   assert.equal(bridgeCapabilityState("stale",true),"warning");
   assert.equal(bridgeCapabilityState("unavailable",true),"failed");
-  const summary={cc:{},ccStatus:"connected",claudeProfileState:"synced"};
+  const summary={cc:{},ccStatus:"connected",claudeProfileState:"synced",toolInstallations:[{tool:"codex",state:"installed",version:"0.134.0"},{tool:"claude",state:"installed",version:"2.1.227"}]};
   for(const copy of Object.values(remoteBridgeMessages)) {
     assert.deepEqual(overviewServerDirectStatus(copy,"healthy"),{state:"healthy",label:copy.rbOverviewDirectAvailable});
     assert.deepEqual(overviewServerDirectStatus(copy,"failed"),{state:"warning",label:copy.rbOverviewDirectUnavailable});
@@ -1250,7 +1314,7 @@ test("overview preserves independent statuses, public port mappings, and existin
   assert.match(page,/remoteBackend\.setCapability\(/);
   assert.match(overview,/v-if="tool\.checking" state="checking"/);
   assert.match(overview,/:disabled="busy \|\| tool\.checking \|\| !connected/);
-  assert.match(page,/if \(busy\.value \|\| overviewToolChecking\(props\.summary, adapter\.id\)\) return/);
+  assert.match(page,/if \(busy\.value \|\| overviewToolChecking\(props\.summary, adapter\.id\) \|\| !canToggleRemoteTool\(props.summary,adapter.id\)\) return/);
   assert.match(overview,/:disabled="busy \|\| tool\.checking \|\| !connected/);
   assert.match(page,/emit\("connected", summary\)/);
   assert.match(page,/overviewServerDirectStatus\(props\.copy, serverDirectState\.value\)/);
@@ -1390,14 +1454,11 @@ test("two-step setup auto-connects after interactive authentication and keeps on
   assert.equal((page.match(/@click="startConnection"/g)??[]).length,1);
 });
 
-test("SSH authentication errors reserve space and copy only displayed information",()=>{
+test("SSH authentication errors use global notifications and copy only displayed information",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  assert.match(page,/<div id="remote-auth-error" class="remote-auth-error-slot"/);
-  assert.doesNotMatch(page,/<div[^>]*v-if=[^>]*class="remote-auth-error-slot"/);
-  assert.match(page,/\.remote-auth-error-slot \{[^}]*flex:none[^}]*height:32px[^}]*margin-top:4px/);
-  assert.match(page,/\.remote-auth-error-slot p \{[^}]*overflow:auto/);
-  assert.match(page,/:aria-describedby="authErrorMessage \? 'remote-auth-error' : undefined"/);
-  assert.match(page,/\.remote-auth-dialog pre,\.remote-auth-error-slot p \{[^}]*user-select:text/);
+  assert.match(page,/useNotification\(\(\) => authSession.value\?\.error \? authErrorMessage.value/);
+  assert.doesNotMatch(page,/remote-auth-error-slot|aria-describedby="authErrorMessage/);
+  assert.match(page,/\.remote-auth-dialog pre \{[^}]*user-select:text/);
   const copyAction=page.slice(page.indexOf("async function copyAuthPrompt()"),page.indexOf("watch([() => visibleAuthPrompt.value?.message"));
   assert.match(copyAction,/await copyText\(\[prompt, authErrorMessage.value\]/);
   assert.doesNotMatch(copyAction,/authResponse\.value|submittedAuthMask\.value|sshAuthSubmit/);
@@ -1449,7 +1510,8 @@ test("bridge construction keeps disabled loading actions and omits detached busy
   assert.match(page,/:disabled="busy \|\| establishingBridge \|\| !canStartConnection"/);
   assert.match(page,/establishingBridge \? copy\.rbEstablishingBridge : copy\.rbConnect/);
   assert.match(page,/v-if="authInteractionVisible \|\| authSurfaceVisible"/);
-  assert.match(page,/v-if="feedbackText && !establishingBridge && !busy"/);
+  assert.match(page,/useNotification\(\(\) => feedback.value && feedback.value !== "ports" \? feedbackText.value/);
+  assert.doesNotMatch(page,/<p[^>]*class="remote-feedback"/);
   assert.doesNotMatch(page,/busy \? copy\.rbBusy/);
   assert.match(page,/@media \(prefers-reduced-motion:reduce\)/);
 });
@@ -1648,7 +1710,7 @@ test("SSH connection explanations reuse question-mark tooltips without hiding va
   assert.doesNotMatch(dialog,/class="remote-field-error"/);
   assert.match(dialog,/:aria-invalid="!!connectionFieldErrors.destination"/);
   assert.match(dialog,/<form novalidate/);
-  assert.match(dialog,/role="alert">\{\{ connectionSaveErrorText/);
+  assert.match(page,/useNotification\(connectionSaveErrorText, "error", "remote-connection-save"\)/);
   assert.match(dialog,/value="password"/);
   const tooltip=readFileSync("src/shared/components/HelpTooltip.vue","utf8");
   assert.match(tooltip,/closest<HTMLElement>\("dialog\[open\]"\) \?\? "body"/);

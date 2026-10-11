@@ -44,6 +44,18 @@ test("all four locales format the same snapshot without mutating its diagnosis",
   assert.equal(JSON.stringify(data), before);
 });
 
+test("CLI installation states and versions are localized separately from route configuration",()=>{
+  const snapshot={...data,remoteBridge:{configured:true,reachable:true,status:"connected",protocol:null,proxyPort:null,ccDetected:true,ccPort:15721,codexConfigured:false,claudeConfigured:true,toolInstallations:[{tool:"codex",state:"missing",version:null,executablePath:"/home/private/bin/codex",token:"private-token"},{tool:"claude",state:"installed",version:"2.1.227"}]}};
+  const before=JSON.stringify(snapshot);
+  for(const copy of Object.values(messages)) {
+    const report=formatDiagnosticReport(snapshot,copy);
+    assert.ok(report.includes(copy.rbInstallMissing));
+    assert.ok(report.includes(`${copy.rbInstallInstalled} · 2.1.227`));
+    assert.doesNotMatch(report,/private-token|\/home\/private|executablePath|undefined/);
+  }
+  assert.equal(JSON.stringify(snapshot),before);
+});
+
 test("unknown observations do not become successful results", () => {
   const snapshot = { ...data, selectedClient: null, hasSelection: false, available: false, protocol: null, confidence: null,
     connectivity: "notTested", successfulTargets: 0, totalTargets: 0, errorCategories: [], tun: "unknown", systemProxyEnabled: null,
@@ -121,4 +133,16 @@ test("cached remote diagnostics and runtime summaries are localized without leak
     for (const secret of ["private-token","private-password","private-host","private-prompt","/home/private","undefined"]) assert.ok(!report.includes(secret));
   }
   assert.equal(JSON.stringify(remoteBridge),before);
+});
+
+test("plugin-only report keeps CLI and extension installation independent",()=>{
+  const remoteBridge={configured:true,reachable:true,status:"connected",codexConfigured:true,claudeConfigured:true,toolInstallations:[
+    {tool:"codex",state:"missing",version:null,extensionState:"installed",extensionVersion:"26.825.2",path:"/home/private",token:"secret-fixture"},
+    {tool:"claude",state:"missing",version:null,extensionState:"installed",extensionVersion:"2.1.252"},
+  ]};
+  for(const copy of Object.values(messages)) {
+    const report=formatDiagnosticReport({...data,remoteBridge},copy);
+    for(const text of [copy.rbInstallMissing,copy.rbInstallInstalled,copy.rbInstallExtension,"26.825.2","2.1.252"]) assert.ok(report.includes(text));
+    assert.doesNotMatch(report,/\/home\/private|secret-fixture|undefined/);
+  }
 });

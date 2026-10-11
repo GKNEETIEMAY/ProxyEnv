@@ -14,7 +14,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test:remote": "node --test scripts/test-remote-bridge.mjs",
+    "test:remote": "node --test scripts/test-remote-bridge.mjs scripts/test-remote-tool-installation.mjs scripts/test-notifications.mjs",
     "test:report": "node --test scripts/test-diagnostic-report.mjs",
     "tauri": "tauri",
     "release:build": "tauri build --ci -- --locked",

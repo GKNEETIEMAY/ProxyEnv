@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { findNodeAtLocation, getNodeValue } from 'jsonc-parser';
 import { patch, jsonTree, checkClaudeShared } from './remote-extension/config.mjs';
 import { transaction, hash, safe } from './remote-extension/files.mjs';
+import { networkPrivateGroup } from './remote-extension/permissions.mjs';
 
 test('Codex preserves comments, unknown settings, secrets and quoted selector formatting', () => {
   const text = '# user comment\r\n"model_provider" = \'openai\' # keep\r\nmodel="custom"\r\n[mcp_servers.x]\r\ncommand="test"\r\n[model_providers.other]\r\nhttp_headers={Authorization="secret-fixture"}\r\n';
@@ -210,6 +211,11 @@ test('Linux bundled helper inspects separate extension runtimes and completes pr
     assert.equal(inspection.extensions.length,2);
     assert.equal(inspection.extensions[0].runtimeVersion,'0.151.0-alpha.7.2');
     assert.equal(inspection.extensions[0].location,'activeUnknown');
+    if (networkPrivateGroup(f.uid) !== null) {
+      fs.chmodSync(path.join(f.root,'.vscode-server'),0o775);
+      assert.equal(run({operation:'inspect'}).extensions[0].supported,true,"Proven private-group permissions remain valid for read-only plugin discovery");
+      fs.chmodSync(path.join(f.root,'.vscode-server'),0o700);
+    }
     for (const tool of ['codex','claude']) {
       const request={tool,port:25721,contextHash:inspection.contextHash};
       const preview=run({...request,operation:'preview'});assert.equal(preview.error,undefined);
