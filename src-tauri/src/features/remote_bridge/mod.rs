@@ -2094,6 +2094,7 @@ fn prepare_post_connect(summary: &mut Summary) {
 }
 
 fn start_post_connect(generation: u64) {
+    start_auto_proxy_test(generation);
     std::thread::spawn(move || {
         let post_connect_started = Instant::now();
         let job = {
@@ -2643,6 +2644,23 @@ pub fn test() -> BridgeResult<()> {
     test_for_generation(None)
 }
 fn test_for_generation(expected_generation: Option<u64>) -> BridgeResult<()> {
+    test_proxy_egress(expected_generation, false)
+}
+
+fn should_auto_proxy_test(summary: &Summary, connected: bool) -> bool {
+    capability_ready(connected, summary.proxy_status)
+        && summary.proxy.is_some()
+        && summary.diagnostics.general_proxy_egress.state == DiagnosticState::NotTested
+}
+
+fn start_auto_proxy_test(generation: u64) {
+    // Independent of post-connect setup and paid model verification.
+    std::thread::spawn(move || {
+        let _ = test_proxy_egress(Some(generation), true);
+    });
+}
+
+fn test_proxy_egress(expected_generation: Option<u64>, only_unchecked: bool) -> BridgeResult<()> {
     let started = Instant::now();
     let (endpoint, target_id, fingerprint, generation, ticket) = {
         let mut state = lock()?;
@@ -2650,6 +2668,11 @@ fn test_for_generation(expected_generation: Option<u64>) -> BridgeResult<()> {
             return Err("bridgeUnavailable".into());
         }
         refresh(&mut state);
+        // Check and claim under the same lock: duplicate background work must
+        // neither repeat a completed probe nor replace an in-flight result.
+        if only_unchecked && !should_auto_proxy_test(&state.summary, state.child.is_some()) {
+            return Ok(());
+        }
         if !capability_ready(state.child.is_some(), state.summary.proxy_status) {
             return Err("bridgeUnavailable".into());
         }
@@ -3553,6 +3576,53 @@ mod tests {
             },
             ..Store::default()
         }
+    }
+    #[test]
+    fn automatic_egress_requires_a_live_unchecked_network_lane() {
+        use super::*;
+        let mut summary = Summary {
+            proxy: Some(Endpoint {
+                local: ProxyEndpoint {
+                    host: "127.0.0.1".into(),
+                    port: 7897,
+                    protocol: ProxyProtocol::Mixed,
+                },
+                remote_port: 7897,
+            }),
+            proxy_status: Some(Status::Connected),
+            ..Summary::default()
+        };
+        assert!(should_auto_proxy_test(&summary, true));
+        assert!(!should_auto_proxy_test(&summary, false));
+        for status in [
+            None,
+            Some(Status::Connecting),
+            Some(Status::Disconnected),
+            Some(Status::Error),
+        ] {
+            summary.proxy_status = status;
+            assert!(!should_auto_proxy_test(&summary, true));
+        }
+        summary.proxy_status = Some(Status::Connected);
+        for state in [
+            DiagnosticState::Testing,
+            DiagnosticState::Passed,
+            DiagnosticState::Failed,
+        ] {
+            summary.diagnostics.general_proxy_egress.state = state;
+            assert!(!should_auto_proxy_test(&summary, true));
+        }
+        summary.diagnostics.general_proxy_egress.reset();
+        assert!(should_auto_proxy_test(&summary, true));
+        summary.proxy = None;
+        assert!(!should_auto_proxy_test(&summary, true));
+        // An AI-only bridge never triggers a general-network or model request.
+        let ai_only = automatic_setup_fixture();
+        assert!(!should_auto_proxy_test(&ai_only.summary, true));
+        assert_eq!(
+            ai_only.summary.diagnostics.ai_route_verification.state,
+            DiagnosticState::NotTested
+        );
     }
     #[test]
     fn automatic_setup_requires_an_enabled_route_and_compatible_cli_or_plugin() {

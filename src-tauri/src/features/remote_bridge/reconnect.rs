@@ -138,6 +138,7 @@ pub(super) fn tick() {
             state.summary.ssh_auth = state.ssh_auth;
             refresh(&mut state);
             drop(state);
+            start_auto_proxy_test(job.generation);
             // Installation is independent from restoring tunnels; never delay recovery.
             std::thread::spawn(move || {
                 let _ = discover_tools_for_generation(job.request.target_id, Some(job.generation));

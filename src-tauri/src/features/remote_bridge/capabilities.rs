@@ -130,6 +130,7 @@ pub fn set_capability(change: CapabilityChange, confirmed: bool) -> BridgeResult
     state.extension_pending = None;
     sync_tool_states(&mut state.summary);
     refresh(&mut state);
+    let auto_proxy_test = change.enabled && change.capability == Capability::Proxy;
     let auto_setup = change.enabled && change.capability == Capability::Cc;
     if auto_setup {
         for tool in [
@@ -149,6 +150,9 @@ pub fn set_capability(change: CapabilityChange, confirmed: bool) -> BridgeResult
     let generation = state.connection_generation;
     let ticket = state.tool_discovery_ticket;
     drop(state);
+    if auto_proxy_test {
+        start_auto_proxy_test(generation);
+    }
     if auto_setup {
         // The same post-discovery path handles first enable and re-enable.
         // Explicit per-tool OFF remains an opt-out for this bridge session.
