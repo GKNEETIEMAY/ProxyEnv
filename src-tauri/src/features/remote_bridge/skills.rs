@@ -78,11 +78,52 @@ struct StoredProjection {
     total_size: u64,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct RuntimeState {
     target_id: Option<String>,
     stamps: BTreeMap<String, String>,
     states: BTreeMap<String, SkillProjectionState>,
+}
+
+impl RuntimeState {
+    fn select_target(&mut self, target: &str) {
+        if self.target_id.as_deref() != Some(target) {
+            self.target_id = Some(target.to_owned());
+            self.stamps.clear();
+            self.states.clear();
+        }
+    }
+
+    // A read-only snapshot must not replace the last verified projection state
+    // when SSH is temporarily unavailable, or reuse it for another server.
+    fn snapshot_state(
+        &self,
+        target: Option<&str>,
+        id: &str,
+        enabled: bool,
+    ) -> SkillProjectionState {
+        if !enabled {
+            return SkillProjectionState::NotSynced;
+        }
+        let Some(target) = target else {
+            return SkillProjectionState::Unavailable;
+        };
+        if self.target_id.as_deref() != Some(target) {
+            return SkillProjectionState::NotSynced;
+        }
+        self.states
+            .get(id)
+            .copied()
+            .unwrap_or(SkillProjectionState::NotSynced)
+    }
+
+    fn needs_sync(&self, id: &str, stamp: &str) -> bool {
+        self.stamps.get(id).map(String::as_str) != Some(stamp)
+            || !matches!(
+                self.states.get(id),
+                Some(SkillProjectionState::Synced | SkillProjectionState::Conflict)
+            )
+    }
 }
 
 static RUNTIME: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
@@ -523,8 +564,11 @@ fn state_from(value: &serde_json::Value) -> BridgeResult<SkillProjectionState> {
     }
 }
 
-fn remember(id: &str, stamp: Option<String>, state: SkillProjectionState) {
+fn remember(target: &str, id: &str, stamp: Option<String>, state: SkillProjectionState) {
     if let Ok(mut runtime) = runtime().lock() {
+        if runtime.target_id.as_deref() != Some(target) {
+            return;
+        }
         if let Some(stamp) = stamp {
             runtime.stamps.insert(id.to_owned(), stamp);
         }
@@ -532,8 +576,11 @@ fn remember(id: &str, stamp: Option<String>, state: SkillProjectionState) {
     }
 }
 
-fn forget_stamp(id: &str, state: SkillProjectionState) {
+fn forget_stamp(target: &str, id: &str, state: SkillProjectionState) {
     if let Ok(mut runtime) = runtime().lock() {
+        if runtime.target_id.as_deref() != Some(target) {
+            return;
+        }
         runtime.stamps.remove(id);
         runtime.states.insert(id.to_owned(), state);
     }
@@ -541,6 +588,13 @@ fn forget_stamp(id: &str, state: SkillProjectionState) {
 
 fn project(target: &str, skill: &LocalSkill) -> BridgeResult<()> {
     let _operation = operations().lock().map_err(|_| "stateUnavailable")?;
+    // Recover an existing verified copy after a transient SSH error without
+    // uploading it again. A foreign or modified copy still fails closed.
+    match state_from(&ssh::skill_remote(target, &request(skill, "status"))?)? {
+        SkillProjectionState::Synced => return Ok(()),
+        SkillProjectionState::Conflict => return Err("skillConflict".into()),
+        _ => {}
+    }
     ssh::skill_remote(target, &request(skill, "prepare"))?;
     let upload = (|| {
         for file in &skill.files {
@@ -569,33 +623,15 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
     let store = load_store()?;
     let enabled = store.enabled.iter().cloned().collect::<BTreeSet<_>>();
     let disabled = store.disabled.iter().cloned().collect::<BTreeSet<_>>();
-    let connected = connected_target().is_ok();
-    let remembered = runtime()
-        .lock()
-        .map_err(|_| "stateUnavailable")?
-        .states
-        .clone();
+    let target = connected_target().ok();
+    let remembered = runtime().lock().map_err(|_| "stateUnavailable")?.clone();
     let mut views = Vec::new();
     for mut skill in local_skills()? {
         // A CC Switch link is an enabled source by default. `disabled` records
         // only an explicit per-agent remote opt-out.
         skill.view.enabled = !disabled.contains(&skill.view.id);
-        skill.view.state = if !skill.view.enabled {
-            SkillProjectionState::NotSynced
-        } else if connected && enabled.contains(&skill.view.id) {
-            remembered
-                .get(&skill.view.id)
-                .copied()
-                .unwrap_or(SkillProjectionState::Unavailable)
-        } else if connected {
-            remembered
-                .get(&skill.view.id)
-                .copied()
-                .unwrap_or(SkillProjectionState::NotSynced)
-        } else {
-            SkillProjectionState::Unavailable
-        };
-        remember(&skill.view.id, None, skill.view.state);
+        skill.view.state =
+            remembered.snapshot_state(target.as_deref(), &skill.view.id, skill.view.enabled);
         views.push(skill.view);
     }
     let visible = views
@@ -607,10 +643,7 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
         .into_iter()
         .filter(|projection| enabled.contains(&projection.id) && !visible.contains(&projection.id))
     {
-        let state = remembered
-            .get(&projection.id)
-            .copied()
-            .unwrap_or(SkillProjectionState::Unavailable);
+        let state = remembered.snapshot_state(target.as_deref(), &projection.id, true);
         views.push(SkillView {
             id: projection.id,
             tool: projection.tool,
@@ -628,6 +661,10 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
 pub fn enable(id: String) -> BridgeResult<SkillView> {
     let skill = by_id(&id)?;
     let target = connected_target()?;
+    runtime()
+        .lock()
+        .map_err(|_| "stateUnavailable")?
+        .select_target(&target);
     project(&target, &skill)?;
     let mut store = load_store()?;
     if !store.enabled.contains(&id) {
@@ -645,6 +682,7 @@ pub fn enable(id: String) -> BridgeResult<SkillView> {
         return Err(code);
     }
     remember(
+        &target,
         &id,
         metadata_stamp(&skill).ok(),
         SkillProjectionState::Synced,
@@ -683,7 +721,7 @@ fn remove_projection(id: String, remember_disabled: bool) -> BridgeResult<SkillV
         store.disabled.sort();
     }
     persist_store(&store)?;
-    forget_stamp(&id, SkillProjectionState::NotSynced);
+    forget_stamp(&target, &id, SkillProjectionState::NotSynced);
     let mut view = local.map(|skill| skill.view).unwrap_or(SkillView {
         id: projection.id,
         tool: projection.tool,
@@ -699,8 +737,22 @@ fn remove_projection(id: String, remember_disabled: bool) -> BridgeResult<SkillV
     Ok(view)
 }
 
-fn metadata_stamp(skill: &LocalSkill) -> BridgeResult<String> {
+type SkillMetadata = (String, u64, Duration);
+
+fn hash_metadata(mut entries: Vec<SkillMetadata>) -> String {
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
     let mut digest = Sha256::new();
+    for (relative, size, modified) in entries {
+        digest.update(relative.as_bytes());
+        digest.update(size.to_le_bytes());
+        digest.update(modified.as_secs().to_le_bytes());
+        digest.update(modified.subsec_nanos().to_le_bytes());
+    }
+    hex::encode(digest.finalize())
+}
+
+fn metadata_stamp(skill: &LocalSkill) -> BridgeResult<String> {
+    let mut entries = Vec::new();
     for file in &skill.files {
         let metadata = fs::symlink_metadata(&file.local_path).map_err(|_| "localSkillChanged")?;
         if !metadata.is_file() || is_link_or_reparse(&metadata) {
@@ -711,19 +763,16 @@ fn metadata_stamp(skill: &LocalSkill) -> BridgeResult<String> {
             .map_err(|_| "localSkillChanged")?
             .duration_since(UNIX_EPOCH)
             .map_err(|_| "localSkillChanged")?;
-        digest.update(file.relative_path.as_bytes());
-        digest.update(metadata.len().to_le_bytes());
-        digest.update(modified.as_secs().to_le_bytes());
-        digest.update(modified.subsec_nanos().to_le_bytes());
+        entries.push((file.relative_path.clone(), metadata.len(), modified));
     }
-    Ok(hex::encode(digest.finalize()))
+    Ok(hash_metadata(entries))
 }
 
 fn metadata_stamp_directory(
     skill_root: &Path,
     directory: &Path,
     depth: usize,
-    digest: &mut Sha256,
+    files: &mut Vec<SkillMetadata>,
     file_count: &mut usize,
     total_size: &mut u64,
 ) -> BridgeResult<()> {
@@ -751,7 +800,7 @@ fn metadata_stamp_directory(
             return Err("localSkillUnsafe".into());
         }
         if metadata.is_dir() {
-            metadata_stamp_directory(skill_root, &path, depth + 1, digest, file_count, total_size)?;
+            metadata_stamp_directory(skill_root, &path, depth + 1, files, file_count, total_size)?;
             continue;
         }
         if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES {
@@ -768,16 +817,14 @@ fn metadata_stamp_directory(
         let relative = path
             .strip_prefix(skill_root)
             .map_err(|_| "localSkillUnsafe")?
-            .to_string_lossy();
+            .to_string_lossy()
+            .replace('\\', "/");
         let modified = metadata
             .modified()
             .map_err(|_| "localSkillChanged")?
             .duration_since(UNIX_EPOCH)
             .map_err(|_| "localSkillChanged")?;
-        digest.update(relative.as_bytes());
-        digest.update(metadata.len().to_le_bytes());
-        digest.update(modified.as_secs().to_le_bytes());
-        digest.update(modified.subsec_nanos().to_le_bytes());
+        files.push((relative, metadata.len(), modified));
     }
     Ok(())
 }
@@ -786,25 +833,29 @@ fn metadata_stamp_id(id: &str) -> BridgeResult<String> {
     let (tool, name) = parse_id(id)?;
     let skill_root = cc_switch_skill_target(&root(tool)?.join(name), &cc_switch_root()?)?
         .ok_or("localSkillMissing")?;
-    let mut digest = Sha256::new();
+    let mut files = Vec::new();
     let mut file_count = 0;
     let mut total_size = 0;
     metadata_stamp_directory(
         &skill_root,
         &skill_root,
         0,
-        &mut digest,
+        &mut files,
         &mut file_count,
         &mut total_size,
     )?;
     if file_count == 0 || !skill_root.join("SKILL.md").is_file() {
         return Err("localSkillUnsafe".into());
     }
-    Ok(hex::encode(digest.finalize()))
+    Ok(hash_metadata(files))
 }
 
 fn monitor_once() -> BridgeResult<()> {
     let target = connected_target()?;
+    runtime()
+        .lock()
+        .map_err(|_| "stateUnavailable")?
+        .select_target(&target);
     let local = local_skills()?;
     let local_ids = local
         .iter()
@@ -835,6 +886,7 @@ fn monitor_once() -> BridgeResult<()> {
             match remove_projection(id.clone(), false) {
                 Ok(_) => {}
                 Err(code) => remember(
+                    &target,
                     &id,
                     None,
                     if code == "skillConflict" {
@@ -855,16 +907,6 @@ fn monitor_once() -> BridgeResult<()> {
             persist_store(&store)?;
         }
     }
-    let target_changed = {
-        let mut runtime = runtime().lock().map_err(|_| "stateUnavailable")?;
-        let changed = runtime.target_id.as_deref() != Some(target.as_str());
-        if changed {
-            runtime.target_id = Some(target.clone());
-            runtime.stamps.clear();
-            runtime.states.clear();
-        }
-        changed
-    };
     let store = load_store()?;
     let disabled = store.disabled.iter().cloned().collect::<BTreeSet<_>>();
     let mut enabled = store.enabled.iter().cloned().collect::<BTreeSet<_>>();
@@ -875,13 +917,11 @@ fn monitor_once() -> BridgeResult<()> {
             continue;
         }
         let stamp = metadata_stamp(skill)?;
-        let previous = runtime()
+        let needs_sync = runtime()
             .lock()
             .map_err(|_| "stateUnavailable")?
-            .stamps
-            .get(id)
-            .cloned();
-        if !target_changed && previous.as_deref() == Some(stamp.as_str()) {
+            .needs_sync(id, &stamp);
+        if !needs_sync {
             continue;
         }
         match enable(id.clone()) {
@@ -890,6 +930,7 @@ fn monitor_once() -> BridgeResult<()> {
                 just_projected.insert(id.clone());
             }
             Err(code) => remember(
+                &target,
                 id,
                 Some(stamp),
                 if code == "skillConflict" {
@@ -908,17 +949,15 @@ fn monitor_once() -> BridgeResult<()> {
         let stamp = match metadata_stamp_id(&id) {
             Ok(stamp) => stamp,
             Err(_) => {
-                remember(&id, None, SkillProjectionState::Unavailable);
+                remember(&target, &id, None, SkillProjectionState::Unavailable);
                 continue;
             }
         };
-        let previous = runtime()
+        let needs_sync = runtime()
             .lock()
             .map_err(|_| "stateUnavailable")?
-            .stamps
-            .get(&id)
-            .cloned();
-        if target_changed || previous.as_deref() != Some(stamp.as_str()) {
+            .needs_sync(&id, &stamp);
+        if needs_sync {
             changed.push((id, stamp));
         }
     }
@@ -930,26 +969,32 @@ fn monitor_once() -> BridgeResult<()> {
         let current_stamp = match metadata_stamp_id(&id) {
             Ok(stamp) => stamp,
             Err(_) => {
-                remember(&id, None, SkillProjectionState::Unavailable);
+                remember(&target, &id, None, SkillProjectionState::Unavailable);
                 continue;
             }
         };
         if current_stamp != old_stamp {
-            remember(&id, None, SkillProjectionState::LocalChanged);
+            remember(&target, &id, None, SkillProjectionState::LocalChanged);
         }
         let skill = match by_id(&id) {
             Ok(skill) => skill,
             Err(_) => {
-                remember(&id, None, SkillProjectionState::Unavailable);
+                remember(&target, &id, None, SkillProjectionState::Unavailable);
                 continue;
             }
         };
         match project(&target, &skill) {
             Ok(()) => {
                 let _ = update_stored_projection(&skill);
-                remember(&id, Some(current_stamp), SkillProjectionState::Synced);
+                remember(
+                    &target,
+                    &id,
+                    Some(current_stamp),
+                    SkillProjectionState::Synced,
+                );
             }
             Err(code) => remember(
+                &target,
                 &id,
                 None,
                 if code == "skillConflict" {
@@ -981,6 +1026,79 @@ pub fn start_monitor() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skill_snapshots_do_not_poison_verified_states_during_transient_disconnects() {
+        let id = "codex|test";
+        let mut runtime = RuntimeState::default();
+        runtime.select_target("server-a");
+        runtime
+            .states
+            .insert(id.into(), SkillProjectionState::Synced);
+        runtime.stamps.insert(id.into(), "unchanged".into());
+        assert_eq!(
+            runtime.snapshot_state(None, id, true),
+            SkillProjectionState::Unavailable
+        );
+        assert_eq!(
+            runtime.snapshot_state(Some("server-a"), id, true),
+            SkillProjectionState::Synced
+        );
+        assert!(!runtime.needs_sync(id, "unchanged"));
+        assert_eq!(
+            runtime.snapshot_state(Some("server-a"), id, false),
+            SkillProjectionState::NotSynced
+        );
+    }
+
+    #[test]
+    fn skill_snapshots_never_reuse_another_servers_verified_state() {
+        let id = "claude|test";
+        let mut runtime = RuntimeState::default();
+        runtime.select_target("server-a");
+        runtime
+            .states
+            .insert(id.into(), SkillProjectionState::Synced);
+        runtime.stamps.insert(id.into(), "unchanged".into());
+        assert_eq!(
+            runtime.snapshot_state(Some("server-b"), id, true),
+            SkillProjectionState::NotSynced
+        );
+        runtime.select_target("server-b");
+        assert!(runtime.states.is_empty());
+        assert!(runtime.needs_sync(id, "unchanged"));
+        assert_eq!(
+            runtime.snapshot_state(Some("server-b"), id, true),
+            SkillProjectionState::NotSynced,
+            "not yet checked is not a confirmed failure"
+        );
+    }
+
+    #[test]
+    fn transient_skill_failures_retry_without_local_edits_but_stable_conflicts_do_not() {
+        let id = "codex|test";
+        let mut runtime = RuntimeState::default();
+        runtime.select_target("server-a");
+        runtime.stamps.insert(id.into(), "unchanged".into());
+        for state in [
+            SkillProjectionState::Unavailable,
+            SkillProjectionState::NotSynced,
+            SkillProjectionState::LocalChanged,
+        ] {
+            runtime.states.insert(id.into(), state);
+            assert!(
+                runtime.needs_sync(id, "unchanged"),
+                "did not retry {state:?}"
+            );
+        }
+        for state in [SkillProjectionState::Synced, SkillProjectionState::Conflict] {
+            runtime.states.insert(id.into(), state);
+            assert!(!runtime.needs_sync(id, "unchanged"));
+            assert!(runtime.needs_sync(id, "changed"));
+        }
+        runtime.states.clear();
+        assert!(runtime.needs_sync(id, "unchanged"));
+    }
 
     #[cfg(unix)]
     fn link_directory(target: &Path, link: &Path) -> std::io::Result<()> {
@@ -1123,11 +1241,24 @@ mod tests {
         fs::create_dir_all(temporary.join("references")).unwrap();
         fs::write(temporary.join("SKILL.md"), "# Test\n").unwrap();
         fs::write(temporary.join("references/example.md"), "example\n").unwrap();
+        // A flat lexical sort places references.md before references/example.md,
+        // unlike directory-first traversal. Both paths must use the same order.
+        fs::write(temporary.join("references.md"), "index\n").unwrap();
         let first = inspect(RemoteToolId::Codex, &temporary).unwrap();
         let second = inspect(RemoteToolId::Codex, &temporary).unwrap();
         assert_eq!(first.view.hash, second.view.hash);
-        assert_eq!(first.view.file_count, 2);
+        assert_eq!(first.view.file_count, 3);
         assert!(first.manifest.contains("SKILL.md"));
+        let mut files = Vec::new();
+        let mut count = 0;
+        let mut size = 0;
+        metadata_stamp_directory(&temporary, &temporary, 0, &mut files, &mut count, &mut size)
+            .unwrap();
+        assert_eq!(
+            metadata_stamp(&first).unwrap(),
+            hash_metadata(files),
+            "initial synchronization and polling must fingerprint nested files identically"
+        );
         fs::remove_file(temporary.join("SKILL.md")).unwrap();
         assert_eq!(
             inspect(RemoteToolId::Codex, &temporary).unwrap_err(),
