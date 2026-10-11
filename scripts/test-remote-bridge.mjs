@@ -139,6 +139,21 @@ test("diagnostic actions reuse the manual tools grouped two-column layout", () =
   assert.doesNotMatch(source,/advanced-log-action|\.advanced-diagnostics \.advanced-tool-actions/);
 });
 
+test("Advanced statuses keep loopback inside its badge and localized controls at a stable height", () => {
+  const row=readFileSync("src/features/remote-bridge/components/AdvancedStatusRow.vue","utf8");
+  const advanced=readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8");
+  const bind=advanced.match(/<AdvancedStatusRow :label="copy\.rbAdvBind"[^>]+\/>/)?.[0];
+  assert.ok(bind);
+  assert.match(bind,/\$\{copy\.rbAdvLoopback\} · 127\.0\.0\.1/);
+  assert.doesNotMatch(bind,/:detail=/,"The address is part of the status, not a separate trailing item");
+  assert.match(row,/grid-template-columns:minmax\(0,1fr\) var\(--advanced-status-width\)/);
+  assert.match(row,/height:26px/);
+  assert.match(row,/:title="status"/);
+  assert.match(row,/text-overflow:ellipsis/);
+  assert.match(advanced,/height:32px; min-height:32px/);
+  assert.match(advanced,/\.advanced-tool-actions button \{[^}]*text-overflow:ellipsis/);
+});
+
 test("SSH labels hide only port 22, and first-use host keys enter interactive confirmation", async () => {
   const source = readFileSync("src/features/remote-bridge/ssh-presentation.ts", "utf8");
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
@@ -303,7 +318,22 @@ function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path
     assert.equal(result.status,0,result.stderr || result.error?.message);
     return JSON.parse(result.stdout.trim());
   };
-  return {home,run,cleanup:()=>{ assert.ok(resolve(directory).startsWith(root + (process.platform==="win32"?"\\":"/"))); rmSync(directory,{recursive:true,force:true}); }};
+  const runSkill=(operation,tool,content)=>{
+    if(process.platform==="win32") {
+      // MSYS cannot apply POSIX modes to Windows ACLs. Ownership and hashing
+      // remain real; Linux CI exercises the actual mode checks.
+      mock("mkdir",'if [ "$1" = -m ]; then shift 2; fi; exec /usr/bin/mkdir "$@"');
+      mock("chmod",'exit 0');
+      mock("find",'for argument do if [ "$argument" = -perm ]; then exit 0; fi; done; exec /usr/bin/find "$@"');
+    }
+    const skillHash=createHash("sha256").update(content).digest("hex");
+    const manifest=`${skillHash}  SKILL.md\n`;
+    const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nskill_name='fixture-skill'\nskill_hash='${skillHash}'\nfile_count=1\ntotal_size=${Buffer.byteLength(content)}\nmanifest_b64='${Buffer.from(manifest).toString("base64")}'\ndirectories_b64=''\n${readFileSync("src-tauri/src/features/remote_bridge/skill-remote.sh","utf8")}`;
+    const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:{...process.env,HOME:posix(home),PATH:`${posix(bin)}:/usr/bin:/bin`}});
+    assert.equal(result.status,0,result.stderr || result.error?.message);
+    return JSON.parse(result.stdout.trim());
+  };
+  return {home,run,runSkill,cleanup:()=>{ assert.ok(resolve(directory).startsWith(root + (process.platform==="win32"?"\\":"/"))); rmSync(directory,{recursive:true,force:true}); }};
 }
 test("compact read-only SSH probes retain port and network checks without configuration writes",{skip:!available},()=>{
   assert.ok(Buffer.byteLength(probeScript)<4096);
@@ -1198,6 +1228,37 @@ test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary"
   assert.doesNotMatch(dialog,/routeMappings|compatibilityRules|incomingModel|targetModel/);
 });
 
+for(const tool of ["codex","claude"]) test(`${tool}: Skills status revalidates an existing usable copy without uploading and rejects tampering`,{skip:!available},()=>{
+  const f=fixture();
+  const content="# Fixture skill\n", hash=createHash("sha256").update(content).digest("hex");
+  const destination=join(f.home,tool==="codex"?".codex":".claude","skills","fixture-skill");
+  try {
+    assert.deepEqual(f.runSkill("status",tool,content),{state:"notSynced"});
+    assert.equal(f.runSkill("prepare",tool,content).prepared,true);
+    writeFileSync(join(f.home,".proxyenv/staging/skills",tool,"fixture-skill",hash,"SKILL.md"),content,{mode:0o600});
+    assert.equal(f.runSkill("apply",tool,content).state,"synced");
+    const before=statSync(join(destination,"SKILL.md")).mtimeMs;
+    for(let attempt=0;attempt<2;attempt++) assert.deepEqual(f.runSkill("status",tool,content),{state:"synced",remoteHash:hash});
+    assert.equal(statSync(join(destination,"SKILL.md")).mtimeMs,before,"Recovery only validates; it never replaces a usable skill");
+    writeFileSync(join(destination,"SKILL.md"),"user modification\n");
+    assert.equal(f.runSkill("status",tool,content).state,"conflict");
+    assert.equal(readFileSync(join(destination,"SKILL.md"),"utf8"),"user modification\n");
+  } finally {f.cleanup();}
+});
+
+test("Skills snapshots are read-only and transient recovery uses verified remote status",()=>{
+  const source=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
+  const views=source.split("pub fn views()",2)[1].split("pub fn enable(",1)[0];
+  assert.doesNotMatch(views,/remember\(|states\.insert|stamps\.insert/,"Polling must not overwrite the verified synchronization cache");
+  assert.match(views,/snapshot_state\(target\.as_deref\(\)/);
+  const remember=source.split("fn remember(",2)[1].split("fn forget_stamp(",1)[0];
+  assert.match(remember,/runtime\.target_id\.as_deref\(\) != Some\(target\)[\s\S]*return;/,"Late tasks must not write another server's cached status");
+  const project=source.split("fn project(",2)[1].split("pub fn views()",1)[0];
+  assert.ok(project.indexOf('request(skill, "status")')<project.indexOf('request(skill, "prepare")'));
+  assert.match(project,/SkillProjectionState::Synced => return Ok\(\(\)\)/);
+  assert.match(project,/SkillProjectionState::Conflict => return Err\("skillConflict"\.into\(\)\)/);
+});
+
 test("Skills projection is CC Switch-link based, staged, owned and metadata-triggered",()=>{
   const skills=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
@@ -1303,6 +1364,8 @@ test("overview preserves independent statuses, public port mappings, and existin
     assert.deepEqual(overviewSkillStatus(copy,{enabled:false,state:"synced"}),{state:"disabled",label:copy.rbAccessDisabled});
     assert.deepEqual(overviewSkillStatus(copy,{enabled:true,state:"conflict"}),{state:"warning",label:copy.rbSkillConflict});
     assert.deepEqual(overviewSkillStatus(copy,{enabled:true,state:"synced"}),{state:"healthy",label:copy.rbSkillSynced});
+    assert.deepEqual(overviewSkillStatus(copy,{enabled:true,state:"unavailable"}),{state:"failed",label:copy.rbSkillUnavailable});
+    assert.deepEqual(overviewSkillStatus(copy,{enabled:true,state:"notSynced"}),{state:"warning",label:copy.rbSkillNotSynced});
   }
   const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
@@ -1386,6 +1449,27 @@ test("Claude verification is a fixed isolated request and never returns model ou
   assert.match(coordinator,/test_for_generation\(Some\(generation\)\)/);
   assert.match(coordinator,/verify_tool_for_generation/);
   assert.match(coordinator,/verify_tool_for_generation/);
+});
+
+test("actual egress runs automatically on network connect, enable and recovery without model requests",()=>{
+  const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const capabilities=readFileSync("src-tauri/src/features/remote_bridge/capabilities.rs","utf8");
+  const reconnect=readFileSync("src-tauri/src/features/remote_bridge/reconnect.rs","utf8");
+  assert.match(bridge,/fn start_post_connect\(generation: u64\) \{\s*start_auto_proxy_test\(generation\);/);
+  assert.match(capabilities,/let auto_proxy_test = change.enabled && change.capability == Capability::Proxy;/);
+  assert.match(capabilities,/drop\(state\);\s*if auto_proxy_test \{\s*start_auto_proxy_test\(generation\);/);
+  assert.match(reconnect,/drop\(state\);\s*start_auto_proxy_test\(job.generation\);/);
+  const automatic=bridge.slice(bridge.indexOf("fn should_auto_proxy_test("),bridge.indexOf("fn test_proxy_egress("));
+  assert.match(automatic,/capability_ready\(connected, summary.proxy_status\)/);
+  assert.match(automatic,/summary.proxy.is_some\(\)/);
+  assert.match(automatic,/general_proxy_egress.state == DiagnosticState::NotTested/);
+  assert.match(automatic,/test_proxy_egress\(Some\(generation\), true\)/);
+  assert.doesNotMatch(automatic,/run_all\(|verify_tool/);
+  const probe=bridge.slice(bridge.indexOf("fn test_proxy_egress("),bridge.indexOf("fn elapsed_ms("));
+  assert.match(probe,/let mut state = lock\(\)\?;[\s\S]*connection_generation != expected[\s\S]*only_unchecked && !should_auto_proxy_test[\s\S]*general_proxy_egress.begin\(\)/);
+  assert.match(probe,/"operation":"test"/);
+  assert.match(probe,/state.connection_generation != generation[\s\S]*current\(ticket\)/);
+  assert.match(bridge,/test_proxy_egress\(expected_generation, false\)/,"Manual diagnostics can rerun cached checks");
 });
 
 test("M7 keeps VS Code Server context and extension location conservative",()=>{
@@ -1546,12 +1630,26 @@ test("MobaXterm handoff exposes the shared environment action without claiming A
   assert.match(page,/const command = await resolveSessionCommand\(\)[\s\S]*await copyText\(command\)/);
   assert.match(page,/async function openMobaxterm\(\)[\s\S]*await remoteBackend\.launchMobaxterm[\s\S]*mobaOpened\.value = true/);
   assert.match(page,/@mobaxterm="perform\(openMobaxterm\)"/);
-  assert.match(launch,/rbMobaProxyHint[\s\S]*rbMobaAiHint/);
+  assert.match(launch,/rbMobaConnectionHint[\s\S]*rbExternalTerminalProxyHint[\s\S]*rbExternalTerminalAiHint/);
   const advanced=readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8");
   assert.match(advanced,/rbAdvExternalTerminal[\s\S]*rbAdvManualLoadHelp/);
   assert.match(advanced,/@click="emit\('copyEnvironment'\)"/);
   assert.doesNotMatch(advanced,/sessionToken|Proxy-Authorization|X-ProxyEnv-Session/);
   assert.match(page,/watch\(sshConnected[\s\S]*mobaOpened\.value = false/);
+});
+
+test("VS Code and MobaXterm share localized terminal setup help, including available targets",()=>{
+  const launch=readFileSync("src/features/remote-bridge/components/BridgeLaunchBar.vue","utf8");
+  assert.doesNotMatch(launch,/<HelpTooltip v-if="!target\?\.canOpenVscode"/);
+  assert.match(launch,/target\?\.canOpenVscode \? `\$\{copy\.rbVscodeConnectionHint\} \$\{copy\.rbExternalTerminalProxyHint\} \$\{copy\.rbExternalTerminalAiHint\}` : copy\.rbOverviewVscodeUnavailable/);
+  assert.match(launch,/target\?\.canOpenMobaxterm \? `\$\{copy\.rbMobaConnectionHint\} \$\{copy\.rbExternalTerminalProxyHint\} \$\{copy\.rbExternalTerminalAiHint\}` : copy\.rbOverviewMobaUnavailable/);
+  const messages=readFileSync("src/shared/i18n/remote-bridge.ts","utf8");
+  for(const key of ["rbVscodeConnectionHint","rbExternalTerminalProxyHint","rbExternalTerminalAiHint"]) {
+    assert.equal((messages.match(new RegExp(`${key}:`,"g"))??[]).length,4,`${key} exists in all four languages`);
+  }
+  assert.match(messages,/每个新终端都需要执行一次/);
+  assert.match(messages,/不会修改已运行的 VS Code 插件环境/);
+  assert.match(messages,/仅使用 AI 路由无需执行终端配置命令/);
 });
 
 test("terminal handoff prepares pending environment and allows AI-only plain terminals",()=>{

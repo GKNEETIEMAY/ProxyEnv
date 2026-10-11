@@ -3,7 +3,7 @@ import test from "node:test";
 import {readFileSync} from "node:fs";
 import {adapterModuleUrl,presentationModuleUrl,guidanceModuleUrl,copyModuleUrl} from "./remote-tool-test-modules.mjs";
 const {canToggleRemoteTool,getRemoteToolAdapter}=await import(adapterModuleUrl);
-const {overviewToolLabel,overviewToolChecking,toolInstallationLabel,toolInstallationLines}=await import(presentationModuleUrl);
+const {overviewToolLabel,overviewToolChecking,toolInstallationLabel,toolInstallationLines,toolInstallationRows}=await import(presentationModuleUrl);
 const {installMethods,installRequirementAvailable,installMissingRequirements}=await import(guidanceModuleUrl);
 const {remoteBridgeMessages}=await import(copyModuleUrl);
 const summary=(state,configured=false) => ({status:"connected",cc:{remotePort:15721},ccStatus:"connected",codexState:"ready",claudeState:"ready",codexConfigured:configured,claudeConfigured:false,toolInstallations:[{tool:"codex",state,version:state==="unsupported"?"0.133.9":state==="installed"?"0.134.0":null},{tool:"claude",state:"installed",version:"2.1.227"}]});
@@ -90,11 +90,41 @@ test("Codex and Claude share npm detection while Claude Node checks stay indepen
   assert.deepEqual(installMissingRequirements("claude",claude,{npm:false,nodeVersion:"22.0.0"}),["npm"]);
 });
 
-test("installation evidence stays in Overview without adding an Advanced section",()=>{
+test("Advanced reuses installation evidence and Overview icons above terminal environment",()=>{
   const advanced=readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8");
-  assert.doesNotMatch(advanced,/rbInstallSection|toolInstallationLabel|toolInstallations/);
+  assert.match(advanced,/toolInstallationRows\(props.copy,props.summary,adapter.id\)/);
+  assert.match(advanced,/<RemoteToolIcon :tool="tool.id"/);
+  assert.match(advanced,/<tbody><tr v-for="tool in installationTools"/);
+  assert.match(advanced,/<td v-for="row in tool.rows"/);
+  assert.match(advanced,/<th scope="col" :title="copy.rbOverviewAiTools">\{\{ copy.rbOverviewAiTools \}\}<\/th><th scope="col">CLI<\/th>/);
+  assert.match(advanced,/\.advanced-installations thead th \{[^}]*height:22px; font-size:10px;/);
+  assert.match(advanced,/:label="row.state === 'healthy' \? row.version \?\? '—' : row.status"/);
+  assert.doesNotMatch(advanced,/advanced-links > \.advanced-group \{ flex:1/);
+  assert.ok(advanced.indexOf('class="advanced-group advanced-installations"')<advanced.indexOf('<h3>{{ copy.rbAdvTerminal }}'));
+  assert.doesNotMatch(advanced,/remoteBackend\.discoverTools|overviewToolLabel\(/);
   const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
   assert.match(overview,/toolInstallationLines/);
+});
+
+test("installation rows keep CLI and extension states independent of route configuration",()=>{
+  const states={unknown:"idle",checking:"checking",installed:"healthy",missing:"disabled",unsupported:"warning",broken:"failed"};
+  for(const copy of Object.values(remoteBridgeMessages)) for(const [state,expected] of Object.entries(states)) {
+    const value=summary(state,true);
+    value.toolInstallations[0].extensionState="installed";
+    value.toolInstallations[0].extensionVersion="26.825.2";
+    const rows=toolInstallationRows(copy,value,"codex");
+    assert.equal(rows.length,2);
+    assert.equal(rows[0].state,expected);
+    assert.equal(rows[1].state,"healthy");
+    assert.equal(rows[1].label,copy.rbInstallExtension);
+    assert.equal(rows[1].version,"26.825.2");
+    assert.match(rows[1].status,/26\.825\.2/);
+  }
+  const value=summary("installed");
+  delete value.toolInstallations[0].extensionState;
+  const rows=toolInstallationRows(remoteBridgeMessages.en,value,"codex");
+  assert.equal(rows[1].state,"idle");
+  assert.equal(rows[1].status,remoteBridgeMessages.en.rbInstallUnknown);
 });
 
 test("CLI and extension versions occupy independent localized overview lines",()=>{
