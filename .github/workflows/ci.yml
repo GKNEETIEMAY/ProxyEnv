@@ -65,6 +65,9 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
+      - name: Test documentation contracts
+        run: pnpm test:docs
+
       - name: Test diagnostic report localization
         run: pnpm test:report
 
