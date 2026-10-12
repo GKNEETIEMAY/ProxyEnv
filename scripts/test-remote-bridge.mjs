@@ -178,7 +178,7 @@ test("SSH labels hide only port 22, and first-use host keys enter interactive co
   assert.equal(needsInteractiveSshAuth("hostKey"), true);
   for (const code of ["hostKeyChanged", "sshFailed", "sshTimeout", "forwardDenied"]) assert.equal(needsInteractiveSshAuth(code), false);
   const page = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
-  assert.equal((page.match(/needsInteractiveSshAuth\(bridgeErrorCode\(cause\)\)/g) ?? []).length, 3);
+  assert.equal((page.match(/needsInteractiveSshAuth\(bridgeErrorCode\(cause\)\)/g) ?? []).length, 2);
   for (const file of ["RemoteBridgePage.vue", "RemoteTargetGroups.vue"]) {
     assert.match(readFileSync(`src/features/remote-bridge/components/${file}`, "utf8"), /sshTargetAddress as/);
   }
@@ -188,7 +188,8 @@ test("the real start-connection handler confirms new host keys without retrying 
   const page = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
   const start = page.slice(page.indexOf("function startConnection()"), page.indexOf("function refreshTargets()"));
   const compiled = ts.transpileModule(`export function create(context) {
-    const {canStartConnection,busy,checked,proxyPort,ccPort,runtimeExpectedPort,runtimePortConflict,sshCheck,error,connectionPhase,props,remoteBackend,targetId,needsInteractiveSshAuth,bridgeErrorCode,beginInteractiveAuth,emit} = context;
+    const {canStartConnection,busy,checked,proxyPort,ccPort,runtimeExpectedPort,runtimePortConflict,sshCheck,error,connectionPhase,props,remoteBackend,targetId,needsInteractiveSshAuth,bridgeErrorCode,beginInteractiveAuth,emit,readinessAnnouncementTarget} = context;
+    let authBeginRevision = 0;
     ${start}
     return startConnection;
   }`, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
@@ -200,6 +201,7 @@ test("the real start-connection handler confirms new host keys without retrying 
       canStartConnection: ref(true), busy: ref(false), checked: ref(false), proxyPort: ref(0), ccPort: ref(0),
       runtimeExpectedPort: ref(null), runtimePortConflict: ref(false), sshCheck: ref({state:"idle"}), error: ref(), connectionPhase: ref("idle"),
       props: {reviewPreview:false}, targetId: ref("manual-test"),
+      readinessAnnouncementTarget: ref(),
       remoteBackend: {check:async () => {throw code;}}, bridgeErrorCode:error=>error,
       needsInteractiveSshAuth:code=>["hostKey","sshAuth"].includes(code),
       beginInteractiveAuth:async operation=>{calls.push(operation);}, emit:()=>{},
@@ -225,6 +227,7 @@ test("post-auth SSH errors release the modal and stale polls cannot reopen it", 
     const snapshot={sessionId:"test-session",status:"succeeded",auth:{authenticated:true}};
     const context={
       authSession:ref(snapshot),authBeginRevision:0,connectionPhase:ref("authenticating"),busy:ref(false),error:ref(),sshCheck:ref({state:"checking"}),
+      readinessAnnouncementTarget:ref(),
       checked:ref(false),authPollTimer:undefined,authDialog:ref({close:()=>{}}),lastAuthPrompt:ref(null),authResponse:ref(""),submittedAuthMask:ref("••••••••"),submittedAuthPromptId:ref("prompt-1"),
       clearAuthPoll:()=>{},usePorts:()=>{},request:()=>({}),emit:()=>{refreshes++;},
       needsInteractiveSshAuth:()=>false,bridgeErrorCode:value=>value,beginInteractiveAuth:async()=>{},refreshNetworkChecks:async()=>{},
@@ -637,7 +640,7 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   assert.match(page,/serverDirectState/);
   assert.match(page,/localProxyCheck/);
   assert.match(page,/ccCheck/);
-  assert.match(page,/emit\("connected", outcome\.summary\)/);
+  assert.match(page,/await finishConnectionUi\(outcome\.summary\)/);
   assert.match(shell,/<div class="view-stage">/);
   assert.match(shell,/<div class="view-outlet">/);
   assert.match(shell,/<div v-show="view === 'local'" class="view-pane">/);
@@ -1385,7 +1388,8 @@ test("overview preserves independent statuses, public port mappings, and existin
   assert.match(overview,/capability-switch[\s\S]*:checked="!!capability\.route" :disabled="busy \|\| !connected/);
   assert.match(overview,/@click\.prevent="emit\('toggleCapability', capability\.id, !capability\.route\)"/);
   assert.match(page,/remoteBackend\.setCapability\(/);
-  assert.match(overview,/v-if="tool\.checking" state="checking"/);
+  assert.match(overview,/:state="overviewToolConfigurationState\(summary,tool.id,tool.inspection.configured\)"/);
+  assert.match(overview,/:label="tool.checking \? copy.rbInstallChecking/);
   assert.match(overview,/:disabled="busy \|\| tool\.checking \|\| !connected/);
   assert.match(page,/if \(busy\.value \|\| overviewToolChecking\(props\.summary, adapter\.id\) \|\| !canToggleRemoteTool\(props.summary,adapter.id\)\) return/);
   assert.match(overview,/:disabled="busy \|\| tool\.checking \|\| !connected/);
@@ -1530,7 +1534,7 @@ test("two-step setup auto-connects after interactive authentication and keeps on
   assert.doesNotMatch(page,/@click="checkTarget"/);
   assert.match(page,/outcome\.operation === "check"[\s\S]*connectPrepared\(request\(\)\)/);
   assert.match(page,/connectionPhase\.value = "building"/);
-  assert.match(page,/connectionPhase\.value = "succeeded"/);
+  assert.match(page,/async function finishConnectionUi\(summary: BridgeSummary\)[\s\S]*emit\("connected", summary\)[\s\S]*connectionPhase\.value = "idle"/);
   assert.match(page,/bridgeErrorCode\(cause\) !== "portInUse"/);
   assert.match(page,/remoteBackend\.allocatePorts\(selected\.targetId, false\)/);
   assert.match(page,/connectionPhase === 'failed' \|\| authSession\?\.status !== 'succeeded'/);

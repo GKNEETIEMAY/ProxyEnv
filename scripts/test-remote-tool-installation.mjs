@@ -5,10 +5,23 @@ import {dirname,join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
 import {adapterModuleUrl,presentationModuleUrl,guidanceModuleUrl,copyModuleUrl} from "./remote-tool-test-modules.mjs";
 const {canToggleRemoteTool,getRemoteToolAdapter}=await import(adapterModuleUrl);
-const {overviewToolLabel,overviewToolChecking,toolInstallationLabel,toolInstallationLines,toolInstallationRows}=await import(presentationModuleUrl);
+const {overviewToolLabel,overviewToolChecking,overviewToolConfigurationState,toolInstallationLabel,toolInstallationLines,toolInstallationRows}=await import(presentationModuleUrl);
 const {installMethods,installRequirementAvailable,installMissingRequirements,installPathCommands}=await import(guidanceModuleUrl);
 const {remoteBridgeMessages}=await import(copyModuleUrl);
 const summary=(state,configured=false) => ({status:"connected",cc:{remotePort:15721},ccStatus:"connected",codexState:"ready",claudeState:"ready",codexConfigured:configured,claudeConfigured:false,toolInstallations:[{tool:"codex",state,version:state==="unsupported"?"0.133.9":state==="installed"?"0.134.0":null},{tool:"claude",state:"installed",version:"2.1.227"}]});
+
+test("Overview configuration badges distinguish configuration from installation and preserve warning states",()=>{
+  assert.equal(overviewToolConfigurationState(summary("installed"),"codex",false),"warning");
+  assert.equal(overviewToolConfigurationState(summary("installed",true),"codex",true),"healthy");
+  assert.equal(overviewToolConfigurationState(summary("missing",true),"codex",true),"warning");
+  assert.equal(overviewToolConfigurationState({...summary("installed",true),ccStatus:"unavailable"},"codex",true),"warning");
+  assert.equal(overviewToolConfigurationState(summary("checking"),"codex",false),"checking");
+  for(const profile of ["synced","restartRequired","conflict","remoteChanged","localChanged","invalidLocalProfile","remoteUnavailable"]) {
+    assert.equal(overviewToolConfigurationState({...summary("installed"),claudeConfigured:true,claudeProfileState:profile},"claude",true),profile==="synced" ? "healthy" : "warning");
+  }
+  const overview=readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8");
+  assert.ok(overview.indexOf('class="bridge-tool-status"') < overview.indexOf('class="bridge-tool-installation"'));
+});
 test("PATH recovery follows the installation method without treating installed CLI as missing",()=>{
   assert.deepEqual(installPathCommands("claude").map(recipe=>recipe.id),["nativeSession","nativeBash","npmSession"]);
   assert.deepEqual(installPathCommands("codex").map(recipe=>recipe.id),["npmSession"]);

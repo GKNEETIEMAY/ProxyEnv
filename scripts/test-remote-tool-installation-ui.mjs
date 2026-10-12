@@ -47,6 +47,10 @@ try {
   await page.goto(`${process.env.PROXYENV_LAYOUT_URL || "http://localhost:1420"}/?impeccable-review=remote-connected`);
   const card=page.locator('.bridge-tool').first(), dialog=page.locator('.remote-install-dialog');
   await card.getByText("CLI 未安装",{exact:true}).waitFor();
+  assert.equal(await card.locator('.bridge-tool-status').getAttribute('data-state'),'warning');
+  const heading=page.locator('.remote-workspace-heading h1');
+  await heading.focus();
+  assert.equal(await heading.evaluate(node=>getComputedStyle(node).outlineStyle),'none',"Programmatic heading focus must not draw a black frame");
   assert.equal(await card.getByRole("switch").isEnabled(),false);
   assert.equal(await page.locator('.bridge-tool').nth(1).getByRole("switch").isEnabled(),true,"Other tool remains independent");
   await card.getByRole("button",{name:"查看安装方式",exact:true}).click();
@@ -85,6 +89,24 @@ try {
   assert.equal(await card.getByRole("switch").isChecked(),false,"Discovery never auto-enables a route");
   assert.equal(await page.evaluate(()=>window.routeWrites),0);
   await page.keyboard.press("Escape");
+  for(const [index,state] of [[0,'warning'],[1,'healthy']]) {
+    const entry=page.locator('.bridge-tool').nth(index);
+    const badge=entry.locator('.bridge-tool-status');
+    assert.equal(await badge.getAttribute('data-state'),state);
+    const badgeBox=await badge.boundingBox(), versionBox=await entry.locator('.bridge-tool-installation').first().boundingBox();
+    assert.ok(versionBox.y >= badgeBox.y+badgeBox.height,"Configuration badge is above installation metadata");
+    assert.equal(await badge.evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)',"Configuration status has no tinted container");
+  }
+  if(process.env.PROXYENV_LAYOUT_CAPTURE!=="0") {
+    for(const [name,width,height,theme] of [["overview-light",980,800,"light"],["overview-dark-narrow",620,620,"dark"]]) {
+      await page.setViewportSize({width,height});
+      await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+      await page.screenshot({path:resolve(directory,`${name}.png`)});
+    }
+    await page.setViewportSize({width:980,height:800});
+    await page.evaluate(()=>document.documentElement.dataset.theme="light");
+  }
   await page.evaluate(()=>{window.cachedBridge.codexConfigured=true;window.cachedBridge.toolInstallations[0].state="missing";window.cachedBridge.toolInstallations[0].version=null;});
   await card.getByText("CLI 未安装",{exact:true}).waitFor();
   await card.getByText("已有路由配置",{exact:true}).waitFor();

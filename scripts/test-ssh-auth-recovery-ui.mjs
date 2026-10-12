@@ -45,7 +45,7 @@ try {
   await dialog.locator('.primary-action').click();
   await page.waitForFunction(() => window.finishCalls === 1);
   await dialog.getByRole('button',{name:'关闭',exact:true}).waitFor();
-  assert.equal(await dialog.locator('.check-status').getAttribute('data-state'),'failed');
+  assert.equal(await dialog.locator('.remote-auth-heading .check-status').getAttribute('data-state'),'failed');
   assert.equal(await dialog.getByRole('button',{name:'关闭',exact:true}).isEnabled(),true);
   assert.equal(await dialog.locator('.primary-action').isEnabled(),true,'Post-auth failure permits retry');
   assert.equal(await dialog.locator('.remote-button-spinner').count(),0,'Failed completion stops loading');
