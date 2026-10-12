@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import type { Copy } from "../../shared/i18n";
 import type { RemoteNavState } from "../navigation";
+import BrandMark from "../../shared/components/BrandMark.vue";
 
 const props = defineProps<{
   copy: Copy;
@@ -38,13 +39,8 @@ defineEmits<{
       <strong>{{ view === 'assistant' ? copy.assistantTitle : copy.settingsTitle }}</strong>
     </div>
     <button v-else class="wordmark" type="button" @click="$emit('openLocal')">
-      <span class="brand-symbol" aria-hidden="true">
-        <svg viewBox="0 0 28 28">
-          <path class="brand-arrow-blue" d="M4.5 9.4h13.2M14.4 5.2l4.2 4.2-4.2 4.2" />
-          <path class="brand-arrow-white" d="M23.5 18.6H10.3M13.6 22.8l-4.2-4.2 4.2-4.2" />
-        </svg>
-      </span>
-      <span><strong>{{ copy.appName }}</strong><small>{{ copy.appTagline }}</small></span>
+      <BrandMark />
+      <span class="wordmark-copy"><strong>{{ copy.appName }}</strong><small :title="copy.appTagline">{{ copy.appTagline }}</small></span>
     </button>
     <div class="titlebar-drag-zone" data-tauri-drag-region @dblclick="$emit('toggleMaximize')"></div>
     <div class="header-actions">

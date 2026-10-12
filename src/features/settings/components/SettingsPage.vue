@@ -3,6 +3,7 @@ import { computed } from "vue";
 import type { Copy } from "../../../shared/i18n";
 import type { AppSettings } from "../../../shared/types";
 import type { ReleaseNoteLine, UpdateState } from "../update";
+import BrandMark from "../../../shared/components/BrandMark.vue";
 
 export type SettingsTab = "general" | "about";
 
@@ -83,12 +84,7 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
 
     <section v-else class="about-panel">
       <div class="about-identity">
-        <span class="brand-symbol about-symbol" aria-hidden="true">
-          <svg viewBox="0 0 28 28">
-            <path class="brand-arrow-blue" d="M4.5 9.4h13.2M14.4 5.2l4.2 4.2-4.2 4.2" />
-            <path class="brand-arrow-white" d="M23.5 18.6H10.3M13.6 22.8l-4.2-4.2 4.2-4.2" />
-          </svg>
-        </span>
+        <BrandMark size="large" />
         <div><h2>{{ copy.appName }}</h2><p>{{ copy.appTagline }}</p></div>
       </div>
       <dl class="about-details">

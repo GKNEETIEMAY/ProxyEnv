@@ -1269,7 +1269,7 @@ onBeforeUnmount(() => {
       <div v-if="live && activeTarget" class="remote-selected-target">
         <div class="remote-target-identity"><div class="remote-target-name"><strong>{{ activeTarget.displayName }}</strong>
           <StatusIndicator :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
-          </div><div class="remote-target-metadata"><span>{{ activeTarget.host ? targetAddress(activeTarget) : `SSH Target · ${activeTarget.sshAlias ?? activeTarget.displayName}` }}</span><span>{{ sourceLabel(activeTarget) }}</span><code v-if="activeTarget.configPath" :title="withoutWindowsExtendedPathPrefix(activeTarget.configPath)">{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></div>
+          </div><div class="remote-target-metadata"><span>{{ activeTarget.host ? targetAddress(activeTarget) : `SSH Target · ${activeTarget.sshAlias ?? activeTarget.displayName}` }}</span><span>{{ sourceLabel(activeTarget) }}</span><code v-if="activeTarget.source !== 'manual' && activeTarget.configPath" :title="withoutWindowsExtendedPathPrefix(activeTarget.configPath)">{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></div>
           <span v-if="reconnecting" class="remote-reconnect-inline" role="status">{{ copy.rbReconnectWaiting }}</span>
         </div>
         <div class="remote-server-direct">

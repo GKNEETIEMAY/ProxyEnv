@@ -23,7 +23,7 @@ watch(() => props.visible, async (visible) => {
 </script>
 <template>
   <aside v-if="visible" class="bridge-notice" role="alert" :aria-label="copy.rbNotifications">
-    <div class="bridge-notice-heading"><strong>ProxyEnv</strong><button type="button" :aria-label="copy.rbNotificationClose" @click="$emit('dismiss')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>
+    <div class="bridge-notice-heading"><strong>RouteSpan</strong><button type="button" :aria-label="copy.rbNotificationClose" @click="$emit('dismiss')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>
     <p>{{ copy.rbReconnectAttention }}</p>
     <button class="secondary-action" type="button" @click="$emit('open')">{{ copy.rbReconnectAction }}</button>
   </aside>
