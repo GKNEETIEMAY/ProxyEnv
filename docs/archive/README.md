@@ -32,6 +32,7 @@ for present behavior/evidence.
 
 ## Dated audits and earlier notes
 
+- [README illustration prompts (2026-10-12)](readme-illustration-prompts.md)
 - [REMOTE_BRIDGE_EXTENSION_AUDIT_2026-09-06.md](REMOTE_BRIDGE_EXTENSION_AUDIT_2026-09-06.md)
 - [REMOTE_BRIDGE_IMPLEMENTATION_2026-09-22.md](REMOTE_BRIDGE_IMPLEMENTATION_2026-09-22.md)
 

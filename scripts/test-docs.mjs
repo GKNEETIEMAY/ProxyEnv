@@ -56,6 +56,7 @@ const archiveNames = [
     .map(name => `docs/archive/product/${name}.md`),
   "docs/archive/REMOTE_BRIDGE_EXTENSION_AUDIT_2026-09-06.md",
   "docs/archive/REMOTE_BRIDGE_IMPLEMENTATION_2026-09-22.md",
+  "docs/archive/readme-illustration-prompts.md",
 ];
 
 test("link extraction covers Markdown, images, HTML and references without parsing code fences", () => {
@@ -181,8 +182,8 @@ test("every current document has a navigable Chinese mirror with matching struct
     for (const target of links(zh)) {
       const local = localTarget(translatedPath, target);
       if (local && pairedDocs.includes(local)) {
-        // Language switching and original generation prompts are intentional exceptions.
-        assert.ok(local === path || path === "docs/assets/README.md", `Chinese navigation points to English: ${translatedPath} -> ${local}`);
+        // Only language switching may point at the English edition.
+        assert.ok(local === path, `Chinese navigation points to English: ${translatedPath} -> ${local}`);
       }
     }
   }

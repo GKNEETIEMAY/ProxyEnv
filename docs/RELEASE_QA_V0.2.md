@@ -79,14 +79,26 @@ ASCII flow, with platform and MIT badges restored; v0.1.4 remains the designated
 predecessor but is explicitly a GitHub Draft, not the latest public release.
 The source brand PNG is unchanged. Link, stale-brand and compatibility-context
 checks pass. Local EN/ZH rendering at desktop/narrow widths and independent visual
-review passed; the required live GitHub rendering gate below remains pending.
+review passed; the required live GitHub rendering gate below remains blocked.
 
 ## Remaining acceptance checklist
 
 | Date | Build / commit | Environment | Expected | Actual | Evidence | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2026-10-12 review | Current docs change set | GitHub rendered pages | Review both READMEs, current index/guides/architecture/security/roadmap/QA | Changes not yet pushed; GitHub rendering not reviewed | Requires review after publication of this change set | PENDING |
-| 2026-10-12 review | Next CI-triggering commit | GitHub Windows/Linux | Latest code CI passes with audits intact | No CI run exists for the unpushed changes | Trigger after authorized push; keep baseline result scoped | PENDING |
+| 2026-10-12 review | 3ca4e58, published on v0.2.0dev | GitHub rendered pages | Review EN/ZH README and four images, then current documentation | Browser review failed: URL could not be reliably confirmed; no live rendering acceptance claimed | Built-in browser timed out twice; native browser safety check stopped input; retry was rejected | BLOCKED |
+| 2026-10-12 review | 3ca4e58 | GitHub Windows/Linux | Latest code CI passes with audits intact | Linux extension, RustSec and Security audit passed; Windows stopped at frontend audit (two high findings), later steps skipped | [CI run 38258401095](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38258401095), jobs API verified | BLOCKED |
+
+## Release polish tracking
+
+The publication baseline is now `3ca4e58`, including the Chinese mirrors.
+Asset notes were shortened and original generation inputs retained in the historical
+index; artwork and runtime behavior are unchanged. Live GitHub rendering remains
+an explicit unclosed gate. Authorized dependency/CI remediation may be prepared
+without claiming that visual gate passed. No freeze branch, tag or release is authorized.
+
+| Date | Build / commit | Environment | Expected | Actual | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-10-12 | 3ca4e58 + asset-note delta | Local Windows / Node | Links, archival warnings, Chinese parity and protected brand identity | 17 passed, 0 failed | `node --test scripts/test-docs.mjs scripts/test-branding.mjs` | PASS |
 
 Release polish must resolve the frontend audit and all real-device/signing gates.
 Do not change pending evidence to PASS solely to satisfy a documentation checklist.
