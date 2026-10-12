@@ -4,10 +4,10 @@ import type { ActiveProxyContext } from "../../../shared/types";
 import type { RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
-import { remoteToolAdapters, canToggleRemoteTool, type RemoteToolId } from "../tool-adapters";
+import { remoteToolAdapters, getRemoteToolAdapter, canToggleRemoteTool, type RemoteToolId } from "../tool-adapters";
 import type { BridgeSummary, BridgeStatus, RemoteSkill, BridgeCapability } from "../state";
 import RemoteToolIcon from "./RemoteToolIcon.vue";
-import { bridgeEndpointLabel as endpoint, bridgeCapabilityState as capabilityState, overviewToolChecking, overviewToolLabel, overviewSkillStatus, toolInstallationLines } from "../overview-presentation";
+import { bridgeEndpointLabel as endpoint, bridgeCapabilityState as capabilityState, overviewToolChecking, overviewToolLabel, overviewToolConfigurationState, overviewSkillStatus, toolInstallationLines } from "../overview-presentation";
 
 const props = defineProps<{
   copy: RemoteBridgeCopy;
@@ -48,6 +48,8 @@ const proxyClient = computed(() => {
 });
 const tools = computed(() => remoteToolAdapters.map((adapter) => ({ id: adapter.id, name: adapter.id === "codex" ? "Codex" : "Claude Code", inspection: adapter.inspect(props.summary), checking: overviewToolChecking(props.summary, adapter.id) })));
 function toolLabel(id: RemoteToolId, configured: boolean): string {
+  const inspection = getRemoteToolAdapter(id).inspect(props.summary);
+  if (inspection.installation !== "installed" && inspection.extensionInstallation !== "installed") return configured ? props.copy.rbInstallConfigured : props.copy.rbNotConfigured;
   return overviewToolLabel(props.copy, props.summary, id, configured);
 }
 const skillStatus = (skill?: RemoteSkill) => overviewSkillStatus(props.copy, skill);
@@ -88,10 +90,9 @@ const skillsSummary = computed(() => {
           <RemoteToolIcon :tool="tool.id" />
           <div class="bridge-tool-copy">
             <span><strong>{{ tool.name }}</strong><HelpTooltip pinnable :label="tool.name" :text="copy.rbOverviewToolHelp" /></span>
-            <StatusIndicator v-if="tool.checking" state="checking" :label="copy.rbInstallChecking" />
-            <template v-else>
+            <StatusIndicator class="bridge-tool-status" :state="overviewToolConfigurationState(summary,tool.id,tool.inspection.configured)" :label="tool.checking ? copy.rbInstallChecking : toolLabel(tool.id,tool.inspection.configured)" />
+            <template v-if="!tool.checking">
               <small v-for="(line,index) in toolInstallationLines(copy,summary,tool.id)" :key="index" class="bridge-tool-installation" :class="{'needs-attention':index === 0 && ['broken','unsupported'].includes(tool.inspection.installation) && tool.inspection.extensionInstallation !== 'installed'}">{{ line }}</small>
-              <small v-if="tool.inspection.installation === 'installed' || tool.inspection.extensionInstallation === 'installed' || tool.inspection.configured">{{ tool.inspection.installation !== 'installed' && tool.inspection.extensionInstallation !== 'installed' ? copy.rbInstallConfigured : toolLabel(tool.id,tool.inspection.configured) }}</small>
             </template>
             <button class="bridge-install-link" type="button" :disabled="!connected || tool.checking" @click="emit('installTool',tool.id)">{{ tool.inspection.installation === 'unsupported' ? copy.rbInstallUpgrade : copy.rbInstallView }}</button>
           </div>
@@ -156,6 +157,7 @@ const skillsSummary = computed(() => {
 .bridge-tool-copy { display:grid; min-width:0; gap:3px; flex:1; }
 .bridge-tool-copy > span { display:flex; align-items:center; gap:8px; }
 .bridge-tool-copy strong { font-size:14px; }
+.bridge-tool-copy > .bridge-tool-status { justify-self:start; }
 .bridge-tool-copy small { color:var(--muted); font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
 .bridge-tool-copy small.needs-attention { color:var(--warning); }
 .bridge-install-link { justify-self:start; padding:0; border:0; background:transparent; color:var(--accent-strong); font-size:11px; line-height:1.5; cursor:pointer; }

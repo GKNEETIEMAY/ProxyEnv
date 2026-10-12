@@ -60,6 +60,15 @@ export function overviewToolLabel(copy: RemoteBridgeCopy, summary: BridgeSummary
   return profile === "synced" ? copy.rbOverviewSynced : copy.rbOverviewConfigured;
 }
 
+export function overviewToolConfigurationState(summary: BridgeSummary, id: RemoteToolId, configured: boolean): CheckState {
+  if (overviewToolChecking(summary, id)) return "checking";
+  if (!configured || !summary.cc || summary.ccStatus !== "connected") return "warning";
+  const inspection = getRemoteToolAdapter(id).inspect(summary);
+  if (inspection.installation !== "installed" && inspection.extensionInstallation !== "installed") return "warning";
+  const profile = id === "claude" ? summary.claudeProfileState : undefined;
+  return profile === undefined || profile === "synced" ? "healthy" : "warning";
+}
+
 export function toolInstallationLabel(copy:RemoteBridgeCopy, summary:BridgeSummary, id:RemoteToolId):string {
   return toolInstallationLines(copy,summary,id).join(" / ");
 }
