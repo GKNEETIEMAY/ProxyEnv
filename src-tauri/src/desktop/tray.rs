@@ -30,22 +30,22 @@ fn labels(language: &str) -> TrayLabels {
         "zh-CN" => TrayLabels {
             proxy: "代理环境变量",
             open: "打开主界面",
-            quit: "退出 ProxyEnv",
+            quit: "退出 RouteSpan",
         },
         "ja" => TrayLabels {
             proxy: "プロキシ環境変数",
             open: "メイン画面を開く",
-            quit: "ProxyEnv を終了",
+            quit: "RouteSpan を終了",
         },
         "ko" => TrayLabels {
             proxy: "프록시 환경 변수",
             open: "메인 화면 열기",
-            quit: "ProxyEnv 종료",
+            quit: "RouteSpan 종료",
         },
         _ => TrayLabels {
             proxy: "Proxy environment",
             open: "Open main window",
-            quit: "Quit ProxyEnv",
+            quit: "Quit RouteSpan",
         },
     }
 }
@@ -68,10 +68,11 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::R
         .item(&quit)
         .build()?;
 
-    let mut builder = TrayIconBuilder::with_id("main-tray")
+    let builder = TrayIconBuilder::with_id("main-tray")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("ProxyEnv")
+        .tooltip("RouteSpan")
+        .icon(tauri::include_image!("icons/tray.png"))
         .on_menu_event(|app, event| match event.id().as_ref() {
             PROXY_TOGGLE_ID => toggle_proxy(app),
             OPEN_ID => show_main_window(app),
@@ -90,9 +91,6 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::R
                 show_main_window(tray.app_handle());
             }
         });
-    if let Some(icon) = app.default_window_icon().cloned() {
-        builder = builder.icon(icon);
-    }
     builder.build(app)?;
     app.manage(TrayState {
         proxy_toggle,

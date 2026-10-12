@@ -132,7 +132,7 @@ pub fn run() {
             commands::settings::save_app_settings,
         ])
         .build(tauri::generate_context!())
-        .expect("failed to run ProxyEnv")
+        .expect("failed to run RouteSpan")
         .run(|_, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 features::remote_bridge::shutdown();

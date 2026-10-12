@@ -830,7 +830,7 @@ fn powershell_terminal_command(
             "-NoProfile",
             "-NoExit",
             "-Command",
-            "$ErrorActionPreference='Stop'; $launch=ConvertFrom-Json -InputObject $env:PROXYENV_SSH_LAUNCH; Remove-Item Env:PROXYENV_SSH_LAUNCH -ErrorAction SilentlyContinue; $Host.UI.RawUI.WindowTitle='ProxyEnv Proxy Terminal'; [string[]]$sshArguments=$launch.arguments; & ([string]$launch.program) @sshArguments; Remove-Item Env:PROXYENV_SSH_PASSWORD,Env:PROXYENV_SSH_PASSWORD_ENTROPY,Env:PROXYENV_SSH_ASKPASS,Env:SSH_ASKPASS,Env:SSH_ASKPASS_REQUIRE,Env:DISPLAY -ErrorAction SilentlyContinue; if ($LASTEXITCODE -ne 0) { Write-Host ''; Write-Host ('OpenSSH exited with code {0}.' -f $LASTEXITCODE) -ForegroundColor Red }",
+            "$ErrorActionPreference='Stop'; $launch=ConvertFrom-Json -InputObject $env:PROXYENV_SSH_LAUNCH; Remove-Item Env:PROXYENV_SSH_LAUNCH -ErrorAction SilentlyContinue; $Host.UI.RawUI.WindowTitle='RouteSpan Proxy Terminal'; [string[]]$sshArguments=$launch.arguments; & ([string]$launch.program) @sshArguments; Remove-Item Env:PROXYENV_SSH_PASSWORD,Env:PROXYENV_SSH_PASSWORD_ENTROPY,Env:PROXYENV_SSH_ASKPASS,Env:SSH_ASKPASS,Env:SSH_ASKPASS_REQUIRE,Env:DISPLAY -ErrorAction SilentlyContinue; if ($LASTEXITCODE -ne 0) { Write-Host ''; Write-Host ('OpenSSH exited with code {0}.' -f $LASTEXITCODE) -ForegroundColor Red }",
         ])
         .env("PROXYENV_SSH_LAUNCH", payload);
     if let Some((password, entropy)) = credential {

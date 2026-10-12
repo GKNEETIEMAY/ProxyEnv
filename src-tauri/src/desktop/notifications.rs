@@ -55,7 +55,7 @@ fn native_toast(app: &AppHandle, language: &str, sound: bool) -> windows::core::
     let (title, body) = match language {
         "zh-CN" => (
             "桥接需要处理",
-            "自动重连已暂停。点击返回 ProxyEnv 检查认证或连接设置。",
+            "自动重连已暂停。点击返回 RouteSpan 检查认证或连接设置。",
         ),
         "ja" => (
             "ブリッジの確認が必要です",
@@ -76,7 +76,7 @@ fn native_toast(app: &AppHandle, language: &str, sound: bool) -> windows::core::
         "<audio silent=\"true\"/>"
     };
     let document = XmlDocument::new()?;
-    document.LoadXml(&HSTRING::from(format!("<toast><visual><binding template=\"ToastGeneric\"><text>ProxyEnv · {title}</text><text>{body}</text></binding></visual>{audio}</toast>")))?;
+    document.LoadXml(&HSTRING::from(format!("<toast><visual><binding template=\"ToastGeneric\"><text>RouteSpan · {title}</text><text>{body}</text></binding></visual>{audio}</toast>")))?;
     let toast = ToastNotification::CreateToastNotification(&document)?;
     toast.SetTag(&HSTRING::from("bridge-attention"))?;
     let handle = app.clone();
