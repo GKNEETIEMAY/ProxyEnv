@@ -84,5 +84,9 @@
 | 日期 | 构建 / 提交 | 环境 | 预期 | 实际 | 证据 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-12 | 3ca4e58 + 资产说明变更 | 本机 Windows / Node | 链接、历史警告、中文一致性及受保护品牌身份 | 17 通过，0 失败 | `node --test scripts/test-docs.mjs scripts/test-branding.mjs` | PASS |
+| 2026-10-12 | 40d0d2a + 依赖变更 | 本机 Windows / pnpm 10.15.1 | 冻结安装及高危审计，保持原审计策略 | 退出 0，无已知漏洞；Vue/renderer 3.5.43、source-map-js 1.2.2，无 override | `pnpm install --frozen-lockfile` 与 `pnpm audit --audit-level high` | PASS |
+| 2026-10-12 | 40d0d2a + 依赖变更 | 本机 Windows / Node / TypeScript / Vite | 构建及全部前端/远端 package-script 回归 | 构建退出 0；154 通过、41 项 POSIX/Linux 跳过、0 失败；保留已有 chunk 提示 | `pnpm build`、brand/docs/report/remote/extensions scripts；同上使用不存在的 POSIX 测试 Shell | PASS |
+| 2026-10-12 | 40d0d2a + 依赖变更 | 本机 Windows / 锁定 Rust MSVC | 格式、库测试及拒绝警告的 all-target Clippy | 282 通过、3 忽略、0 失败；格式与 Clippy 退出 0 | `cargo fmt --all -- --check`、`cargo test --lib --locked`、`cargo clippy --all-targets --locked -- -D warnings`，各命令带 `--manifest-path src-tauri/Cargo.toml` | PASS |
+| 2026-10-12 | 下一次依赖修复提交 | GitHub Windows/Linux | 四项 CI jobs/checks 全绿 | 等待已授权推送及新 CI；前次失败仅适用于 3ca4e58 | 关闭依赖门槛前核对准确推送 SHA | PENDING |
 
 发行收口仍需解决前端审计与所有实机/签名门槛，不能为完成文档清单而把待验收改成 PASS。

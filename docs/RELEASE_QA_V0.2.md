@@ -99,6 +99,10 @@ without claiming that visual gate passed. No freeze branch, tag or release is au
 | Date | Build / commit | Environment | Expected | Actual | Evidence | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-12 | 3ca4e58 + asset-note delta | Local Windows / Node | Links, archival warnings, Chinese parity and protected brand identity | 17 passed, 0 failed | `node --test scripts/test-docs.mjs scripts/test-branding.mjs` | PASS |
+| 2026-10-12 | 40d0d2a + dependency delta | Local Windows / pnpm 10.15.1 | Frozen installation and high-severity audit with unchanged audit policy | Exit 0; no known vulnerabilities; Vue/renderer 3.5.43, source-map-js 1.2.2, no override | `pnpm install --frozen-lockfile` and `pnpm audit --audit-level high` | PASS |
+| 2026-10-12 | 40d0d2a + dependency delta | Local Windows / Node / TypeScript / Vite | Build and all package-script frontend/remote regressions | Build exit 0; 154 passed, 41 POSIX/Linux skips, 0 failed; existing chunk warning remains | `pnpm build`, brand/docs/report/remote/extensions scripts; absent POSIX fixture shell as above | PASS |
+| 2026-10-12 | 40d0d2a + dependency delta | Local Windows / locked Rust MSVC | Formatting, library tests and all-target Clippy with warnings denied | 282 passed, 3 ignored, 0 failed; formatting and Clippy exit 0 | `cargo fmt --all -- --check`, `cargo test --lib --locked`, `cargo clippy --all-targets --locked -- -D warnings`, each with `--manifest-path src-tauri/Cargo.toml` | PASS |
+| 2026-10-12 | Next dependency-fix commit | GitHub Windows/Linux | All four CI jobs/checks green | Awaiting authorized push and new CI; previous failure remains scoped to 3ca4e58 | Check the exact pushed SHA before closing the dependency gate | PENDING |
 
 Release polish must resolve the frontend audit and all real-device/signing gates.
 Do not change pending evidence to PASS solely to satisfy a documentation checklist.
