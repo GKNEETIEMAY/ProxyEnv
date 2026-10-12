@@ -1,5 +1,7 @@
 # RouteSpan documentation / 文档地图
 
+English · [简体中文](README.zh-CN.md)
+
 Current documentation describes the `v0.2.0dev` product, not a promise that an
 earlier public package contains Remote Bridge. The maintainer-designated previous
 stable baseline is ProxyEnv v0.1.4; its GitHub Release remains Draft.
@@ -7,7 +9,7 @@ RouteSpan v0.2.0 is unreleased. See [English README](../README.md) or [中文 RE
 
 ## Users / 用户
 
-1. [Getting started / 快速开始](GETTING_STARTED.md): requirements and first use.
+1. [Getting started](GETTING_STARTED.md) / [快速开始](GETTING_STARTED.zh-CN.md): requirements and first use.
 2. [Remote Bridge / 远程桥接](REMOTE_BRIDGE.md): the single current remote user guide.
 
 ## Developers / 开发者
@@ -30,6 +32,7 @@ Product entry → current user guides → architecture/security → durable cont
 take precedence when an old description disagrees. Implemented, Verified and
 Released are not interchangeable.
 
-There are seven current subject documents here plus this index. Earlier design
+There are seven current subjects plus this index, each with a Chinese mirror.
+Translations share the same authority and do not introduce new topics. Earlier design
 and implementation checkpoints are available only through the
 [Historical archive / 历史索引](archive/README.md); they are not current instructions.

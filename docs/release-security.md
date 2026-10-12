@@ -1,5 +1,7 @@
 # RouteSpan release security / 发行安全
 
+English · [简体中文](release-security.zh-CN.md)
+
 This defines the formal release trust model, not a declaration of completed QA.
 The maintainer-designated previous stable baseline is ProxyEnv v0.1.4, whose GitHub
 Release remains Draft; latest public release is v0.1.3. Next RouteSpan v0.2.0 is

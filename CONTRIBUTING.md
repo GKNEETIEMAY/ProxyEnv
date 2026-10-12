@@ -1,5 +1,7 @@
 # Contributing to RouteSpan
 
+English · [简体中文](CONTRIBUTING.zh-CN.md)
+
 RouteSpan targets Windows 10/11 x64 using Tauri 2, Vue 3, TypeScript and Rust stable
 MSVC. Repository/package identities retain the legacy ProxyEnv name for compatibility.
 Read [Architecture](docs/ARCHITECTURE.md), [Internal contracts](docs/INTERNAL_CONTRACTS.md)

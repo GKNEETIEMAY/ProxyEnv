@@ -9,7 +9,7 @@
 <p align="center"><a href="README.md">English</a> · 简体中文</p>
 
 <p align="center">
-  <a href="docs/GETTING_STARTED.md"><img alt="本机平台：Windows 10 / 11 x64" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-477da6?style=flat-square"></a>
+  <a href="docs/GETTING_STARTED.zh-CN.md"><img alt="本机平台：Windows 10 / 11 x64" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-477da6?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT 许可证" src="https://img.shields.io/badge/license-MIT-34745b?style=flat-square"></a>
 </p>
 
@@ -29,7 +29,7 @@ RouteSpan 是 v0.2 起使用的新品牌。维护者确认的上一版稳定基�
 RouteSpan 是一个 Windows 桌面工具，帮助你理清本机代理环境，并将选定的本机能力
 延伸到远程 Linux 开发账户。它连接你电脑上已经运行的服务与通过 SSH 使用的开发工具。
 
-**适用平台：**本机为 Windows 10/11 x64，需要 WebView2；远端为非 root Linux 账户。
+**适用平台**：本机为 Windows 10/11 x64，需要 WebView2；远端为非 root Linux 账户。
 目前不支持将 Linux/macOS 作为本机桌面平台。安装包不要求用户安装 Node.js 或 Rust。
 
 本机工作区帮助你选定一个活动代理，区分系统代理、TUN 与环境变量状态，并使用代理或
@@ -129,8 +129,8 @@ VS Code Remote 窗口可能需要执行 **Developer: Reload Window**，已有终
 首次连接的服务器可能尚未准备好 VS Code Server，等待 Remote - SSH 初始化后再检查。
 如果仅一个工具不可用，无须重新安装已经能正常工作的其他工具。
 
-查看[快速开始指南](docs/GETTING_STARTED.md)了解前置条件，查看
-[远程桥接指南](docs/REMOTE_BRIDGE.md)了解当前连接流程、启动入口与常见问题。
+查看[快速开始指南](docs/GETTING_STARTED.zh-CN.md)了解前置条件，查看
+[远程桥接指南](docs/REMOTE_BRIDGE.zh-CN.md)了解当前连接流程、启动入口与常见问题。
 
 ## 受支持的远程开发工具
 
@@ -169,8 +169,8 @@ CLI 与插件分别检测；兼容的仅插件环境不要求安装 CLI。图中
 - 受保护的配置写入保留备份，并拒绝覆盖冲突的用户修改。关闭隧道与恢复全部工具
   托管字段不是同一个操作；停用工具接入时才执行对应的配置恢复事务。
 
-用于共享服务器之前，请阅读[安全策略](SECURITY.md)。安装包签名、校验与下载信任见
-[发行安全](docs/release-security.md)。反馈时不要粘贴密码、Token、会话 Header 或完整私有配置。
+用于共享服务器之前，请阅读[安全策略](SECURITY.zh-CN.md)。安装包签名、校验与下载信任见
+[发行安全](docs/release-security.zh-CN.md)。反馈时不要粘贴密码、Token、会话 Header 或完整私有配置。
 
 ## 当前 v0.2 状态
 
@@ -181,18 +181,18 @@ RouteSpan 品牌已经在开发分支实现。代码实现、自动化测试、�
 基线 `6ab9ef6` 的 Linux 扩展文件系统测试、RustSec 与 Security audit 已通过。
 Windows CI 被前端依赖审计阻断，后续 Windows 步骤被跳过；本地构建和测试通过不能
 替代该 CI 结论。跨机器升级、原生图标/DPI、签名发行与更新验证、完整远程实机矩阵
-仍是发布门槛。证据统一记录在 [v0.2 发行验收](docs/RELEASE_QA_V0.2.md)，后续计划见
-[路线图](docs/ROADMAP.md)。本地预览包应先在测试机验证，再决定是否用于重要工作环境。
+仍是发布门槛。证据统一记录在 [v0.2 发行验收](docs/RELEASE_QA_V0.2.zh-CN.md)，后续计划见
+[路线图](docs/ROADMAP.zh-CN.md)。本地预览包应先在测试机验证，再决定是否用于重要工作环境。
 
 ## 文档
 
-- [文档地图](docs/README.md)
-- [快速开始](docs/GETTING_STARTED.md)
-- [远程桥接用户指南](docs/REMOTE_BRIDGE.md)
-- [工程架构](docs/ARCHITECTURE.md)
-- [内部契约](docs/INTERNAL_CONTRACTS.md)
-- [安全策略](SECURITY.md)与[发行安全](docs/release-security.md)
-- [路线图](docs/ROADMAP.md)与[发行验收](docs/RELEASE_QA_V0.2.md)
+- [文档地图](docs/README.zh-CN.md)
+- [快速开始](docs/GETTING_STARTED.zh-CN.md)
+- [远程桥接用户指南](docs/REMOTE_BRIDGE.zh-CN.md)
+- [工程架构](docs/ARCHITECTURE.zh-CN.md)
+- [内部契约](docs/INTERNAL_CONTRACTS.zh-CN.md)
+- [安全策略](SECURITY.zh-CN.md)与[发行安全](docs/release-security.zh-CN.md)
+- [路线图](docs/ROADMAP.zh-CN.md)与[发行验收](docs/RELEASE_QA_V0.2.zh-CN.md)
 
 当前指南负责解释现在怎么用。历史设计记录不是另一套操作说明，也不覆盖当前行为；
 请通过文档地图选择用户指南、技术边界或验收证据，避免把旧阶段设计当作当前承诺。
@@ -209,7 +209,7 @@ pnpm test:docs
 pnpm tauri dev
 ```
 
-[贡献指南](CONTRIBUTING.md)列出完整回归命令。仓库与部分内部兼容标识仍保留 ProxyEnv
+[贡献指南](CONTRIBUTING.zh-CN.md)列出完整回归命令。仓库与部分内部兼容标识仍保留 ProxyEnv
 名称，以保持现有更新与用户数据连续性，这不是另一个产品。不要机械重命名包、存储目录
 或 Updater 标识。本阶段文档整理不升级依赖、不更改连接协议、不迁移用户数据。
 

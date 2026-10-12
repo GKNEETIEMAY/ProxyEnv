@@ -1,5 +1,7 @@
 # README illustrations
 
+English · [简体中文](README.zh-CN.md)
+
 The four PNGs are explanatory illustrations, not application screenshots or
 real-device acceptance evidence. Both language editions share the same artwork
 and provide localized descriptions and alternative text. Short in-image labels

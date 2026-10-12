@@ -1,5 +1,7 @@
 # RouteSpan v0.2 release QA / 发行验收
 
+English · [简体中文](RELEASE_QA_V0.2.zh-CN.md)
+
 This is the sole current evidence ledger. Status values: **PASS**, **PARTIAL**,
 **PENDING**, **BLOCKED**. Every record scopes date, build, environment, expectation,
 actual observation and evidence. A screenshot is not network evidence; source
@@ -53,6 +55,7 @@ existing non-fatal large frontend chunk advisory and Windows linker messages.
 | 2026-10-12 | 6ab9ef6 + docs delta | Local Windows; Linux-only cases excluded | Generated helper and config/network transactions | 41 passed, 4 skipped, 0 failed | `pnpm test:extensions` output | PASS |
 | 2026-10-12 | 6ab9ef6 + docs delta | Local Windows / TypeScript / Vite | Production frontend build | Type check and build succeeded | `pnpm build` exit 0; large-chunk advisory remains | PASS |
 | 2026-10-12 | 6ab9ef6 + docs delta | Local Windows / locked Rust MSVC | Library regressions | 282 passed, 3 ignored, 0 failed | `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked` output | PASS |
+| 2026-10-12 | d3c670e + Chinese documentation delta | Local Windows / Node | All current document translations, links, command/section parity, QA status parity and brand identities | 17 passed, 0 failed | `node --test scripts/test-docs.mjs scripts/test-branding.mjs`; no runtime change | PASS |
 
 Submission recheck used the equivalent direct Node entry points for the package
 scripts above: docs/brand/report/remote combined 113 passed, 37 skipped, 0 failed;
@@ -64,7 +67,8 @@ outside the sandbox; those environment restrictions were not product regressions
 
 The implementation follows the documentation map, current-versus-archive separation,
 EN/ZH parity, compatibility identities and evidence vocabulary in the consolidation
-design. Current `docs/` has eight Markdown files including its index. Fourteen
+design. Consolidation established eight current Markdown documents including its
+index; each now has a Chinese mirror without adding topics or evidence sources. Fourteen
 superseded subject files are retained under the archive with historical warnings;
 two existing historical evidence documents also have warnings and repaired links.
 No historical release notes were rewritten.

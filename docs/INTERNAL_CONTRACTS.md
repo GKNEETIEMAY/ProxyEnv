@@ -1,5 +1,7 @@
 # RouteSpan internal contracts / 内部契约
 
+English · [简体中文](INTERNAL_CONTRACTS.zh-CN.md)
+
 These are durable product/compatibility constraints, not an implementation diary.
 [Architecture](ARCHITECTURE.md) explains mechanisms; [release QA](RELEASE_QA_V0.2.md)
 records evidence. Current source/test facts take precedence over historical plans.

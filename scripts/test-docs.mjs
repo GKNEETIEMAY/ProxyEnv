@@ -7,8 +7,11 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const subjects = ["GETTING_STARTED.md", "REMOTE_BRIDGE.md", "ARCHITECTURE.md",
   "ROADMAP.md", "INTERNAL_CONTRACTS.md", "RELEASE_QA_V0.2.md", "release-security.md"];
-const current = ["README.md", "README.zh-CN.md", "SECURITY.md", "CONTRIBUTING.md",
-  "assets/brand/README.md", "docs/assets/README.md", "docs/README.md", ...subjects.map(name => `docs/${name}`)];
+const localizedSubjects = subjects.map(name => name.replace(/\.md$/, ".zh-CN.md"));
+const pairedDocs = ["SECURITY.md", "CONTRIBUTING.md", "assets/brand/README.md",
+  "docs/assets/README.md", "docs/README.md", ...subjects.map(name => `docs/${name}`)];
+const chinesePath = path => path.replace(/\.md$/, ".zh-CN.md");
+const current = ["README.md", "README.zh-CN.md", ...pairedDocs, ...pairedDocs.map(chinesePath)];
 const readmeArtwork = ["routespan-workflow.png", "routespan-architecture.png",
   "routespan-app-launch.png", "routespan-tool-readiness.png"];
 const read = path => readFileSync(resolve(root, path), "utf8").replace(/\r\n/g, "\n");
@@ -73,10 +76,11 @@ test("current and archived relative links and images resolve to repository files
 
 test("canonical current docs are bounded and the index links only authoritative entries", () => {
   assert.deepEqual(readdirSync(resolve(root, "docs")).filter(name => name.endsWith(".md")).sort(),
-    ["README.md", ...subjects].sort());
+    ["README.md", "README.zh-CN.md", ...subjects, ...localizedSubjects].sort());
   const allowed = new Set(["README.md", "README.zh-CN.md", "SECURITY.md", "CONTRIBUTING.md",
-    "docs/archive/README.md", ...subjects.map(name => `docs/${name}`)]);
-  for (const target of links(read("docs/README.md"))) {
+    "SECURITY.zh-CN.md", "CONTRIBUTING.zh-CN.md", "docs/README.md", "docs/README.zh-CN.md",
+    "docs/archive/README.md", ...[...subjects, ...localizedSubjects].map(name => `docs/${name}`)]);
+  for (const target of [...links(read("docs/README.md")), ...links(read("docs/README.zh-CN.md"))]) {
     const local = localTarget("docs/README.md", target);
     assert.ok(local && allowed.has(local), `Noncanonical index entry: ${target}`);
   }
@@ -84,7 +88,7 @@ test("canonical current docs are bounded and the index links only authoritative 
     for (const target of links(read(file))) {
       const local = localTarget(file, target);
       if (local?.startsWith("docs/archive/")) {
-        assert.ok(["docs/README.md", "docs/ARCHITECTURE.md"].includes(file) &&
+        assert.ok(["docs/README.md", "docs/README.zh-CN.md", "docs/ARCHITECTURE.md", "docs/ARCHITECTURE.zh-CN.md"].includes(file) &&
           local === "docs/archive/README.md", `Archive used as current source: ${file}`);
       }
     }
@@ -148,7 +152,8 @@ test("EN/ZH README section order, capability count, entries and documentation li
     assert.ok(proseLength >= minimumLength && proseLength <= maximumLength,
       `README prose length ${proseLength}; expected ${minimumLength}–${maximumLength}`);
   }
-  const docLinks = source => [...new Set(links(source).filter(path => path.startsWith("docs/") || ["SECURITY.md", "CONTRIBUTING.md"].includes(path)))].sort();
+  const docLinks = source => [...new Set(links(source).map(path => path.replace(/\.zh-CN\.md(?=$|#)/, ".md"))
+    .filter(path => path.startsWith("docs/") || ["SECURITY.md", "CONTRIBUTING.md"].includes(path)))].sort();
   assert.deepEqual(docLinks(en), docLinks(zh));
   assert.match(en, /does not\s+replace CC Switch/);
   assert.match(zh, /不替代 CC Switch/);
@@ -160,6 +165,33 @@ test("EN/ZH README section order, capability count, entries and documentation li
   assert.match(zh, /尚未正式发布/);
   assert.match(en, /automatic external egress check/);
   assert.match(zh, /自动执行一次外网出口检查/);
+});
+
+test("every current document has a navigable Chinese mirror with matching structure and commands", () => {
+  for (const path of pairedDocs) {
+    const translatedPath = chinesePath(path);
+    const en = read(path), zh = read(translatedPath);
+    assert.ok(links(en).includes(translatedPath.split("/").at(-1)), `Missing Chinese entry: ${path}`);
+    assert.ok(links(zh).includes(path.split("/").at(-1)), `Missing English entry: ${translatedPath}`);
+    assert.match(zh, /[\u4e00-\u9fff]/);
+    const headings = text => [...text.matchAll(/^## /gm)].length;
+    assert.equal(headings(zh), headings(en), `Section count drift: ${translatedPath}`);
+    const commands = text => [...text.matchAll(/```powershell\n([\s\S]*?)```/g)].map(match => match[1].trim());
+    assert.deepEqual(commands(zh), commands(en), `Command drift: ${translatedPath}`);
+    for (const target of links(zh)) {
+      const local = localTarget(translatedPath, target);
+      if (local && pairedDocs.includes(local)) {
+        // Language switching and original generation prompts are intentional exceptions.
+        assert.ok(local === path || path === "docs/assets/README.md", `Chinese navigation points to English: ${translatedPath} -> ${local}`);
+      }
+    }
+  }
+  const statuses = text => [...text.matchAll(/^\|.*\| (PASS|PARTIAL|PENDING|BLOCKED) \|$/gm)].map(match => match[1]);
+  assert.deepEqual(statuses(read("docs/RELEASE_QA_V0.2.zh-CN.md")), statuses(read("docs/RELEASE_QA_V0.2.md")));
+  assert.match(read("docs/GETTING_STARTED.zh-CN.md"), /不.*自动安装|不会自动安装/);
+  assert.match(read("docs/REMOTE_BRIDGE.zh-CN.md"), /不设用户名\/密码认证/);
+  assert.match(read("SECURITY.zh-CN.md"), /不能按 UID 隔离/);
+  assert.match(read("SECURITY.zh-CN.md"), /root 与同账户恶意进程/);
 });
 
 test("remote guide is substantive and preserves independent readiness and safety boundaries", () => {

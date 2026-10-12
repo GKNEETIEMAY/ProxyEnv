@@ -1,5 +1,7 @@
 # RouteSpan getting started / 快速开始
 
+English · [简体中文](GETTING_STARTED.zh-CN.md)
+
 This guide describes the current development UI. The previous stable baseline
 is ProxyEnv v0.1.4 (GitHub Draft); RouteSpan v0.2.0 is not yet publicly released.
 Use available [official releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases)

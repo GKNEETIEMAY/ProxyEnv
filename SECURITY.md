@@ -1,5 +1,7 @@
 # RouteSpan security policy
 
+English · [简体中文](SECURITY.zh-CN.md)
+
 RouteSpan v0.2.0 is unreleased development functionality. The maintainer-designated
 previous stable baseline is ProxyEnv v0.1.4, whose GitHub Release remains Draft.
 This policy describes current code boundaries, not full release acceptance.

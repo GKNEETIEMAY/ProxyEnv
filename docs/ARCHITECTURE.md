@@ -1,5 +1,7 @@
 # RouteSpan architecture / 工程架构
 
+English · [简体中文](ARCHITECTURE.zh-CN.md)
+
 This describes implemented `v0.2.0dev` behavior. It is not release acceptance.
 User workflow is defined in [Remote Bridge](REMOTE_BRIDGE.md), trust limits in
 [Security](../SECURITY.md), durable identities in [Internal contracts](INTERNAL_CONTRACTS.md),

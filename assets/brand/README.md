@@ -1,5 +1,7 @@
 # RouteSpan brand assets
 
+English · [简体中文](README.zh-CN.md)
+
 Display brand: **境枢 RouteSpan**. Slogan: **让本地能力，延伸到远程。** /
 **Extend local capabilities to remote environments.**
 
