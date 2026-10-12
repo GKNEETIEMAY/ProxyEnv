@@ -16,7 +16,8 @@ are implemented. Acceptance evidence is separate in [release QA](RELEASE_QA_V0.2
 
 ## Release gates
 
-- Resolve the high-severity frontend dependency audit; rerun full latest-code CI.
+- Preserve the repaired high-severity frontend audit gate and rerun full CI for
+  release-preflight changes; the dependency fix passed CI at `eee1873`.
 - Verify predecessor → RouteSpan upgrade, retained installer identity/data and uninstall.
 - Test real Windows 10/11, 125%/150% native DPI and desktop/tray/installer icon caches.
 - Complete the live SSH key/Agent/password/KBI, provider, CLI/plugin and shared-host matrix.

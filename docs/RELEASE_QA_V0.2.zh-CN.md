@@ -66,20 +66,21 @@
 后续维护者要求取代原展示假设：README 使用四张白底说明图而非截图/ASCII，恢复平台/MIT 徽标；
 旧品牌 v0.1.4 保留指定前版身份，但明确为 GitHub Draft，不是最新公开发行。
 品牌源 PNG 未变；链接、旧品牌和兼容上下文检查通过。
-本机中英文桌面/窄屏渲染和独立视觉复核通过，所要求的实际 GitHub 渲染仍被阻塞。
+本机中英文桌面/窄屏渲染和独立视觉复核通过；维护者随后确认实际 GitHub README 渲染正常，
+证据见下方记录，不代表自动浏览器检查已通过。
 
 ## 剩余验收
 
 | 日期 | 构建 / 提交 | 环境 | 预期 | 实际 | 证据 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2026-10-12 审阅 | 3ca4e58，已推送 v0.2.0dev | GitHub 渲染页面 | 复核双语 README 与四图，再检查当前文档 | 无法可靠确认浏览器 URL，未宣称实际渲染验收通过 | 内置浏览器两次超时，原生浏览器安全检查停止输入；再次尝试被拒绝 | BLOCKED |
+| 2026-10-12 审阅 | v0.2.0dev 的 eee1873；根 README/插图相对 3ca4e58 未变 | 维护者 GitHub 浏览器 | 双语 README 与四图加载且无排版溢出 | 维护者确认两份 README 与四图均显示正常 | 用户直接验收反馈；自动浏览器检查因 URL 安全检查被阻止 | PASS |
 | 2026-10-12 审阅 | 3ca4e58 | GitHub Windows/Linux | 最新代码保留审计并通过 CI | Linux 扩展、RustSec、Security audit 通过；Windows 在前端审计处因两项高危停止，后续步骤跳过 | [CI 38258401095](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38258401095)，已核对 jobs API | BLOCKED |
 
 ## 发行收口跟踪
 
 已推送文档基线更新为 `3ca4e58`，包括中文镜像。资产说明已压缩，原始生成输入经历史索引保留；
-图片及运行时行为不变。实际 GitHub 渲染仍是未关闭门槛，可准备已授权的依赖/CI 修复，
-但不能声称视觉门槛已通过。未授权创建冻结分支、tag 或发布版本。
+图片及运行时行为不变。自动检查被阻止后，维护者确认实际 GitHub README 渲染正常。
+已授权依赖/CI 修复；未授权创建冻结分支、tag 或发布版本。
 
 | 日期 | 构建 / 提交 | 环境 | 预期 | 实际 | 证据 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -87,6 +88,45 @@
 | 2026-10-12 | 40d0d2a + 依赖变更 | 本机 Windows / pnpm 10.15.1 | 冻结安装及高危审计，保持原审计策略 | 退出 0，无已知漏洞；Vue/renderer 3.5.43、source-map-js 1.2.2，无 override | `pnpm install --frozen-lockfile` 与 `pnpm audit --audit-level high` | PASS |
 | 2026-10-12 | 40d0d2a + 依赖变更 | 本机 Windows / Node / TypeScript / Vite | 构建及全部前端/远端 package-script 回归 | 构建退出 0；154 通过、41 项 POSIX/Linux 跳过、0 失败；保留已有 chunk 提示 | `pnpm build`、brand/docs/report/remote/extensions scripts；同上使用不存在的 POSIX 测试 Shell | PASS |
 | 2026-10-12 | 40d0d2a + 依赖变更 | 本机 Windows / 锁定 Rust MSVC | 格式、库测试及拒绝警告的 all-target Clippy | 282 通过、3 忽略、0 失败；格式与 Clippy 退出 0 | `cargo fmt --all -- --check`、`cargo test --lib --locked`、`cargo clippy --all-targets --locked -- -D warnings`，各命令带 `--manifest-path src-tauri/Cargo.toml` | PASS |
-| 2026-10-12 | 下一次依赖修复提交 | GitHub Windows/Linux | 四项 CI jobs/checks 全绿 | 等待已授权推送及新 CI；前次失败仅适用于 3ca4e58 | 关闭依赖门槛前核对准确推送 SHA | PENDING |
+| 2026-10-12 | eee1873a22a9bc82ac0b0e9e9fb052e3c301d61a | GitHub Windows/Linux | 四项 CI jobs/checks 全绿 | Windows 构建/测试/release EXE、Linux 扩展、RustSec、Security audit 全部成功 | [CI 38261620424](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38261620424)，已通过 jobs API 核对准确 SHA 与四项结论 | PASS |
+| 2026-10-12 | eee1873 + 发行预检变更 | 本机 Windows / Node / PowerShell 7 | 版本/身份、稳定 tag、说明及产物收集契约 | 7 通过；不可执行安装器/签名样本保留字节、匹配更名 NSIS manifest/校验和，并拒绝歧义安装器 | `pnpm test:release`；未使用真实签名、执行安装器或发布 | PASS |
+| 2026-10-12 | eee1873 + 发行预检变更 | 离线四语说明校验 | 保留兼容分隔符与各语言实际变更章节 | 中/英/日/韩说明通过校验，章节/条目结构一致 | `scripts/validate-release-notes.mjs` 与发行契约测试 | PASS |
+| 2026-10-12 | 928303e65fb1ef9bdfa27df9a2e9ea8dfcffe9b4 | GitHub Windows/Linux | 最新预检变更通过完整 CI | Windows（含发行契约/release EXE）、Linux 扩展、RustSec、Security audit 全部成功 | [CI 38264570889](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38264570889)，已核对准确 SHA 与四项结论 | PASS |
 
-发行收口仍需解决前端审计与所有实机/签名门槛，不能为完成文档清单而把待验收改成 PASS。
+正式发行仅使用稳定版本 tag，不使用 RC/预发行 tag；更新器比较逻辑不变。
+下载名称采用 `RouteSpan-…`，内部 binary 保持 `proxyenv.exe`。
+产物收集样本测试不等于真实签名 Draft、原生安装、来源证明或生产更新验收。
+
+发行收口仍需保持审计通过并关闭所有实机/签名门槛，不能为完成文档清单而把待验收改成 PASS。
+
+## 安装包与真实链路验收矩阵
+
+以下只是准备好的清单，不是测试结果；预检门槛通过后再开始。每行需补准确源码 SHA、
+安装包 hash、OS/工具/供应商版本、目标别名及带日期的证据，并记录实际结果与 P0/P1 问题。
+主目标执行完整远端矩阵，第二目标执行冒烟。不把密码、供应商密钥或会话 Header 写入证据。
+较早用户成功反馈不能关闭这些行。
+
+| 日期 | 构建 / 提交 | 环境 / 版本 | 预期 | 实际 | 证据 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 待验收 | 候选安装包待固定 | Windows 10 22H2 x64，OS/WebView2/包版本待记录 | 干净 NSIS 安装、启动、关于、关闭到托盘/恢复、单实例、设置、开机/静默启动、卸载 | 未对最终候选执行 | 需设备记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 受支持 Windows 11 x64，准确版本待记录 | 与 Windows 10 相同原生生命周期矩阵 | 未对最终候选执行 | 需设备记录 | PENDING |
+| 待验收 | v0.1.3 → 候选版 | Windows x64，源/目标安装包 hash 待记录 | 保留身份/设置/快照；唯一安装/启动/卸载项；更新身份不变 | 未执行 | 需升级记录 | PENDING |
+| 待验收 | v0.1.4 Draft → 候选版 | Windows x64，前版产物/hash 待记录 | 同升级矩阵，并明确记录 Draft 前版可用情况 | 未执行 | 需升级记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 两种 Windows、100%/125%/150%、浅/深色 | 任务栏、托盘 16/20px、Explorer、快捷方式、开始菜单、Alt+Tab、安装图标清晰，无异常边缘/缓存 | 未执行 | 需原生截图/生命周期记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 主 Linux 账户，OpenSSH/Agent 版本待记录 | 新/已知主机、密钥、Agent、密码、KBI 连接正确；取消、错误密码、超时可恢复 | 未执行 | 需限定范围的 SSH 认证记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 主目标的主机指纹变更样本 | 拒绝连接，不自动重置信任、yes 或关闭检查 | 未执行 | 需安全样本记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 主目标及本机代理/CC Switch 版本待记录 | 网络/AI OFF-OFF、ON-OFF、OFF-ON、ON-ON 独立；服务器直连不可用不等于桥接失败 | 未执行 | 需四种能力组合记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 主目标，实际代理协议/端口待记录 | 远端监听与外网出口成功/失败独立；本机代理停/恢复可恢复 | 未执行 | 需脱敏 HTTP/SOCKS 结果 | PENDING |
+| 待验收 | 候选安装包待固定 | 主目标，CC Switch/供应商/模型版本待记录 | 总开关、各工具路由 ON/OFF、切供应商/模型、重启 CC Switch 后路由状态正确 | 未执行 | 需路由/客户端记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 主目标、两个非 root UID | AI 启用、Token 轮换、旧/缺少 Token 拒绝、断开撤销；另一 UID 可能访问普通代理；不保证防御 root/同账户 | 未执行 | 需仅状态的边界记录 | PENDING |
+| 待验收 | 候选安装包待固定 | Codex CLI/Remote SSH 插件，版本待记录 | CLI 存在/缺少及仅插件发现；配置、真实对话、编辑/工具调用、重新加载后切配置/模型 | 未执行 | 需实际客户端记录 | PENDING |
+| 待验收 | 候选安装包待固定 | Claude CLI/Remote SSH 插件，版本待记录 | CLI 存在/缺少及仅插件发现；配置、明确验证、真实对话 | 未执行 | 需实际客户端记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 主目标及本机托管 Skills 样本 | 首次同步、无变更刷新、元数据重同步、暂时失败/恢复；拒绝异主同名/嵌套链接，排除原生/系统 Skills；仅取消管理副本 | 未执行 | 需文件系统所有权记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 主目标及终端版本待记录 | 应用打开终端加载会话环境；无关已有 Shell 不变 | 未执行 | 需会话环境记录 | PENDING |
+| 待验收 | 候选安装包待固定 | VS Code Remote/server/插件版本待记录 | 远端打开、Machine settings、重新加载、网络/AI、准确恢复管理内容 | 未执行 | 需 VS Code 记录 | PENDING |
+| 待验收 | 候选安装包待固定 | MobaXterm 版本/书签来源待记录 | 导入及兼容非 Moba 目标仅从已连接概述启动；复制环境命令可用 | 未执行 | 需 Moba 启动记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 主目标及断网场景 | 结束管理 SSH、30s/2min 断网、代理/CC 重启、应用异常退出/重启后恢复传输、监听、Token、配置、Skills | 未执行 | 需带时间的恢复记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 主目标及非管理文件样本 | 主动断开清除管理 SSH/转发/环境，拒绝旧 Token，保留其它文件，UI 清除连接状态 | 未执行 | 需清理记录 | PENDING |
+| 待验收 | 候选安装包待固定 | 第二非 root Linux 目标，版本待记录 | SSH、选定网络/AI、实际客户端、启动/断开冒烟 | 未执行 | 需第二目标记录 | PENDING |
+| 待验收 | 冻结 tag/Draft 待固定 | 独立下载的签名 Draft | NSIS/MSI/便携版/签名/manifest/校验值匹配；核对仓库/工作流/tag/提交/摘要；Actions 与 Release 字节一致 | 未创建 tag/Draft | 需外部验证 | PENDING |
+| 待验收 | 已发布发行待固定 | v0.1.3 及可用 v0.1.4 注册 NSIS | 生产更新检测版本/四语说明、验签、被动安装、重启、保留数据及唯一安装 | 未授权公开发布 | 需发布后冒烟；Draft 不等于 latest-channel 端到端 | PENDING |

@@ -79,22 +79,23 @@ ASCII flow, with platform and MIT badges restored; v0.1.4 remains the designated
 predecessor but is explicitly a GitHub Draft, not the latest public release.
 The source brand PNG is unchanged. Link, stale-brand and compatibility-context
 checks pass. Local EN/ZH rendering at desktop/narrow widths and independent visual
-review passed; the required live GitHub rendering gate below remains blocked.
+review passed; live GitHub README rendering was subsequently confirmed by the
+maintainer as recorded below (not by automated browser inspection).
 
 ## Remaining acceptance checklist
 
 | Date | Build / commit | Environment | Expected | Actual | Evidence | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2026-10-12 review | 3ca4e58, published on v0.2.0dev | GitHub rendered pages | Review EN/ZH README and four images, then current documentation | Browser review failed: URL could not be reliably confirmed; no live rendering acceptance claimed | Built-in browser timed out twice; native browser safety check stopped input; retry was rejected | BLOCKED |
+| 2026-10-12 review | v0.2.0dev at eee1873; root README/artwork unchanged from 3ca4e58 | Maintainer's GitHub browser | EN/ZH README and four images load with no layout overflow | Maintainer confirmed both READMEs and all four illustrations render normally | Direct user acceptance reply; automated browser inspection was blocked by URL safety checks | PASS |
 | 2026-10-12 review | 3ca4e58 | GitHub Windows/Linux | Latest code CI passes with audits intact | Linux extension, RustSec and Security audit passed; Windows stopped at frontend audit (two high findings), later steps skipped | [CI run 38258401095](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38258401095), jobs API verified | BLOCKED |
 
 ## Release polish tracking
 
 The publication baseline is now `3ca4e58`, including the Chinese mirrors.
 Asset notes were shortened and original generation inputs retained in the historical
-index; artwork and runtime behavior are unchanged. Live GitHub rendering remains
-an explicit unclosed gate. Authorized dependency/CI remediation may be prepared
-without claiming that visual gate passed. No freeze branch, tag or release is authorized.
+index; artwork and runtime behavior are unchanged. The maintainer confirmed live
+GitHub README rendering after automated inspection was blocked. Dependency/CI
+remediation is authorized; no freeze branch, tag or release is authorized.
 
 | Date | Build / commit | Environment | Expected | Actual | Evidence | Status |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -102,7 +103,49 @@ without claiming that visual gate passed. No freeze branch, tag or release is au
 | 2026-10-12 | 40d0d2a + dependency delta | Local Windows / pnpm 10.15.1 | Frozen installation and high-severity audit with unchanged audit policy | Exit 0; no known vulnerabilities; Vue/renderer 3.5.43, source-map-js 1.2.2, no override | `pnpm install --frozen-lockfile` and `pnpm audit --audit-level high` | PASS |
 | 2026-10-12 | 40d0d2a + dependency delta | Local Windows / Node / TypeScript / Vite | Build and all package-script frontend/remote regressions | Build exit 0; 154 passed, 41 POSIX/Linux skips, 0 failed; existing chunk warning remains | `pnpm build`, brand/docs/report/remote/extensions scripts; absent POSIX fixture shell as above | PASS |
 | 2026-10-12 | 40d0d2a + dependency delta | Local Windows / locked Rust MSVC | Formatting, library tests and all-target Clippy with warnings denied | 282 passed, 3 ignored, 0 failed; formatting and Clippy exit 0 | `cargo fmt --all -- --check`, `cargo test --lib --locked`, `cargo clippy --all-targets --locked -- -D warnings`, each with `--manifest-path src-tauri/Cargo.toml` | PASS |
-| 2026-10-12 | Next dependency-fix commit | GitHub Windows/Linux | All four CI jobs/checks green | Awaiting authorized push and new CI; previous failure remains scoped to 3ca4e58 | Check the exact pushed SHA before closing the dependency gate | PENDING |
+| 2026-10-12 | eee1873a22a9bc82ac0b0e9e9fb052e3c301d61a | GitHub Windows/Linux | All four CI jobs/checks green | Windows build/test/release EXE, Linux extension, RustSec and Security audit all succeeded | [CI 38261620424](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38261620424), exact SHA and all four conclusions checked through jobs API | PASS |
+| 2026-10-12 | eee1873 + release-preflight delta | Local Windows / Node / PowerShell 7 | Version/identity, stable-tag policy, notes and artifact collection contracts | 7 passed; inert installer/signature fixtures preserved bytes, matched renamed NSIS manifest and checksums, rejected ambiguous installers | `pnpm test:release`; no real signatures, installer execution or publication | PASS |
+| 2026-10-12 | eee1873 + release-preflight delta | Offline four-language release-note validation | Retain compatible delimiters and substantive localized change sections | Chinese/English/Japanese/Korean blocks validated with matching section/item structure | `scripts/validate-release-notes.mjs` and release-contract tests | PASS |
+| 2026-10-12 | 928303e65fb1ef9bdfa27df9a2e9ea8dfcffe9b4 | GitHub Windows/Linux | Latest preflight changes pass full CI | Windows including release contracts/release EXE, Linux extension, RustSec and Security audit all succeeded | [CI 38264570889](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38264570889), exact SHA and four conclusions verified | PASS |
 
-Release polish must resolve the frontend audit and all real-device/signing gates.
+Formal releases use stable version tags only, not RC/prerelease tags; the updater
+comparator remains unchanged. Download names use `RouteSpan-…` and the internal
+binary remains `proxyenv.exe`. Collector fixture tests are not verification of
+signed Draft artifacts, native installation, attestation or production updates.
+
+Release polish must keep audits green and close all real-device/signing gates.
 Do not change pending evidence to PASS solely to satisfy a documentation checklist.
+
+## Packaged and live acceptance matrix
+
+This is a prepared checklist, not a test result. Start only after the preflight
+gate is green. For every row, replace the candidate with the exact source SHA,
+installer hash, OS/tool/provider versions, target alias and dated evidence; record
+actual observations and any P0/P1 issue. Primary target runs the full remote matrix;
+secondary target runs a smoke test. Never paste passwords, provider keys or session
+headers into evidence. Earlier user success reports do not close these rows.
+
+| Date | Build / commit | Environment / versions | Expected | Actual | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| Pending | Candidate package TBD | Windows 10 22H2 x64, exact OS/WebView2/package versions TBD | Clean NSIS install, launch, About, close-to-tray/restore, single instance, settings, startup/silent start, uninstall | Not run for final candidate | Device record required | PENDING |
+| Pending | Candidate package TBD | Supported Windows 11 x64, exact versions TBD | Same native lifecycle matrix as Windows 10 | Not run for final candidate | Device record required | PENDING |
+| Pending | v0.1.3 → candidate | Windows x64, source/destination installer hashes TBD | Retain identity/settings/snapshots; one install/startup/uninstall entry; updater identity unchanged | Not run | Upgrade record required | PENDING |
+| Pending | v0.1.4 Draft → candidate | Windows x64, predecessor artifact/hash TBD | Same upgrade matrix; availability of Draft predecessor recorded explicitly | Not run | Upgrade record required | PENDING |
+| Pending | Candidate package TBD | Both Windows editions, 100%/125%/150%, light/dark | Taskbar, tray 16/20px, Explorer, shortcut, Start Menu, Alt+Tab and installer icons readable, no unintended edges/cache artifacts | Not run | Native screenshots/lifecycle record required | PENDING |
+| Pending | Candidate package TBD | Primary Linux account; OpenSSH/Agent versions TBD | New/known host, key, Agent, password and KBI connect correctly; cancellation, wrong password and timeout recover | Not run | Scoped SSH auth record required | PENDING |
+| Pending | Candidate package TBD | Primary target with changed host-key fixture | Fail closed; no automatic trust reset, yes or disabled checking | Not run | Safe fixture record required | PENDING |
+| Pending | Candidate package TBD | Primary target and local proxy/CC Switch versions TBD | General/AI OFF-OFF, ON-OFF, OFF-ON, ON-ON remain independent; unavailable server direct internet is not bridge failure | Not run | Four capability cases required | PENDING |
+| Pending | Candidate package TBD | Primary target, actual proxy protocol/ports TBD | Remote listener and external egress success/failure are independent; local proxy stop/resume recovers | Not run | Redacted HTTP/SOCKS results required | PENDING |
+| Pending | Candidate package TBD | Primary target, CC Switch/provider/model versions TBD | Master and per-tool route ON/OFF, provider/model switch and CC Switch restart preserve correct route state | Not run | Route/client record required | PENDING |
+| Pending | Candidate package TBD | Primary target, two non-root UIDs | AI enable, token rotation, stale/missing token rejection and disconnect revocation; other UID may reach general proxy; no root/same-account guarantee | Not run | Status-only boundary record required | PENDING |
+| Pending | Candidate package TBD | Codex CLI and Remote SSH plugin, versions TBD | CLI present/missing and plugin-only discovery; configuration, real conversation, file edit/tool call, profile/model change after reload | Not run | Actual-client record required | PENDING |
+| Pending | Candidate package TBD | Claude CLI and Remote SSH plugin, versions TBD | CLI present/missing and plugin-only discovery; configuration, explicit verification, real conversation | Not run | Actual-client record required | PENDING |
+| Pending | Candidate package TBD | Primary target, local managed Skills fixtures | First projection, no-op refresh, metadata resync, transient failure/recovery; refuse foreign same-name/nested links, exclude native/system Skills; cancel only owned copies | Not run | Filesystem ownership record required | PENDING |
+| Pending | Candidate package TBD | Primary target and terminal versions TBD | App-opened terminal loads session env; unrelated existing shells unchanged | Not run | Session-only environment record required | PENDING |
+| Pending | Candidate package TBD | VS Code Remote, server/plugin versions TBD | Remote open, Machine settings, reload, general/AI access and exact owned restoration | Not run | VS Code record required | PENDING |
+| Pending | Candidate package TBD | MobaXterm version/bookmark source TBD | Imported and compatible non-Moba target launch only from connected Overview; copied environment command works | Not run | Moba launch record required | PENDING |
+| Pending | Candidate package TBD | Primary target and interrupted network | Kill owned SSH, 30s/2min outage, proxy/CC restart and abrupt app exit/restart recover transport, listener, token, profile and Skills | Not run | Timed recovery record required | PENDING |
+| Pending | Candidate package TBD | Primary target with foreign-file fixture | Explicit disconnect removes owned SSH/forwards/env, rejects old token, preserves foreign files, clears UI connected state | Not run | Cleanup record required | PENDING |
+| Pending | Candidate package TBD | Secondary non-root Linux target, versions TBD | SSH, selected network/AI, actual client and launch/disconnect smoke | Not run | Secondary target record required | PENDING |
+| Pending | Frozen tag/Draft TBD | Independently downloaded signed Draft | NSIS/MSI/portable/signatures/manifest/checksums match; repo/workflow/tag/commit/digests verified; Actions and Release bytes match | No tag/Draft created | External verification required | PENDING |
+| Pending | Published release TBD | v0.1.3 and available v0.1.4 registered NSIS | Production update detects version/four-language notes, verifies signature, installs passively, restarts, preserves data and one install | No publication authorized | Post-publication smoke required; Draft is not latest-channel E2E | PENDING |

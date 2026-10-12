@@ -50,6 +50,11 @@ execution of an unverified installer is authorized.
 and localized notes, installs locked dependencies, audits/builds/tests, packages
 signed updater artifacts, collects installers/portable executable, checksums and
 `latest.json`, attests public-repository artifacts and creates a Draft Release.
+Formal tags must be stable versions; RC/prerelease tags are rejected rather than
+changing the updater comparator. `pnpm test:release` checks versions, protected
+identities, four-language notes and external `RouteSpan-…` artifact names before
+packaging. NSIS/MSI signatures retain their paired names and the manifest points
+to that same NSIS; the internal executable remains `proxyenv.exe` for compatibility.
 
 ```text
 Locked checks → Signed artifacts → Checksums/provenance
@@ -58,8 +63,9 @@ Locked checks → Signed artifacts → Checksums/provenance
 
 Missing private signing secret, installer signature or release-note structure
 must fail the formal pipeline. Do not use `--no-sign` or suppress updater artifacts
-to make an official release pass. The current frontend high-severity audit failure
-is a release gate; writing a new README does not resolve it.
+to make an official release pass. The frontend high-severity audit failure was
+repaired and passed full CI at `eee1873`; audit remains mandatory for every new
+release change. See release QA for scoped results, not blanket acceptance claims.
 
 ## Secret handling
 
