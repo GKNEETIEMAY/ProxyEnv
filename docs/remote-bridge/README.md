@@ -15,6 +15,9 @@ Remote Bridge connects a selected Windows local proxy or AI route to a non-root 
 
 Remote CLI installation, routing configuration and real request verification are separate. After connection, Overview shows Codex/Claude installation states and offers official, user-executed installation commands. See [Remote CLI readiness (Stage 2)](REMOTE_TOOL_READINESS.md).
 
+For the shared first-connection completion, cancellation/retry behavior and
+nonblocking preparation contract, see [First connection (Stage 3)](FIRST_CONNECTION.md).
+
 - **Authentication:** native OpenSSH key/Agent/password/KBI flow and host-key confirmation.
 - **Core Bridge:** the SSH process is alive, requested reverse forwards exist, local relays are alive and every requested remote listener is verified. This is the only gate for showing Connected.
 - **Post-connect:** session environment, remote VS Code network isolation, Codex/Claude inspection or owned-route refresh, and Skills state are independent background jobs. A warning here never rewrites core transport readiness.
@@ -43,6 +46,7 @@ The connected UI defaults to a concise Overview and preserves detailed port, rou
 | Session-owned shell environment | [Managed remote environment](MANAGED_REMOTE_ENVIRONMENT.md) |
 | CC Switch-linked skills and remote projection | [Skills projection](SKILLS_REMOTE_PROJECTION.md) |
 | Progressive disclosure and status language | [UI/UX](UI_UX.md) |
+| First connection and background preparation | [First connection](FIRST_CONNECTION.md) |
 | Actual real-device and CI evidence | [Acceptance](ACCEPTANCE_V0.2.md) |
 | Deferred MCP research | [MCP v0.3](MCP_V0.3.md) |
 

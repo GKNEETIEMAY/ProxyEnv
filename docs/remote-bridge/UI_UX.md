@@ -54,6 +54,25 @@ Terminal, VS Code and MobaXterm remain visible in that order in a separate botto
 
 Show useful public local/remote listening addresses in Overview, but hide `ssh -R`, `NO_PROXY`, profile/catalog hashes, provider IDs, ownership markers, internal Relay ports and session tokens. Never put a token in Advanced either. Authentication prompts use a compact content-sized dialog. The terminal, response field and action area are mounted before the first OpenSSH prompt arrives, then keep a stable position throughout authentication and core bridge construction. Prompt text is selectable. Password submission immediately clears the real secret and temporarily disables the field, while a fixed-length bullet mask preserves the visual entered state without retaining or revealing password length. A new prompt clears that mask and re-enables the field. The only changing authentication copy appears in the top-right status position: waiting for server, waiting for input, or verifying. Successful SSH authentication immediately continues into core bridge construction without replacing the terminal or returning the user to a separate confirmation page. Overview opens when the verified core bridge is ready, while optional post-connect jobs update independently. Only the changing inner status receives a short opacity/vertical transition, and reduced-motion preference collapses it. No redundant step rail or repeated connection title.
 
+### First connection and Overview status refinement
+
+The [first-connection contract](FIRST_CONNECTION.md) unifies interactive and
+noninteractive completion. Core connection opens Overview immediately; optional
+preparation does not keep authentication open or block supported launch actions.
+There is no aggregate preparing/partial warning strip, following the current
+product decision. Existing feature states and recent events retain failure detail.
+Recheck calls the existing unified diagnostic command and is not disabled by a stale
+local CC Switch detection flag.
+
+Each Overview AI tool shows its configuration state above separate CLI and VS Code
+extension installation/version rows. It uses the shared status icon and text:
+green for normal configuration, yellow for unconfigured or attention-required
+states, and a spinner while checking. The state has no tinted container background.
+Installed does not imply configured, configured does not imply model verification,
+and restart/conflict/unavailable states remain distinct. Programmatic focus returns
+to the page heading after connection/cancellation without a browser-default black
+outline; interactive controls retain visible keyboard focus.
+
 ## Silent transport recovery
 
 After an established bridge loses SSH transport, the backend attempts recovery without reopening the setup flow. It reuses the selected target, ports, live relays and bridge-scoped SSH session credentials. A small in-page reconnecting status is sufficient: temporary outages, retries and successful recovery produce no popup or sound. Recovery starts by rebuilding the retained tunnel directly and uses a bounded 1, 2, 4, 8, 15 and 30 second backoff instead of waiting several minutes behind a separate SSH probe. Interrupted application requests are not replayed; the user may need to retry the affected message after recovery.
