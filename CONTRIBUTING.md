@@ -1,38 +1,76 @@
-# Contributing to ProxyEnv
+# Contributing to RouteSpan
 
-```yaml
-Current Stable: v0.1.4
-Next: v0.2.0
-```
+RouteSpan targets Windows 10/11 x64 using Tauri 2, Vue 3, TypeScript and Rust stable
+MSVC. Repository/package identities retain the legacy ProxyEnv name for compatibility.
+Read [Architecture](docs/ARCHITECTURE.md), [Internal contracts](docs/INTERNAL_CONTRACTS.md)
+and [Security](SECURITY.md) before changing an IPC or persistence boundary.
 
-See the [Roadmap](docs/ROADMAP.md) for released capabilities and unreleased development progress. Implementation completion does not imply release or clean-machine acceptance. Update these version markers together when publishing; this documentation cleanup does not bump package versions or create a tag.
-
-For a release, review `README.md`, `README.zh-CN.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/release-security.md`, and `docs/ROADMAP.md` together. Move only actually released features from Next to Current, and distinguish automated tests from recorded packaged-Windows acceptance. Linux/macOS have no committed implementation date.
-
-ProxyEnv targets Windows 10/11 x64 and uses Tauri 2, Vue 3, TypeScript, and Rust stable MSVC.
-
-The frontend is organized as `app → features → shared`; the Rust backend separates `commands`, `desktop`, domain modules, and `services`. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding a feature or moving an IPC boundary.
+The previous stable baseline is ProxyEnv v0.1.4 (maintainer designation; GitHub Draft).
+RouteSpan v0.2.0 is unreleased. Code completion does not prove packaged-device
+acceptance. Current evidence belongs in [release QA](docs/RELEASE_QA_V0.2.md).
 
 ## Local checks
 
+Use the Node.js/pnpm versions declared in package.json, Windows build tools,
+WebView2 and Rust stable MSVC. Install from the lockfile.
+
 ```powershell
-pnpm install
+pnpm install --frozen-lockfile
 pnpm build
+pnpm test:brand
+pnpm test:docs
 pnpm test:report
-cargo test --manifest-path src-tauri/Cargo.toml --locked
+pnpm test:remote
+pnpm test:extensions
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-Desktop lifecycle changes require one additional integration check: launch the same built EXE twice and verify that the second process exits, the existing window is restored/focused, and only one process for that executable path remains.
+`pnpm check` combines frontend, brand/docs/report/remote/extension checks and locked
+Rust tests. Documentation tests are offline. Extension tests include POSIX and
+Linux filesystem cases; platform-skipped tests are not PASS evidence for those cases.
+The generated remote helper must stay reproducible: `pnpm test:extensions` checks
+it before transaction tests. Browser fixture tests are supporting UI evidence,
+not native Windows, live SSH or model acceptance.
 
-`tauri-plugin-single-instance` must remain the first plugin registered in `src-tauri/src/lib.rs`. Its callback may restore the existing window and emit UI events, but must not change proxy state or navigate away from the user's current page.
+## Change discipline
 
-Keep the Environment Core independent from proxy detection. Do not add system-proxy switching, per-app routing, full port scanning, bundled proxy cores, HKLM writes, or administrator-only behavior to the MVP.
+Frontend dependencies flow app → features → shared; Rust commands are narrow.
+Reuse one active-proxy context, backend generation/tickets and shared UI state.
+Do not mix dependency upgrades, SSH rewrites or data migrations into documentation
+changes. Preserve host trust, fixed upstreams, owned-only restoration and private
+file boundaries. No arbitrary shell commands or paths authorized by frontend checks.
 
-## Release secrets
+Single-instance plugin registration must precede tray/window setup. Lifecycle
+changes require a built-EXE double-launch check: one process, restored/focused window,
+no state mutation or unwanted navigation from the second launch.
 
-Never commit a signing private key, certificate private key, `.pfx`, `.p12`, or `.key` file. Tauri Updater private material used by CI belongs only in GitHub Actions secrets named `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; any maintainer recovery copy must stay outside tracked source in protected offline storage. Workflows must never print the secret, its prefix, length, decoded form, or file contents. The updater public verification key is not secret and is reviewed and committed in `tauri.conf.json`.
+Registry, snapshot or broadcast changes need Windows integration evidence for
+exact restore, conflict protection, failure rollback, WM_SETTINGCHANGE and new
+process inheritance. Remote changes need scoped authentication, reconnect, cleanup
+and preserved-user-file evidence. Do not infer acceptance from mock screenshots.
 
-Current Stable v0.1.4 supports signed updates for the NSIS setup edition. The user first selects **Check for updates**, then explicitly selects **Download and install**; the official Tauri Updater verifies the signed installer from the pinned HTTPS source, retains its default upgrade-only version comparison, replaces the registered installation, and restarts after success. MSI and portable packages remain manual-update variants. Do not introduce a custom downloader, arbitrary update URLs, direct execution of an unverified installer, or silent background installation. See [`docs/release-security.md`](docs/release-security.md).
+## Documentation changes
 
-Keep the public product boundary narrow: ProxyEnv observes and explains the current Windows proxy environment, manages selected user environment variables, and launches new processes with an explicit proxy or direct environment. Do not present third-party application configuration maintenance as a shipped integration or roadmap commitment.
+Use [the documentation map](docs/README.md). Current docs explain current behavior;
+archive records are historical, not alternative instructions. Maintain EN/ZH
+section order, capability count, status and security claims together. Preserve
+historical release notes and compatibility IDs. Update QA only from dated,
+build/environment-scoped evidence; use PENDING/BLOCKED for missing gates.
+
+## Releases and secrets
+
+The formal release flow requires matching tag/package/Cargo/Tauri versions,
+reviewed multilingual notes, frozen dependencies, audit/build/test, signed updater
+assets, checksums and provenance, then a Draft for manual QA. Draft ≠ publication.
+
+Use only official Tauri Updater with pinned source/public key, default upgrade-only
+comparison and explicit user check/install. NSIS replacement is distinct from
+MSI/portable manual updates. No custom downloader or silent installer execution.
+See [release security](docs/release-security.md).
+
+Never commit/print/package signing keys, key prefixes, passwords, PFX/P12 or decoded
+secret material. CI private keys use only authorized Actions secrets
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; protected
+recovery copies remain outside tracked source. Public verification keys are not secret.
