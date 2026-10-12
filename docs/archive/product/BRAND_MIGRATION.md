@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # Stage 5 — 境枢 RouteSpan display-brand migration
 
 Baseline: `v0.2.0dev`, commit `9a219e31d91d63142ec5c4dc20bf713bee51df2d`.

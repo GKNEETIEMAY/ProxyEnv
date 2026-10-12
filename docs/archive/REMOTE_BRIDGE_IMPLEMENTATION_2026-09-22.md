@@ -1,6 +1,10 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # v0.2.0 Remote Environment Bridge — historical implementation notes
 
-> Archived 2026-09-22. This document mixes implementation snapshots and prior acceptance assumptions. Use [the current Remote Bridge entry](../remote-bridge/README.md), [scope](../remote-bridge/V0.2_SCOPE.md) and [acceptance](../remote-bridge/ACCEPTANCE_V0.2.md) for present status; do not treat all statements below as current product guarantees.
+> Archived 2026-09-22. This document mixes implementation snapshots and prior acceptance assumptions. Use [the current Remote Bridge guide](../REMOTE_BRIDGE.md) and [release QA](../RELEASE_QA_V0.2.md) for present status. Historical [scope](remote-bridge/V0.2_SCOPE.md) and [acceptance](remote-bridge/ACCEPTANCE_V0.2.md) remain archived; do not treat the statements below as current product guarantees.
 
 Development branch: `v0.2.0dev`, based on v0.1.4 commit `fbf60b1`.
 This is development scope, not a published stable-release announcement.

@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # Remote Bridge — v0.2 development
 
 Remote Bridge connects a selected Windows local proxy or AI route to a non-root Linux SSH account through explicit, session-owned OpenSSH reverse forwards. It is not a general VPN, a proxy-client replacement, or a guarantee that every remote process can connect. **v0.2.0 is not a stable release.** Start with [scope](V0.2_SCOPE.md) and the [acceptance record](ACCEPTANCE_V0.2.md).
@@ -50,4 +54,4 @@ The connected UI defaults to a concise Overview and preserves detailed port, rou
 | Actual real-device and CI evidence | [Acceptance](ACCEPTANCE_V0.2.md) |
 | Deferred MCP research | [MCP v0.3](MCP_V0.3.md) |
 
-The former [implementation notes](../REMOTE_BRIDGE.md) are superseded by this entry and the current-state [architecture](../ARCHITECTURE.md). The dated [extension feasibility audit](../archive/REMOTE_BRIDGE_EXTENSION_AUDIT_2026-09-06.md) is historical, not a description of today's switches.
+The former [implementation notes](../../REMOTE_BRIDGE.md) are superseded by this entry and the current-state [architecture](../../ARCHITECTURE.md). The dated [extension feasibility audit](../REMOTE_BRIDGE_EXTENSION_AUDIT_2026-09-06.md) is historical, not a description of today's switches.

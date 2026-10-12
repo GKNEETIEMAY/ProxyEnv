@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # First connection and environment preparation
 
 Stage 3 builds on the Stage 2 CLI/extension discovery and PATH guidance. It does

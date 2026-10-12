@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # Remote tool readiness — Stage 2
 
 This stage retains the 境启 / ProxyEnv brand. Installation, route configuration and request verification are independent observations; none proves the others.

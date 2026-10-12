@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # Skills remote projection — design
 
 **Status: implemented on `v0.2.0dev`; real-device Agent discovery acceptance remains pending.** Model/Profile/Route synchronization and explicit Codex/Claude Skill projection now exist. ProxyEnv reads the links that CC Switch places in the target Agent's effective Skill directory and accepts only links whose canonical target is the same-named direct child of `~/.cc-switch/skills`. Native Codex/Claude Skill folders, unrelated links and CC Switch's UI state or SQLite schema are outside the projection source.

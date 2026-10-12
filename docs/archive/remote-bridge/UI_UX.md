@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # Remote Bridge UI/UX — Simple and Advanced
 
 The connected page explains AI-only, proxy-only and combined use. Action availability follows the required capability: AI verification follows AI health; proxy testing/managed terminal follows General Proxy health; Skills follows the live SSH session. An unrelated unavailable route must not disable healthy actions.

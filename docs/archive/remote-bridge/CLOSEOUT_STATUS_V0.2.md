@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # v0.2.0dev closeout comparison — 2026-10-05
 
 Baseline: `7ff1dda4db877720221f74235dc35316bea597a5` on `v0.2.0dev`, plus the current responsive-layout worktree. Stable remains v0.1.4. This is an implementation/evidence comparison with the final UI/UX plan and performance supplement, **not release approval**.

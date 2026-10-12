@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # v0.2 Remote Bridge acceptance record
 
 This records **observed evidence**, not implementation or design intent. Last documentation review: 2026-10-05. Stable remains v0.1.4; no v0.2 release decision has been made. See the [latest closeout comparison](CLOSEOUT_STATUS_V0.2.md) for plan differences, performance gaps and actual historical CI state.

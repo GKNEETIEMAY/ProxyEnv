@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # MCP remote work — v0.3 research only
 
 **Not part of v0.2.** Local CC Switch MCP enablement does not automatically make an MCP server available to remote Codex/Claude. MCP may require executables, Node, Python, uv, credentials and network access on the server; copying configuration is neither sufficient nor safe.

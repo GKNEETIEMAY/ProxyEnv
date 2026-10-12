@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # Remote relay authentication boundaries
 
 **Status: implemented in `v0.2.0dev`; shared-host acceptance remains pending.** General Proxy and AI Route share the SSH transport but intentionally use different authentication boundaries.

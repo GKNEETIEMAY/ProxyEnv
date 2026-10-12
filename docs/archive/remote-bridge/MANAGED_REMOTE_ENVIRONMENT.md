@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # Managed remote environment — design
 
 **Status: implemented on `v0.2.0dev`; release acceptance remains pending.** ProxyEnv creates a private, session-owned `env.sh`, loads it in ProxyEnv-managed terminals, and removes it on a normal disconnect. Advanced can copy a token-free command that explicitly sources this file in an external remote terminal.

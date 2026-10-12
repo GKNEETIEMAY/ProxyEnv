@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # v0.2 information architecture — Stage 4 freeze
 
 Implementation baseline: `v0.2.0dev`, Stage 3 commit

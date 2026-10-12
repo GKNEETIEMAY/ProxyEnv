@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # VS Code AI 扩展桥接实现可行性审计（历史归档）
 
 审计日期：2026-09-06。代码基线：`v0.2.0dev` / `338c5fc`。

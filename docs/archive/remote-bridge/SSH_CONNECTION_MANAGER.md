@@ -1,3 +1,7 @@
+> [!WARNING]
+> Historical document. This file records an earlier design or implementation
+> checkpoint and is not a source of truth for current RouteSpan behavior.
+
 # SSH connection manager — design
 
 **Status:** implemented on `v0.2.0dev`; release acceptance remains pending. ProxyEnv automatically imports bounded OpenSSH, VS Code Remote SSH and MobaXterm sources, and can persist manually reviewed connections. Imported rows remain source-owned until edited. Editing one opens the same full form used to add a connection, saves an independent ProxyEnv connection, and hides only the imported display copy; the original SSH, VS Code or MobaXterm configuration is not modified or deleted. Existing structured target IDs bind source, file identity and alias/session. No private-key or credential contents are read.
