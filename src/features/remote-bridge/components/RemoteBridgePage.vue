@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useNotification } from "../../../shared/state/notifications";
+import { notify, useNotification } from "../../../shared/state/notifications";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ActiveProxyContext, CheckState } from "../../../shared/types";
 import { bridgeError, bridgeErrorCode, type RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
@@ -14,6 +14,7 @@ import { canToggleRemoteTool } from "../tool-adapters";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
+import { remoteReadiness } from "../readiness-presentation";
 import RemoteBridgeAdvancedView from "./RemoteBridgeAdvancedView.vue";
 import BridgeLaunchBar from "./BridgeLaunchBar.vue";
 import { serverDirectCheckState, overviewServerDirectStatus, overviewToolChecking } from "../overview-presentation";
@@ -118,6 +119,9 @@ const authCopyState = ref<"idle" | "copied" | "failed">("idle");
 const showAuthDiagnostic = ref(false);
 const advancedView = ref(false);
 const contentFields = ref<HTMLFieldSetElement>();
+const connectedHeading = ref<HTMLHeadingElement>();
+const readinessAnnouncementTarget = ref<string>();
+const readiness = computed(() => remoteReadiness(props.summary));
 watch(advancedView, async () => {
   await nextTick();
   // A shared viewport must not carry the other tab's scroll offset into this view.
@@ -131,6 +135,15 @@ const sessionCommand = computed(() => props.summary.sessionEnvironmentCommand ||
 const commandLoading = computed(() => ["pending", "preparing"].includes(props.summary.sessionEnvironmentState ?? ""));
 type ConnectionPhase = "idle" | "checking" | "authenticating" | "building" | "succeeded" | "failed";
 const connectionPhase = ref<ConnectionPhase>("idle");
+watch([() => props.summary.status, () => props.summary.target?.id, () => readiness.value.state, connectionPhase], () => {
+  if (!readinessAnnouncementTarget.value || props.summary.target?.id !== readinessAnnouncementTarget.value
+    || props.summary.status !== "connected" || connectionPhase.value !== "idle"
+    || props.summary.reconnectState && props.summary.reconnectState !== "idle"
+    || readiness.value.state === "preparing") return;
+  const attention = readiness.value.state === "attention";
+  if (!attention) notify(props.copy.rbReadinessReadyNotification, "success", "remote-first-ready");
+  readinessAnnouncementTarget.value = undefined;
+});
 const establishingBridge = computed(() => ["checking", "authenticating", "building"].includes(connectionPhase.value));
 const authRetryContext = ref<{ operation: SshAuthOperation; request: BridgeRequest | null }>();
 const newConnection = ref<ManualConnectionInput>({ displayName: "", destination: "", port: 22, authentication: "password", identityFile: null });
@@ -171,16 +184,15 @@ const skillGroups = computed<RemoteSkillGroup[]>(() => {
 const selectedTarget = computed(() => targets.value.find((target) => target.id === targetId.value));
 const reconnecting = computed(() => ["waiting", "retrying"].includes(props.summary.reconnectState ?? ""));
 const needsAttention = computed(() => props.summary.reconnectState === "attentionRequired");
+watch([() => props.summary.status, () => props.summary.reconnectState], ([status, reconnect], [previousStatus]) => {
+  if (reconnect && reconnect !== "idle" || previousStatus === "connected" && status !== "connected") {
+    readinessAnnouncementTarget.value = undefined;
+  }
+});
 const live = computed(() => !establishingBridge.value && (["connected", "stale", "unavailable", "connecting"].includes(props.summary.status) || needsAttention.value) && !!props.summary.target);
 const sshConnected = computed(() => live.value && props.summary.status !== "connecting" && !needsAttention.value);
 const proxyAvailable = computed(() => props.activeProxy.available && !!props.activeProxy.candidate && props.activeProxy.candidate.protocol !== "unknown");
 const ccUsable = computed(() => ccDetection.value.state === "confirmed");
-const portsReady = computed(() => (!proxy.value || proxyPort.value >= 1024 && proxyPort.value <= 65535)
-  && (!cc.value || ccPort.value >= 1024 && ccPort.value <= 65535)
-  && (!(proxy.value && cc.value) || proxyPort.value !== ccPort.value));
-const valid = computed(() => (proxy.value || cc.value)
-  && (!proxy.value || proxyAvailable.value && portsReady.value)
-  && (!cc.value || ccUsable.value && portsReady.value && ccLocalPort.value >= 1024 && ccLocalPort.value <= 65535));
 const canStartConnection = computed(() => !!selectedTarget.value?.available
   && (proxy.value || cc.value)
   && (!proxy.value || proxyAvailable.value)
@@ -279,7 +291,6 @@ const genericStateLabel = (state: CheckState) => ({ idle: props.copy.rbCheckIdle
 const serverDirectStatus = computed(() => overviewServerDirectStatus(props.copy, serverDirectState.value));
 const localProxyLabel = computed(() => localProxyCheck.value.state === "healthy" ? props.copy.rbLocalProxyReady : localProxyCheck.value.state === "failed" ? props.copy.rbLocalProxyUnavailable : genericStateLabel(localProxyCheck.value.state));
 const ccStateLabel = computed(() => ccCheck.value.state === "healthy" ? props.copy.rbCcConfirmed : ccCheck.value.state === "warning" ? props.copy.rbCcUnknown : ccCheck.value.state === "failed" ? props.copy.rbCcMissing : ccCheck.value.state === "disabled" ? props.copy.rbCcDisabled : genericStateLabel(ccCheck.value.state));
-const networkChecking = computed(() => networkCheckPending.value || serverDirectState.value === "checking" || ccCheck.value.state === "checking");
 const sshRuntimeState = computed<CheckState>(() => needsAttention.value ? "failed" : live.value ? (props.summary.status === "connecting" ? "checking" : "healthy") : bridgeCheckState(props.summary.status));
 const sshRuntimeLabel = computed(() => sshRuntimeState.value === "healthy" ? props.copy.rbHealthy : genericStateLabel(sshRuntimeState.value));
 const authPrompt = computed(() => authSession.value?.prompt);
@@ -385,8 +396,10 @@ async function refreshNetworkChecks() {
     if (revision === networkRefreshRevision) ccCheck.value = { state: "failed", checkedAt: Date.now() };
   }) : Promise.resolve();
   await Promise.allSettled([serverTask, ccTask]);
-  networkCheckPending.value = false;
-  if (revision === networkRefreshRevision) emit("refresh");
+  if (revision === networkRefreshRevision) {
+    networkCheckPending.value = false;
+    emit("refresh");
+  }
 }
 
 const vscodeSetupWarning = ref<string>();
@@ -422,11 +435,31 @@ function clearAuthPoll() {
   authPollTimer = undefined;
 }
 
+async function finishConnectionUi(summary: BridgeSummary) {
+  emit("connected", summary);
+  advancedView.value = false;
+  connectionPhase.value = "idle";
+  busy.value = false;
+  authSubmitting.value = false;
+  authDialog.value?.close();
+  authSession.value = undefined;
+  lastAuthPrompt.value = null;
+  authResponse.value = "";
+  submittedAuthMask.value = "";
+  submittedAuthPromptId.value = undefined;
+  authRetryContext.value = undefined;
+  void refreshNetworkChecks();
+  await nextTick();
+  connectedHeading.value?.focus({ preventScroll: true });
+}
+
 async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
+  const revision = authBeginRevision;
   clearAuthPoll();
   authSession.value = snapshot;
   connectionPhase.value = "building";
   const outcome = await remoteBackend.sshAuthFinish(snapshot.sessionId);
+  if (revision !== authBeginRevision || authSession.value?.sessionId !== snapshot.sessionId) return;
   if (outcome.operation === "check" && outcome.ports) {
     usePorts(outcome.ports);
     checked.value = true;
@@ -434,32 +467,23 @@ async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
     connectionPhase.value = "building";
     try {
       const summary = await connectPrepared(request());
-      emit("connected", summary);
-      void refreshNetworkChecks();
-      connectionPhase.value = "succeeded";
-      await new Promise((resolve) => setTimeout(resolve, 180));
+      if (revision !== authBeginRevision) return;
+      await finishConnectionUi(summary);
     } catch (cause) {
+      if (revision !== authBeginRevision) return;
       if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
         await beginInteractiveAuth("connect", request());
         return;
       }
       connectionPhase.value = "failed";
+      readinessAnnouncementTarget.value = undefined;
       error.value = cause;
       return;
     }
   } else if (outcome.operation === "connect" && outcome.summary) {
-    emit("connected", outcome.summary);
-    connectionPhase.value = "succeeded";
-    await new Promise((resolve) => setTimeout(resolve, 180));
+    await finishConnectionUi(outcome.summary);
   }
-  authDialog.value?.close();
-  authSession.value = undefined;
-  lastAuthPrompt.value = null;
-  authResponse.value = "";
-  submittedAuthMask.value = "";
-  submittedAuthPromptId.value = undefined;
-  connectionPhase.value = "idle";
-  emit("refresh");
+  if (revision === authBeginRevision) emit("refresh");
 }
 
 async function pollInteractiveAuth() {
@@ -476,6 +500,7 @@ async function pollInteractiveAuth() {
     }
     if (next.status === "failed") {
       connectionPhase.value = "failed";
+      readinessAnnouncementTarget.value = undefined;
       busy.value = false;
       clearAuthPoll();
       emit("refresh");
@@ -484,6 +509,7 @@ async function pollInteractiveAuth() {
   } catch (cause) {
     if (revision !== authBeginRevision) return;
     connectionPhase.value = "failed";
+    readinessAnnouncementTarget.value = undefined;
     sshCheck.value = { state: "failed", checkedAt: Date.now() };
     busy.value = false;
     error.value = cause;
@@ -499,16 +525,20 @@ async function pollInteractiveAuth() {
 async function beginInteractiveAuth(operation: SshAuthOperation, request: BridgeRequest | null = null) {
   clearAuthPoll();
   const revision = ++authBeginRevision;
+  const continuing = operation === "connect" && authDialog.value?.open;
   error.value = undefined;
   authSession.value = undefined;
-  lastAuthPrompt.value = null;
   authResponse.value = "";
-  submittedAuthMask.value = "";
-  submittedAuthPromptId.value = undefined;
+  if (!continuing) {
+    lastAuthPrompt.value = null;
+    submittedAuthMask.value = "";
+    submittedAuthPromptId.value = undefined;
+  }
   showAuthDiagnostic.value = false;
   authRetryContext.value = { operation, request };
   connectionPhase.value = "authenticating";
   await nextTick();
+  if (revision !== authBeginRevision) return;
   if (!authDialog.value?.open) authDialog.value?.showModal();
   let session: SshAuthSnapshot;
   try {
@@ -517,6 +547,7 @@ async function beginInteractiveAuth(operation: SshAuthOperation, request: Bridge
     if (revision === authBeginRevision) {
       authDialog.value?.close();
       connectionPhase.value = "failed";
+      readinessAnnouncementTarget.value = undefined;
       error.value = cause;
     }
     throw cause;
@@ -541,18 +572,20 @@ async function submitInteractiveAuth() {
   if (!authIsHostConfirmation.value && !authResponse.value) return;
   error.value = undefined;
   authSubmitting.value = true;
+  const revision = authBeginRevision;
   const response = authResponse.value;
   submittedAuthMask.value = visibleAuthPrompt.value?.secret ? "••••••••" : "";
   submittedAuthPromptId.value = promptId;
   authResponse.value = "";
   try {
-    authSession.value = authIsHostConfirmation.value
+    const next = authIsHostConfirmation.value
       ? await remoteBackend.sshAuthConfirmHost(session.sessionId, promptId)
       : await remoteBackend.sshAuthSubmit(session.sessionId, promptId, response);
+    if (revision === authBeginRevision && authSession.value?.sessionId === session.sessionId) authSession.value = next;
   } catch (cause) {
-    error.value = cause;
+    if (revision === authBeginRevision) error.value = cause;
   } finally {
-    authSubmitting.value = false;
+    if (revision === authBeginRevision) authSubmitting.value = false;
   }
 }
 
@@ -561,16 +594,21 @@ async function retryInteractiveAuth() {
   const sessionId = authSession.value?.sessionId;
   if (!retry || authSubmitting.value) return;
   authSubmitting.value = true;
+  let revision = authBeginRevision;
+  readinessAnnouncementTarget.value = targetId.value;
   clearAuthPoll();
   try {
     if (sessionId) {
       try { await remoteBackend.sshAuthCancel(sessionId); } catch { /* The timed-out PTY may already be closed. */ }
     }
-    await beginInteractiveAuth(retry.operation, retry.request);
+    if (revision !== authBeginRevision) return;
+    const pending = beginInteractiveAuth(retry.operation, retry.request);
+    revision = authBeginRevision;
+    await pending;
   } catch (cause) {
-    error.value = cause;
+    if (revision === authBeginRevision) error.value = cause;
   } finally {
-    authSubmitting.value = false;
+    if (revision === authBeginRevision) authSubmitting.value = false;
   }
 }
 
@@ -598,7 +636,12 @@ watch(
 
 async function cancelInteractiveAuth() {
   clearAuthPoll();
-  authBeginRevision += 1;
+  const revision = ++authBeginRevision;
+  readinessAnnouncementTarget.value = undefined;
+  networkRefreshRevision += 1;
+  networkCheckPending.value = false;
+  busy.value = false;
+  authSubmitting.value = false;
   const sessionId = authSession.value?.sessionId;
   authSession.value = undefined;
   lastAuthPrompt.value = null;
@@ -612,9 +655,12 @@ async function cancelInteractiveAuth() {
   if (sessionId) {
     try { await remoteBackend.sshAuthCancel(sessionId); } catch { /* Session may already be closed. */ }
   }
+  if (revision !== authBeginRevision) return;
   if (sshCheck.value.state === "checking") {
     sshCheck.value = { state: "idle", checkedAt: null };
   }
+  await nextTick();
+  if (connectionPhase.value === "idle") connectedHeading.value?.focus({ preventScroll: true });
 }
 
 async function load() {
@@ -661,17 +707,17 @@ function usePorts(ports: PortAllocation) {
 
 function initializeCapabilities(autoEnable = true) {
   if (autoEnable || !proxyAvailable.value) proxy.value = proxyAvailable.value && proxyPreferred.value;
-  if (live.value || establishingBridge.value) return;
   const result = props.ccDetection ?? (props.reviewPreview ? { state: "confirmed" as const, localPort: ccLocalPort.value } : null);
   if (!result) {
-    ccCheck.value = { state: "checking", checkedAt: null };
+    if (!live.value && !establishingBridge.value) ccCheck.value = { state: "checking", checkedAt: null };
     return;
   }
+  ccCheck.value = { state: result.state === "confirmed" ? "healthy" : result.state === "listeningUnknown" ? "warning" : "failed", checkedAt: Date.now() };
+  if (live.value || establishingBridge.value) return;
   // Apply the cached observation in one render; never clear it during a port refresh.
   if (result.state === "confirmed") ccLocalPort.value = result.localPort;
   ccDetection.value = result;
   cc.value = result.state === "confirmed" && ccPreferred.value;
-  ccCheck.value = { state: result.state === "confirmed" ? "healthy" : result.state === "listeningUnknown" ? "warning" : "failed", checkedAt: Date.now() };
 }
 
 function rememberCcChoice(event: Event) {
@@ -697,6 +743,8 @@ async function connectPrepared(selected: BridgeRequest): Promise<BridgeSummary> 
 
 function startConnection() {
   if (!canStartConnection.value || busy.value) return;
+  const revision = ++authBeginRevision;
+  readinessAnnouncementTarget.value = targetId.value;
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
@@ -711,31 +759,33 @@ function startConnection() {
       const ports = props.reviewPreview
         ? { proxyPort: 23841, ccPort: 31472 }
         : await remoteBackend.check(targetId.value);
+      if (revision !== authBeginRevision) return;
       usePorts(ports);
       checked.value = true;
       sshCheck.value = { state: "healthy", checkedAt: Date.now() };
       const summary = props.reviewPreview
         ? props.summary
         : await connectPrepared(request());
-      emit("connected", summary);
-      connectionPhase.value = "succeeded";
-      void refreshNetworkChecks();
+      if (revision !== authBeginRevision) return;
+      await finishConnectionUi(summary);
     } catch (cause) {
+      if (revision !== authBeginRevision) return;
       if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
         busy.value = false;
         try {
           await beginInteractiveAuth("check");
-        } catch (authError) {
-          error.value = authError;
-        }
+        } catch { /* The current auth attempt owns its error and revision. */ }
         return;
       }
       sshCheck.value = { state: "failed", checkedAt: Date.now() };
+      readinessAnnouncementTarget.value = undefined;
       connectionPhase.value = "failed";
       error.value = cause;
     } finally {
-      busy.value = false;
-      emit("refresh");
+      if (revision === authBeginRevision) {
+        busy.value = false;
+        emit("refresh");
+      }
     }
   })();
 }
@@ -894,39 +944,6 @@ function request(): BridgeRequest {
     ccLocalPort: ccLocalPort.value,
     expectedRevision: props.activeProxy.revision,
   };
-}
-
-function connect() {
-  if (!valid.value || busy.value) return;
-  busy.value = true;
-  error.value = undefined;
-  const selected = request();
-  void remoteBackend.preview(selected).then(() => remoteBackend.connect(selected)).then((summary) => {
-    emit("connected", summary);
-    void refreshNetworkChecks();
-  }).catch(async (cause) => {
-    if (bridgeErrorCode(cause) === "portInUse") {
-      try {
-        usePorts(await remoteBackend.allocatePorts(selected.targetId));
-        error.value = "portRace";
-      } catch (allocationError) {
-        error.value = allocationError;
-      }
-    } else {
-      if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
-        try {
-          await beginInteractiveAuth("connect", selected);
-        } catch (authError) {
-          error.value = authError;
-        }
-      } else {
-        error.value = cause;
-      }
-    }
-  }).finally(() => {
-    busy.value = false;
-    emit("refresh");
-  });
 }
 
 async function reconnectManually() {
@@ -1108,6 +1125,9 @@ async function copySessionEnvironment() {
 }
 
 function confirmDisconnect() {
+  readinessAnnouncementTarget.value = undefined;
+  networkRefreshRevision += 1;
+  networkCheckPending.value = false;
   confirmation.value?.close();
   void perform(async () => {
     await remoteBackend.disconnect();
@@ -1125,9 +1145,11 @@ watch(targetId, (nextTarget, previousTarget) => {
     }
   }
   if (previousTarget && nextTarget !== previousTarget) {
+    readinessAnnouncementTarget.value = undefined;
     void remoteBackend.clearSessionCredential().catch(() => undefined);
   }
   networkRefreshRevision += 1;
+  networkCheckPending.value = false;
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
@@ -1231,18 +1253,18 @@ onBeforeUnmount(() => {
   <main class="page remote-bridge-page" :class="{ 'remote-setup-page': !live, 'remote-connected-page': live, 'remote-overview-page': live && !advancedView }">
     <section class="remote-workspace" :class="{ 'remote-workspace-configure': !live, 'remote-workspace-connected': live, 'remote-workspace-advanced': live && advancedView, 'remote-workspace-simple': live && !advancedView }">
       <div v-if="live" class="remote-workspace-heading">
-        <h1>{{ copy.rbStatus }}</h1>
+        <h1 ref="connectedHeading" tabindex="-1">{{ copy.rbStatus }}</h1>
         <div class="remote-status-toolbar">
           <div class="remote-view-switch" role="group" :aria-label="copy.rbViewMode">
             <button type="button" :class="{ active: !advancedView }" :aria-pressed="!advancedView" @click="advancedView = false">{{ copy.rbSimpleView }}</button>
             <button type="button" :class="{ active: advancedView }" :aria-pressed="advancedView" @click="advancedView = true">{{ copy.rbAdvancedView }}</button>
           </div>
-          <button class="secondary-action" type="button" :disabled="busy || networkChecking" @click="runDiagnostics">{{ copy.rbRefreshStatus }}</button>
+          <button class="secondary-action" type="button" :disabled="busy || diagnosing || !sshConnected" :aria-busy="diagnosing" @click="runDiagnostics">{{ copy.rbRefreshStatus }}</button>
           <button class="secondary-action remote-danger remote-disconnect" type="button" :disabled="busy" @click="confirmation?.showModal()"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 15-1.5 1.5a3.5 3.5 0 0 1-5-5L6 8m9 1 1.5-1.5a3.5 3.5 0 0 1 5 5L18 16M9 3v3M3 9h3m9 12v-3m6-3h-3M4 20 20 4"/></svg>{{ copy.rbDisconnect }}</button>
         </div>
       </div>
       <header v-else class="remote-page-intro">
-        <h1>{{ copy.rbWorkspaceTitle }}</h1>
+        <h1 ref="connectedHeading" tabindex="-1">{{ copy.rbWorkspaceTitle }}</h1>
       </header>
       <div v-if="live && activeTarget" class="remote-selected-target">
         <div class="remote-target-identity"><div class="remote-target-name"><strong>{{ activeTarget.displayName }}</strong>
@@ -1514,6 +1536,7 @@ onBeforeUnmount(() => {
 .remote-current-empty p { max-width:34ch; margin:0; font-size:11px; line-height:1.55; }
 .remote-workspace-heading { display:flex; margin-bottom:14px; align-items:center; justify-content:space-between; gap:18px; }
 .remote-workspace-heading h1 { margin:0; font-size:24px; font-weight:700; letter-spacing:-.025em; }
+.remote-workspace-heading h1:focus,.remote-page-intro h1:focus { outline:none; }
 .remote-workspace-connected .remote-selected-target { display:flex; flex:none; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:0 0 12px; margin-bottom:0; border:0; background:none; }
 .remote-target-identity { min-width:0; flex:1; }
 .remote-target-name { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }

@@ -1,4 +1,5 @@
 const extensionEn = {
+  rbReadinessReadyNotification: "Remote environment ready",
   rbNotifications: 'Notifications',
   rbNotificationsHint: 'Alert only when the bridge needs your attention. Automatic reconnection stays quiet.',
   rbNotificationSound: 'Notification sound',
@@ -72,6 +73,7 @@ const extensionEn = {
 };
 type ExtensionLabels = { [K in keyof typeof extensionEn]: string };
 const extensionZh: ExtensionLabels = {
+  rbReadinessReadyNotification: "远程环境已就绪",
   rbNotifications: '通知提醒',
   rbNotificationsHint: '仅在桥接需要你处理时提醒，自动重连成功不会打扰。',
   rbNotificationSound: '通知声音',
@@ -144,6 +146,7 @@ const extensionZh: ExtensionLabels = {
   rbSkillsTitle:'远端 Skills',rbSkillsHint:'CC Switch 链接默认同步到对应远端智能体。桥接期间会动态检查；某个工具的链接被移除后，只安全移除该智能体的远端投影。',rbSkillsEmpty:'未发现 CC Switch 管理并链接到工具目录的 Skill。',rbSkillEnable:'启用',rbSkillDisable:'停用',rbSkillNotLinked:'未链接',rbSkillNotSynced:'未同步',rbSkillSynced:'已同步',rbSkillChanged:'检测到本机变化',rbSkillConflict:'远端同名冲突',rbSkillUnavailable:'暂不可用',rbSkillRestart:'如果远端工具没有立即发现 Skill，请新建一个 Agent 会话。',rbSkillError:'无法安全投影该 Skill，ProxyEnv 未覆盖远端非托管内容。',
 };
 const extensionJa: ExtensionLabels = {
+  rbReadinessReadyNotification: "リモート環境の準備完了",
   rbNotifications: '通知',
   rbNotificationsHint: '操作が必要な場合のみ通知します。自動再接続の成功は通知しません。',
   rbNotificationSound: '通知音',
@@ -216,6 +219,7 @@ const extensionJa: ExtensionLabels = {
   rbSkillsTitle:'リモート Skills',rbSkillsHint:'CC Switch のリンクは、対応するリモート Agent へ既定で同期されます。接続中は動的に確認し、リンクが削除された場合はその Agent の投影だけを安全に削除します。',rbSkillsEmpty:'CC Switch が管理するリンク済み Skill が見つかりません。',rbSkillEnable:'有効化',rbSkillDisable:'無効化',rbSkillNotLinked:'未リンク',rbSkillNotSynced:'未同期',rbSkillSynced:'同期済み',rbSkillChanged:'ローカル変更を検出',rbSkillConflict:'リモート名が競合',rbSkillUnavailable:'利用不可',rbSkillRestart:'リモートツールがすぐに Skill を認識しない場合は、新しい Agent セッションを開始してください。',rbSkillError:'Skill を安全に投影できませんでした。ProxyEnv はリモートの非管理コンテンツを上書きしていません。',
 };
 const extensionKo: ExtensionLabels = {
+  rbReadinessReadyNotification: "원격 환경 준비 완료",
   rbNotifications: '알림',
   rbNotificationsHint: '조치가 필요한 경우에만 알립니다. 자동 재연결 성공은 알리지 않습니다.',
   rbNotificationSound: '알림 소리',
