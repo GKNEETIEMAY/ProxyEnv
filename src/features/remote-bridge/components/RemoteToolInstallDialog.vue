@@ -7,7 +7,7 @@ import { copyText } from "../../../shared/utils/clipboard";
 import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
 import { remoteBackend, type BridgeSummary } from "../state";
 import { getRemoteToolAdapter, type RemoteToolId } from "../tool-adapters";
-import { installMethods, installMissingRequirements } from "../install-guidance";
+import { installMethods, installMissingRequirements, installPathCommands } from "../install-guidance";
 import type { ToolInstallMethod } from "../install-guidance";
 import { toolInstallationLabel } from "../overview-presentation";
 import { useNotification } from "../../../shared/state/notifications";
@@ -24,6 +24,8 @@ let generation=0, timer:ReturnType<typeof setTimeout>|undefined;
 let previousFocus:HTMLElement|null=null;
 const adapter=computed(() => getRemoteToolAdapter(tool.value));
 const inspection=computed(() => adapter.value.inspect(props.summary));
+const pathCommands=computed(() => installPathCommands(tool.value).map(recipe => ({...recipe,label:recipe.id === "nativeSession" ? props.copy.rbInstallPathNative : recipe.id === "nativeBash" ? props.copy.rbInstallPathBash : props.copy.rbInstallPathNpm})));
+const pathHelpOpen=ref(false);
 const connected=computed(() => props.summary.target?.id === targetId.value && props.summary.status === "connected");
 const checking=computed(() => pending.value || inspection.value.installation === "checking");
 const state=computed(() => checking.value ? "checking" : inspection.value.installation === "installed" ? "healthy" : ["unsupported","broken"].includes(inspection.value.installation) ? "warning" : "idle");
@@ -34,7 +36,7 @@ function open(selected:RemoteToolId) {
   if (!props.summary.target) return;
   generation++; previousFocus=document.activeElement instanceof HTMLElement ? document.activeElement : null;
   tool.value=selected; targetId.value=props.summary.target.id;
-  pending.value=false; terminalPending.value=false; error.value=null; copied.value=""; clearTimeout(timer);
+  pending.value=false; terminalPending.value=false; error.value=null; copied.value=""; pathHelpOpen.value=false; clearTimeout(timer);
   dialog.value?.showModal(); void nextTick(() => heading.value?.focus());
 }
 function close() { generation++; dialog.value?.close(); previousFocus?.focus(); }
@@ -75,7 +77,7 @@ defineExpose({open});
 <template>
   <dialog ref="dialog" class="confirmation-dialog remote-install-dialog" aria-labelledby="remote-install-title" aria-describedby="remote-install-intro" @cancel.prevent="close">
     <header><h2 id="remote-install-title" ref="heading" tabindex="-1">{{ adapter.displayName }} · {{ copy.rbInstallTitle }}</h2><StatusIndicator :state="state" :label="toolInstallationLabel(copy,summary,tool)" /></header>
-    <p id="remote-install-intro">{{ inspection.extensionInstallation === 'installed' ? copy.rbInstallExtensionOnly : copy.rbInstallIntro }}</p>
+    <p id="remote-install-intro">{{ inspection.installation === 'installed' ? copy.rbInstallAlreadyInstalled : inspection.extensionInstallation === 'installed' ? copy.rbInstallExtensionOnly : copy.rbInstallIntro }}</p>
     <div class="install-methods">
       <section v-for="method in installMethods(tool)" :key="method.id" class="install-method">
         <h3>{{ method.label }}<span v-if="method.recommended" class="install-recommended">{{ copy.rbInstallRecommended }}</span><a :href="method.officialUrl" @click="openOfficial($event,method)" target="_blank" rel="noopener noreferrer">{{ copy.rbInstallOfficial }}</a></h3>
@@ -85,6 +87,18 @@ defineExpose({open});
       </section>
     </div>
     <div class="install-verification"><span>{{ copy.rbInstallVerify }}</span><code>{{ installMethods(tool)[0].verifyCommand }}</code></div>
+    <details class="install-path-help" :open="pathHelpOpen" @toggle="pathHelpOpen=($event.target as HTMLDetailsElement).open">
+      <summary>{{ copy.rbInstallPathTitle }}</summary>
+      <p>{{ copy.rbInstallPathHint }}</p>
+      <p v-if="tool==='codex'">{{ copy.rbInstallPathCodex }}</p>
+      <div v-for="recipe in pathCommands" :key="recipe.id" class="install-path-recipe">
+        <h3>{{ recipe.label }}</h3>
+        <p v-if="recipe.id==='nativeBash'">{{ copy.rbInstallPathBashHint }}</p>
+        <p v-if="recipe.id==='npmSession'">{{ copy.rbInstallPathNpmHint }}</p>
+        <div class="install-command"><code>{{ recipe.command }}</code><button class="secondary-action install-copy" :class="{'is-copied':copied===recipe.id}" type="button" :aria-label="copied===recipe.id ? copy.rbCopied : `${copy.rbInstallCopy} · ${recipe.label}`" :title="copied===recipe.id ? copy.rbCopied : copy.rbInstallCopy" @click="copyCommand(recipe.command,recipe.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="copied===recipe.id" d="m5 12 4 4L19 6"/><template v-else><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></template></svg></button></div>
+      </div>
+      <p>{{ copy.rbInstallPathShell }}</p>
+    </details>
     <p class="install-network">{{ copy.rbInstallNetwork }}<span v-if="!proxyOn"> {{ copy.rbInstallDirect }}</span></p>
     <footer><button class="secondary-action" type="button" :disabled="!connected || terminalPending" @click="terminal">{{ copy.rbOpenTerminal }}</button><button class="secondary-action" type="button" :disabled="!connected || checking" @click="recheck">{{ checking ? copy.rbInstallChecking : copy.rbInstallRecheck }}</button><button class="secondary-action" type="button" @click="close">{{ copy.rbClose }}</button></footer>
   </dialog>
@@ -110,6 +124,13 @@ header h2:focus { outline:none; }
 .install-method small { color:var(--muted); font-size:11px; }
 .install-verification { display:flex; flex-wrap:wrap; gap:8px; align-items:center; color:var(--muted); font-size:12px; }
 .install-verification code { color:var(--ink); }
+.install-path-help { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); font-size:12px; }
+.install-path-help summary { width:fit-content; color:var(--accent-strong); font-weight:600; cursor:pointer; }
+.install-path-help summary:focus-visible { outline:2px solid var(--focus); outline-offset:4px; }
+.install-path-recipe { margin-top:14px; }
+.install-path-recipe h3 { margin:0 0 6px; font-size:12px; }
+.install-path-recipe p { margin:6px 0; }
+.install-path-recipe code { white-space:pre-wrap; }
 footer { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:16px; }
 footer button { min-height:34px; padding:7px 12px; font-size:12px; }
 @media(max-width:540px) { .remote-install-dialog {padding:18px;} footer {justify-content:flex-start;} }

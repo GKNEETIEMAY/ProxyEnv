@@ -722,6 +722,11 @@ const advancedKo: AdvancedLabels = {
 };
 
 const installationEn = {
+  rbInstallAlreadyInstalled:"The CLI is installed. If the terminal says command not found, check PATH below instead of reinstalling. The installation commands are optional.",
+  rbInstallPathTitle:"Installed, but the terminal cannot find the command?", rbInstallPathHint:"ProxyEnv checks common installation directories without changing your terminal PATH. First open a new terminal. If the version command is still not found, use the solution for your installation method below; it only runs when the executable exists.",
+  rbInstallPathNative:"Claude native installer · current terminal", rbInstallPathBash:"Claude native installer · save for Bash", rbInstallPathBashHint:"Run this only in Bash. It adds the PATH line to ~/.bashrc once and applies it immediately. It does not reload other Shell settings.",
+  rbInstallPathNpm:"npm global installation · current terminal", rbInstallPathNpmHint:"Global npm commands use the bin directory under npm prefix -g, not necessarily ~/.local/bin. If npm is also missing, load your Node version manager first. For future terminals, add this bin directory to your Shell PATH; with NVM, repair its initialization instead of pinning a Node version directory.",
+  rbInstallPathCodex:"For a Codex native installer or Homebrew installation, use the directory and Shell initialization instructions printed by that installer. Do not assume Codex is installed in ~/.local/bin.", rbInstallPathShell:"These commands are for Bash/zsh; the save command is Bash-only. For zsh, put the matching PATH line in ~/.zshrc; for fish, use fish_add_path. After fixing PATH, run the version command and click Check again. ProxyEnv does not edit Shell startup files automatically.",
   rbInstallExtension:"VS Code extension", rbInstallExtensionOnly:"A compatible remote VS Code extension was detected. You can enable its route without installing a standalone CLI; the commands below are optional CLI installation options.",
   rbInstallUnknown:"Not checked", rbInstallChecking:"Checking installation", rbInstallInstalled:"Installed", rbInstallMissing:"Not installed", rbInstallUnsupported:"Needs update", rbInstallBroken:"Found, but cannot run", rbInstallConfigured:"Existing route configuration",
   rbInstallView:"Installation options", rbInstallUpgrade:"Update options", rbInstallTitle:"Installation options", rbInstallRecommended:"Recommended", rbInstallCopy:"Copy command", rbInstallRecheck:"Check again", rbInstallOfficial:"Official documentation", rbInstallVerify:"Verify installation", rbInstallSection:"CLI installation",
@@ -729,18 +734,33 @@ const installationEn = {
 };
 type InstallationLabels = {[K in keyof typeof installationEn]:string};
 const installationZh:InstallationLabels = {
+  rbInstallAlreadyInstalled:"已检测到 CLI 安装成功。如果终端提示 command not found，请先查看下方 PATH 排查指引，无需重新安装。安装命令仅供按需使用。",
+  rbInstallPathTitle:"安装成功，但终端找不到命令？", rbInstallPathHint:"ProxyEnv 会检查常见安装目录，但不会修改终端的 PATH。先打开一个新终端；如果版本命令仍提示找不到，请按安装方式使用下方方案。命令仅在对应可执行文件存在时继续执行。",
+  rbInstallPathNative:"Claude 原生安装 · 当前终端生效", rbInstallPathBash:"Claude 原生安装 · 保存到 Bash", rbInstallPathBashHint:"仅在 Bash 中执行。此命令将 PATH 配置写入 ~/.bashrc，避免重复添加，并立即生效，不会重新加载其它 Shell 设置。",
+  rbInstallPathNpm:"npm 全局安装 · 当前终端生效", rbInstallPathNpmHint:"npm 全局命令位于 npm prefix -g 对应的 bin 目录，不一定是 ~/.local/bin。如果 npm 也找不到，请先加载 Node 版本管理器。要让新终端生效，请把此 bin 目录加入 Shell 的 PATH；使用 NVM 时应修复其初始化，不要固定某个 Node 版本目录。",
+  rbInstallPathCodex:"Codex 原生安装或 Homebrew 安装，请按安装器输出的实际目录和 Shell 初始化指引处理，不要直接假定 Codex 位于 ~/.local/bin。", rbInstallPathShell:"上述命令适用于 Bash/zsh，保存命令仅适用于 Bash。zsh 请将对应 PATH 配置写入 ~/.zshrc；fish 请使用 fish_add_path。修复后运行版本命令，再点击“重新检测”。ProxyEnv 不会自动修改 Shell 启动文件。",
   rbInstallExtension:"VS Code 插件", rbInstallExtensionOnly:"已检测到兼容的远端 VS Code 插件，无需安装独立 CLI 即可启用接入。下方命令仅供需要 CLI 的用户选择。",
   rbInstallUnknown:"尚未检测", rbInstallChecking:"正在检测安装状态", rbInstallInstalled:"已安装", rbInstallMissing:"未安装", rbInstallUnsupported:"需要更新", rbInstallBroken:"已发现，但无法正常运行", rbInstallConfigured:"已有路由配置",
   rbInstallView:"查看安装方式", rbInstallUpgrade:"查看升级方式", rbInstallTitle:"安装方式", rbInstallRecommended:"推荐", rbInstallCopy:"复制命令", rbInstallRecheck:"重新检测", rbInstallOfficial:"官方文档", rbInstallVerify:"验证安装", rbInstallSection:"CLI 安装状态",
   rbInstallIntro:"选择一种官方方式，在远端终端中执行命令。ProxyEnv 不会自动安装或更新软件。", rbInstallNetwork:"如果服务器无法直连外网，请先开启“桥接本机网络”，再通过 ProxyEnv 打开的终端执行命令。", rbInstallDirect:"网络桥接未开启，终端将使用服务器自身网络。", rbInstallRequirement:"远端未检测到：{requirement}", rbInstallOfficialError:"未能打开文档，请复制官方链接并在浏览器中打开。", rbInstallNoSudo:"npm 安装请勿使用 sudo。", rbInstallNode:"Node.js 18+", rbInstallNodeRecommended:"官方推荐 Node.js 22+。", rbInstallRecheckError:"未能检测安装状态，请检查 SSH 连接后重试。", rbInstallTerminalError:"未能打开终端，请检查 SSH 连接后重试。", rbInstallCopyError:"复制失败，请手动选择并复制命令。", rbInstallDiscovery:"CLI 安装检测",
 };
 const installationJa:InstallationLabels = {
+  rbInstallAlreadyInstalled:"CLI はインストール済みです。端末に command not found と表示される場合は、再インストールせず下の PATH の案内を確認してください。インストールコマンドは任意です。",
+  rbInstallPathTitle:"インストール済みなのにコマンドが見つからない？", rbInstallPathHint:"ProxyEnv は一般的なインストール先を確認しますが、端末の PATH は変更しません。まず新しい端末を開いてください。バージョンコマンドが見つからない場合は、インストール方法に合う下の手順を使ってください。実行ファイルが存在する場合のみ続行します。",
+  rbInstallPathNative:"Claude ネイティブ · 現在の端末", rbInstallPathBash:"Claude ネイティブ · Bash に保存", rbInstallPathBashHint:"Bash でのみ実行してください。PATH の行を ~/.bashrc に重複なく追加し、直ちに適用します。他の Shell 設定は再読み込みしません。",
+  rbInstallPathNpm:"npm グローバル · 現在の端末", rbInstallPathNpmHint:"npm のコマンドは npm prefix -g の bin ディレクトリにあり、必ずしも ~/.local/bin ではありません。npm 自体が見つからない場合は Node バージョン管理を先に読み込んでください。新しい端末でも使うにはこの bin を Shell の PATH に追加します。NVM は特定バージョンの場所を固定せず初期化を修正してください。",
+  rbInstallPathCodex:"Codex ネイティブまたは Homebrew は、インストーラーが示す実際の場所と Shell 初期化手順に従ってください。~/.local/bin にあると決めつけないでください。", rbInstallPathShell:"上記は Bash/zsh 用で、保存コマンドは Bash 専用です。zsh は対応する PATH の行を ~/.zshrc に、fish は fish_add_path を使ってください。修正後にバージョンを確認して「再確認」を押してください。ProxyEnv は Shell 起動ファイルを自動編集しません。",
   rbInstallExtension:"VS Code 拡張機能", rbInstallExtensionOnly:"互換性のあるリモート VS Code 拡張機能を検出しました。単独の CLI をインストールせずにルートを有効にできます。以下は CLI が必要な場合の任意のインストール方法です。",
   rbInstallUnknown:"未確認", rbInstallChecking:"インストールを確認中", rbInstallInstalled:"インストール済み", rbInstallMissing:"未インストール", rbInstallUnsupported:"更新が必要", rbInstallBroken:"検出済み・実行できません", rbInstallConfigured:"既存のルート設定あり",
   rbInstallView:"インストール方法", rbInstallUpgrade:"更新方法", rbInstallTitle:"インストール方法", rbInstallRecommended:"推奨", rbInstallCopy:"コマンドをコピー", rbInstallRecheck:"再確認", rbInstallOfficial:"公式ドキュメント", rbInstallVerify:"インストール確認", rbInstallSection:"CLI インストール",
   rbInstallIntro:"公式の方法を選び、リモート端末でコマンドを実行してください。ProxyEnv はソフトウェアを自動でインストール・更新しません。", rbInstallNetwork:"サーバーがインターネットに直接接続できない場合は、ローカルネットワークのブリッジを有効にし、ProxyEnv から開いた端末で実行してください。", rbInstallDirect:"ネットワークブリッジは無効です。端末はサーバー自身のネットワークを使用します。", rbInstallRequirement:"リモートで未検出：{requirement}", rbInstallOfficialError:"ドキュメントを開けませんでした。公式リンクをコピーしてブラウザーで開いてください。", rbInstallNoSudo:"npm インストールに sudo を使用しないでください。", rbInstallNode:"Node.js 18+", rbInstallNodeRecommended:"公式推奨：Node.js 22+。", rbInstallRecheckError:"確認できませんでした。SSH 接続を確認して再試行してください。", rbInstallTerminalError:"端末を開けませんでした。SSH 接続を確認してください。", rbInstallCopyError:"コピーできませんでした。コマンドを選択して手動でコピーしてください。", rbInstallDiscovery:"CLI 検出",
 };
 const installationKo:InstallationLabels = {
+  rbInstallAlreadyInstalled:"CLI가 설치되어 있습니다. 터미널에서 command not found가 나오면 재설치하지 말고 아래 PATH 안내를 확인하세요. 설치 명령은 필요한 경우에만 사용하세요.",
+  rbInstallPathTitle:"설치했는데 터미널에서 명령을 찾지 못하나요?", rbInstallPathHint:"ProxyEnv는 일반적인 설치 위치를 확인하지만 터미널 PATH를 바꾸지 않습니다. 먼저 새 터미널을 여세요. 버전 명령을 계속 찾지 못하면 설치 방식에 맞는 아래 방법을 사용하세요. 실행 파일이 있을 때만 진행합니다.",
+  rbInstallPathNative:"Claude 네이티브 · 현재 터미널", rbInstallPathBash:"Claude 네이티브 · Bash에 저장", rbInstallPathBashHint:"Bash에서만 실행하세요. PATH 설정을 ~/.bashrc에 중복 없이 추가하고 즉시 적용합니다. 다른 Shell 설정은 다시 불러오지 않습니다.",
+  rbInstallPathNpm:"npm 전역 설치 · 현재 터미널", rbInstallPathNpmHint:"npm 명령은 npm prefix -g의 bin 디렉터리에 있으며 반드시 ~/.local/bin은 아닙니다. npm도 찾지 못하면 Node 버전 관리자를 먼저 불러오세요. 새 터미널에서도 쓰려면 해당 bin을 Shell PATH에 추가하세요. NVM은 특정 버전 디렉터리를 고정하지 말고 초기화를 수정하세요.",
+  rbInstallPathCodex:"Codex 네이티브 또는 Homebrew는 설치 프로그램이 알려 주는 실제 위치와 Shell 초기화 안내를 따르세요. ~/.local/bin에 있다고 가정하지 마세요.", rbInstallPathShell:"위 명령은 Bash/zsh용이며 저장 명령은 Bash 전용입니다. zsh는 해당 PATH 설정을 ~/.zshrc에 추가하고 fish는 fish_add_path를 사용하세요. 수정 후 버전 명령을 실행하고 ‘다시 확인’을 누르세요. ProxyEnv는 Shell 시작 파일을 자동으로 수정하지 않습니다.",
   rbInstallExtension:"VS Code 확장", rbInstallExtensionOnly:"호환되는 원격 VS Code 확장을 감지했습니다. 별도의 CLI 없이 라우트를 활성화할 수 있습니다. 아래 명령은 CLI가 필요한 경우에만 선택적으로 사용하세요.",
   rbInstallUnknown:"미확인", rbInstallChecking:"설치 상태 확인 중", rbInstallInstalled:"설치됨", rbInstallMissing:"설치되지 않음", rbInstallUnsupported:"업데이트 필요", rbInstallBroken:"발견했으나 실행 불가", rbInstallConfigured:"기존 라우트 설정 있음",
   rbInstallView:"설치 방법", rbInstallUpgrade:"업데이트 방법", rbInstallTitle:"설치 방법", rbInstallRecommended:"권장", rbInstallCopy:"명령 복사", rbInstallRecheck:"다시 확인", rbInstallOfficial:"공식 문서", rbInstallVerify:"설치 확인", rbInstallSection:"CLI 설치 상태",

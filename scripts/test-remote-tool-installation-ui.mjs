@@ -60,6 +60,13 @@ try {
   assert.equal(await page.evaluate(()=>window.copies[0]),"curl -fsSL https://chatgpt.com/codex/install.sh | sh");
   await dialog.getByRole("button",{name:"打开终端",exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>window.terminalCalls),["remote_bridge_launch_proxy_terminal"]);
+  const pathHelp=dialog.locator('.install-path-help');
+  assert.equal(await pathHelp.getAttribute("open"),null,"PATH troubleshooting starts collapsed");
+  await pathHelp.locator('summary').click();
+  assert.equal(await pathHelp.locator('.install-path-recipe').count(),1,"Codex does not assume a native ~/.local/bin install");
+  await pathHelp.getByRole("button",{name:"复制命令 · npm 全局安装 · 当前终端生效",exact:true}).click();
+  assert.match(await page.evaluate(()=>window.copies.at(-1)),/npm prefix -g/);
+  assert.equal(await page.evaluate(()=>window.routeWrites),0,"PATH copy does not execute or configure the remote host");
   for(const [name,width,height,theme] of [["dialog-light",980,800,"light"],["dialog-dark",980,800,"dark"],["dialog-narrow",620,620,"light"]]) {
     await page.setViewportSize({width,height});
     await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
@@ -98,6 +105,22 @@ try {
     await page.evaluate(({npm,nodeVersion})=>{window.cachedBridge.installCapabilities={curl:true,npm,brew:false,nodeVersion};},{npm,nodeVersion});
     for(const index of [0,1]) {
       await page.locator('.bridge-tool').nth(index).getByRole("button",{name:"查看安装方式",exact:true}).click();
+      assert.equal(await dialog.locator('.install-path-help').getAttribute("open"),null,"Each opening resets disclosure");
+      if(index===1 && npm && nodeVersion==='18.0.0') {
+        await dialog.getByText(/已检测到 CLI 安装成功/).waitFor();
+        await dialog.locator('.install-path-help summary').click();
+        assert.equal(await dialog.locator('.install-path-recipe').count(),3);
+        await dialog.getByRole("button",{name:"复制命令 · Claude 原生安装 · 保存到 Bash",exact:true}).click();
+        assert.match(await page.evaluate(()=>window.copies.at(-1)),/grep -qxF/);
+        for(const [width,height,theme] of [[980,800,"light"],[620,620,"dark"]]) {
+          await page.setViewportSize({width,height});
+          await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+          assert.ok(await dialog.evaluate(node=>node.scrollWidth<=node.clientWidth+1));
+          if(process.env.PROXYENV_LAYOUT_CAPTURE!=="0") await page.screenshot({path:resolve(directory,`path-claude-${theme}.png`)});
+        }
+        await page.setViewportSize({width:980,height:800});
+        await page.evaluate(()=>document.documentElement.dataset.theme="light");
+      }
       await dialog.getByText("远端未检测到：npm",{exact:true}).waitFor({state:npm ? "hidden" : "visible"});
       await dialog.getByText("远端未检测到：Node.js 18+",{exact:true}).waitFor({state:index===1 && Number(nodeVersion?.split(".")[0] ?? 0)<18 ? "visible" : "hidden"});
       await dialog.getByRole("button",{name:"关闭",exact:true}).click();

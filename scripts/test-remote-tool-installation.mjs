@@ -1,12 +1,66 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {readFileSync} from "node:fs";
+import {readFileSync,existsSync,mkdirSync,mkdtempSync,writeFileSync,chmodSync,rmSync} from "node:fs";
+import {dirname,join,resolve} from "node:path";
+import {spawnSync} from "node:child_process";
 import {adapterModuleUrl,presentationModuleUrl,guidanceModuleUrl,copyModuleUrl} from "./remote-tool-test-modules.mjs";
 const {canToggleRemoteTool,getRemoteToolAdapter}=await import(adapterModuleUrl);
 const {overviewToolLabel,overviewToolChecking,toolInstallationLabel,toolInstallationLines,toolInstallationRows}=await import(presentationModuleUrl);
-const {installMethods,installRequirementAvailable,installMissingRequirements}=await import(guidanceModuleUrl);
+const {installMethods,installRequirementAvailable,installMissingRequirements,installPathCommands}=await import(guidanceModuleUrl);
 const {remoteBridgeMessages}=await import(copyModuleUrl);
 const summary=(state,configured=false) => ({status:"connected",cc:{remotePort:15721},ccStatus:"connected",codexState:"ready",claudeState:"ready",codexConfigured:configured,claudeConfigured:false,toolInstallations:[{tool:"codex",state,version:state==="unsupported"?"0.133.9":state==="installed"?"0.134.0":null},{tool:"claude",state:"installed",version:"2.1.227"}]});
+test("PATH recovery follows the installation method without treating installed CLI as missing",()=>{
+  assert.deepEqual(installPathCommands("claude").map(recipe=>recipe.id),["nativeSession","nativeBash","npmSession"]);
+  assert.deepEqual(installPathCommands("codex").map(recipe=>recipe.id),["npmSession"]);
+  for(const tool of ["claude","codex"]) for(const recipe of installPathCommands(tool)) {
+    assert.match(recipe.command,new RegExp(`${tool} --version`));
+    assert.match(recipe.command,/\[ -x /);
+    assert.doesNotMatch(recipe.command,/sudo|curl|source |\.profile|settings\.json|config\.toml/);
+    if(recipe.id==="npmSession") {
+      assert.match(recipe.command,/npm prefix -g/);
+      assert.match(recipe.command,/\[ -n "\$proxyenv_npm_prefix" \]/);
+      assert.doesNotMatch(recipe.command,/\.bashrc|\.local\/bin/);
+    }
+  }
+  const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolInstallDialog.vue","utf8");
+  assert.match(dialog,/inspection.installation === 'installed' \? copy.rbInstallAlreadyInstalled/);
+  assert.match(dialog,/<details class="install-path-help"/);
+  assert.match(dialog,/copyCommand\(recipe.command,recipe.id\)/);
+  assert.match(dialog,/pathHelpOpen.value=false/);
+  for(const copy of Object.values(remoteBridgeMessages)) for(const key of ["rbInstallAlreadyInstalled","rbInstallPathTitle","rbInstallPathNpmHint","rbInstallPathCodex","rbInstallPathShell"]) assert.ok(copy[key]);
+});
+
+const gitPath=process.platform==="win32" ? spawnSync("where.exe",["git"],{encoding:"utf8"}).stdout?.trim().split(/\r?\n/)[0] : undefined;
+const shell=process.env.PROXYENV_TEST_SHELL || (gitPath ? resolve(dirname(gitPath),"../bin/bash.exe") : "/bin/bash");
+test("copyable PATH recipes repair a fixture terminal and persist Bash once, without touching the real HOME",{skip:!existsSync(shell)},()=>{
+  const root=resolve(".debug-tmp");mkdirSync(root,{recursive:true});
+  const fixture=mkdtempSync(join(root,"install-path-"));
+  const posix=path=>path.replaceAll("\\","/").replace(/^([A-Za-z]):/,(_,drive)=>`/${drive.toLowerCase()}`);
+  const executable=(path,body)=>{mkdirSync(dirname(path),{recursive:true});writeFileSync(path,`#!/bin/sh\n${body}\n`);chmodSync(path,0o755);};
+  const run=(command,extra={})=>spawnSync(shell,["-c",command],{encoding:"utf8",timeout:10000,env:{...process.env,HOME:posix(fixture),PATH:"/usr/bin:/bin",...extra}});
+  try {
+    const recipes=installPathCommands("claude");
+    assert.notEqual(run(recipes[1].command).status,0,"Missing executable cannot write .bashrc");
+    assert.equal(existsSync(join(fixture,".bashrc")),false);
+    executable(join(fixture,".local/bin/claude"),'printf "2.1.295\\n"');
+    assert.equal(run(recipes[0].command).stdout.trim(),"2.1.295");
+    assert.equal(existsSync(join(fixture,".bashrc")),false,"Session fix never persists");
+    for(let i=0;i<2;i++) assert.equal(run(recipes[1].command).status,0);
+    assert.equal(readFileSync(join(fixture,".bashrc"),"utf8").trim(),'export PATH="$HOME/.local/bin:$PATH"');
+    assert.equal(run('. "$HOME/.bashrc"; claude --version').stdout.trim(),"2.1.295");
+    const prefix=join(fixture,"npm prefix with spaces"),npmBin=join(fixture,"node/bin");
+    executable(join(npmBin,"npm"),`printf '%s\\n' '${posix(prefix)}'`);
+    const env={PATH:`${posix(npmBin)}:/usr/bin:/bin`};
+    for(const tool of ["claude","codex"]) {
+      executable(join(prefix,"bin",tool),`printf '${tool}-version\\n'`);
+      const recipe=installPathCommands(tool).find(recipe=>recipe.id==="npmSession");
+      assert.equal(run(recipe.command,env).stdout.trim(),`${tool}-version`);
+      executable(join(npmBin,"npm"),'exit 1');
+      assert.notEqual(run(recipe.command,env).status,0,"Failed npm prefix must stop recovery");
+      executable(join(npmBin,"npm"),`printf '%s\\n' '${posix(prefix)}'`);
+    }
+  } finally {rmSync(fixture,{recursive:true,force:true});}
+});
 test("installation gating preserves disabling existing routes and tool independence",()=>{
   for(const state of ["unknown","checking","installed","missing","unsupported","broken"]) {
     assert.equal(canToggleRemoteTool(summary(state),"codex"),state==="installed");

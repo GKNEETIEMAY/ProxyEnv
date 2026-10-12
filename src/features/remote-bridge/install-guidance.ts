@@ -25,6 +25,25 @@ const catalog:Record<RemoteToolId,readonly ToolInstallMethod[]> = {
   ],
 };
 export const installMethods = (tool:RemoteToolId) => catalog[tool];
+// Copy-only recovery recipes; never executed by ProxyEnv or built from remote output.
+export function installPathCommands(tool:RemoteToolId):Array<{id:"nativeSession"|"nativeBash"|"npmSession";command:string}> {
+  const commands:Array<{id:"nativeSession"|"nativeBash"|"npmSession";command:string}>=[];
+  if (tool === "claude") {
+    commands.push({id:"nativeSession",command:'[ -x "$HOME/.local/bin/claude" ] &&\nexport PATH="$HOME/.local/bin:$PATH" &&\nhash -r && claude --version'});
+    commands.push({id:"nativeBash",command:`[ -x "$HOME/.local/bin/claude" ] &&
+{ [ ! -e "$HOME/.bashrc" ] || [ -r "$HOME/.bashrc" ]; } &&
+{ grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bashrc" 2>/dev/null ||
+  printf '\\n%s\\n' 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"; } &&
+export PATH="$HOME/.local/bin:$PATH" &&
+hash -r && claude --version`});
+  }
+  commands.push({id:"npmSession",command:`proxyenv_npm_prefix="$(npm prefix -g)" &&
+[ -n "$proxyenv_npm_prefix" ] &&
+[ -x "$proxyenv_npm_prefix/bin/${tool}" ] &&
+export PATH="$proxyenv_npm_prefix/bin:$PATH" &&
+hash -r && ${tool} --version`});
+  return commands;
+}
 export function installMissingRequirements(tool:RemoteToolId, method:ToolInstallMethod, capabilities?:RemoteInstallCapabilities):Array<ToolInstallMethod["requirement"]|"node"> {
   const missing:Array<ToolInstallMethod["requirement"]|"node">=[];
   if (!capabilities?.[method.requirement]) missing.push(method.requirement);
