@@ -1,40 +1,33 @@
-# ProxyEnv Roadmap
+# RouteSpan roadmap / 路线图
 
-```yaml
-Current Stable: v0.1.4
-Next: v0.2.0
-```
+## Previous stable baseline
 
-Checked **Current** items are shipped. The development branch `v0.2.0dev` is not a stable release; implemented code and a single successful user test do not make every target supported. See the [Remote Bridge scope](remote-bridge/V0.2_SCOPE.md), [acceptance record](remote-bridge/ACCEPTANCE_V0.2.md) and [latest closeout comparison](remote-bridge/CLOSEOUT_STATUS_V0.2.md). No release date or Linux/macOS desktop-adapter schedule is promised.
+ProxyEnv v0.1.4 is the maintainer-designated legacy-brand stable baseline.
+Its GitHub Release remains Draft; latest public release is v0.1.3.
+This designation does not make a draft publicly downloadable.
 
-## Current — v0.1.4
+## Next: RouteSpan v0.2.0
 
-- [x] Proxy-client discovery, actual listener/protocol detection and unified ActiveProxyContext.
-- [x] Safe user proxy-variable sync, snapshots, verified recovery and conflict protection.
-- [x] Independent, read-only Windows System Proxy and TUN/virtual-adapter observation.
-- [x] Conservative Application Assistant diagnosis, explicit proxy/direct new-process launch and confirmed manual-guide restart.
-- [x] Redacted diagnostic report in Chinese, English, Japanese and Korean.
-- [x] User-triggered signed NSIS update; MSI/Portable update manually.
+Unreleased on `v0.2.0dev`: Local Environment, Remote Bridge, CC Switch AI route
+extension, tool readiness, managed Skills, Overview/Advanced and RouteSpan branding
+are implemented. Acceptance evidence is separate in [release QA](RELEASE_QA_V0.2.md).
 
-## Next — v0.2.0 Remote Bridge
+## Release gates
 
-The development branch already has structured OpenSSH/VS Code/Moba bookmark discovery, interactive authentication, independent General Proxy/AI Route forwarding, direct shared Codex/Claude profile switches, lifecycle-bound safe profile synchronization and pure Codex traffic relay. Codex VS Code Remote conversation, file editing and tool calls have been observed by the user on one real target. Those observations do not prove every provider, model, extension or SSH configuration.
+- Resolve the high-severity frontend dependency audit; rerun full latest-code CI.
+- Verify predecessor → RouteSpan upgrade, retained installer identity/data and uninstall.
+- Test real Windows 10/11, 125%/150% native DPI and desktop/tray/installer icon caches.
+- Complete the live SSH key/Agent/password/KBI, provider, CLI/plugin and shared-host matrix.
+- Verify reconnect, explicit disconnect, crash recovery and owned-only restore.
+- Validate formal signed release workflow, updater failure/downgrade handling,
+  checksums and externally verified artifact attestation.
+- Review the published Markdown rendering and record remaining cross-machine preview results.
 
-Release work still open:
+No release date is promised. Local automated checks do not replace those gates.
 
-- [x] M8 per-session authenticated local relay, credential delivery, rotation/revocation and automated security tests. Real different-UID shared-host acceptance remains open.
-- [x] SSH connection manager: bounded automatic import, manual add, automatic OpenSSH or selected identity file, and compatible first-level MobaXterm launch. Real-device acceptance remains pending.
-- [x] Grouped OpenSSH/VS Code/MobaXterm/Manual target selection, two-step setup, automatic post-auth bridge construction and capability-aware launch actions. Real-device UI and Moba launch acceptance remain pending.
-- [x] Managed remote session environment create/update/remove with ownership checks and no default shell-startup edits. Real-device lifecycle acceptance remains pending.
-- [x] CC Switch-linked Skills detection and conflict-safe remote projection/remove with staged per-file SCP, ownership verification and metadata-triggered resync. Native tool Skills remain local. Real-device Agent discovery acceptance remains pending.
-- [x] Simple default / Advanced UI with stable authentication dialog, secure in-place progressive disclosure and reduced-motion behavior. Dark-theme and real-device release acceptance remain pending.
-- [ ] Real-device Claude and Codex matrix, provider changes, streaming, disconnect/reconnect and recovery.
-- [ ] Windows/Linux CI, RustSec/security audit, documentation and release acceptance.
+## Future / research
 
-The Codex VS Code Remote observation is **accepted for those three behaviors on one target**; Claude CLI/Extension requests, Skills Agent discovery, one-password automatic bridging and shared-account checks were also reported on the tested target. These are not universal compatibility or root-isolation claims. Latest-build Moba launch, managed-environment lifecycle, full reconnect/restore and Overview/Advanced/display-scaling regression still need release acceptance. Do not describe both extensions as wholly untested or either as universally accepted.
-
-## Future — v0.3 research
-
-MCP remote bridging (HTTP/SSE/Streamable HTTP before stdio compatibility) and further CC Switch-compatible tool adapters may be designed later. Runtime auto-installation, secret copying, protocol conversion and dependency on CC Switch's database are not planned. Linux/macOS desktop platform adapters have no committed date; other Unix variants remain outside scope.
-
-ProxyEnv's stable local product boundary remains narrow: make Windows proxy layers visible and controllable, with reversible actions and explicit proxy/direct launches. Remote Bridge extends that boundary only through reviewed, user-initiated SSH forwarding and owned remote configuration.
+MCP bridging, additional adapters and platform expansion require separate designs.
+MCP needs capability-scoped authorization, lifecycle and rollback analysis; neither
+a generic forwarding tunnel nor current Skills synchronization implements it.
+These are research directions, not shipped features or commitments.
