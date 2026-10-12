@@ -22,6 +22,7 @@ import { messages, resolveLocale } from "../shared/i18n";
 import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, TunObservation } from "../shared/types";
 import { copyText } from "../shared/utils/clipboard";
 import AppHeader from "./components/AppHeader.vue";
+import { remoteNavigationState } from "./navigation";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 import NotificationCenter from "../shared/components/NotificationCenter.vue";
 import { notify, useNotification } from "../shared/state/notifications";
@@ -93,6 +94,7 @@ let unlisten: UnlistenFn[] = [];
 
 const locale = computed(() => resolveLocale(draftSettings.value.language));
 const copy = computed(() => messages[locale.value]);
+const remoteNavState = computed(() => remoteNavigationState(remoteBridgeSummary.value));
 useNotification(error, "error", "app-operation");
 useNotification(settingsError, "error", "settings-save");
 useNotification(settingsLoadError, "error", "settings-load");
@@ -667,6 +669,7 @@ onBeforeUnmount(() => {
       :copy="copy"
       :maximized="maximized"
       :view="view"
+      :remote-nav-state="remoteNavState"
       @close-settings="closeSettings"
       @open-local="openLocal"
       @open-remote="openRemote"

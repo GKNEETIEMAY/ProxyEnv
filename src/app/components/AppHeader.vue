@@ -1,11 +1,21 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { Copy } from "../../shared/i18n";
+import type { RemoteNavState } from "../navigation";
 
-defineProps<{
+const props = defineProps<{
   copy: Copy;
   maximized: boolean;
   view: "local" | "remote" | "assistant" | "settings";
+  remoteNavState: RemoteNavState;
 }>();
+
+const remoteNavStatusLabel = computed(() => ({
+  idle: props.copy.rbNavDisconnected,
+  connecting: props.copy.rbNavConnecting,
+  connected: props.copy.rbNavConnected,
+  attention: props.copy.rbNavAttention,
+})[props.remoteNavState]);
 
 defineEmits<{
   closeSettings: [];
@@ -40,7 +50,7 @@ defineEmits<{
     <div class="header-actions">
       <nav v-if="view === 'local' || view === 'remote'" class="primary-nav" :aria-label="copy.appName">
         <button type="button" :aria-current="view === 'local' ? 'page' : undefined" @click="$emit('openLocal')">{{ copy.navLocal }}</button>
-        <button type="button" :aria-current="view === 'remote' ? 'page' : undefined" @click="$emit('openRemote')">{{ copy.navRemote }}</button>
+        <button class="remote-nav-button" type="button" :aria-current="view === 'remote' ? 'page' : undefined" :aria-label="`${copy.navRemote} · ${remoteNavStatusLabel}`" :title="remoteNavStatusLabel" @click="$emit('openRemote')">{{ copy.navRemote }}<span class="remote-nav-status" :data-state="remoteNavState" aria-hidden="true" /></button>
       </nav>
       <div v-if="view === 'local' || view === 'remote'" class="primary-nav-actions">
         <button class="header-icon-button" type="button" :aria-label="copy.reportOpen" :title="copy.reportOpen" aria-haspopup="dialog" @click="$emit('openReport')">
@@ -70,3 +80,12 @@ defineEmits<{
     </div>
   </header>
 </template>
+
+<style scoped>
+.remote-nav-button { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+/* Reserve the dot's slot so polling cannot move either navigation label. */
+.remote-nav-status { width:6px; height:6px; flex:none; border-radius:50%; background:var(--focus); }
+.remote-nav-status[data-state="idle"] { visibility:hidden; }
+.remote-nav-status[data-state="connected"] { background:var(--success); }
+.remote-nav-status[data-state="attention"] { background:var(--warning); }
+</style>
