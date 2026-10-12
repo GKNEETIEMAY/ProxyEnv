@@ -107,7 +107,7 @@ jobs:
           New-Item -ItemType Directory -Path $output | Out-Null
 
           $portable = Resolve-Path -LiteralPath 'src-tauri/target/release/proxyenv.exe'
-          Copy-Item -LiteralPath $portable -Destination (Join-Path $output "ProxyEnv-$version-windows-x64-portable.exe")
+          Copy-Item -LiteralPath $portable -Destination (Join-Path $output "RouteSpan-$version-windows-x64-portable.exe")
 
           $installers = @()
           foreach ($directory in @(
@@ -173,7 +173,7 @@ jobs:
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ProxyEnv-${{ github.ref_name }}-windows-x64
+          name: RouteSpan-${{ github.ref_name }}-windows-x64
           path: release-artifacts/*
           if-no-files-found: error
 
