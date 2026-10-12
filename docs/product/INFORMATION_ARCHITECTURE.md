@@ -129,3 +129,7 @@ window/About/installer branding and brand tokens; it must not reorder primary
 navigation or split Overview, AI tools, Skills and Advanced into new workspaces.
 No backend, SSH authentication, Relay, discovery or configuration transaction
 change is part of Stage 4.
+
+Stage 5 display branding is recorded in [BRAND_MIGRATION.md](BRAND_MIGRATION.md).
+It changes the visible name to 境枢 RouteSpan without changing this hierarchy or
+the legacy compatibility identities.
