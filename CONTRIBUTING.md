@@ -21,6 +21,7 @@ pnpm install --frozen-lockfile
 pnpm build
 pnpm test:brand
 pnpm test:docs
+pnpm test:release
 pnpm test:report
 pnpm test:remote
 pnpm test:extensions
@@ -29,7 +30,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-`pnpm check` combines frontend, brand/docs/report/remote/extension checks and locked
+`pnpm check` combines frontend, brand/docs/release/report/remote/extension checks and locked
 Rust tests. Documentation tests are offline. Extension tests include POSIX and
 Linux filesystem cases; platform-skipped tests are not PASS evidence for those cases.
 The generated remote helper must stay reproducible: `pnpm test:extensions` checks
@@ -66,6 +67,9 @@ build/environment-scoped evidence; use PENDING/BLOCKED for missing gates.
 The formal release flow requires matching tag/package/Cargo/Tauri versions,
 reviewed multilingual notes, frozen dependencies, audit/build/test, signed updater
 assets, checksums and provenance, then a Draft for manual QA. Draft ≠ publication.
+The formal workflow accepts stable version tags only (no RC/prerelease tags).
+`pnpm test:release` protects versions, compatibility identities, artifact naming
+and the four-language notes; it is not native or signed-artifact acceptance.
 
 Use only official Tauri Updater with pinned source/public key, default upgrade-only
 comparison and explicit user check/install. NSIS replacement is distinct from

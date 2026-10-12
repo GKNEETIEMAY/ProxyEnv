@@ -68,6 +68,9 @@ jobs:
       - name: Test documentation contracts
         run: pnpm test:docs
 
+      - name: Test release contracts
+        run: pnpm test:release
+
       - name: Test diagnostic report localization
         run: pnpm test:report
 
