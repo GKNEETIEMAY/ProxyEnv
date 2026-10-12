@@ -68,6 +68,9 @@ jobs:
       - name: Test diagnostic report localization
         run: pnpm test:report
 
+      - name: Test display branding and compatibility identities
+        run: pnpm test:brand
+
       - name: Test remote bridge safety and localization
         run: pnpm test:remote
 

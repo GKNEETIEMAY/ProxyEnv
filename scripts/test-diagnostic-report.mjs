@@ -33,7 +33,7 @@ test("VS Code proxy configuration states use specific localized descriptions", (
 
 test("all four locales format the same snapshot without mutating its diagnosis", () => {
   const before = JSON.stringify(data);
-  const titles = { en: "ProxyEnv Diagnostic Report", "zh-CN": "ProxyEnv 诊断报告", ja: "ProxyEnv 診断レポート", ko: "ProxyEnv 진단 보고서" };
+  const titles = { en: "RouteSpan Diagnostic Report", "zh-CN": "RouteSpan 诊断报告", ja: "RouteSpan 診断レポート", ko: "RouteSpan 진단 보고서" };
   for (const [locale, copy] of Object.entries(messages)) {
     const report = formatDiagnosticReport(data, copy);
     assert.ok(report.startsWith(titles[locale]));
