@@ -29,6 +29,18 @@ from historical checkpoints; detailed final acceptance records remain private.
 
 No future release date is promised. Local automated checks do not replace manual gates.
 
+## Next maintenance priorities
+
+- Optimize bridge authentication: improve SSH authentication/recovery and AI session
+  authorization lifecycle, prompts and compatibility. Preserve host-key verification,
+  token revocation and the documented shared-host limits; do not reintroduce General
+  Proxy username/password authentication.
+- Fix minor bugs and polish existing behavior, prioritizing reproducible issues in
+  connection/reconnect, tool configuration and UI state. Add targeted regression
+  tests; avoid unrelated protocol changes or configuration migrations.
+
+These are maintenance directions, not a promised release date or completed features.
+
 ## Future / research
 
 MCP bridging, additional adapters and platform expansion require separate designs.
