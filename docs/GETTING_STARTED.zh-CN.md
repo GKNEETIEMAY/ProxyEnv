@@ -2,9 +2,10 @@
 
 [English](GETTING_STARTED.md) · 简体中文
 
-本指南说明当前开发版界面的用法。上一版稳定基线为旧品牌 ProxyEnv v0.1.4（GitHub Draft）；
-RouteSpan v0.2.0 尚未公开发布。请使用可获取的[官方发行包](https://github.com/GKNEETIEMAY/ProxyEnv/releases)
-或维护者提供的手动预览包。预览包不是已签名的自动更新版本。
+本指南说明 RouteSpan v0.2.0 稳定版界面的用法。请安装
+[官方 v0.2.0 发行包](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0)。
+旧品牌 ProxyEnv v0.1.3 NSIS 用户可使用关于 → 检查更新；v0.1.4 仍为 Draft 前版基线。
+预览包不是已签名的自动更新版本。
 
 ## 安装前
 
@@ -15,8 +16,8 @@ RouteSpan v0.2.0 尚未公开发布。请使用可获取的[官方发行包](htt
   `flock` 和 coreutils。托管工具的 JSON 操作支持 Python 2.7 或 Python 3，仍需通过运行时和文件安全检查。
 - VS Code 集成需要安装 VS Code 和 Remote - SSH；MobaXterm 为可选项。
 
-安装预览包前，退出旧应用和托盘实例。应用保留安装身份，因此新安装包可能替换旧安装，
-而不是创建另一份独立应用。测试升级前备份重要设置。未签名包可能出现 Unknown Publisher
+手动安装前，退出旧应用和托盘实例。应用保留安装身份，因此新安装包可能替换旧安装，
+而不是创建另一份独立应用。升级前备份重要设置。未采用 Authenticode 的包可能出现 Unknown Publisher
 或 SmartScreen 提示：检查来源和校验值，不要全局关闭安全防护。详见[发行安全](release-security.zh-CN.md)。
 
 ## 首次启动

@@ -2,9 +2,9 @@
 
 English · [简体中文](REMOTE_BRIDGE.zh-CN.md)
 
-This is the single current user-level guide for Remote Bridge on `v0.2.0dev`.
+This is the single current user-level guide for Remote Bridge in RouteSpan v0.2.0.
 It extends selected local network/AI capabilities to a non-root Linux SSH account,
-not a VPN or proxy core. RouteSpan v0.2.0 is unreleased.
+not a VPN or proxy core. RouteSpan v0.2.0 is publicly released.
 See [Getting started](GETTING_STARTED.md) for requirements and first use.
 
 ## Target discovery / 连接来源

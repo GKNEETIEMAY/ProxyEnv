@@ -2,10 +2,11 @@
 
 English · [简体中文](release-security.zh-CN.md)
 
-This defines the formal release trust model, not a declaration of completed QA.
-The maintainer-designated previous stable baseline is ProxyEnv v0.1.4, whose GitHub
-Release remains Draft; latest public release is v0.1.3. Next RouteSpan v0.2.0 is
-unreleased. Publication and evidence are separate from local preview packaging.
+This defines the formal release trust model. RouteSpan v0.2.0 is the latest public
+stable release, published on 2026-10-13. The legacy brand was ProxyEnv; v0.1.4
+remains a Draft predecessor baseline. v0.2.0's signed updater artifacts, checksums
+and provenance were externally verified; the production updater smoke was accepted.
+Publication and evidence remain separate from local preview packaging.
 See [Roadmap](ROADMAP.md) and [release QA](RELEASE_QA_V0.2.md).
 
 ## Trust mechanisms
@@ -65,7 +66,8 @@ Missing private signing secret, installer signature or release-note structure
 must fail the formal pipeline. Do not use `--no-sign` or suppress updater artifacts
 to make an official release pass. The frontend high-severity audit failure was
 repaired and passed full CI at `eee1873`; audit remains mandatory for every new
-release change. See release QA for scoped results, not blanket acceptance claims.
+release change. See release QA for publication status and historical checkpoints,
+not blanket acceptance claims for every future environment.
 
 ## Secret handling
 
@@ -77,8 +79,9 @@ prefixes, lengths, keys, passwords or certificate private material.
 
 ## External artifact verification
 
-For each intended release, independently download the artifacts and retain
-evidence in [release QA](RELEASE_QA_V0.2.md):
+For each intended release, independently download the artifacts and retain evidence.
+[Release QA](RELEASE_QA_V0.2.md) summarizes public status; detailed final v0.2
+acceptance records are kept privately at the maintainer's request:
 
 ```powershell
 Get-FileHash -LiteralPath <artifact> -Algorithm SHA256

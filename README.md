@@ -15,14 +15,14 @@
 
 ## Release status
 
-RouteSpan is the v0.2 display brand. The maintainer-designated previous stable
-baseline is **ProxyEnv v0.1.4** (legacy brand), still **Draft** on GitHub as of
-2026-10-12. The latest public release is v0.1.3; downloads are listed in
-[public releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases).
+**RouteSpan v0.2.0 is the latest public stable release**, published on 2026-10-13.
+Download the Windows x64 NSIS, MSI or portable package from the
+[v0.2.0 release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0).
 
-**RouteSpan v0.2.0 is in development on `v0.2.0dev`, not yet released.** Previews
-are for manual testing, not stable updates. This README describes development;
-earlier public packages do not include Remote Bridge.
+The legacy brand was ProxyEnv: v0.1.3 was the previous public release;
+v0.1.4 remains a Draft predecessor baseline, not a public release. Existing NSIS
+users can use **About → Check for updates**; MSI and portable users update manually.
+Manual previews are not stable updates. Earlier public packages do not include Remote Bridge.
 
 ## What is RouteSpan?
 
@@ -110,7 +110,7 @@ CLI or extension may need a restart or reload to consume updated model settings.
 
 ## Quick start
 
-1. Install an available Windows x64 package, or build a development preview.
+1. Install the official v0.2.0 Windows x64 package.
 2. Start your local proxy client; confirm the selected endpoint in **Local Environment**.
 3. For AI access, start CC Switch and enable the corresponding local route first.
 4. In **Remote Bridge**, select or add an SSH connection and choose its capabilities.
@@ -126,7 +126,7 @@ See [Getting started](docs/GETTING_STARTED.md) for prerequisites and
 
 ## Supported remote development tools
 
-| Tool or entry | Current development behavior |
+| Tool or entry | v0.2.0 behavior |
 | --- | --- |
 | Codex CLI | Supported `0.x` versions from `0.134`; standard remote user configuration |
 | Claude Code CLI | Supported `2.x`; session-header access requires `2.1.227` or newer |
@@ -168,14 +168,16 @@ Read [Security](SECURITY.md) before using a shared host, and
 
 ## Current v0.2 status
 
-The development branch implements Local Environment, Remote Bridge, CC Switch route
-extension, tool readiness, Skills and Overview/Advanced. Implementation is not acceptance.
+v0.2.0 ships Local Environment, Remote Bridge, CC Switch route extension,
+tool readiness, managed Skills and Overview/Advanced, preserving the legacy
+installation and updater identity. Source CI and the signed release workflow passed;
+the frozen artifacts were verified before publication and the production updater
+smoke was accepted. Tauri update signatures are not Windows Authenticode signatures.
 
-At baseline `6ab9ef6`, Linux extension tests, RustSec and Security audit passed.
-The frontend dependency audit blocked Windows CI; later steps were skipped.
-Cross-machine upgrade, native icons/DPI, signed updates and live remote acceptance
-remain release gates. Evidence is in
-[v0.2 release QA](docs/RELEASE_QA_V0.2.md) and plans in [Roadmap](docs/ROADMAP.md).
+See [v0.2 release QA](docs/RELEASE_QA_V0.2.md) for release status and historical
+checkpoints, and [Roadmap](docs/ROADMAP.md) for future work. Detailed acceptance
+records remain private at the maintainer's request; a successful release does not
+prove every future provider, runtime or network environment is compatible.
 
 ## Documentation
 

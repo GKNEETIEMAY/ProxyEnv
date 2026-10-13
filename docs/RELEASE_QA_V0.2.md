@@ -2,19 +2,33 @@
 
 English · [简体中文](RELEASE_QA_V0.2.zh-CN.md)
 
-This is the sole current evidence ledger. Status values: **PASS**, **PARTIAL**,
-**PENDING**, **BLOCKED**. Every record scopes date, build, environment, expectation,
-actual observation and evidence. A screenshot is not network evidence; source
-existence is not acceptance. No formal v0.2 release decision has been made.
+This page summarizes public release status and preserves historical checkpoints.
+Status values: **PASS**, **PARTIAL**, **PENDING**, **BLOCKED**. Every historical record
+scopes date, build, environment, expectation, observation and evidence. A screenshot
+is not network evidence; source existence is not acceptance. Detailed final acceptance
+records are kept privately at the maintainer's request, not uploaded to GitHub.
 
 ## Baseline and release state
+
+**Current status (2026-10-13): RouteSpan v0.2.0 is published and latest; release gates are closed.**
+[Public release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0), frozen source
+`0a731b47d17bd5d2f8a4885cbf926a1bac68d35f`.
+[Source CI](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38266259096) and
+[signed release build](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38335015721) succeeded.
+Final artifact verification and production updater acceptance are complete; no
+installer bytes or tag were replaced during publication. Private device logs and
+acceptance records are intentionally absent from this repository.
+
+The baseline, evidence and prepared matrix below are dated historical snapshots,
+not unresolved gates for the published v0.2.0 release. They retain their original
+results rather than retroactively marking older builds as tested.
 
 Baseline HEAD: `6ab9ef65579e8c47e412e3e4863483035f8bec38`, branch `v0.2.0dev`.
 The documentation consolidation and illustration change set is based on that
 baseline; no runtime source or dependency versions were changed.
 Maintainer-designated predecessor: ProxyEnv v0.1.4. GitHub API on 2026-10-12 reports
-`isDraft=true`, `publishedAt=null`; public latest is v0.1.3. Next RouteSpan v0.2.0
-is unreleased. These are not interchangeable release states.
+`isDraft=true`, `publishedAt=null`; at that checkpoint public latest was v0.1.3 and
+RouteSpan v0.2.0 was unreleased. These historical states do not describe today's release.
 
 ## Recorded evidence
 

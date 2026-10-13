@@ -2,10 +2,10 @@
 
 English · [简体中文](README.zh-CN.md)
 
-Current documentation describes the `v0.2.0dev` product, not a promise that an
-earlier public package contains Remote Bridge. The maintainer-designated previous
-stable baseline is ProxyEnv v0.1.4; its GitHub Release remains Draft.
-RouteSpan v0.2.0 is unreleased. See [English README](../README.md) or [中文 README](../README.zh-CN.md).
+Current documentation describes the RouteSpan v0.2.0 stable release, published on
+2026-10-13; earlier public packages do not contain Remote Bridge. The legacy brand
+was ProxyEnv; v0.1.4 remains a Draft predecessor baseline.
+See [English README](../README.md) or [中文 README](../README.zh-CN.md).
 
 ## Users / 用户
 
@@ -22,7 +22,7 @@ RouteSpan v0.2.0 is unreleased. See [English README](../README.md) or [中文 RE
 ## Release maintainers / 发布负责人
 
 - [Roadmap / 路线图](ROADMAP.md): release gates and research.
-- [v0.2 release QA / 发行验收](RELEASE_QA_V0.2.md): the sole current evidence ledger.
+- [v0.2 release QA / 发行验收](RELEASE_QA_V0.2.md): public release status and historical checkpoints; detailed final acceptance records are kept privately.
 - [Release security / 发行安全](release-security.md): updater signatures and provenance.
 
 ## Authority / 来源优先级

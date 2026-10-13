@@ -2,16 +2,29 @@
 
 [English](RELEASE_QA_V0.2.md) · 简体中文
 
-本文是唯一当前证据台账的中文镜像，不是另一套验收结论。状态仅为 **PASS**（通过）、
-**PARTIAL**（部分）、**PENDING**（待验收）、**BLOCKED**（阻塞）。每条记录限定日期、构建、环境、
-预期、实际和证据。截图不是网络证据，代码存在不是验收；尚未决定正式发布 v0.2。
+本文展示公开发布状态并保留历史检查点，不是另一套验收结论。状态仅为 **PASS**（通过）、
+**PARTIAL**（部分）、**PENDING**（待验收）、**BLOCKED**（阻塞）。历史记录限定日期、构建、环境、
+预期、实际和证据。截图不是网络证据，代码存在不是验收。按维护者要求，最终详细验收记录
+私下保存，不上传 GitHub。
 
 ## 基线与发布状态
+
+**当前状态（2026-10-13）：RouteSpan v0.2.0 已发布并设为最新稳定版，发行门槛已关闭。**
+[公开发行](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0)，冻结源码
+`0a731b47d17bd5d2f8a4885cbf926a1bac68d35f`。
+[源码 CI](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38266259096) 与
+[签名发行构建](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38335015721) 均成功。
+最终产物外部验证与正式自动更新验收完成，发布期间未替换安装器字节或 tag。
+本仓库不包含私下保存的设备日志和详细验收记录。
+
+下方基线、证据与预备矩阵是注明日期的历史快照，不是已发布 v0.2.0 的未关闭门槛。
+保留旧构建当时的结果，不将它们事后改成“已测试”。
 
 基线 HEAD：`6ab9ef65579e8c47e412e3e4863483035f8bec38`，分支 `v0.2.0dev`。
 文档归并与插图变更基于此基线，没有修改运行时源码或依赖版本。
 维护者指定前版为旧品牌 ProxyEnv v0.1.4。2026-10-12 GitHub API 显示 `isDraft=true`、
-`publishedAt=null`，最新公开版为 v0.1.3。下一版 RouteSpan v0.2.0 未发布，不能混用这些状态。
+`publishedAt=null`，当时最新公开版为 v0.1.3、RouteSpan v0.2.0 尚未发布。
+这些是历史状态，不代表当前发行。
 
 ## 已记录证据
 

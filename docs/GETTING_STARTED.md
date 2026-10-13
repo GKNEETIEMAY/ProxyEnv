@@ -2,10 +2,10 @@
 
 English · [简体中文](GETTING_STARTED.zh-CN.md)
 
-This guide describes the current development UI. The previous stable baseline
-is ProxyEnv v0.1.4 (GitHub Draft); RouteSpan v0.2.0 is not yet publicly released.
-Use available [official releases](https://github.com/GKNEETIEMAY/ProxyEnv/releases)
-or a maintainer-provided manual preview. A preview is not a signed update release.
+This guide describes the RouteSpan v0.2.0 stable UI. Install an
+[official v0.2.0 package](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0).
+Legacy ProxyEnv v0.1.3 NSIS users can use About → Check for updates;
+v0.1.4 remains a Draft predecessor baseline. A preview is not a signed update release.
 
 ## Before installing / 安装前
 
@@ -17,9 +17,9 @@ or a maintainer-provided manual preview. A preview is not a signed update releas
   support Python 2.7 or Python 3; supported runtime/file checks still apply.
 - VS Code integration requires VS Code and Remote - SSH. MobaXterm is optional.
 
-Exit the old app and tray instance before installing a preview. The retained app
+Exit the old app and tray instance before manual installation. The retained app
 identity means an installer may replace the previous installation, not create a
-parallel copy. Back up important settings before upgrade tests. Unsigned builds
+parallel copy. Back up important settings before upgrades. Builds without Authenticode
 may show Unknown Publisher/SmartScreen warnings: verify source and checksums, and
 do not globally disable protection. See [release security](release-security.md).
 

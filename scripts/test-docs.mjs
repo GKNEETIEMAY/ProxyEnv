@@ -162,10 +162,34 @@ test("EN/ZH README section order, capability count, entries and documentation li
   assert.match(zh, /不能隔离共享 Linux/);
   assert.match(en, /not protect against root/);
   assert.match(zh, /不能防御服务器 root/);
-  assert.match(en, /not yet released/);
-  assert.match(zh, /尚未正式发布/);
+  assert.match(en, /RouteSpan v0\.2\.0 is the latest public stable release/);
+  assert.match(zh, /RouteSpan v0\.2\.0 是最新公开稳定版/);
   assert.match(en, /automatic external egress check/);
   assert.match(zh, /自动执行一次外网出口检查/);
+});
+
+test("published v0.2 status agrees across current EN/ZH docs without rewriting historical evidence", () => {
+  const releaseUrl = "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0";
+  for (const file of ["README.md", "README.zh-CN.md", "SECURITY.md", "SECURITY.zh-CN.md",
+    ...["README", "GETTING_STARTED", "REMOTE_BRIDGE", "ROADMAP", "INTERNAL_CONTRACTS", "release-security"]
+      .flatMap(name => [`docs/${name}.md`, `docs/${name}.zh-CN.md`])]) {
+    const source = read(file);
+    assert.match(source, /RouteSpan v0\.2\.0/, file);
+    assert.doesNotMatch(source, /not yet (?:publicly )?released|is unreleased|v0\.2\.0[^\n。]*尚未|v0\.2\.0[^\n。]*未发布/i, file);
+    assert.doesNotMatch(source, /latest public release is v0\.1\.3|最新公开(?: Release|版)为 v0\.1\.3/, file);
+  }
+  for (const file of ["README.md", "README.zh-CN.md", "docs/GETTING_STARTED.md", "docs/GETTING_STARTED.zh-CN.md",
+    "docs/RELEASE_QA_V0.2.md", "docs/RELEASE_QA_V0.2.zh-CN.md"]) {
+    assert.ok(links(read(file)).includes(releaseUrl), `Missing stable download: ${file}`);
+  }
+  for (const file of ["docs/RELEASE_QA_V0.2.md", "docs/RELEASE_QA_V0.2.zh-CN.md"]) {
+    const source = read(file);
+    assert.ok(source.includes("0a731b47d17bd5d2f8a4885cbf926a1bac68d35f"));
+    assert.ok(source.includes("38335015721"));
+    assert.match(source, /historical snapshots|历史快照/);
+    assert.match(source, /kept privately|私下保存/);
+    assert.match(source, /^\|.*\| BLOCKED \|$/m, "Preserve earlier failed-build results");
+  }
 });
 
 test("every current document has a navigable Chinese mirror with matching structure and commands", () => {

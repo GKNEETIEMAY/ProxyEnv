@@ -2,8 +2,8 @@
 
 [English](SECURITY.md) · 简体中文
 
-RouteSpan v0.2.0 是尚未发布的开发功能。维护者指定的上一版稳定基线是旧品牌 ProxyEnv v0.1.4，
-GitHub Release 仍为 Draft。本策略描述代码边界，不是完整发行验收，见[验收台账](docs/RELEASE_QA_V0.2.zh-CN.md)。
+RouteSpan v0.2.0 是当前公开稳定版，于 2026-10-13 发布。旧品牌 ProxyEnv v0.1.4 仍为 Draft 前版基线。
+本策略描述安全边界，不保证所有环境都可用，见[发行状态](docs/RELEASE_QA_V0.2.zh-CN.md)。
 
 漏洞请私下报告给仓库维护者，不在公开 Issue 中披露。提供构建/系统、脱敏复现与影响，
 不附密钥、密码、供应商/会话 Token 或完整私人设置。
@@ -95,4 +95,4 @@ Skills 仅映射合规的 CC Switch 托管链接，排除原生/系统 Skill、�
 正式发行要求锁定依赖审计/构建/测试、校验值、来源证明、签名 Tauri Updater 产物和明确更新验证。
 不采用 Authenticode，必须披露 Unknown Publisher/SmartScreen 提示。
 更新私钥只存于授权 Secrets/受保护恢复存储，不进入源码、包或 CI 输出。
-[发行安全](docs/release-security.zh-CN.md)说明完整边界。当前红色 CI 仍是发行门槛，不能靠文档修复。
+[发行安全](docs/release-security.zh-CN.md)说明完整边界。审计和完整 CI 仍是后续发行的门槛。

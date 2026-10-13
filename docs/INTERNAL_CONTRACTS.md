@@ -107,9 +107,10 @@ model verification is explicit. Diagnostic report generation is non-probing.
 - **Released:** a formal public release was published; a Draft is not public.
 - **Stable baseline:** maintainer-designated predecessor, which may still be a Draft.
 
-The current predecessor designation is ProxyEnv v0.1.4 (GitHub Draft); latest public
-release is v0.1.3. Next RouteSpan v0.2.0 is unreleased. Update release status in both
-READMEs, index, roadmap, security/release docs and QA together after publication.
+RouteSpan v0.2.0 is the latest public stable release as of 2026-10-13. The legacy
+ProxyEnv v0.1.3 is the previous public release; v0.1.4 remains a Draft predecessor
+baseline. Keep release status aligned in both READMEs, index, roadmap, security/release
+docs and QA without uploading private acceptance records.
 
 ## Current fact inventory
 

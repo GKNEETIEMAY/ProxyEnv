@@ -2,9 +2,9 @@
 
 English · [简体中文](SECURITY.zh-CN.md)
 
-RouteSpan v0.2.0 is unreleased development functionality. The maintainer-designated
-previous stable baseline is ProxyEnv v0.1.4, whose GitHub Release remains Draft.
-This policy describes current code boundaries, not full release acceptance.
+RouteSpan v0.2.0 is the current public stable release, published on 2026-10-13.
+The legacy brand was ProxyEnv; v0.1.4 remains a Draft predecessor baseline.
+This policy describes security boundaries, not a guarantee for every environment.
 See [release QA](docs/RELEASE_QA_V0.2.md).
 
 Report vulnerabilities privately to repository maintainers, not a public issue.
@@ -126,4 +126,4 @@ Tauri Updater assets and explicit update verification. Authenticode is not adopt
 Unknown Publisher/SmartScreen warnings must be disclosed. Private updater keys
 belong only in authorized secrets/protected recovery storage, never source,
 packages or printed CI output. [Release security](docs/release-security.md) defines
-the complete release boundary. Current red CI remains a release gate, not a docs fix.
+the complete release boundary. Audits and full CI remain gates for future releases.

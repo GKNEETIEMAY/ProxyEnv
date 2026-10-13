@@ -2,9 +2,9 @@
 
 [English](README.md) · 简体中文
 
-当前文档说明 `v0.2.0dev` 产品，不承诺早期公开安装包具有远程桥接功能。
-维护者指定的上一版稳定基线为旧品牌 ProxyEnv v0.1.4，其 GitHub Release 仍为 Draft；
-RouteSpan v0.2.0 尚未发布。产品入口：[中文 README](../README.zh-CN.md) / [English README](../README.md)。
+当前文档说明 2026-10-13 发布的 RouteSpan v0.2.0 稳定版，早期公开安装包不具有远程桥接功能。
+旧品牌为 ProxyEnv，v0.1.4 仍为 Draft 前版基线。
+产品入口：[中文 README](../README.zh-CN.md) / [English README](../README.md)。
 
 ## 用户
 
@@ -21,7 +21,7 @@ RouteSpan v0.2.0 尚未发布。产品入口：[中文 README](../README.zh-CN.m
 ## 发布负责人
 
 - [路线图](ROADMAP.zh-CN.md)：发行门槛与研究方向。
-- [v0.2 发行验收](RELEASE_QA_V0.2.zh-CN.md)：当前唯一证据台账的中文镜像。
+- [v0.2 发行验收](RELEASE_QA_V0.2.zh-CN.md)：公开发布状态与历史检查点；最终详细验收记录私下保存。
 - [发行安全](release-security.zh-CN.md)：更新签名与产物来源验证。
 
 ## 来源优先级
