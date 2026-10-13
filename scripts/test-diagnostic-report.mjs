@@ -10,8 +10,9 @@ async function moduleUrl(path, replacements = {}) {
   const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } });
   return `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`;
 }
+const remoteLabels = await moduleUrl("../src/shared/i18n/remote-bridge.ts");
 const labels = await moduleUrl("../src/shared/i18n/diagnostic-report.ts");
-const { messages } = await import(await moduleUrl("../src/shared/i18n/index.ts", { '"./diagnostic-report"': JSON.stringify(labels) }));
+const { messages } = await import(await moduleUrl("../src/shared/i18n/index.ts", { '"./diagnostic-report"': JSON.stringify(labels), '"./remote-bridge"': JSON.stringify(remoteLabels) }));
 const { formatDiagnosticReport } = await import(await moduleUrl("../src/features/diagnostic-report/format.ts"));
 const data = {
   appVersion: "0.1.3", os: "windows", osVersion: "11 (26100)", detectedCount: 2, listeningCount: 1,
@@ -21,9 +22,18 @@ const data = {
   assistant: { category: "unrecognized", state: "environmentConfigured", action: "none" }
 };
 
+test("VS Code proxy configuration states use specific localized descriptions", () => {
+  for (const copy of Object.values(messages)) {
+    for (const [state,key] of Object.entries({notSet:'rbAdvProxyNotSet',disabled:'rbAdvProxyDisabled',invalidSettings:'rbAdvProxyInvalid',readFailed:'rbAdvProxyReadFailed',unsupportedProxy:'rbAdvProxyUnsupported',notCompared:'rbAdvProxyNotCompared',unknown:'rbAdvPortUnknown'})) {
+      const report=formatDiagnosticReport({...data,remoteBridge:{runtimeProxyMatch:state}},copy);
+      assert.ok(report.includes(copy[key]),`${state} must have a specific localized report description`);
+    }
+  }
+});
+
 test("all four locales format the same snapshot without mutating its diagnosis", () => {
   const before = JSON.stringify(data);
-  const titles = { en: "ProxyEnv Diagnostic Report", "zh-CN": "ProxyEnv 诊断报告", ja: "ProxyEnv 診断レポート", ko: "ProxyEnv 진단 보고서" };
+  const titles = { en: "RouteSpan Diagnostic Report", "zh-CN": "RouteSpan 诊断报告", ja: "RouteSpan 診断レポート", ko: "RouteSpan 진단 보고서" };
   for (const [locale, copy] of Object.entries(messages)) {
     const report = formatDiagnosticReport(data, copy);
     assert.ok(report.startsWith(titles[locale]));
@@ -32,6 +42,18 @@ test("all four locales format the same snapshot without mutating its diagnosis",
     assert.ok(!report.includes("ALL_PROXY"));
   }
   assert.equal(JSON.stringify(data), before);
+});
+
+test("CLI installation states and versions are localized separately from route configuration",()=>{
+  const snapshot={...data,remoteBridge:{configured:true,reachable:true,status:"connected",protocol:null,proxyPort:null,ccDetected:true,ccPort:15721,codexConfigured:false,claudeConfigured:true,toolInstallations:[{tool:"codex",state:"missing",version:null,executablePath:"/home/private/bin/codex",token:"private-token"},{tool:"claude",state:"installed",version:"2.1.227"}]}};
+  const before=JSON.stringify(snapshot);
+  for(const copy of Object.values(messages)) {
+    const report=formatDiagnosticReport(snapshot,copy);
+    assert.ok(report.includes(copy.rbInstallMissing));
+    assert.ok(report.includes(`${copy.rbInstallInstalled} · 2.1.227`));
+    assert.doesNotMatch(report,/private-token|\/home\/private|executablePath|undefined/);
+  }
+  assert.equal(JSON.stringify(snapshot),before);
 });
 
 test("unknown observations do not become successful results", () => {
@@ -83,4 +105,44 @@ test("report collection depends on non-probing active-state APIs", async () => {
   const diagnosis = await readFile(new URL("../src-tauri/src/features/application_assistant/diagnosis.rs", import.meta.url), "utf8");
   const snapshotPath = diagnosis.split("fn diagnose_snapshot(")[1].split("#[derive")[0];
   assert.ok(!/active::(?:status|context)|inspect_endpoint|test_current_proxy|::detect\(/.test(snapshotPath));
+});
+
+
+test("remote bridge report contains only localized allowlisted summaries", () => {
+  const remoteBridge = {configured:true,reachable:true,status:"stale",protocol:"mixed",proxyPort:17897,ccDetected:true,ccPort:25721,codexConfigured:true,claudeConfigured:false,
+    alias:"private-server",username:"private-user",apiKey:"secret-fixture",path:"/home/private",environment:"secret-env"};
+  for (const copy of Object.values(messages)) {
+    const report=formatDiagnosticReport({...data,remoteBridge},copy);
+    for(const value of [copy.rbTitle,copy.rbStates.stale,"17897","25721"]) assert.ok(report.includes(value));
+    for(const secret of ["private-server","private-user","secret-fixture","/home/private","secret-env"]) assert.ok(!report.includes(secret));
+    assert.ok(!report.includes("undefined"));
+  }
+});
+
+test("cached remote diagnostics and runtime summaries are localized without leaking extra fields", () => {
+  const remoteBridge = {configured:true,reachable:true,status:"connected",protocol:"mixed",proxyPort:7897,ccDetected:true,ccPort:15721,codexConfigured:true,claudeConfigured:true,
+    reconnectState:"idle",sshAuthMethod:"password",runtimeProxyMatch:"matched",postConnectStatus:"partial",sessionEnvironmentState:"ready",vscodeState:"warning",codexState:"ready",claudeState:"ready",skillsState:"ready",postConnectErrorCategory:"conflict",
+    diagnostics:{generalProxyEgress:{state:"failed",checkedAt:1791260000000,errorCode:"network",durationMs:183},aiRouteVerification:{state:"passed",checkedAt:1791260001000,errorCode:null,durationMs:45}},
+    security:{generalProxyAuth:"none",aiRouteAuth:"session",remoteBindScope:"loopback",shellScope:"sessionOnly"},
+    phaseTimings:[{phase:"ssh.authenticate",durationMs:84,outcome:"success"},{phase:"private-token",durationMs:6,outcome:"/home/private"}],
+    password:"private-password",host:"private-host",request:"private-prompt"};
+  const before = JSON.stringify(remoteBridge);
+  for (const copy of Object.values(messages)) {
+    const report = formatDiagnosticReport({...data,remoteBridge},copy);
+    for (const text of [copy.rbAdvFailed,copy.rbAdvVerified,copy.rbAdvErrorNetwork,copy.rbAdvErrorConflict,copy.rbAdvRuntimePort,copy.rbAdvAuthentication,copy.rbAdvNoProxyAuth,copy.rbAdvSessionAuth,copy.rbAdvLoopback,copy.rbAdvSessionOnly,"183 ms","45 ms","ssh.authenticate"]) assert.ok(report.includes(text));
+    for (const secret of ["private-token","private-password","private-host","private-prompt","/home/private","undefined"]) assert.ok(!report.includes(secret));
+  }
+  assert.equal(JSON.stringify(remoteBridge),before);
+});
+
+test("plugin-only report keeps CLI and extension installation independent",()=>{
+  const remoteBridge={configured:true,reachable:true,status:"connected",codexConfigured:true,claudeConfigured:true,toolInstallations:[
+    {tool:"codex",state:"missing",version:null,extensionState:"installed",extensionVersion:"26.825.2",path:"/home/private",token:"secret-fixture"},
+    {tool:"claude",state:"missing",version:null,extensionState:"installed",extensionVersion:"2.1.252"},
+  ]};
+  for(const copy of Object.values(messages)) {
+    const report=formatDiagnosticReport({...data,remoteBridge},copy);
+    for(const text of [copy.rbInstallMissing,copy.rbInstallInstalled,copy.rbInstallExtension,"26.825.2","2.1.252"]) assert.ok(report.includes(text));
+    assert.doesNotMatch(report,/\/home\/private|secret-fixture|undefined/);
+  }
 });

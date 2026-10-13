@@ -1,0 +1,171 @@
+import { onBeforeUnmount, onMounted, ref } from "vue";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { ProxyEndpoint } from "../../shared/types";
+import type { RemoteToolId } from "./tool-adapters";
+export interface BridgeSummary { reconnectState?: "idle" | "waiting" | "retrying" | "attentionRequired" }
+export type BridgeStatus = "disconnected" | "connecting" | "connected" | "stale" | "unavailable" | "error";
+export type PostConnectStatus = "idle" | "preparing" | "ready" | "partial";
+export type RemoteRuntimeState = "pending" | "preparing" | "ready" | "warning";
+export interface PhaseTiming { phase:string; durationMs:number; outcome:string }
+export type DiagnosticState = "notTested" | "testing" | "passed" | "failed";
+export type BridgeErrorCategory = "network" | "ssh" | "authentication" | "conflict" | "unsupported" | "unavailable" | "invalidResponse" | "unknown";
+export interface DiagnosticObservation { state:DiagnosticState; checkedAt:number|null; errorCode:BridgeErrorCategory|null; durationMs:number|null }
+export interface DiagnosticSnapshot { generalProxyEgress:DiagnosticObservation; aiRouteVerification:DiagnosticObservation; serverDirect?:DiagnosticObservation; serverInternet?:"reachable"|"unreachable"|"unknown"|null }
+export interface SecuritySnapshot { generalProxyAuth:"none"; aiRouteAuth:"session"; remoteBindScope:"loopback"; shellScope:"sessionOnly" }
+export interface RuntimeDiagnostics { running:boolean; observations:DiagnosticSnapshot; ssh:BridgeStatus; vscode:RemoteRuntimeState; serverInternet:"reachable"|"unreachable"|"unknown"|null }
+export interface BridgeSummary { diagnostics?:DiagnosticSnapshot; security?:SecuritySnapshot }
+export interface BridgeSummary { sessionEnvironmentCommand?:string|null }
+export type UserProxyPortState = "unknown" | "matched" | "mismatch" | "notSet" | "disabled" | "invalidSettings" | "readFailed" | "unsupportedProxy" | "notCompared";
+export interface BridgeEvent { timestamp:number; level:"info"|"warning"|"error"; component:"ssh"|"generalProxy"|"aiRoute"|"sessionEnvironment"|"vscode"|"codex"|"claude"|"skills"; action:"connect"|"disconnect"|"transportLost"|"reconnect"|"serverDirect"|"egressTest"|"toolVerify"|"toolDiscovery"|"environmentSetup"|"vscodeSetup"|"toolSetup"|"credentialClear"|"enable"|"disable"; outcome:"success"|"warning"|"failed"|"started"; errorCode:BridgeErrorCategory|null; durationMs:number|null }
+export type RemoteTargetSource = "openssh" | "vscode" | "mobaxterm" | "manual";
+export type SshAuthMode = "nonInteractive" | "interactive";
+export type SshAuthMethod = "identityFile" | "agent" | "password" | "keyboardInteractive" | "unknown";
+export interface SshAuthState { mode: SshAuthMode; method: SshAuthMethod; authenticated: boolean; passwordStored: boolean }
+export type SshAuthOperation = "check" | "connect";
+export type SshPromptType = "password" | "keyPassphrase" | "hostKeyConfirmation" | "verificationCode" | "keyboardInteractive" | "unknown";
+export type SshAuthSessionStatus = "starting" | "waitingPrompt" | "waitingUser" | "submitting" | "waitingServer" | "authenticated" | "succeeded" | "promptUnavailable" | "failed";
+export interface SshAuthPrompt { id: string; type: SshPromptType; message: string; secret: boolean; attempt: number; target: string | null; fingerprint: string | null }
+export interface SshPtyDiagnostic { bytesReceived: number; printableBytes: number; cprRequests: number; promptDetected: boolean; authMarkerDetected: boolean; remoteResultDetected: boolean; outputClosed: boolean }
+export interface SshAuthSnapshot { sessionId: string; operation: SshAuthOperation; status: SshAuthSessionStatus; auth: SshAuthState; prompt: SshAuthPrompt | null; diagnostic: SshPtyDiagnostic; error: string | null }
+export interface SshAuthOutcome { operation: SshAuthOperation; ports: PortAllocation | null; summary: BridgeSummary | null }
+export interface RemoteTarget { id: string; displayName: string; source: RemoteTargetSource; sourceLabel: string; configPath: string; sshAlias: string | null; host: string | null; user: string | null; port: number | null; identityFile: string | null; authenticationMethod: SshAuthMethod; available: boolean; compatibility: "compatible" | "unsupported"; unavailableReason: string | null; canOpenVscode: boolean; canOpenMobaxterm: boolean }
+export interface ManualConnectionInput { displayName:string; destination:string; port:number; authentication:"automatic"|"password"|"identityFile"; identityFile:string|null }
+export interface BridgeEndpoint { local: ProxyEndpoint; remotePort: number }
+export type RemoteToolVerification = "notConfigured" | "verifyPending" | "verified" | "authenticationRequired" | "routeUnavailable" | "timedOut" | "failed";
+export type RemoteToolInstallState = "unknown" | "checking" | "installed" | "missing" | "unsupported" | "broken";
+export type RemoteToolInstallError = "cliMissing" | "cliUnsupported" | "cliBroken" | "dependencyMissing" | "sshUnavailable" | "remoteUnsupported";
+export interface RemoteToolInstallation { tool:RemoteToolId; state:RemoteToolInstallState; version:string|null; checkedAt:number|null; errorCode:RemoteToolInstallError|null; extensionState?:RemoteToolInstallState; extensionVersion?:string|null }
+export interface RemoteInstallCapabilities { curl:boolean; npm:boolean; brew:boolean; nodeVersion:string|null }
+export interface RemoteToolDiscoverySnapshot { tools:RemoteToolInstallation[]; capabilities:RemoteInstallCapabilities }
+export interface BridgeSummary { toolInstallations?:RemoteToolInstallation[]; installCapabilities?:RemoteInstallCapabilities }
+export interface RemoteToolState { id: RemoteToolId; displayName: string; configured: boolean; verification: RemoteToolVerification; verificationSupported: boolean; supportedRouteModes: "ccSwitch"[]; requestPolicy: "passthrough"; configProjection: "routeOnly" | "routeAndClientProfile" }
+export type ProfileSyncState = "disabled" | "notStarted" | "synced" | "localChanged" | "remoteChanged" | "conflict" | "invalidLocalProfile" | "remoteUnavailable" | "restartRequired";
+export interface RemoteBridgeModelSettings { followLocalCodexProfile:boolean; profileState:ProfileSyncState; model:string|null; profileHash:string|null }
+export interface ToolVerificationResult { tool: RemoteToolId; verification: RemoteToolVerification }
+export interface BridgeSummary { status: BridgeStatus; target: RemoteTarget | null; proxy: BridgeEndpoint | null; runtimeExpectedProxyPort?: number | null; runtimeProxyMatch?: UserProxyPortState; cc: BridgeEndpoint | null; proxyStatus: BridgeStatus | null; ccStatus: BridgeStatus | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; claudeProfileState?: ProfileSyncState; tools?: RemoteToolState[]; codexExtension?: string | null; claudeExtension?: string | null; error: string | null; sshAuth: SshAuthState; postConnectStatus?:PostConnectStatus; sessionEnvironmentState?:RemoteRuntimeState; vscodeState?:RemoteRuntimeState; codexState?:RemoteRuntimeState; claudeState?:RemoteRuntimeState; skillsState?:RemoteRuntimeState; postConnectError?:string|null; timings?:PhaseTiming[] }
+export interface BridgeRequest { targetId: string; proxyPort: number | null; ccPort: number | null; ccLocalPort: number; expectedRevision: number }
+export type BridgeCapability = "proxy" | "cc";
+export interface BridgeCapabilityChange { targetId: string; capability: BridgeCapability; enabled: boolean; expectedRevision: number; ccLocalPort: number }
+export interface PortAllocation { proxyPort: number; ccPort: number; runtimeExpectedProxyPort?: number | null; runtimePortConflict?: boolean }
+export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
+export interface RemoteNetworkObservation { serverInternet: "reachable" | "unreachable" | "unknown" }
+export type SkillProjectionState = "notSynced" | "synced" | "localChanged" | "conflict" | "unavailable";
+export interface RemoteSkill { id:string; tool:RemoteToolId; name:string; hash:string; fileCount:number; totalSize:number; state:SkillProjectionState; enabled:boolean }
+export interface ConfigPreview { id: string; tool: RemoteToolId; path: string; before: string; after: string; version: string; launch: string; alias:string; restore:boolean; existingConfig:boolean; routeUpdate:boolean; permissionHardening:boolean }
+export type VscodeRemoteContextStatus = "detected" | "ambiguous" | "unsupported";
+export type ExtensionLocationState = "locationUnknown" | "activeUnknown" | "remoteConfirmed";
+export interface VscodeRemoteContext {
+  status: VscodeRemoteContextStatus;
+  edition: "stable" | "insiders" | "legacy" | "custom" | "unknown";
+  serverRoot: string;
+  serverVersion: string;
+  serverVersions: string[];
+  dataPath: string;
+  remoteSettingsPath: string;
+  extensionRoot: string;
+  evidence: "defaultStableRoot" | "defaultInsidersRoot" | "legacyRoot" | "agentFolderEnvironment" | "multipleServerRoots" | "noServerRoot";
+  confidence: "high" | "medium" | "low";
+  candidateCount: number;
+}
+export interface ExtensionCapability {
+  tool: RemoteToolId;
+  detected: boolean;
+  supported: boolean;
+  version: string;
+  versions: string[];
+  runtimeVersion: string;
+  runtimeVersions: string[];
+  candidateCount: number;
+  location: Exclude<ExtensionLocationState, "remoteConfirmed">;
+  configuration: "configured" | "notConfigured" | "conflict" | "unknown";
+}
+export interface ExtensionInspection { user: string; contextHash: string; vscode: VscodeRemoteContext; extensions: ExtensionCapability[] }
+export interface ExtensionPreview { id: string; alias: string; tool: RemoteToolId; path: string; version: string; runtimeVersion: string; port: number; previousPort: number | null; originalExists: boolean; restore: boolean; loginPromptChange: "add" | "unchanged" | "overrideFalse" | null }
+export const emptySummary = (): BridgeSummary => ({ status:"disconnected", target:null, proxy:null, cc:null, proxyStatus:null, ccStatus:null, activeProxyRevision:null, environment:"", codexConfigured:false, claudeConfigured:false, error:null, sshAuth:{mode:"nonInteractive",method:"unknown",authenticated:false,passwordStored:false} });
+export const targetLabel = (target:RemoteTarget|null|undefined) => target ? `${target.displayName} · ${target.sourceLabel}` : "";
+export const remoteBackend = {
+  discoverTools: (targetId:string) => invoke<RemoteToolDiscoverySnapshot>("remote_bridge_discover_tools", {targetId}),
+  runDiagnostics: () => invoke<RuntimeDiagnostics>("remote_bridge_run_diagnostics"),
+  diagnosticsSnapshot: () => invoke<RuntimeDiagnostics>("remote_bridge_diagnostics_snapshot"),
+  logStatus: () => invoke<{available:boolean}>("remote_bridge_log_status"),
+  openLogDirectory: () => invoke<void>("remote_bridge_open_log_directory"),
+  clearLogs: () => invoke<void>("remote_bridge_clear_logs"),
+  events: (limit=50) => invoke<BridgeEvent[]>("remote_bridge_events", {limit}),
+  modelSettings: () => invoke<RemoteBridgeModelSettings>("remote_bridge_model_settings"),
+  saveModelSettings: (settings: { followLocalCodexProfile:boolean }) => invoke<RemoteBridgeModelSettings>("remote_bridge_save_model_settings", { settings }),
+  extensionInspect: (targetId: string) => invoke<ExtensionInspection>("remote_bridge_extension_inspect", { targetId }),
+  extensionPreview: (selection: { alias: string; tool: RemoteToolId; contextHash: string; remoteConfirmed: boolean; restore: boolean }) => invoke<ExtensionPreview>("remote_bridge_extension_preview", { selection }),
+  extensionApply: (id: string) => invoke<void>("remote_bridge_extension_apply", { id, confirmed: true }),
+  targets: () => invoke<RemoteTarget[]>("remote_bridge_targets"),
+  addConnection: (input:ManualConnectionInput) => invoke<RemoteTarget>("remote_bridge_add_connection", { input }),
+  pickIdentityFile: (initialPath: string | null = null) => invoke<string | null>("remote_bridge_pick_identity_file", { initialPath }),
+  updateConnection: (id:string, input:ManualConnectionInput) => invoke<RemoteTarget>("remote_bridge_update_connection", { id, input }),
+  removeConnection: (id:string) => invoke<void>("remote_bridge_remove_connection", { id }),
+  summary: () => invoke<BridgeSummary>("remote_bridge_summary"),
+  skills: () => invoke<RemoteSkill[]>("remote_bridge_skills"),
+  enableSkill: (id:string) => invoke<RemoteSkill>("remote_bridge_enable_skill", { id }),
+  disableSkill: (id:string) => invoke<RemoteSkill>("remote_bridge_disable_skill", { id }),
+  check: (targetId: string) => invoke<PortAllocation>("remote_bridge_check", { targetId }),
+  checkNetwork: (targetId: string) => invoke<RemoteNetworkObservation>("remote_bridge_check_network", { targetId }),
+  sshAuthBegin: (operation: SshAuthOperation, targetId: string, request: BridgeRequest | null = null) => invoke<SshAuthSnapshot>("ssh_auth_begin", { operation, targetId, request }),
+  sshAuthState: (sessionId: string) => invoke<SshAuthSnapshot>("ssh_auth_state", { sessionId }),
+  sshAuthSubmit: (sessionId: string, promptId: string, response: string) => invoke<SshAuthSnapshot>("ssh_auth_submit", { sessionId, promptId, response }),
+  sshAuthConfirmHost: (sessionId: string, promptId: string) => invoke<SshAuthSnapshot>("ssh_auth_confirm_host", { sessionId, promptId }),
+  sshAuthFinish: (sessionId: string) => invoke<SshAuthOutcome>("ssh_auth_finish", { sessionId }),
+  sshAuthCancel: (sessionId: string) => invoke<void>("ssh_auth_cancel", { sessionId }),
+  allocatePorts: (targetId: string, preferDefaults = true) => invoke<PortAllocation>("remote_bridge_allocate_ports", { targetId, preferDefaults }),
+  detectCc: (localPort: number, discover = false) => invoke<CcDetection>("remote_bridge_detect_cc", { localPort, discover }),
+  preview: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_preview", { request }),
+  connect: (request: BridgeRequest) => invoke<BridgeSummary>("remote_bridge_connect", { request, confirmed:true }),
+  disconnect: () => invoke<BridgeSummary>("remote_bridge_disconnect", { confirmed:true }),
+  setCapability: (change: BridgeCapabilityChange) => invoke<BridgeSummary>("remote_bridge_set_capability", { change, confirmed:true }),
+  retryReconnect: () => invoke<BridgeSummary>("remote_bridge_retry_reconnect"),
+  test: () => invoke<void>("remote_bridge_test"),
+  launchProxyTerminal: () => invoke<void>("remote_bridge_launch_proxy_terminal"),
+  sessionEnvironmentCommand: () => invoke<string>("remote_bridge_session_environment_command"),
+  launchManualTerminal: () => invoke<void>("remote_bridge_launch_manual_terminal"),
+  clearSessionCredential: () => invoke<void>("remote_bridge_clear_session_credential"),
+  configPreview: (tool: RemoteToolId) => invoke<ConfigPreview>("remote_bridge_config_preview", { tool }),
+  configApply: (id: string) => invoke<void>("remote_bridge_config_apply", { id, confirmed:true }),
+  configRestorePreview: (targetId:string, tool:RemoteToolId) => invoke<ConfigPreview>("remote_bridge_config_restore_preview", { targetId,tool }),
+  configRestore: (id: string) => invoke<void>("remote_bridge_config_restore", { id, confirmed:true }),
+  toolVerify: (tool: RemoteToolId) => invoke<ToolVerificationResult>("remote_bridge_tool_verify", { tool }),
+  openVscode: (targetId:string) => invoke<string | null>("remote_bridge_open_vscode",{targetId}),
+  openVscodeSettings: () => invoke<void>("remote_bridge_open_vscode_settings"),
+  revealTargetConfig: (targetId:string) => invoke<void>("remote_bridge_reveal_target_config",{targetId}),
+  openTargetConfig: (targetId:string) => invoke<void>("remote_bridge_open_target_config",{targetId}),
+  launchMobaxterm: (targetId:string) => invoke<void>("remote_bridge_launch_mobaxterm", { targetId }),
+};
+export function useRemoteBridge() {
+  const summary = ref<BridgeSummary>(emptySummary());
+  const ccDetection = ref<CcDetection | null>(null);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let ccTimer: ReturnType<typeof setTimeout> | undefined;
+  let ccPending: Promise<void> | undefined;
+  let disposed=false;
+  async function refresh() {
+    if (!isTauri()) return;
+    try { const next=await remoteBackend.summary(); if (!disposed) summary.value=next; }
+    catch { if (!disposed) summary.value={...summary.value,status:"unavailable"}; }
+  }
+  async function poll() { await refresh(); if (!disposed) timer=setTimeout(poll,2000); }
+  function refreshCcDetection(): Promise<void> {
+    if (!isTauri() || disposed) return Promise.resolve();
+    if (ccPending) return ccPending;
+    ccPending = (async () => {
+      const localPort = ccDetection.value?.localPort ?? 15721;
+      try {
+        const next = await remoteBackend.detectCc(localPort, true);
+        if (!disposed && (next.state !== ccDetection.value?.state || next.localPort !== ccDetection.value?.localPort)) ccDetection.value = next;
+      } catch {
+        if (!disposed) ccDetection.value = { state: "notDetected", localPort };
+      }
+    })().finally(() => { ccPending = undefined; });
+    return ccPending;
+  }
+  // Local discovery starts with the app, independently of SSH summary polling or page navigation.
+  async function pollCc() { await refreshCcDetection(); if (!disposed) ccTimer=setTimeout(pollCc,2000); }
+  onMounted(() => { void poll(); void pollCc(); });
+  onBeforeUnmount(() => { disposed=true; clearTimeout(timer); clearTimeout(ccTimer); });
+  return { summary, refresh, ccDetection, refreshCcDetection };
+}

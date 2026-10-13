@@ -2,6 +2,9 @@ export type ProxyProtocol = "http" | "socks5" | "mixed" | "unknown";
 
 /** Backend-issued, allowlisted report DTO; never contains raw diagnostic objects. */
 export interface DiagnosticReportData {
+  remoteBridge?: { configured: boolean; reachable: boolean; status: import("../../features/remote-bridge/state").BridgeStatus; protocol: ProxyProtocol | null; proxyPort: number | null; proxyStatus?: import("../../features/remote-bridge/state").BridgeStatus | null; ccStatus?: import("../../features/remote-bridge/state").BridgeStatus | null; ccDetected: boolean; ccPort: number | null; codexConfigured: boolean; claudeConfigured: boolean; codexExtension?: string | null; claudeExtension?: string | null;
+    sshAuthMethod?:import("../../features/remote-bridge/state").SshAuthMethod; postConnectErrorCategory?:import("../../features/remote-bridge/state").BridgeErrorCategory|null; phaseTimings?:import("../../features/remote-bridge/state").PhaseTiming[];
+  } & Partial<Pick<import("../../features/remote-bridge/state").BridgeSummary,"toolInstallations"|"reconnectState"|"runtimeProxyMatch"|"postConnectStatus"|"sessionEnvironmentState"|"vscodeState"|"codexState"|"claudeState"|"skillsState"|"diagnostics"|"security">>;
   appVersion: string;
   os: string;
   osVersion: string | null;
@@ -57,6 +60,8 @@ export interface ProxyEndpoint {
   protocol: ProxyProtocol;
 }
 
+export type CheckState = "idle" | "checking" | "healthy" | "warning" | "failed" | "disabled";
+
 export interface ActiveProxyContext {
   selectedCandidateId: string | null;
   candidate: ProxyCandidate | null;
@@ -95,6 +100,8 @@ export interface AppSettings {
   launchAtStartup: boolean;
   silentStart: boolean;
   closeToTray: boolean;
+  notificationsEnabled: boolean;
+  notificationSound: boolean;
   proxyVariables: ManagedProxyVariable[];
 }
 

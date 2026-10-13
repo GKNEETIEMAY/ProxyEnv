@@ -1,0 +1,97 @@
+import type { CheckState } from "../../shared/types";
+import type { RemoteBridgeCopy } from "../../shared/i18n/remote-bridge";
+import type { BridgeStatus, BridgeSummary, DiagnosticState, RemoteSkill } from "./state";
+import type { RemoteToolId } from "./tool-adapters";
+import { getRemoteToolAdapter } from "./tool-adapters";
+
+export const bridgeEndpointLabel = (host: string, port: number) => `${host.includes(":") ? `[${host}]` : host}:${port}`;
+
+export function diagnosticCheckState(state: DiagnosticState | undefined): CheckState {
+  return state === "passed" ? "healthy" : state === "failed" ? "failed" : state === "testing" ? "checking" : "idle";
+}
+
+export function serverDirectCheckState(summary: BridgeSummary): CheckState {
+  if (!summary.target || !summary.sshAuth.authenticated || !["connected", "stale", "unavailable"].includes(summary.status)) return "idle";
+  const state = diagnosticCheckState(summary.diagnostics?.serverDirect?.state);
+  if (state === "idle" || state === "checking") return state;
+  // A failed probe is not proof that the server cannot reach the internet.
+  const internet = summary.diagnostics?.serverInternet;
+  return internet === "reachable" ? "healthy" : internet === "unreachable" ? "failed" : "warning";
+}
+
+export function overviewServerDirectStatus(copy: RemoteBridgeCopy, state: CheckState): { state: CheckState; label: string } {
+  if (state === "healthy") return { state, label: copy.rbOverviewDirectAvailable };
+  if (state === "failed") return { state: "warning", label: copy.rbOverviewDirectUnavailable };
+  if (state === "warning") return { state: "idle", label: copy.rbOverviewDirectUnknown };
+  if (state === "checking") return { state, label: copy.rbCheckChecking };
+  return { state: "idle", label: copy.rbCheckIdle };
+}
+
+export function bridgeCapabilityState(status: BridgeStatus | null, enabled: boolean): CheckState {
+  if (!enabled) return "disabled";
+  if (status === "connected") return "healthy";
+  if (status === "connecting") return "checking";
+  if (status === "error" || status === "unavailable") return "failed";
+  return "warning";
+}
+
+export function overviewToolChecking(summary: BridgeSummary, id: RemoteToolId): boolean {
+  const inspection=getRemoteToolAdapter(id).inspect(summary);
+  if (inspection.installation === "checking" || inspection.extensionInstallation === "checking") return true;
+  if (!summary.cc) return false;
+  const state = id === "codex" ? summary.codexState : summary.claudeState;
+  // Completed tools must not wait for unrelated post-connect jobs.
+  return state === "pending" || state === "preparing" || (state === undefined && summary.postConnectStatus === "preparing");
+}
+
+export function overviewToolLabel(copy: RemoteBridgeCopy, summary: BridgeSummary, id: RemoteToolId, configured: boolean): string {
+  if (overviewToolChecking(summary, id)) return copy.rbCheckChecking;
+  const inspection=getRemoteToolAdapter(id).inspect(summary);
+  if (inspection.installation !== "installed" && inspection.extensionInstallation !== "installed") return `${toolInstallationLabel(copy, summary, id)}${configured ? ` · ${copy.rbInstallConfigured}` : ""}`;
+  if (!configured) return copy.rbNotConfigured;
+  if (!summary.cc || summary.ccStatus !== "connected") return copy.rbToolRouteUnavailable;
+  const profile = id === "claude" ? summary.claudeProfileState : undefined;
+  if (profile === "conflict" || profile === "remoteChanged") return copy.rbProfileConflict;
+  if (profile === "restartRequired") return copy.rbOverviewRestartRequired;
+  if (profile === "localChanged") return copy.rbProfileLocalChanged;
+  if (profile === "invalidLocalProfile") return copy.rbProfileInvalid;
+  if (profile === "remoteUnavailable") return copy.rbToolRouteUnavailable;
+  // No Codex profile-sync evidence is returned by BridgeSummary. Do not invent it.
+  return profile === "synced" ? copy.rbOverviewSynced : copy.rbOverviewConfigured;
+}
+
+export function overviewToolConfigurationState(summary: BridgeSummary, id: RemoteToolId, configured: boolean): CheckState {
+  if (overviewToolChecking(summary, id)) return "checking";
+  if (!configured || !summary.cc || summary.ccStatus !== "connected") return "warning";
+  const inspection = getRemoteToolAdapter(id).inspect(summary);
+  if (inspection.installation !== "installed" && inspection.extensionInstallation !== "installed") return "warning";
+  const profile = id === "claude" ? summary.claudeProfileState : undefined;
+  return profile === undefined || profile === "synced" ? "healthy" : "warning";
+}
+
+export function toolInstallationLabel(copy:RemoteBridgeCopy, summary:BridgeSummary, id:RemoteToolId):string {
+  return toolInstallationLines(copy,summary,id).join(" / ");
+}
+
+export function toolInstallationLines(copy:RemoteBridgeCopy, summary:BridgeSummary, id:RemoteToolId):string[] {
+  const rows=toolInstallationRows(copy,summary,id);
+  return (summary.toolInstallations?.find(tool => tool.tool === id)?.extensionState === undefined ? rows.slice(0,1) : rows).map(row => `${row.label} ${row.status}`);
+}
+
+export function toolInstallationRows(copy:RemoteBridgeCopy, summary:BridgeSummary, id:RemoteToolId):Array<{label:string;status:string;state:CheckState;version:string|null}> {
+  const {installation,version,extensionInstallation,extensionVersion}=getRemoteToolAdapter(id).inspect(summary);
+  const labels={unknown:copy.rbInstallUnknown,checking:copy.rbInstallChecking,installed:copy.rbInstallInstalled,missing:copy.rbInstallMissing,unsupported:copy.rbInstallUnsupported,broken:copy.rbInstallBroken};
+  const states={unknown:"idle",checking:"checking",installed:"healthy",missing:"disabled",unsupported:"warning",broken:"failed"} as const;
+  return [
+    {label:"CLI",status:`${labels[installation]}${version ? ` · ${version}` : ""}`,state:states[installation],version},
+    {label:copy.rbInstallExtension,status:`${labels[extensionInstallation]}${extensionVersion ? ` · ${extensionVersion}` : ""}`,state:states[extensionInstallation],version:extensionVersion},
+  ];
+}
+
+export function overviewSkillStatus(copy: RemoteBridgeCopy, skill?: RemoteSkill): { state: CheckState; label: string } {
+  if (!skill) return { state: "disabled", label: copy.rbSkillNotLinked };
+  if (!skill.enabled) return { state: "disabled", label: copy.rbAccessDisabled };
+  const label = ({ synced: copy.rbSkillSynced, notSynced: copy.rbSkillNotSynced, localChanged: copy.rbSkillChanged, conflict: copy.rbSkillConflict, unavailable: copy.rbSkillUnavailable })[skill.state];
+  const state = skill.state === "synced" ? "healthy" : skill.state === "unavailable" ? "failed" : "warning";
+  return { state, label };
+}

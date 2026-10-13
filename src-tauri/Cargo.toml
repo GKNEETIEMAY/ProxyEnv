@@ -1,7 +1,7 @@
 [package]
 name = "proxyenv"
-version = "0.1.4"
-description = "A Windows-first proxy environment and application networking assistant"
+version = "0.2.0"
+description = "A local-first bridge for remote AI development"
 authors = ["ProxyEnv contributors"]
 edition = "2021"
 license = "MIT"
@@ -19,7 +19,8 @@ dirs = "6"
 futures-util = "0.3"
 getrandom = "0.3"
 hex = "0.4"
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "socks"] }
+portable-pty = "0.9"
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "rustls", "socks"] }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -34,10 +35,15 @@ tauri-plugin-updater = "2"
 thiserror = "2"
 toml = "0.8"
 tracing = "0.1"
+zeroize = "1"
 
 [target.'cfg(windows)'.dependencies]
 netstat2 = "0.11"
 windows = { version = "0.61", features = [
+  "Foundation",
+  "Data_Xml_Dom",
+  "UI_Notifications",
+  "Win32_System_WinRT",
   "Win32_Globalization",
   "Win32_Foundation",
   "Win32_NetworkManagement_IpHelper",
@@ -45,7 +51,13 @@ windows = { version = "0.61", features = [
   "Win32_Networking_WinSock",
   "Win32_Storage_FileSystem",
   "Win32_System_Registry",
-  "Win32_UI_WindowsAndMessaging"
+  "Win32_System_Com",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_Security",
+  "Win32_Security_Cryptography",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell"
 ] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]

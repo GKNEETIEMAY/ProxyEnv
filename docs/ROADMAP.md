@@ -1,35 +1,49 @@
-# ProxyEnv Roadmap
+# RouteSpan roadmap / 路线图
 
-```yaml
-Current Stable: v0.1.4
-Next: v0.2.0
-```
+English · [简体中文](ROADMAP.zh-CN.md)
 
-This is the release-scope reference for project documentation. Checked items under **Current** are shipped capabilities. **Next** describes intended work and may change after review and Windows acceptance. No release date or Linux/macOS implementation schedule is promised.
+## Previous stable baseline
 
-本文是项目文档的发布范围依据。**Current** 中的勾选项表示已发布能力；**Next** 表示计划中的工作，范围可能随评审和 Windows 验收调整。不承诺发版日期或 Linux/macOS 实现时间。
+ProxyEnv v0.1.4 is the maintainer-designated legacy-brand stable baseline.
+Its GitHub Release remains Draft; v0.1.3 was the previous public release.
+This designation does not make a draft publicly downloadable.
 
-## Current — v0.1.4
+## Released: RouteSpan v0.2.0
 
-- [x] Proxy discovery — client/process grouping, actual listening ports, protocol detection and shared client icons / 代理发现、客户端归并、实际监听端口、协议检测与通用图标。
-- [x] Environment management — selected user variables, snapshots, broadcast, verified restore and conflict protection / 环境变量管理、快照、广播、恢复与冲突保护。
-- [x] Independent Windows System Proxy and TUN / virtual-adapter observation / 独立的系统代理与虚拟网卡只读观测。
-- [x] Unified ActiveProxyContext — one explicit proxy selection shared by synchronization, mismatch checks, connectivity tests, the assistant and application launches / 全局活动代理统一用于同步、Mismatch、连通性测试、应用助手与应用启动。
-- [x] Conservative Application Assistant diagnosis — configured environment variables do not prove application connectivity / 应用助手采用保守诊断，不凭环境变量断言应用联网。
-- [x] Explicit proxy/direct application launches and confirmed manual-guide restart / 显式代理或直连启动，以及经过二次确认的手动引导重启。
-- [x] Safe multilingual diagnostic reports — redacted preview, refresh and copy in Simplified Chinese, English, Japanese and Korean / 支持四种语言的脱敏诊断报告预览、刷新与复制。
-- [x] Focused diagnostic-report tests and CI integration / 诊断报告格式、多语言及无网络探测边界测试已接入 CI。
-- [x] Signed updater — user-triggered check and download/install for NSIS; MSI/Portable update manually / NSIS 签名更新，MSI/Portable 手动更新。
+Published as the latest stable release on 2026-10-13: Local Environment, Remote Bridge,
+CC Switch AI route extension, tool readiness, managed Skills, Overview/Advanced
+and RouteSpan branding. The release gates are closed, including the production
+updater smoke. [Release QA](RELEASE_QA_V0.2.md) separates current publication status
+from historical checkpoints; detailed final acceptance records remain private.
 
-## Next — v0.2.0
+## Gates retained for future releases
 
-- [ ] A new feature cycle is planned. Its concrete scope will be documented after product review rather than inferred from v0.1.x maintenance work / 下一阶段将进入新功能周期；具体范围经产品评审后单独记录，不从 v0.1.x 维护工作中推断。
+- Preserve the high-severity frontend audit gate and rerun full CI for release-preflight changes.
+- Verify predecessor → RouteSpan upgrade, retained installer identity/data and uninstall.
+- Test real Windows 10/11, 125%/150% native DPI and desktop/tray/installer icon caches.
+- Complete the live SSH key/Agent/password/KBI, provider, CLI/plugin and shared-host matrix.
+- Verify reconnect, explicit disconnect, crash recovery and owned-only restore.
+- Validate formal signed release workflow, updater failure/downgrade handling,
+  checksums and externally verified artifact attestation.
+- Review published Markdown rendering and record scoped cross-machine results.
 
-## Future
+No future release date is promised. Local automated checks do not replace manual gates.
 
-- More verified application knowledge and clearer diagnosis explanations without automatically changing third-party application configuration / 增加经过验证的应用知识与更清晰的诊断说明，但不自动修改第三方应用配置。
-- Explore Linux/macOS platform adapters without committing to an implementation date; other Unix variants remain out of scope / 探索 Linux/macOS 平台适配，不承诺实现时间；其他 Unix 变体不在范围内。
+## Next maintenance priorities
 
-ProxyEnv's product boundary remains deliberately narrow: make the Windows proxy environment visible, consistent and controllable, then help users launch applications with an explicit proxy or direct environment. Third-party application configuration maintenance is not a release-roadmap focus.
+- Optimize bridge authentication: improve SSH authentication/recovery and AI session
+  authorization lifecycle, prompts and compatibility. Preserve host-key verification,
+  token revocation and the documented shared-host limits; do not reintroduce General
+  Proxy username/password authentication.
+- Fix minor bugs and polish existing behavior, prioritizing reproducible issues in
+  connection/reconnect, tool configuration and UI state. Add targeted regression
+  tests; avoid unrelated protocol changes or configuration migrations.
 
-ProxyEnv 保持明确的产品边界：让 Windows 代理环境变得可见、统一、可控，并帮助用户以明确的代理或直连环境启动应用；长期维护第三方应用内部配置不属于当前发行路线重点。
+These are maintenance directions, not a promised release date or completed features.
+
+## Future / research
+
+MCP bridging, additional adapters and platform expansion require separate designs.
+MCP needs capability-scoped authorization, lifecycle and rollback analysis; neither
+a generic forwarding tunnel nor current Skills synchronization implements it.
+These are research directions, not shipped features or commitments.

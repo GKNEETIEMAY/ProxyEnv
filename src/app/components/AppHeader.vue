@@ -1,16 +1,29 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { Copy } from "../../shared/i18n";
+import type { RemoteNavState } from "../navigation";
+import BrandMark from "../../shared/components/BrandMark.vue";
 
-defineProps<{
+const props = defineProps<{
   copy: Copy;
   maximized: boolean;
-  view: "home" | "assistant" | "settings";
+  view: "local" | "remote" | "assistant" | "settings";
+  remoteNavState: RemoteNavState;
 }>();
+
+const remoteNavStatusLabel = computed(() => ({
+  idle: props.copy.rbNavDisconnected,
+  connecting: props.copy.rbNavConnecting,
+  connected: props.copy.rbNavConnected,
+  attention: props.copy.rbNavAttention,
+})[props.remoteNavState]);
 
 defineEmits<{
   closeSettings: [];
   openSettings: [];
   openReport: [];
+  openLocal: [];
+  openRemote: [];
   minimize: [];
   toggleMaximize: [];
   close: [];
@@ -19,29 +32,28 @@ defineEmits<{
 
 <template>
   <header class="app-header">
-    <div v-if="view !== 'home'" class="settings-header-context">
+    <div v-if="view === 'assistant' || view === 'settings'" class="settings-header-context">
       <button class="header-back-button" type="button" :aria-label="copy.back" @click="$emit('closeSettings')">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 5-5 5 5 5" /></svg>
       </button>
       <strong>{{ view === 'assistant' ? copy.assistantTitle : copy.settingsTitle }}</strong>
     </div>
-    <button v-else class="wordmark" type="button" @click="$emit('closeSettings')">
-      <span class="brand-symbol" aria-hidden="true">
-        <svg viewBox="0 0 28 28">
-          <path class="brand-arrow-blue" d="M4.5 9.4h13.2M14.4 5.2l4.2 4.2-4.2 4.2" />
-          <path class="brand-arrow-white" d="M23.5 18.6H10.3M13.6 22.8l-4.2-4.2 4.2-4.2" />
-        </svg>
-      </span>
-      <span><strong>{{ copy.appName }}</strong><small>{{ copy.appTagline }}</small></span>
+    <button v-else class="wordmark" type="button" @click="$emit('openLocal')">
+      <BrandMark />
+      <span class="wordmark-copy"><strong>{{ copy.appName }}</strong><small :title="copy.appTagline">{{ copy.appTagline }}</small></span>
     </button>
     <div class="titlebar-drag-zone" data-tauri-drag-region @dblclick="$emit('toggleMaximize')"></div>
     <div class="header-actions">
-      <button class="header-icon-button" type="button" :aria-label="copy.reportOpen" :title="copy.reportOpen" aria-haspopup="dialog" @click="$emit('openReport')">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 4v16h16M8 15v-4m4 4V7m4 8v-6" />
-        </svg>
-      </button>
-      <div v-if="view === 'home'" class="primary-nav">
+      <nav v-if="view === 'local' || view === 'remote'" class="primary-nav" :aria-label="copy.appName">
+        <button type="button" :aria-current="view === 'local' ? 'page' : undefined" @click="$emit('openLocal')">{{ copy.navLocal }}</button>
+        <button class="remote-nav-button" type="button" :aria-current="view === 'remote' ? 'page' : undefined" :aria-label="`${copy.navRemote} · ${remoteNavStatusLabel}`" :title="remoteNavStatusLabel" @click="$emit('openRemote')">{{ copy.navRemote }}<span class="remote-nav-status" :data-state="remoteNavState" aria-hidden="true" /></button>
+      </nav>
+      <div v-if="view === 'local' || view === 'remote'" class="primary-nav-actions">
+        <button class="header-icon-button" type="button" :aria-label="copy.reportOpen" :title="copy.reportOpen" aria-haspopup="dialog" @click="$emit('openReport')">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 4v16h16M8 15v-4m4 4V7m4 8v-6" />
+          </svg>
+        </button>
         <button class="header-icon-button" type="button" :aria-label="copy.settings" :title="copy.settings" @click="$emit('openSettings')">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12.2 3h-.4a1.8 1.8 0 0 0-1.8 1.8v.3a1.8 1.8 0 0 1-.9 1.56l-.6.34a1.8 1.8 0 0 1-1.8 0l-.25-.14a1.8 1.8 0 0 0-2.46.66l-.2.35a1.8 1.8 0 0 0 .66 2.46l.25.15a1.8 1.8 0 0 1 .9 1.56v.68a1.8 1.8 0 0 1-.9 1.56l-.25.15a1.8 1.8 0 0 0-.66 2.46l.2.35a1.8 1.8 0 0 0 2.46.66l.25-.14a1.8 1.8 0 0 1 1.8 0l.6.34a1.8 1.8 0 0 1 .9 1.56v.3a1.8 1.8 0 0 0 1.8 1.8h.4a1.8 1.8 0 0 0 1.8-1.8v-.3a1.8 1.8 0 0 1 .9-1.56l.6-.34a1.8 1.8 0 0 1 1.8 0l.25.14a1.8 1.8 0 0 0 2.46-.66l.2-.35a1.8 1.8 0 0 0-.66-2.46l-.25-.15a1.8 1.8 0 0 1-.9-1.56v-.68a1.8 1.8 0 0 1 .9-1.56l.25-.15a1.8 1.8 0 0 0 .66-2.46l-.2-.35a1.8 1.8 0 0 0-2.46-.66l-.25.14a1.8 1.8 0 0 1-1.8 0l-.6-.34a1.8 1.8 0 0 1-.9-1.56v-.3A1.8 1.8 0 0 0 12.2 3Z" />
@@ -64,3 +76,12 @@ defineEmits<{
     </div>
   </header>
 </template>
+
+<style scoped>
+.remote-nav-button { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+/* Reserve the dot's slot so polling cannot move either navigation label. */
+.remote-nav-status { width:6px; height:6px; flex:none; border-radius:50%; background:var(--focus); }
+.remote-nav-status[data-state="idle"] { visibility:hidden; }
+.remote-nav-status[data-state="connected"] { background:var(--success); }
+.remote-nav-status[data-state="attention"] { background:var(--warning); }
+</style>

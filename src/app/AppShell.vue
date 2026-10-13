@@ -22,7 +22,14 @@ import { messages, resolveLocale } from "../shared/i18n";
 import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, TunObservation } from "../shared/types";
 import { copyText } from "../shared/utils/clipboard";
 import AppHeader from "./components/AppHeader.vue";
+import { remoteNavigationState } from "./navigation";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
+import NotificationCenter from "../shared/components/NotificationCenter.vue";
+import { notify, useNotification } from "../shared/state/notifications";
+
+import RemoteBridgePage from "../features/remote-bridge/components/RemoteBridgePage.vue";
+import { useRemoteBridge, type BridgeSummary } from "../features/remote-bridge/state";
+const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge, ccDetection } = useRemoteBridge();
 
 const reportDialog = ref<InstanceType<typeof DiagnosticReportDialog>>();
 const reportApplicationId = ref<string>();
@@ -33,10 +40,13 @@ const defaultSettings: AppSettings = {
   launchAtStartup: false,
   silentStart: false,
   closeToTray: true,
+  notificationsEnabled: true,
+  notificationSound: false,
   proxyVariables: ["http", "https"]
 };
 
-const view = ref<"home" | "assistant" | "settings">("home");
+const primaryView = ref<"local" | "remote">("local");
+const view = ref<"local" | "remote" | "assistant" | "settings">("local");
 const settingsTab = ref<SettingsTab>("general");
 const loading = ref(true);
 const toggling = ref(false);
@@ -44,8 +54,8 @@ const error = ref("");
 const settingsError = ref("");
 const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
-const instanceNoticeVisible = ref(false);
-const appVersion = ref("0.1.3");
+function openBridgeNotice() { openRemote(); void refreshRemoteBridge(); }
+const appVersion = ref("0.2.0");
 const latestVersion = ref("");
 const updateState = ref<UpdateState>("idle");
 const releaseUrl = ref("");
@@ -73,7 +83,6 @@ const reviewPreview = import.meta.env.DEV && new URLSearchParams(window.location
 const appWindow = reviewPreview ? undefined : getCurrentWindow();
 let refreshTimer: number | undefined;
 let copyTimer: number | undefined;
-let instanceNoticeTimer: number | undefined;
 let refreshPending = false;
 let settingsSaveTimer: number | undefined;
 let settingsReady = false;
@@ -85,6 +94,11 @@ let unlisten: UnlistenFn[] = [];
 
 const locale = computed(() => resolveLocale(draftSettings.value.language));
 const copy = computed(() => messages[locale.value]);
+const remoteNavState = computed(() => remoteNavigationState(remoteBridgeSummary.value));
+useNotification(error, "error", "app-operation");
+useNotification(settingsError, "error", "settings-save");
+useNotification(settingsLoadError, "error", "settings-load");
+useNotification(releaseActionError, "error", "release-action");
 const activeProxyContext = computed(() => environment.value.activeProxy);
 const detected = computed(() => activeProxyContext.value.candidate ?? undefined);
 const systemProxy = computed(() => candidates.value.find((candidate) => candidate.source.includes("windowsSystemProxy")));
@@ -280,11 +294,25 @@ function openSettings() {
 }
 
 function closeSettings() {
-  view.value = "home";
+  view.value = primaryView.value;
+}
+
+function openLocal() {
+  primaryView.value = "local";
+  view.value = "local";
+}
+
+function openRemote() {
+  primaryView.value = "remote";
+  view.value = "remote";
 }
 
 function openAssistant() {
   view.value = "assistant";
+}
+
+function acceptRemoteBridgeSummary(summary: BridgeSummary) {
+  remoteBridgeSummary.value = summary;
 }
 
 async function copyEndpoint(candidate?: ProxyCandidate) {
@@ -421,7 +449,7 @@ function onViewShortcut(event: KeyboardEvent) {
     openSettings();
     return;
   }
-  if (event.key !== "Escape" || view.value === "home" || event.defaultPrevented) return;
+  if (event.key !== "Escape" || view.value === primaryView.value || event.defaultPrevented) return;
   const target = event.target;
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
   event.preventDefault();
@@ -465,11 +493,7 @@ function onSystemThemeChange() {
 }
 
 function showSecondInstanceNotice() {
-  instanceNoticeVisible.value = true;
-  if (instanceNoticeTimer !== undefined) window.clearTimeout(instanceNoticeTimer);
-  instanceNoticeTimer = window.setTimeout(() => {
-    instanceNoticeVisible.value = false;
-  }, 3200);
+  notify(copy.value.secondInstanceOpened, "info", "second-instance");
 }
 
 watch([draftSettings, locale], applyPresentation, { deep: true, immediate: true });
@@ -496,7 +520,7 @@ onMounted(async () => {
   try {
     appVersion.value = await getVersion();
   } catch {
-    appVersion.value = "0.1.3";
+    appVersion.value = "0.2.0";
   }
   if (reviewPreview) {
     const preview = new URLSearchParams(window.location.search).get("impeccable-review");
@@ -581,6 +605,24 @@ onMounted(async () => {
       settingsTab.value = preview === "about" ? "about" : "general";
     } else if (preview === "assistant" || preview === "assistant-result") {
       view.value = "assistant";
+    } else if (["remote", "remote-connected", "remote-connected-advanced", "remote-auth", "remote-auth-rejected", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(preview ?? "")) {
+      openRemote();
+      if (["remote-connected", "remote-connected-advanced"].includes(preview ?? "")) remoteBridgeSummary.value = {
+        status: "connected",
+        target: { id: "openssh|preview|aliyun-dev", displayName: "aliyun-dev", source: "openssh", sourceLabel: "OpenSSH", configPath: "~\\.ssh\\config", sshAlias: "aliyun-dev", host: "8.138.152.49", user: "lxl", port: 22, identityFile: null, authenticationMethod: "password", available: true, compatibility: "compatible", unavailableReason: null, canOpenVscode: true, canOpenMobaxterm: false },
+        proxy: { local: { host: "127.0.0.1", port: 10809, protocol: "mixed" }, remotePort: 23841 },
+        cc: { local: { host: "127.0.0.1", port: 15721, protocol: "http" }, remotePort: 31472 },
+        proxyStatus: "connected",
+        ccStatus: "connected",
+        activeProxyRevision: 1,
+        environment: "export HTTP_PROXY=http://127.0.0.1:23841\nexport HTTPS_PROXY=http://127.0.0.1:23841\nexport ALL_PROXY=socks5h://127.0.0.1:23841",
+        codexConfigured: true,
+        claudeConfigured: false,
+        codexExtension: "notConfigured",
+        claudeExtension: "notConfigured",
+        error: null,
+        sshAuth: { mode: "nonInteractive", method: "identityFile", authenticated: true, passwordStored: false }
+      };
     }
     loading.value = false;
     return;
@@ -602,7 +644,8 @@ onMounted(async () => {
   unlisten = await Promise.all([
     listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { acceptEnvironmentStatus(payload); }),
     listen<string>("operation-error", ({ payload }) => { error.value = payload; }),
-    listen("second-instance-opened", showSecondInstanceNotice)
+    listen("second-instance-opened", showSecondInstanceNotice),
+    listen("bridge-notification-open", openBridgeNotice)
   ]);
   await refresh();
   refreshTimer = window.setInterval(() => void refresh(true), 5000);
@@ -611,7 +654,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
   if (copyTimer !== undefined) window.clearTimeout(copyTimer);
-  if (instanceNoticeTimer !== undefined) window.clearTimeout(instanceNoticeTimer);
   if (settingsSaveTimer !== undefined) window.clearTimeout(settingsSaveTimer);
   unlistenResize?.();
   window.removeEventListener("keydown", onViewShortcut);
@@ -622,17 +664,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-frame" :class="{ maximized }">
-    <Transition name="instance-toast">
-      <div v-if="instanceNoticeVisible" class="instance-toast" role="status" aria-live="polite">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8" /></svg>
-        <span>{{ copy.secondInstanceOpened }}</span>
-      </div>
-    </Transition>
+    <NotificationCenter :close-label="copy.rbNotificationClose" />
     <AppHeader
       :copy="copy"
       :maximized="maximized"
       :view="view"
+      :remote-nav-state="remoteNavState"
       @close-settings="closeSettings"
+      @open-local="openLocal"
+      @open-remote="openRemote"
       @open-settings="openSettings"
       @open-report="reportDialog?.open()"
       @minimize="minimizeWindow"
@@ -642,13 +682,13 @@ onBeforeUnmount(() => {
 
     <div v-if="activeProxyContext.candidate && !activeProxyContext.available" class="notice notice-warning active-proxy-alert" role="status">
       <p><strong>{{ copy.activeProxyUnavailableTitle }}</strong><span>{{ copy.activeProxyUnavailable }}</span></p>
-      <button v-if="view !== 'home'" class="secondary-action" type="button" @click="view = 'home'">{{ copy.selectActiveProxy }}</button>
+      <button v-if="view !== 'local'" class="secondary-action" type="button" @click="openLocal">{{ copy.selectActiveProxy }}</button>
     </div>
 
-    <Transition name="view-fade" mode="out-in">
+    <div class="view-stage">
+    <div class="view-outlet">
+    <div v-show="view === 'local'" class="view-pane">
     <ProxyPage
-      v-if="view === 'home'"
-      key="home"
       :copy="copy"
       :environment="environment"
       :candidates="candidates"
@@ -671,10 +711,24 @@ onBeforeUnmount(() => {
       @toggle-variable="toggleManagedVariable"
       @open-assistant="openAssistant"
     />
+    </div>
+
+    <div v-show="view === 'remote'" class="view-pane remote-view-pane">
+    <RemoteBridgePage
+      :visible="view === 'remote'"
+      :copy="copy"
+      :active-proxy="activeProxyContext"
+      :summary="remoteBridgeSummary"
+      :cc-detection="ccDetection"
+      :review-preview="reviewPreview"
+      @refresh="refreshRemoteBridge"
+      @connected="acceptRemoteBridgeSummary"
+      @open-report="reportDialog?.open()"
+    />
+    </div>
 
     <ApplicationAssistantPage
-      v-else-if="view === 'assistant'"
-      key="assistant"
+      v-if="view === 'assistant'"
       :copy="copy"
       :review-preview="reviewPreview"
       :active-proxy-context="activeProxyContext"
@@ -687,8 +741,7 @@ onBeforeUnmount(() => {
     />
 
     <SettingsPage
-      v-else-if="view === 'settings'"
-      key="settings"
+      v-if="view === 'settings'"
       v-model:settings="draftSettings"
       v-model:tab="settingsTab"
       :copy="copy"
@@ -707,7 +760,8 @@ onBeforeUnmount(() => {
       @install-update="installPendingUpdate"
       @open-release="openLatestRelease"
     />
-    </Transition>
+    </div>
+    </div>
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
   </div>
 </template>

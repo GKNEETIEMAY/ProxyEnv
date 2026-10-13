@@ -1,0 +1,146 @@
+import type { RemoteBridgeCopy } from "../../shared/i18n/remote-bridge";
+import { remoteBackend, type BridgeSummary, type ConfigPreview, type RemoteToolState, type RemoteToolVerification, type ToolVerificationResult, type RemoteToolInstallState } from "./state";
+
+export type RemoteToolId = "codex" | "claude";
+export type RemoteToolRouteMode = "ccSwitch";
+export type RemoteToolCompatibility = "compatible" | "unsupported";
+export interface RemoteToolInspection {
+  installation: RemoteToolInstallState;
+  version: string | null;
+  extensionInstallation: RemoteToolInstallState;
+  extensionVersion: string | null;
+  configured: boolean;
+  verification: RemoteToolVerification;
+  verificationSupported: boolean;
+}
+
+export interface RemoteToolAdapter {
+  readonly id: RemoteToolId;
+  readonly displayName: string;
+  readonly extensionPath: string;
+  readonly usesVscodeRemoteSettings: boolean;
+  readonly restoreRequiresVscodeContext: boolean;
+  readonly supportsProfileSync: boolean;
+  readonly supportsExtensionConfiguration: boolean;
+  readonly extensionUsesSharedProfile: boolean;
+  readonly directToggle: boolean;
+  detect(preview: ConfigPreview | undefined): boolean;
+  inspect(summary: BridgeSummary): RemoteToolInspection;
+  preview(targetId: string, restoring: boolean): Promise<ConfigPreview>;
+  apply(previewId: string): Promise<void>;
+  restore(previewId: string): Promise<void>;
+  launch(summary: BridgeSummary): string;
+  verify(): Promise<ToolVerificationResult>;
+  supportedRouteModes(): readonly RemoteToolRouteMode[];
+  compatibility(preview: ConfigPreview | undefined): RemoteToolCompatibility;
+  verifyLabel(copy: RemoteBridgeCopy): string;
+  configHint(copy: RemoteBridgeCopy): string;
+  impact(copy: RemoteBridgeCopy, restoring: boolean): string;
+  renderExtensionPreview(port: number): string;
+}
+
+interface AdapterDefinition {
+  id: RemoteToolId;
+  displayName: string;
+  extensionPath: string;
+  usesVscodeRemoteSettings: boolean;
+  restoreRequiresVscodeContext: boolean;
+  supportsProfileSync: boolean;
+  supportsExtensionConfiguration: boolean;
+  extensionUsesSharedProfile: boolean;
+  directToggle: boolean;
+  launchCommand: string;
+  verificationSupported: boolean;
+  configured(summary: BridgeSummary): boolean;
+  verifyLabel(copy: RemoteBridgeCopy): string;
+  configHint(copy: RemoteBridgeCopy): string;
+  impact(copy: RemoteBridgeCopy, restoring: boolean): string;
+  renderExtensionPreview(port: number): string;
+}
+
+function createAdapter(definition: AdapterDefinition): RemoteToolAdapter {
+  const state = (summary: BridgeSummary): RemoteToolState | undefined => summary.tools?.find((tool) => tool.id === definition.id);
+  const configured = (summary: BridgeSummary): boolean => state(summary)?.configured ?? definition.configured(summary);
+  const verification = (summary: BridgeSummary): RemoteToolVerification => state(summary)?.verification ?? (configured(summary) ? "verifyPending" : "notConfigured");
+  return {
+    ...definition,
+    detect: (preview) => Boolean(preview?.version),
+    inspect: (summary) => {
+      const installation=summary.toolInstallations?.find(tool => tool.tool === definition.id);
+      return {
+        installation:installation?.state ?? "unknown", version:installation?.version ?? null,
+        extensionInstallation:installation?.extensionState ?? "unknown", extensionVersion:installation?.extensionVersion ?? null,
+        configured:configured(summary), verification:verification(summary),
+        // The paid Claude probe executes a CLI, not the VS Code extension.
+        verificationSupported:(state(summary)?.verificationSupported ?? definition.verificationSupported) && (!installation || installation.state === "installed"),
+      };
+    },
+    preview: (targetId, restoring) => restoring
+      ? remoteBackend.configRestorePreview(targetId, definition.id)
+      : remoteBackend.configPreview(definition.id),
+    apply: (previewId) => remoteBackend.configApply(previewId),
+    restore: (previewId) => remoteBackend.configRestore(previewId),
+    launch: (summary) => configured(summary) ? definition.launchCommand : "",
+    verify: () => remoteBackend.toolVerify(definition.id),
+    supportedRouteModes: () => ["ccSwitch"],
+    compatibility: (preview) => preview?.version ? "compatible" : "unsupported",
+  };
+}
+
+export const remoteToolAdapters: readonly RemoteToolAdapter[] = [
+  createAdapter({
+    id: "codex",
+    displayName: "Codex CLI",
+    extensionPath: "~/.codex/config.toml",
+    usesVscodeRemoteSettings: false,
+    restoreRequiresVscodeContext: false,
+    supportsProfileSync: true,
+    supportsExtensionConfiguration: true,
+    extensionUsesSharedProfile: true,
+    directToggle: true,
+    launchCommand: "codex",
+    verificationSupported: false,
+    configured: (summary) => summary.codexConfigured,
+    verifyLabel: (copy) => copy.rbVerifyClaude,
+    configHint: (copy) => copy.rbExtCodexRouteImpact,
+    impact: (copy, restoring) => restoring ? copy.rbExtRestoreImpact : copy.rbExtCodexRouteImpact,
+    renderExtensionPreview: (port) => `model_provider = "proxyenv_bridge"\n[model_providers.proxyenv_bridge]\nname = "ProxyEnv Local Bridge"\nbase_url = "http://127.0.0.1:${port}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nsupports_websockets = false`,
+  }),
+  createAdapter({
+    id: "claude",
+    displayName: "Claude Code CLI",
+    extensionPath: "~/.claude/settings.json",
+    usesVscodeRemoteSettings: false,
+    restoreRequiresVscodeContext: false,
+    supportsProfileSync: true,
+    supportsExtensionConfiguration: true,
+    extensionUsesSharedProfile: true,
+    directToggle: true,
+    launchCommand: "claude",
+    verificationSupported: true,
+    configured: (summary) => summary.claudeConfigured,
+    verifyLabel: (copy) => copy.rbVerifyClaude,
+    configHint: (copy) => copy.rbClaudeConfigHint,
+    impact: (copy, restoring) => restoring ? copy.rbExtRestoreImpact : copy.rbExtClaudeImpact,
+    renderExtensionPreview: (port) => JSON.stringify({
+      "claudeCode.environmentVariables": [
+        { name: "ANTHROPIC_BASE_URL", value: `http://127.0.0.1:${port}` },
+        { name: "ANTHROPIC_AUTH_TOKEN", value: "PROXY_MANAGED" },
+      ],
+      "claudeCode.disableLoginPrompt": true,
+    }, null, 2),
+  }),
+];
+
+export function getRemoteToolAdapter(id: RemoteToolId): RemoteToolAdapter {
+  const adapter = remoteToolAdapters.find((candidate) => candidate.id === id);
+  if (!adapter) throw new Error("invalid remote tool adapter");
+  return adapter;
+}
+
+export function canToggleRemoteTool(summary:BridgeSummary, id:RemoteToolId):boolean {
+  const inspection=getRemoteToolAdapter(id).inspect(summary);
+  if (inspection.installation === "checking" || inspection.extensionInstallation === "checking") return false;
+  // Disabling existing configuration must remain possible even after CLI removal.
+  return inspection.configured || ((inspection.installation === "installed" || inspection.extensionInstallation === "installed") && summary.ccStatus === "connected");
+}

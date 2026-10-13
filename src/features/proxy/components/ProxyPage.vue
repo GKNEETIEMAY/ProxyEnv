@@ -165,7 +165,6 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
 
 <template>
   <main class="page home-page">
-    <div v-if="error" class="notice notice-error" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg><p><strong>{{ copy.operationFailed }}</strong><span>{{ error }} · {{ copy.retryHint }}</span></p></div>
 
     <section class="proxy-console">
       <div class="layer-row client-layer">

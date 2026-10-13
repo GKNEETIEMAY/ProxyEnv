@@ -32,8 +32,8 @@ jobs:
           $tauriVersion = (Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json).version
           $cargoVersionMatch = [regex]::Match((Get-Content -Raw -LiteralPath 'src-tauri/Cargo.toml'), '(?m)^version\s*=\s*"([^"]+)"')
           $cargoVersion = $cargoVersionMatch.Groups[1].Value
-          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-            throw "Release tag must contain a semantic version"
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Formal releases require a stable version tag; RC/prerelease tags are not supported"
           }
           if ($packageVersion -ne $version -or $tauriVersion -ne $version -or $cargoVersion -ne $version) {
             throw "Release tag, package.json, Cargo.toml, and tauri.conf.json versions must match"
@@ -62,6 +62,9 @@ jobs:
 
       - name: Audit frontend dependencies
         run: pnpm audit --audit-level high
+
+      - name: Test release contracts
+        run: pnpm test:release
 
       - name: Build frontend
         run: pnpm build
@@ -107,7 +110,7 @@ jobs:
           New-Item -ItemType Directory -Path $output | Out-Null
 
           $portable = Resolve-Path -LiteralPath 'src-tauri/target/release/proxyenv.exe'
-          Copy-Item -LiteralPath $portable -Destination (Join-Path $output "ProxyEnv-$version-windows-x64-portable.exe")
+          Copy-Item -LiteralPath $portable -Destination (Join-Path $output "RouteSpan-$version-windows-x64-portable.exe")
 
           $installers = @()
           foreach ($directory in @(
@@ -120,16 +123,23 @@ jobs:
               }
             }
           }
-          if ($installers.Count -eq 0) {
-            throw 'Tauri did not produce an NSIS or MSI installer'
+          $nsisCount = @($installers | Where-Object { $_.Extension -eq '.exe' }).Count
+          $msiCount = @($installers | Where-Object { $_.Extension -eq '.msi' }).Count
+          if ($nsisCount -ne 1 -or $msiCount -ne 1) {
+            throw 'Exactly one NSIS and one MSI installer are required; ambiguous artifacts must not be overwritten'
           }
           foreach ($installer in $installers) {
-            Copy-Item -LiteralPath $installer.FullName -Destination $output
+            $artifactName = if ($installer.Extension -eq '.exe') {
+              "RouteSpan-$version-windows-x64-setup.exe"
+            } else {
+              "RouteSpan-$version-windows-x64-installer.msi"
+            }
+            Copy-Item -LiteralPath $installer.FullName -Destination (Join-Path $output $artifactName)
             $signaturePath = "$($installer.FullName).sig"
             if (-not (Test-Path -LiteralPath $signaturePath -PathType Leaf)) {
               throw "Missing Tauri Updater signature for $($installer.Name)"
             }
-            Copy-Item -LiteralPath $signaturePath -Destination $output
+            Copy-Item -LiteralPath $signaturePath -Destination (Join-Path $output "$artifactName.sig")
           }
 
           $nsisInstaller = $installers | Where-Object {
@@ -150,7 +160,7 @@ jobs:
             platforms = [ordered]@{
               'windows-x86_64' = [ordered]@{
                 signature = $nsisSignature
-                url = "https://github.com/GKNEETIEMAY/ProxyEnv/releases/download/$env:GITHUB_REF_NAME/$($nsisInstaller.Name)"
+                url = "https://github.com/GKNEETIEMAY/ProxyEnv/releases/download/$env:GITHUB_REF_NAME/RouteSpan-$version-windows-x64-setup.exe"
               }
             }
           }
@@ -173,7 +183,7 @@ jobs:
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ProxyEnv-${{ github.ref_name }}-windows-x64
+          name: RouteSpan-${{ github.ref_name }}-windows-x64
           path: release-artifacts/*
           if-no-files-found: error
 

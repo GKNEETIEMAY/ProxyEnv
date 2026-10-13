@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useNotification } from "../../../shared/state/notifications";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { backend } from "../../../shared/api/backend";
 import type { Copy } from "../../../shared/i18n";
@@ -23,6 +24,7 @@ const result = ref<ResultState>();
 const busy = ref(false);
 const loadingApps = ref(true);
 const error = ref("");
+useNotification(error, "error", "assistant-operation");
 const restorePending = ref(false);
 const showAdvanced = ref(false);
 const retainedBackupId = ref<string>();
@@ -458,7 +460,6 @@ watch(() => props.activeProxyContext.revision, () => {
       </ol>
     </div>
 
-    <div v-if="error" class="notice notice-error" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg><p><strong>{{ copy.operationFailed }}</strong><span>{{ error }}</span></p></div>
 
     <section v-if="!diagnosis && !busy" class="assistant-section application-picker">
       <div class="assistant-section-heading"><div><h2>{{ copy.assistantChooseApp }}</h2><p>{{ copy.assistantChooseHint }}</p></div><div class="application-picker-actions"><span role="status" aria-live="polite">{{ applicationCount }}</span><button class="secondary-action browse-action" type="button" :disabled="loadingApps" @click="loadApplications"><svg :class="{ spinning: loadingApps }" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 9.5a6.5 6.5 0 1 0-1.9 4.6M16.5 5v4.5H12" /></svg>{{ copy.assistantRefreshApps }}</button><button class="secondary-action browse-action" type="button" @click="browseApplication"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.5h5l1.4 1.7h6.6v7.3h-13zM3.5 6.5V4.7h4.2l1.2 1.8" /></svg>{{ copy.assistantBrowse }}</button></div></div>

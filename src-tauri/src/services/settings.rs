@@ -36,6 +36,9 @@ pub enum ThemePreference {
 fn default_proxy_variables() -> Vec<ProxyVariable> {
     vec![ProxyVariable::Http, ProxyVariable::Https]
 }
+fn default_notifications() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -45,6 +48,10 @@ pub struct AppSettings {
     pub launch_at_startup: bool,
     pub silent_start: bool,
     pub close_to_tray: bool,
+    #[serde(default = "default_notifications")]
+    pub notifications_enabled: bool,
+    #[serde(default)]
+    pub notification_sound: bool,
     #[serde(default = "default_proxy_variables")]
     pub proxy_variables: Vec<ProxyVariable>,
 }
@@ -57,6 +64,8 @@ impl Default for AppSettings {
             launch_at_startup: false,
             silent_start: false,
             close_to_tray: true,
+            notifications_enabled: true,
+            notification_sound: false,
             proxy_variables: default_proxy_variables(),
         }
     }
@@ -175,10 +184,31 @@ mod tests {
         assert!(!settings.launch_at_startup);
         assert!(!settings.silent_start);
         assert!(settings.close_to_tray);
+        assert!(settings.notifications_enabled);
+        assert!(!settings.notification_sound);
         assert_eq!(
             settings.proxy_variables,
             vec![ProxyVariable::Http, ProxyVariable::Https]
         );
+    }
+
+    #[test]
+    fn existing_settings_migrate_to_quiet_notifications() {
+        let settings = decode_settings(
+            br#"{
+            "language":"system","theme":"system","launchAtStartup":false,
+            "silentStart":false,"closeToTray":true,"proxyVariables":["http","https"]
+        }"#,
+        )
+        .unwrap();
+        assert!(settings.notifications_enabled);
+        assert!(!settings.notification_sound);
+        let mut settings = settings;
+        settings.notifications_enabled = false;
+        settings.notification_sound = true;
+        let restored = decode_settings(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert!(!restored.notifications_enabled);
+        assert!(restored.notification_sound);
     }
 
     #[test]

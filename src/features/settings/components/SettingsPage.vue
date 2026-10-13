@@ -3,6 +3,7 @@ import { computed } from "vue";
 import type { Copy } from "../../../shared/i18n";
 import type { AppSettings } from "../../../shared/types";
 import type { ReleaseNoteLine, UpdateState } from "../update";
+import BrandMark from "../../../shared/components/BrandMark.vue";
 
 export type SettingsTab = "general" | "about";
 
@@ -41,10 +42,6 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
 
     <p class="settings-intro">{{ tab === 'general' ? copy.settingsIntro : copy.aboutIntro }}</p>
 
-    <div v-if="settingsLoadError || settingsError" class="notice notice-error" role="alert">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
-      <p><strong>{{ settingsLoadError ? copy.settingsLoadFailed : copy.saveFailed }}</strong><span>{{ settingsLoadError || settingsError }}</span></p>
-    </div>
 
     <template v-if="tab === 'general'">
       <section class="settings-group">
@@ -87,12 +84,7 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
 
     <section v-else class="about-panel">
       <div class="about-identity">
-        <span class="brand-symbol about-symbol" aria-hidden="true">
-          <svg viewBox="0 0 28 28">
-            <path class="brand-arrow-blue" d="M4.5 9.4h13.2M14.4 5.2l4.2 4.2-4.2 4.2" />
-            <path class="brand-arrow-white" d="M23.5 18.6H10.3M13.6 22.8l-4.2-4.2 4.2-4.2" />
-          </svg>
-        </span>
+        <BrandMark size="large" />
         <div><h2>{{ copy.appName }}</h2><p>{{ copy.appTagline }}</p></div>
       </div>
       <dl class="about-details">
@@ -133,7 +125,6 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
       <div v-if="updateState === 'downloading'" class="update-progress" role="progressbar" :aria-label="copy.downloadingUpdate" :aria-valuenow="updateProgress ?? undefined" aria-valuemin="0" aria-valuemax="100">
         <span :class="{ indeterminate: updateProgress === null }" :style="updateProgress === null ? undefined : { width: `${updateProgress}%` }"></span>
       </div>
-      <p v-if="releaseActionError" class="release-action-error" role="alert">{{ releaseActionError }}</p>
       <section class="changelog-section">
         <div class="changelog-heading">
           <h3>{{ copy.changelog }}</h3>

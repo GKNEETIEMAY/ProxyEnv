@@ -8,8 +8,12 @@ mod services;
 use desktop::tray;
 use services::settings;
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
+
+pub fn try_run_ssh_askpass() -> bool {
+    features::remote_bridge::credential_cache::try_run_askpass()
+}
 
 pub fn run() {
     tauri::Builder::default()
@@ -26,6 +30,11 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            if let Ok(directory) = app.path().app_log_dir() {
+                features::remote_bridge::logging::initialize(directory.join("remote-bridge"));
+            }
+            desktop::notifications::setup(app.handle().clone());
+            features::remote_bridge::start_monitor();
             let settings = settings::load().unwrap_or_default();
             tray::setup(app.handle(), &settings)?;
             if tray::should_start_silent() {
@@ -44,6 +53,57 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::remote_bridge::remote_bridge_targets,
+            commands::remote_bridge::remote_bridge_add_connection,
+            commands::remote_bridge::remote_bridge_pick_identity_file,
+            commands::remote_bridge::remote_bridge_update_connection,
+            commands::remote_bridge::remote_bridge_remove_connection,
+            commands::remote_bridge::remote_bridge_summary,
+            commands::remote_bridge::remote_bridge_events,
+            commands::remote_bridge::remote_bridge_run_diagnostics,
+            commands::remote_bridge::remote_bridge_diagnostics_snapshot,
+            commands::remote_bridge::remote_bridge_log_status,
+            commands::remote_bridge::remote_bridge_clear_logs,
+            commands::remote_bridge::remote_bridge_open_log_directory,
+            commands::remote_bridge::remote_bridge_skills,
+            commands::remote_bridge::remote_bridge_enable_skill,
+            commands::remote_bridge::remote_bridge_disable_skill,
+            commands::remote_bridge::remote_bridge_model_settings,
+            commands::remote_bridge::remote_bridge_save_model_settings,
+            commands::remote_bridge::remote_bridge_check,
+            commands::remote_bridge::remote_bridge_check_network,
+            commands::remote_bridge::ssh_auth_begin,
+            commands::remote_bridge::ssh_auth_state,
+            commands::remote_bridge::ssh_auth_submit,
+            commands::remote_bridge::ssh_auth_confirm_host,
+            commands::remote_bridge::ssh_auth_finish,
+            commands::remote_bridge::ssh_auth_cancel,
+            commands::remote_bridge::remote_bridge_allocate_ports,
+            commands::remote_bridge::remote_bridge_detect_cc,
+            commands::remote_bridge::remote_bridge_preview,
+            commands::remote_bridge::remote_bridge_connect,
+            commands::remote_bridge::remote_bridge_disconnect,
+            commands::remote_bridge::remote_bridge_set_capability,
+            commands::remote_bridge::remote_bridge_retry_reconnect,
+            commands::remote_bridge::remote_bridge_test,
+            commands::remote_bridge::remote_bridge_launch_proxy_terminal,
+            commands::remote_bridge::remote_bridge_session_environment_command,
+            commands::remote_bridge::remote_bridge_launch_manual_terminal,
+            commands::remote_bridge::remote_bridge_clear_session_credential,
+            commands::remote_bridge::remote_bridge_config_preview,
+            commands::remote_bridge::remote_bridge_config_apply,
+            commands::remote_bridge::remote_bridge_config_restore,
+            commands::remote_bridge::remote_bridge_config_restore_preview,
+            commands::remote_bridge::remote_bridge_tool_verify,
+            commands::remote_bridge::remote_bridge_discover_tools,
+            commands::remote_bridge::remote_bridge_open_vscode,
+            commands::remote_bridge::remote_bridge_open_vscode_settings,
+            commands::remote_bridge::remote_bridge_reveal_target_config,
+            commands::remote_bridge::remote_bridge_open_target_config,
+            commands::remote_bridge::remote_bridge_launch_mobaxterm,
+            commands::remote_bridge::remote_bridge_extension_inspect,
+            commands::remote_bridge::remote_bridge_extension_preview,
+            commands::remote_bridge::remote_bridge_extension_apply,
             commands::diagnostic_report::generate_diagnostic_report,
             commands::application_assistant::list_running_applications,
             commands::application_assistant::pick_application,
@@ -71,6 +131,11 @@ pub fn run() {
             commands::settings::get_app_settings,
             commands::settings::save_app_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run ProxyEnv");
+        .build(tauri::generate_context!())
+        .expect("failed to run RouteSpan")
+        .run(|_, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                features::remote_bridge::shutdown();
+            }
+        });
 }

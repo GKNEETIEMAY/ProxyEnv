@@ -21,6 +21,12 @@
       "allow": [
         {
           "url": "https://github.com/GKNEETIEMAY/ProxyEnv/releases/**"
+        },
+        {
+          "url": "https://github.com/openai/codex/blob/main/README.md"
+        },
+        {
+          "url": "https://code.claude.com/docs/en/setup"
         }
       ]
     }

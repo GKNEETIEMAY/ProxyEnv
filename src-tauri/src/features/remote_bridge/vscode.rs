@@ -1,0 +1,690 @@
+//! Remote - SSH integration; reads only the default VS Code user settings file.
+//! No extension settings, credentials, keys or remote services are modified.
+use super::{ssh, BridgeResult};
+use std::{
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+};
+use sysinfo::System;
+
+pub fn settings_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|p| p.join("Code/User/settings.json"))
+}
+
+/// A local user setting is a port expectation, not proof of runtime use.
+pub fn user_proxy_port() -> Option<u16> {
+    match user_proxy_setting() {
+        UserProxySetting::Configured(port) => Some(port),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserProxySetting {
+    Configured(u16),
+    NotSet,
+    Disabled,
+    InvalidSettings,
+    ReadFailed,
+    UnsupportedProxy,
+}
+
+pub fn user_proxy_setting() -> UserProxySetting {
+    settings_path().map_or(UserProxySetting::ReadFailed, |path| {
+        user_proxy_setting_at(&path)
+    })
+}
+
+fn user_proxy_setting_at(path: &Path) -> UserProxySetting {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return UserProxySetting::NotSet
+        }
+        Err(_) => return UserProxySetting::ReadFailed,
+    };
+    if !metadata.file_type().is_file() || metadata.len() > 1024 * 1024 {
+        return UserProxySetting::ReadFailed;
+    }
+    let input = match std::fs::read_to_string(path) {
+        Ok(input) => input,
+        Err(_) => return UserProxySetting::ReadFailed,
+    };
+    match parse_settings(&input) {
+        Ok(settings) => proxy_setting_from_settings(&settings),
+        Err(_) => UserProxySetting::InvalidSettings,
+    }
+}
+
+fn proxy_setting_from_settings(settings: &serde_json::Value) -> UserProxySetting {
+    if !settings.is_object() {
+        return UserProxySetting::InvalidSettings;
+    }
+    if settings.get("http.useLocalProxyConfiguration") == Some(&serde_json::Value::Bool(false))
+        || settings.get("http.proxySupport") == Some(&serde_json::Value::String("off".into()))
+    {
+        return UserProxySetting::Disabled;
+    }
+    let raw = match settings.get("http.proxy") {
+        None | Some(serde_json::Value::Null) => return UserProxySetting::NotSet,
+        Some(serde_json::Value::String(raw)) if raw.trim().is_empty() => {
+            return UserProxySetting::NotSet
+        }
+        Some(serde_json::Value::String(raw)) => raw.trim(),
+        _ => return UserProxySetting::InvalidSettings,
+    };
+    let url = match reqwest::Url::parse(raw) {
+        Ok(url) => url,
+        Err(_) => return UserProxySetting::InvalidSettings,
+    };
+    // A reverse forward transports bytes; it does not translate HTTP, HTTPS
+    // or SOCKS proxy protocols. Only the observed HTTP case is supported.
+    if url.scheme() != "http"
+        || url.host_str() != Some("127.0.0.1")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return UserProxySetting::UnsupportedProxy;
+    }
+    match url.port() {
+        Some(port) if port >= 1024 => UserProxySetting::Configured(port),
+        _ => UserProxySetting::UnsupportedProxy,
+    }
+}
+
+// JSONC comments and trailing commas are syntax, not string contents. Keep this
+// small parser local; serde_json still performs all structural validation.
+pub fn parse_settings(input: &str) -> BridgeResult<serde_json::Value> {
+    let bytes = input.trim_start_matches('\u{feff}').as_bytes();
+    let mut cleaned = Vec::with_capacity(bytes.len());
+    let (mut i, mut string, mut escape) = (0, false, false);
+    while i < bytes.len() {
+        let c = bytes[i];
+        if string {
+            cleaned.push(c);
+            if escape {
+                escape = false;
+            } else if c == b'\\' {
+                escape = true;
+            } else if c == b'"' {
+                string = false;
+            }
+        } else if c == b'"' {
+            string = true;
+            cleaned.push(c);
+        } else if c == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            cleaned.push(b'\n');
+            continue;
+        } else if c == b'/' && bytes.get(i + 1) == Some(&b'*') {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            if i + 1 >= bytes.len() {
+                return Err("vscodeConfigInvalid".into());
+            }
+            i += 2;
+            cleaned.push(b' ');
+            continue;
+        } else {
+            cleaned.push(c);
+        }
+        i += 1;
+    }
+    let mut output = Vec::with_capacity(cleaned.len());
+    string = false;
+    escape = false;
+    for (i, &c) in cleaned.iter().enumerate() {
+        if string {
+            if escape {
+                escape = false;
+            } else if c == b'\\' {
+                escape = true;
+            } else if c == b'"' {
+                string = false;
+            }
+        } else if c == b'"' {
+            string = true;
+        } else if c == b','
+            && cleaned[i + 1..]
+                .iter()
+                .find(|b| !b.is_ascii_whitespace())
+                .is_some_and(|b| *b == b'}' || *b == b']')
+        {
+            continue;
+        }
+        output.push(c);
+    }
+    serde_json::from_slice(&output).map_err(|_| "vscodeConfigInvalid".into())
+}
+
+pub fn custom_ssh_config() -> BridgeResult<Option<PathBuf>> {
+    let Some(path) = settings_path().filter(|p| p.exists()) else {
+        return Ok(None);
+    };
+    if std::fs::metadata(&path)
+        .map_err(|_| "vscodeConfigInvalid")?
+        .len()
+        > 1024 * 1024
+    {
+        return Err("vscodeConfigInvalid".into());
+    }
+    let settings =
+        parse_settings(&std::fs::read_to_string(path).map_err(|_| "vscodeConfigInvalid")?)?;
+    let Some(value) = settings
+        .get("remote.SSH.configFile")
+        .filter(|v| !v.is_null())
+    else {
+        return Ok(None);
+    };
+    let raw = value.as_str().ok_or("vscodeConfigInvalid")?;
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    if raw.chars().any(char::is_control) {
+        return Err("vscodeConfigInvalid".into());
+    }
+    let home = dirs::home_dir().ok_or("vscodeConfigInvalid")?;
+    let expanded = if let Some(suffix) = raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\"))
+    {
+        home.join(suffix)
+    } else {
+        PathBuf::from(raw.replace("${env:USERPROFILE}", &home.to_string_lossy()))
+    };
+    if !expanded.is_absolute() || expanded.to_string_lossy().contains("${") {
+        return Err("vscodeConfigInvalid".into());
+    }
+    let canonical = expanded.canonicalize().map_err(|_| "vscodeConfigInvalid")?;
+    if !canonical.is_file() {
+        return Err("vscodeConfigInvalid".into());
+    }
+    Ok(Some(canonical))
+}
+
+fn executable() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    let system = System::new_all();
+    candidates.extend(system.processes().values().filter_map(|process| {
+        is_vscode_process_name(process.name())
+            .then(|| process.exe().map(Path::to_path_buf))
+            .flatten()
+    }));
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        candidates.push(PathBuf::from(local).join("Programs/Microsoft VS Code/Code.exe"));
+    }
+    if let Some(programs) = std::env::var_os("ProgramFiles") {
+        candidates.push(PathBuf::from(programs).join("Microsoft VS Code/Code.exe"));
+    }
+    if let Some(paths) = std::env::var_os("PATH") {
+        for entry in std::env::split_paths(&paths) {
+            candidates.push(entry.join("Code.exe"));
+            if entry.join("code.cmd").is_file() {
+                if let Some(parent) = entry.parent() {
+                    candidates.push(parent.join("Code.exe"));
+                }
+            }
+        }
+    }
+    #[cfg(windows)]
+    candidates.extend(shortcut_executables());
+    candidates
+        .into_iter()
+        .find(|path| path.is_absolute() && path.is_file())
+}
+
+#[cfg(windows)]
+fn shortcut_executables() -> Vec<PathBuf> {
+    let mut directories = Vec::new();
+    if let Some(desktop) = dirs::desktop_dir() {
+        directories.push(desktop);
+    }
+    for variable in ["APPDATA", "ProgramData"] {
+        if let Some(root) = std::env::var_os(variable) {
+            let programs = PathBuf::from(root).join("Microsoft/Windows/Start Menu/Programs");
+            directories.push(programs.join("Visual Studio Code"));
+            directories.push(programs);
+        }
+    }
+    directories
+        .into_iter()
+        .flat_map(|directory| {
+            std::fs::read_dir(directory)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .take(256)
+                .filter_map(|entry| {
+                    let path = entry.path();
+                    path.extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("lnk"))
+                        .then(|| shortcut_executable(&path))
+                        .flatten()
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn shortcut_executable(shortcut: &Path) -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{
+        core::{Interface, PCWSTR},
+        Win32::{
+            Foundation::RPC_E_CHANGED_MODE,
+            System::Com::{
+                CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile,
+                CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, STGM_READ,
+            },
+            UI::Shell::{IShellLinkW, ShellLink},
+        },
+    };
+    struct Apartment(bool);
+    impl Drop for Apartment {
+        fn drop(&mut self) {
+            if self.0 {
+                unsafe {
+                    CoUninitialize();
+                }
+            }
+        }
+    }
+    unsafe {
+        let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        if initialized.is_err() && initialized != RPC_E_CHANGED_MODE {
+            return None;
+        }
+        let _apartment = Apartment(initialized.is_ok());
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
+        let file: IPersistFile = link.cast().ok()?;
+        let name: Vec<u16> = shortcut.as_os_str().encode_wide().chain(Some(0)).collect();
+        file.Load(PCWSTR(name.as_ptr()), STGM_READ).ok()?;
+        let mut target = vec![0u16; 32768];
+        // Read the stored target only: do not resolve, execute or change the shortcut.
+        link.GetPath(&mut target, std::ptr::null_mut(), 0).ok()?;
+        let length = target.iter().position(|word| *word == 0)?;
+        let path = PathBuf::from(String::from_utf16(&target[..length]).ok()?);
+        (path.is_absolute()
+            && path.is_file()
+            && path.file_name().is_some_and(is_vscode_process_name))
+        .then_some(path)
+    }
+}
+
+fn is_vscode_process_name(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy();
+    name.eq_ignore_ascii_case("Code.exe") || name.eq_ignore_ascii_case("Code - Insiders.exe")
+}
+
+pub fn open(target: String) -> BridgeResult<()> {
+    let selected = ssh::target(&target)?;
+    if !selected.can_open_vscode {
+        return Err("vscodeConfigMismatch".into());
+    }
+    let authority = target_authority(&selected)?;
+    let executable = executable().ok_or("vscodeMissing")?;
+    launch(&executable, &authority)
+}
+
+pub(super) fn supports_direct_target(target: &super::RemoteTarget, same_config: bool) -> bool {
+    target.available && target.host.is_some() && target.identity_file.is_none() && same_config
+}
+
+fn target_authority(target: &super::RemoteTarget) -> BridgeResult<String> {
+    if let Some(alias) = target.ssh_alias.as_deref() {
+        if !ssh::safe_name(alias) {
+            return Err("invalidTarget".into());
+        }
+        return Ok(alias.to_owned());
+    }
+    if target.identity_file.is_some() {
+        return Err("vscodeConfigMismatch".into());
+    }
+    let host = target.host.as_deref().ok_or("invalidTarget")?;
+    if !ssh::safe_host(host)
+        || target
+            .user
+            .as_deref()
+            .is_some_and(|user| !ssh::safe_name(user) || user == "root")
+        || target.port == Some(0)
+    {
+        return Err("invalidTarget".into());
+    }
+    // Match Remote - SSH's HostInfo.toAuthorityString protocol: hexadecimal
+    // UTF-8 JSON, with user and port as separate fields (not host:port syntax).
+    let mut destination = serde_json::json!({ "hostName": host });
+    if let Some(user) = target.user.as_deref() {
+        destination["user"] = user.into();
+    }
+    if let Some(port) = target.port {
+        destination["port"] = port.into();
+    }
+    Ok(hex::encode(
+        serde_json::to_vec(&destination).map_err(|_| "invalidTarget")?,
+    ))
+}
+
+fn launch(executable: &Path, authority: &str) -> BridgeResult<()> {
+    let mut command = Command::new(executable);
+    command
+        .args([
+            "--new-window",
+            "--remote",
+            &format!("ssh-remote+{authority}"),
+        ])
+        .env_remove("ELECTRON_RUN_AS_NODE")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command.spawn().map_err(|_| "vscodeMissing")?;
+    Ok(())
+}
+
+pub fn open_settings() -> BridgeResult<()> {
+    let settings = settings_path()
+        .filter(|path| path.is_file())
+        .ok_or("vscodeConfigInvalid")?;
+    let executable = executable().ok_or("vscodeMissing")?;
+    let mut command = Command::new(executable);
+    command
+        .args(["--new-window"])
+        .arg(settings)
+        .env_remove("ELECTRON_RUN_AS_NODE")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command.spawn().map_err(|_| "vscodeMissing")?;
+    Ok(())
+}
+
+pub fn open_target_config(target: String) -> BridgeResult<()> {
+    let path = ssh::target_config_path(&target)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut command = if let Some(executable) = executable() {
+            let mut command = Command::new(executable);
+            command.arg("--new-window");
+            command
+        } else {
+            let notepad = PathBuf::from(
+                std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()),
+            )
+            .join("System32/notepad.exe");
+            if !notepad.is_file() {
+                return Err("processFailed".into());
+            }
+            Command::new(notepad)
+        };
+        command
+            .arg(path)
+            .env_remove("ELECTRON_RUN_AS_NODE")
+            .creation_flags(0x08000000)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| "processFailed")?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("processFailed".into())
+    }
+}
+
+pub fn reveal_target_config(target: String) -> BridgeResult<()> {
+    let path = ssh::target_config_path(&target)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        Command::new("explorer.exe")
+            .arg(format!("/select,{}", path.display()))
+            .creation_flags(0x08000000)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| "processFailed")?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("processFailed".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn direct_target() -> super::super::RemoteTarget {
+        serde_json::from_value(serde_json::json!({
+            "id":"manual-test", "displayName":"Test", "source":"manual",
+            "sourceLabel":"ProxyEnv", "configPath":"ProxyEnv", "sshAlias":null,
+            "host":"lab.example.test", "user":"student", "port":22, "identityFile":null,
+            "authenticationMethod":"password", "available":true,
+            "compatibility":"compatible", "unavailableReason":null,
+            "canOpenVscode":true, "canOpenMobaxterm":false
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn manual_vscode_authority_keeps_user_and_port_separate_from_the_host() {
+        let mut target = direct_target();
+        for (host, port) in [
+            ("lab.example.test", 22),
+            ("39.108.54.44", 2222),
+            ("2001:db8::1", 2222),
+        ] {
+            target.host = Some(host.into());
+            target.port = Some(port);
+            let encoded = target_authority(&target).unwrap();
+            let decoded: serde_json::Value =
+                serde_json::from_slice(&hex::decode(encoded).unwrap()).unwrap();
+            assert_eq!(
+                decoded,
+                serde_json::json!({"hostName":host,"user":"student","port":port})
+            );
+        }
+        target.ssh_alias = Some("existing-alias".into());
+        assert_eq!(target_authority(&target).unwrap(), "existing-alias");
+    }
+
+    #[test]
+    fn manual_vscode_launch_does_not_discard_identity_or_config_constraints() {
+        let mut target = direct_target();
+        assert!(supports_direct_target(&target, true));
+        assert!(!supports_direct_target(&target, false));
+        target.identity_file = Some("C:/keys/nondefault-identity".into());
+        assert!(!supports_direct_target(&target, true));
+        assert_eq!(
+            target_authority(&target).unwrap_err(),
+            "vscodeConfigMismatch"
+        );
+        target.identity_file = None;
+        target.user = Some("root".into());
+        assert_eq!(target_authority(&target).unwrap_err(), "invalidTarget");
+        target.user = Some("student".into());
+        target.host = Some("host; command".into());
+        assert_eq!(target_authority(&target).unwrap_err(), "invalidTarget");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn desktop_shortcut_finds_portable_vscode_without_running_or_using_path() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::{
+            core::{Interface, PCWSTR},
+            Win32::{
+                System::Com::{
+                    CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile,
+                    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+                },
+                UI::Shell::{IShellLinkW, ShellLink},
+            },
+        };
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).unwrap();
+        let root =
+            std::env::temp_dir().join(format!("proxyenv-vscode-shortcut-{}", hex::encode(nonce)));
+        std::fs::create_dir_all(root.join("VS Code 便携")).unwrap();
+        let executable = root.join("VS Code 便携/Code.exe");
+        let shortcut = root.join("Code.exe - 快捷方式.lnk");
+        std::fs::write(&executable, b"fixture only, never executed").unwrap();
+        unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap();
+            {
+                let link: IShellLinkW =
+                    CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).unwrap();
+                let target: Vec<u16> = executable
+                    .as_os_str()
+                    .encode_wide()
+                    .chain(Some(0))
+                    .collect();
+                link.SetPath(PCWSTR(target.as_ptr())).unwrap();
+                let file: IPersistFile = link.cast().unwrap();
+                let name: Vec<u16> = shortcut.as_os_str().encode_wide().chain(Some(0)).collect();
+                file.Save(PCWSTR(name.as_ptr()), true).unwrap();
+            }
+            CoUninitialize();
+        }
+        assert_eq!(shortcut_executable(&shortcut), Some(executable.clone()));
+        std::fs::remove_file(&executable).unwrap();
+        assert_eq!(shortcut_executable(&shortcut), None);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn jsonc_keeps_strings_and_accepts_comments_and_trailing_commas() {
+        let data = parse_settings(
+            r#"{// comment
+          "remote.SSH.configFile": "C:\\dev\\ssh-config", /* block */
+          "url":"https://example.test/a/*b*/,", "array":[1,2,],
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(data["remote.SSH.configFile"], "C:\\dev\\ssh-config");
+        assert_eq!(data["url"], "https://example.test/a/*b*/,");
+        assert!(parse_settings("{/* unterminated").is_err());
+    }
+
+    #[test]
+    fn vscode_process_names_are_matched_without_requiring_a_default_install_path() {
+        assert!(is_vscode_process_name(std::ffi::OsStr::new("Code.exe")));
+        assert!(is_vscode_process_name(std::ffi::OsStr::new("code.exe")));
+        assert!(is_vscode_process_name(std::ffi::OsStr::new(
+            "Code - Insiders.exe"
+        )));
+        assert!(!is_vscode_process_name(std::ffi::OsStr::new("Cursor.exe")));
+    }
+
+    #[test]
+    fn user_proxy_inspection_accepts_only_explicit_loopback_ports() {
+        let parse = |raw: &str| match proxy_setting_from_settings(&parse_settings(raw).unwrap()) {
+            UserProxySetting::Configured(port) => Some(port),
+            _ => None,
+        };
+        assert_eq!(
+            parse(r#"{"http.proxy":"http://127.0.0.1:7897"}"#),
+            Some(7897)
+        );
+        assert_eq!(
+            parse(r#"{"http.proxy":"http://127.0.0.1:10809"}"#),
+            Some(10809)
+        );
+        for raw in [
+            r#"{}"#,
+            r#"{"http.proxy":"http://proxy.example:7897"}"#,
+            r#"{"http.proxy":"http://user:secret@127.0.0.1:7897"}"#,
+            r#"{"http.proxy":"http://127.0.0.1:7897/path"}"#,
+            r#"{"http.proxy":"http://127.0.0.1"}"#,
+            r#"{"http.proxy":"http://localhost:7897"}"#,
+            r#"{"http.proxy":"http://[::1]:7897"}"#,
+            r#"{"http.proxy":"socks5://127.0.0.1:7897"}"#,
+            r#"{"http.proxy":"https://127.0.0.1:7897"}"#,
+            r#"{"http.proxy":"http://127.0.0.1:7897","http.useLocalProxyConfiguration":false}"#,
+        ] {
+            assert_eq!(parse(raw), None, "unexpected proxy from {raw}");
+        }
+    }
+
+    #[test]
+    fn user_proxy_states_distinguish_comments_disabled_and_invalid_values() {
+        use UserProxySetting::*;
+        for (input, expected) in [
+            ("{ // \"http.proxy\":\"http://127.0.0.1:7897\"\n}", NotSet),
+            (r#"{/* "http.proxy":"http://127.0.0.1:7897" */}"#, NotSet),
+            (r#"{"http.proxy":""}"#, NotSet),
+            (
+                r#"{"http.proxy":"http://127.0.0.1:7897","http.proxySupport":"off"}"#,
+                Disabled,
+            ),
+            (
+                r#"{"http.proxy":"http://127.0.0.1:7897","http.useLocalProxyConfiguration":false}"#,
+                Disabled,
+            ),
+            (r#"{"http.proxy":7897}"#, InvalidSettings),
+            (r#"{"http.proxy":"invalid url"}"#, InvalidSettings),
+            (
+                r#"{"http.proxy":"socks5://127.0.0.1:7897"}"#,
+                UnsupportedProxy,
+            ),
+            (
+                r#"{"http.proxy":"http://127.0.0.1:7897","http.proxySupport":"on",}"#,
+                Configured(7897),
+            ),
+            ("[]", InvalidSettings),
+        ] {
+            assert_eq!(
+                proxy_setting_from_settings(&parse_settings(input).unwrap()),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn default_user_proxy_remains_readable_when_other_profiles_exist() {
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).unwrap();
+        let directory =
+            std::env::temp_dir().join(format!("proxyenv-vscode-settings-{}", hex::encode(nonce)));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("settings.json");
+        assert_eq!(user_proxy_setting_at(&path), UserProxySetting::NotSet);
+        std::fs::create_dir_all(directory.join("profiles/other")).unwrap();
+        std::fs::write(&path, r#"{"http.proxy":"http://127.0.0.1:7897"}"#).unwrap();
+        assert_eq!(
+            user_proxy_setting_at(&path),
+            UserProxySetting::Configured(7897)
+        );
+        std::fs::write(&path, "{ invalid").unwrap();
+        assert_eq!(
+            user_proxy_setting_at(&path),
+            UserProxySetting::InvalidSettings
+        );
+        assert_eq!(
+            user_proxy_setting_at(&directory),
+            UserProxySetting::ReadFailed
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
