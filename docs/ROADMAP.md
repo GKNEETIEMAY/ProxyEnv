@@ -16,6 +16,14 @@ and RouteSpan branding. The release gates are closed, including the production
 updater smoke. [Release QA](RELEASE_QA_V0.2.md) separates current publication status
 from historical checkpoints; detailed final acceptance records remain private.
 
+## Post-release repository dependency/security maintenance
+
+RustSec lockfile advisories were resolved with quinn-proto 0.11.18; the affected
+QUIC feature was not enabled in RouteSpan's Windows dependency graph. Future release
+builds now require a pinned Rust dependency audit before packaging. These changes
+affect subsequent source/builds only: the published v0.2.0 assets are unchanged,
+its tag has not moved, and no released binary has been replaced or claimed repaired.
+
 ## Gates retained for future releases
 
 - Preserve the high-severity frontend audit gate and rerun full CI for release-preflight changes.
