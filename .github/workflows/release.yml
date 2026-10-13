@@ -79,6 +79,20 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Install pinned Rust security auditor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo install cargo-audit --version 0.22.2 --locked
+          if ($LASTEXITCODE -ne 0) { throw 'Installing the pinned Rust security auditor failed' }
+
+      - name: Audit Rust dependencies before packaging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo audit --file src-tauri/Cargo.lock
+          if ($LASTEXITCODE -ne 0) { throw 'Rust dependency audit failed; release packaging is blocked' }
+
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 

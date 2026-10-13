@@ -105,6 +105,57 @@ test("release preflight is wired into local checks, CI and signed release before
   assert.ok(workflow.indexOf("name: Test release contracts") < workflow.indexOf("name: Build Tauri bundles"));
 });
 
+test("release RustSec gate is pinned, fail-closed and precedes all artifact packaging", () => {
+  const steps = workflow.split(/^      - name: /m).slice(1);
+  const findStep = name => {
+    const step = steps.find(value => value.startsWith(`${name}\n`));
+    assert.ok(step, `Required release step: ${name}`);
+    return step;
+  };
+  const install = findStep("Install pinned Rust security auditor");
+  const audit = findStep("Audit Rust dependencies before packaging");
+  assert.match(install, /cargo install cargo-audit --version 0\.22\.2 --locked/);
+  assert.match(audit, /cargo audit --file src-tauri\/Cargo\.lock/);
+  for (const step of [install, audit]) {
+    assert.match(step, /shell: pwsh/);
+    assert.match(step, /\$ErrorActionPreference = 'Stop'/);
+    assert.match(step, /if \(\$LASTEXITCODE -ne 0\) \{ throw /);
+    assert.doesNotMatch(step, /continue-on-error:|\bif:|--ignore|--no-fetch|\|\|\s*true/);
+  }
+  const names = ["Set up Rust", "Install pinned Rust security auditor", "Audit Rust dependencies before packaging",
+    "Check Rust formatting", "Run Rust tests with locked dependencies", "Run Clippy with locked dependencies",
+    "Build Tauri bundles and signed updater artifacts", "Collect release artifacts and SHA-256 checksums",
+    "Attest release artifacts", "Create draft GitHub Release"];
+  const indices = names.map(name => steps.indexOf(findStep(name)));
+  assert.deepEqual(indices, [...indices].sort((a, b) => a - b));
+  assert.doesNotMatch(workflow, /continue-on-error:\s*true|workflow_dispatch:/);
+});
+
+test("Rust auditor install and vulnerability failures stop PowerShell before packaging", {
+  skip: process.platform !== "win32",
+}, () => {
+  const ps7 = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+    "(Get-Command pwsh -ErrorAction SilentlyContinue).Source"], { encoding: "utf8" }).trim();
+  assert.ok(ps7, "PowerShell 7 is required to verify the release security gate");
+  const commands = ["Install pinned Rust security auditor", "Audit Rust dependencies before packaging"].map(name => {
+    const step = workflow.split(`      - name: ${name}\n`)[1]?.split("      - name: ")[0];
+    assert.ok(step);
+    return step.split("        run: |\n")[1].split("\n")
+      .map(line => line.startsWith("          ") ? line.slice(10) : line).join("\n");
+  }).join("\n");
+  const run = (installCode, auditCode) => execFileSync(ps7, ["-NoProfile", "-NonInteractive", "-Command",
+    `function cargo { if ($args[0] -eq 'install') { $global:LASTEXITCODE = ${installCode} } else { $global:LASTEXITCODE = ${auditCode} } }\n${commands}\nWrite-Output 'PACKAGING_REACHED'`],
+  { encoding: "utf8", timeout: 15000, stdio: "pipe" });
+  assert.match(run(0, 0), /PACKAGING_REACHED/);
+  for (const [installCode, auditCode] of [[1, 0], [0, 1]]) {
+    assert.throws(() => run(installCode, auditCode), error => {
+      assert.doesNotMatch(error.stdout.toString(), /PACKAGING_REACHED/);
+      assert.match(error.stderr.toString(), /auditor failed|packaging is blocked/);
+      return true;
+    });
+  }
+});
+
 test("Windows artifact collector preserves bytes, pairs renamed signatures and targets that NSIS in latest.json", {
   skip: process.platform !== "win32",
 }, () => {
