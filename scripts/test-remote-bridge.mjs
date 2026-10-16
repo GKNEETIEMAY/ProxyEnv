@@ -644,7 +644,7 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   assert.match(shell,/<div class="view-stage">/);
   assert.match(shell,/<div class="view-outlet">/);
   assert.match(shell,/<div v-show="view === 'local'" class="view-pane">/);
-  assert.match(shell,/<div v-show="view === 'remote'" class="view-pane remote-view-pane">/);
+  assert.match(shell,/<div v-show="view === 'remote'" class="view-pane remote-view-pane" :inert="updateExclusive" :aria-busy="updateExclusive">/);
   assert.doesNotMatch(shell,/remoteViewMounted/);
   assert.doesNotMatch(shell,/view-fade/);
   assert.match(shell,/@connected="acceptRemoteBridgeSummary"/);
