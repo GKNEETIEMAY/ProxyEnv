@@ -174,7 +174,7 @@ const skillsSummary = computed(() => {
 .bridge-skills-search { display:flex; align-items:center; gap:8px; margin:0 0 6px; padding:0 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); }
 .bridge-skills-search:focus-within { outline:2px solid var(--focus); outline-offset:2px; }
 .bridge-skills-search svg { flex:none; width:16px; height:16px; fill:none; stroke:var(--muted); stroke-width:1.6; }
-.bridge-skills-search input { width:100%; min-width:0; height:32px; border:0; outline:none; background:transparent; font-size:12px; caret-color:var(--accent); }
+.bridge-skills-search input { width:100%; min-width:0; height:32px; border:0; outline:none; background:transparent; font-size:12px; caret-color:var(--link-fg); }
 .bridge-skills-search input::placeholder { color:var(--muted); }
 .bridge-skills-list { max-height:220px; overflow-y:scroll; scrollbar-gutter:stable; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
 .bridge-skills-list:hover { scrollbar-color:var(--line-strong) transparent; }

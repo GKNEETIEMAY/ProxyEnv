@@ -1,92 +1,110 @@
 /* Palette changes remap roles, never the supplied logo or status meanings. */
 :root {
-  --action-primary-bg: #a54b30;
-  --action-primary-fg: #ffffff;
-  --action-primary-hover: #8c3d28;
+  --accent: #f89868;
+  --accent-strong: #87472e;
+  --accent-soft: #fff0e7;
+  --action-primary-bg: #f89868;
+  --action-primary-fg: #38251d;
+  /* Light-mode button labels follow the requested white-on-pastel treatment. */
+  --action-button-fg: #ffffff;
+  --action-primary-hover: #ee8c5e;
   --action-secondary-bg: var(--surface-strong);
   --action-secondary-fg: var(--ink);
-  --focus-ring: #246ca8;
+  --focus-ring: #946044;
   --link-fg: var(--accent-strong);
   --control-border: #8a8175;
+  /* Quiet decorative edges; field and keyboard-focus boundaries stay distinct. */
+  --button-border: var(--line);
+  --button-hover-border: var(--line-strong);
+  --button-selected-border: var(--accent);
+  --switch-border: var(--line-strong);
   --control-thumb: #ffffff;
-  --control-thumb-off: var(--muted);
-  --selection-bg: #8f3e26;
-  --selection-fg: #ffffff;
+  --control-thumb-off: #ffffff;
+  --control-thumb-border: #ffffff;
+  --control-thumb-off-border: #ffffff;
+  --selection-bg: #f89868;
+  --selection-fg: #38251d;
   --action-danger-bg: #a24338;
   --action-danger-fg: #ffffff;
   --brand-claude: #c96645;
 }
 :root[data-theme="dark"] {
-  --action-primary-bg: #df8565;
-  --action-primary-fg: #241811;
-  --action-primary-hover: #ef9a79;
-  --focus-ring: #83bde8;
+  --accent: #f89868;
+  --accent-strong: #ffb58e;
+  --accent-soft: #49362b;
+  --action-primary-bg: #f89868;
+  --action-primary-fg: #38251d;
+  --action-button-fg: var(--action-primary-fg);
+  --action-primary-hover: #ffb58e;
+  --focus-ring: #ffb58e;
   --control-border: #928679;
-  --control-thumb: #241811;
-  --control-thumb-off: var(--ink);
-  --selection-bg: #ef9a79;
-  --selection-fg: #241811;
+  --selection-bg: #f89868;
+  --selection-fg: #38251d;
   --action-danger-bg: #a94236;
   --brand-claude: #df8565;
 }
 :root[data-palette="blue"] {
-  --canvas: #f8fafc; --surface: #f0f4f9; --surface-strong: #ffffff;
-  --ink: #202c3d; --muted: #536277; --faint: #56657a;
-  --line: #d9e1eb; --line-strong: #b9c6d6;
-  --accent: #3478f6; --accent-strong: #2055a3; --accent-soft: #e2ecfb;
-  --action-primary-bg: #245ec2; --action-primary-hover: #1d4d9f;
-  --control-border: #77869b; --focus-ring: #245ec2;
-  --selection-bg: #245ec2; --selection-fg: #ffffff;
+  --canvas: #fcfcfc; --surface: #f6f8fa; --surface-strong: #ffffff;
+  --ink: #24282e; --muted: #5b626b; --faint: #606974;
+  --line: #dfe3e8; --line-strong: #c2cbd6;
+  --accent: #70b0f8; --accent-strong: #285c93; --accent-soft: #edf5ff;
+  --action-primary-bg: #70b0f8; --action-primary-hover: #91c2fa; --action-primary-fg: #172c43;
+  --control-border: #7b8897; --focus-ring: #3976b7;
+  --selection-bg: #70b0f8; --selection-fg: #172c43;
 }
 :root[data-palette="blue"][data-theme="dark"] {
-  --canvas: #151c28; --surface: #1c2635; --surface-strong: #243145;
-  --ink: #e8effb; --muted: #b1c0d6; --faint: #a8b8cf;
-  --line: #36465d; --line-strong: #51647d;
-  --accent: #88b5ff; --accent-strong: #adceff; --accent-soft: #2a405f;
-  --action-primary-bg: #88b5ff; --action-primary-hover: #adceff; --action-primary-fg: #14223a;
-  --control-border: #8398b5; --control-thumb: #14223a; --focus-ring: #adceff;
-  --selection-bg: #adceff; --selection-fg: #14223a;
+  --canvas: #191b1f; --surface: #23262c; --surface-strong: #2c3037;
+  --ink: #ebeff4; --muted: #b7c0cd; --faint: #adb7c7;
+  --line: #3c4450; --line-strong: #606c7c;
+  --accent: #70b0f8; --accent-strong: #a5cdff; --accent-soft: #2a3b50;
+  --action-primary-bg: #70b0f8; --action-primary-hover: #91c2fa; --action-primary-fg: #172c43;
+  --control-border: #899ab0; --focus-ring: #a5cdff;
+  --selection-bg: #70b0f8; --selection-fg: #172c43;
 }
 :root[data-palette="teal"] {
-  --canvas: #f7fbfa; --surface: #edf5f3; --surface-strong: #ffffff;
-  --ink: #20352f; --muted: #4e6860; --faint: #506a62;
-  --line: #d2e2dc; --line-strong: #b0cac0;
-  --accent: #18867d; --accent-strong: #095f5b; --accent-soft: #daeeea;
-  --action-primary-bg: #096c66; --action-primary-hover: #075751;
-  --control-border: #718b80; --focus-ring: #096c66;
-  --selection-bg: #096c66; --selection-fg: #ffffff;
+  --canvas: #fcfdfc; --surface: #f4faf9; --surface-strong: #ffffff;
+  --ink: #243331; --muted: #536963; --faint: #586e68;
+  --line: #dce7e4; --line-strong: #bbcfc9;
+  --accent: #80e0d8; --accent-strong: #20655f; --accent-soft: #e9f8f5;
+  --action-primary-bg: #80e0d8; --action-primary-hover: #9ae8e1; --action-primary-fg: #173934;
+  --control-border: #7a8f88; --focus-ring: #28746b;
+  --selection-bg: #80e0d8; --selection-fg: #173934;
 }
 :root[data-palette="teal"][data-theme="dark"] {
-  --canvas: #142321; --surface: #1c2e2b; --surface-strong: #263c37;
-  --ink: #e4f3ee; --muted: #abc8be; --faint: #a5c3b8;
-  --line: #39554b; --line-strong: #527065;
-  --accent: #6bcbbc; --accent-strong: #94e1d3; --accent-soft: #254b43;
-  --action-primary-bg: #6bcbbc; --action-primary-hover: #94e1d3; --action-primary-fg: #102d28;
-  --control-border: #83a79a; --control-thumb: #102d28; --focus-ring: #94e1d3;
-  --selection-bg: #94e1d3; --selection-fg: #102d28;
+  --canvas: #191e1d; --surface: #242d2a; --surface-strong: #2c3834;
+  --ink: #e7f2ef; --muted: #b2cbc3; --faint: #abc5bc;
+  --line: #3c5148; --line-strong: #5d796d;
+  --accent: #80e0d8; --accent-strong: #b0eee6; --accent-soft: #2c4741;
+  --action-primary-bg: #80e0d8; --action-primary-hover: #9ae8e1; --action-primary-fg: #173934;
+  --control-border: #88aa9b; --focus-ring: #b0eee6;
+  --selection-bg: #80e0d8; --selection-fg: #173934;
 }
 :root[data-palette="neutral"] {
-  --canvas: #fafafa; --surface: #f2f3f4; --surface-strong: #ffffff;
-  --ink: #282c32; --muted: #606570; --faint: #626873;
-  --line: #dcdfe3; --line-strong: #bfc5ce;
-  --accent: #64748b; --accent-strong: #42516a; --accent-soft: #e7ebf0;
-  --action-primary-bg: #4c5b70; --action-primary-hover: #3d495c;
-  --control-border: #7e8793; --focus-ring: #42516a;
-  --selection-bg: #4c5b70; --selection-fg: #ffffff;
+  --canvas: #fafafa; --surface: #f5f5f5; --surface-strong: #ffffff;
+  --ink: #262626; --muted: #606060; --faint: #666666;
+  --line: #e2e2e2; --line-strong: #c7c7c7;
+  --accent: #858585; --accent-strong: #4b4b4b; --accent-soft: #eeeeee;
+  --action-primary-bg: #303030; --action-primary-hover: #464646; --action-primary-fg: #ffffff;
+  --control-border: #858585; --focus-ring: #606060;
+  --selection-bg: #dedede; --selection-fg: #262626;
+  --window-line: rgba(0, 0, 0, .12); --window-fade: rgba(0, 0, 0, .04);
+  --shadow: 0 18px 44px rgba(0, 0, 0, .08);
 }
 :root[data-palette="neutral"][data-theme="dark"] {
-  --canvas: #1b1d21; --surface: #24272c; --surface-strong: #2d3138;
-  --ink: #eeeff2; --muted: #b9bec8; --faint: #afb6c2;
-  --line: #40464f; --line-strong: #5b6572;
-  --accent: #b5c1d3; --accent-strong: #d1dbe9; --accent-soft: #3a4454;
-  --action-primary-bg: #b5c1d3; --action-primary-hover: #d1dbe9; --action-primary-fg: #202833;
-  --control-border: #929eae; --control-thumb: #202833; --focus-ring: #b5c1d3;
-  --selection-bg: #d1dbe9; --selection-fg: #202833;
+  --canvas: #181818; --surface: #222222; --surface-strong: #2c2c2c;
+  --ink: #ededed; --muted: #bdbdbd; --faint: #b5b5b5;
+  --line: #414141; --line-strong: #626262;
+  --accent: #c7c7c7; --accent-strong: #e2e2e2; --accent-soft: #383838;
+  --action-primary-bg: #e2e2e2; --action-primary-hover: #f0f0f0; --action-primary-fg: #252525;
+  --control-border: #9b9b9b; --focus-ring: #d5d5d5;
+  --selection-bg: #d5d5d5; --selection-fg: #252525;
+  --window-line: rgba(255, 255, 255, .11); --window-fade: rgba(0, 0, 0, .18);
+  --shadow: 0 20px 46px rgba(0, 0, 0, .28);
 }
 
 /* High-contrast mode uses the OS palette rather than preserving decorative hues. */
 @media (forced-colors: active) {
-  :root[data-palette][data-theme] { --focus-ring: Highlight; --control-border: ButtonText; }
-  .primary-action, .install-update-button { border: 1px solid ButtonText; }
+  :root[data-palette][data-theme] { --focus-ring: Highlight; --control-border: ButtonText; --button-border: ButtonText; --button-hover-border: Highlight; --button-selected-border: Highlight; --switch-border: ButtonText; }
+  .primary-action, .install-update-button, .switch-input:checked, .toggle-control.active .toggle-track { border: 1px solid ButtonText; }
   .palette-options input:checked + span, .theme-options input:checked + span { outline: 2px solid Highlight; }
 }

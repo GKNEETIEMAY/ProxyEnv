@@ -87,8 +87,8 @@ onBeforeUnmount(close);
 
 <style scoped>
 .compact-select { position: relative; min-width: 0; }
-.compact-select-trigger { display: flex; width: 100%; min-height: 36px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface); font: inherit; text-align: start; cursor: pointer; }
-.compact-select-trigger:hover:not(:disabled), .compact-select-trigger[aria-expanded="true"] { border-color: var(--accent); }
+.compact-select-trigger { display: flex; width: 100%; min-height: 36px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 11px; border: 1px solid var(--button-border); border-radius: 10px; color: var(--ink); background: var(--surface); font: inherit; text-align: start; cursor: pointer; }
+.compact-select-trigger:hover:not(:disabled), .compact-select-trigger[aria-expanded="true"] { border-color: var(--button-hover-border); }
 .compact-select-trigger:disabled { opacity: .5; cursor: default; }
 .compact-select-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }

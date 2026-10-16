@@ -89,5 +89,5 @@ defineEmits<{
 .remote-nav-status[data-state="idle"] { visibility:hidden; }
 .remote-nav-status[data-state="connected"] { background:var(--success); }
 .remote-nav-status[data-state="attention"] { background:var(--warning); }
-.update-available-button { color:var(--accent); flex:none; }
+.update-available-button { color:var(--accent-strong); flex:none; }
 </style>

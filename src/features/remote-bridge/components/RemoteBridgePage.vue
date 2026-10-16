@@ -1696,7 +1696,7 @@ onBeforeUnmount(() => {
 .remote-name-count { margin-inline-start:auto; color:var(--muted); font-size:11px; font-weight:400; font-variant-numeric:tabular-nums; }
 .remote-name-count.invalid { color:var(--danger); }
 .remote-connection-fields input[type=text],.remote-connection-fields input[type=number] { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--line-strong); border-radius:8px; color:var(--text); background:var(--surface-strong); outline:none; }
-.remote-connection-fields input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+.remote-connection-fields input:focus { border-color:var(--focus-ring); box-shadow:0 0 0 3px var(--accent-soft); }
 .remote-connection-fields small { color:var(--muted); font-size:10px; font-weight:400; line-height:1.55; }
 .remote-connection-fields input[aria-invalid="true"] { border-color:var(--danger); }
 .remote-auth-choice { display:grid; padding:12px 0; margin:0; gap:10px; border:0; border-block:1px solid var(--line); }
@@ -1716,14 +1716,14 @@ onBeforeUnmount(() => {
 .remote-auth-terminal > header { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:33px; padding:3px 10px 3px 12px; border-bottom:1px solid #403b35; color:#b5ada2; font-size:10px; font-weight:650; }
 .remote-auth-copy { display:inline-flex; align-items:center; gap:5px; min-height:26px; padding:3px 6px; border:0; border-radius:5px; color:#ded7cd; background:transparent; font:inherit; cursor:pointer; }
 .remote-auth-copy:hover { background:#35332f; color:#fff; }
-.remote-auth-copy:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.remote-auth-copy:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
 .remote-auth-copy svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
 .remote-auth-terminal pre { min-height:48px; max-height:112px; padding:12px 14px; margin:0; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; color:inherit; background:transparent; font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; }
 .remote-auth-fingerprint { display:grid; padding:11px 0; margin:0 0 16px; grid-template-columns:100px minmax(0,1fr); gap:12px; border-block:1px solid var(--line); font-size:11px; }
 .remote-auth-fingerprint dt { color:var(--muted); }.remote-auth-fingerprint dd { min-width:0; margin:0; overflow-wrap:anywhere; }
 .remote-auth-field { display:grid; gap:7px; color:var(--muted); font-size:11px; font-weight:650; }
 .remote-auth-field input { width:100%; height:40px; padding:8px 12px; border:1px solid var(--line-strong); border-radius:9px; color:var(--text); background:var(--surface); outline:none; font-family:inherit; font-size:13px; line-height:1.4; }
-.remote-auth-field input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+.remote-auth-field input:focus { border-color:var(--focus-ring); box-shadow:0 0 0 3px var(--accent-soft); }
 .remote-auth-connect-action { display:inline-flex; min-width:126px; align-items:center; justify-content:center; gap:7px; }
 .remote-auth-field-placeholder { visibility:hidden; }
 .remote-auth-dialog pre { -webkit-user-select:text; user-select:text; cursor:text; }

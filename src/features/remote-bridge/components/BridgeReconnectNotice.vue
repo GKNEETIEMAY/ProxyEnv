@@ -34,5 +34,5 @@ watch(() => props.visible, async (visible) => {
 .bridge-notice-heading button { display:grid; place-items:center; width:28px; height:28px; border:0; border-radius:6px; background:transparent; color:inherit; cursor:pointer; }
 .bridge-notice-heading svg { width:16px; height:16px; stroke:currentColor; stroke-width:1.5; fill:none; }
 .bridge-notice p { margin:12px 0; font-size:14px; line-height:1.6; overflow-wrap:anywhere; }
-.bridge-notice button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.bridge-notice button:focus-visible { outline:2px solid var(--focus-ring); outline-offset:3px; }
 </style>

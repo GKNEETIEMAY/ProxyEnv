@@ -139,14 +139,14 @@ function runMenuAction(event: MouseEvent, action: "edit" | "remove", target: Rem
 .remote-target-list { display:grid; gap:6px; }
 .remote-target { position:relative; display:grid; min-width:0; height:var(--ssh-row-height,72px); align-items:center; grid-template-columns:minmax(0,1fr) auto auto; border:1px solid var(--line); border-left:3px solid transparent; border-radius:11px; background:var(--surface-strong); transition:border-color .16s ease,background-color .16s ease,box-shadow .16s ease; }
 .remote-target:hover:not(.unavailable) { border-color:var(--line-strong); background:color-mix(in srgb,var(--surface-strong) 88%,var(--accent-soft)); }
-.remote-target.selected { border-color:color-mix(in srgb,var(--accent) 44%,var(--line)); border-left-color:var(--accent); background:color-mix(in srgb,var(--surface-strong) 94%,var(--accent)); }
+.remote-target.selected { border-color:color-mix(in srgb,var(--accent) 44%,var(--line)); border-left-color:var(--accent-strong); background:color-mix(in srgb,var(--surface-strong) 94%,var(--accent)); }
 .remote-target.unavailable { opacity:.68; }
 .remote-target:focus-within { outline:2px solid var(--focus-ring); outline-offset:2px; }
 .remote-target-main { display:grid; min-width:0; height:100%; padding:6px 8px 6px 12px; align-items:center; grid-template-columns:16px minmax(0,1fr); gap:10px; border:0; color:inherit; text-align:left; background:transparent; cursor:pointer; }
 .remote-target-main:disabled { cursor:not-allowed; }
 .remote-target-main:focus-visible { outline:0; }
 .remote-target-mark { width:14px; height:14px; border:1px solid var(--line-strong); border-radius:50%; box-shadow:inset 0 0 0 3px var(--surface-strong); background:transparent; }
-.remote-target.selected .remote-target-mark { border-color:var(--accent); background:var(--accent); }
+.remote-target.selected .remote-target-mark { border-color:var(--accent-strong); background:var(--accent-strong); }
 .remote-target-copy { display:grid; min-width:0; gap:2px; }
 .remote-target-copy strong,.remote-target-copy code,.remote-target-meta { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .remote-target-copy strong { font-size:13px; font-weight:700; }

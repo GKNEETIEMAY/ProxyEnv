@@ -2,7 +2,7 @@
 export const desktopMessages = {
   en: {
     palette: "Color palette", paletteHint: "Follows your light or dark appearance. The logo and status colors stay unchanged.",
-    paletteWarm: "Warm yellow", paletteBlue: "Thoughtful blue", paletteTeal: "Future teal", paletteNeutral: "Everyday white",
+    paletteWarm: "Warm orange", paletteBlue: "Thoughtful blue", paletteTeal: "Future teal", paletteNeutral: "Everyday white",
     updateDevelopment: "Production update checks are disabled in development. Enable VITE_UPDATE_DIAGNOSTICS=1 only for read-only diagnostics; installation remains disabled.",
     updateMetadataSource: "Official updater metadata (release service unavailable)",
     updateNotice: "Update v{version} available — open About",
@@ -27,7 +27,7 @@ export const desktopMessages = {
   },
   "zh-CN": {
     palette: "主题配色", paletteHint: "配色随浅色或深色外观适配，Logo 与状态颜色保持不变。",
-    paletteWarm: "温暖黄", paletteBlue: "睿智蓝", paletteTeal: "未来青", paletteNeutral: "常规白",
+    paletteWarm: "温暖橙", paletteBlue: "睿智蓝", paletteTeal: "未来青", paletteNeutral: "常规白",
     updateDevelopment: "开发运行默认不检查生产更新。只读诊断需显式设置 VITE_UPDATE_DIAGNOSTICS=1，仍不允许安装。",
     updateMetadataSource: "官方更新元数据（发行说明服务暂不可用）",
     updateNotice: "发现新版本 v{version}，打开关于查看",
@@ -52,7 +52,7 @@ export const desktopMessages = {
   },
   ja: {
     palette: "テーマカラー", paletteHint: "ライト・ダーク表示に合わせて配色します。ロゴと状態の色は変わりません。",
-    paletteWarm: "暖かなイエロー", paletteBlue: "知的なブルー", paletteTeal: "未来のティール", paletteNeutral: "標準ホワイト",
+    paletteWarm: "暖かなオレンジ", paletteBlue: "知的なブルー", paletteTeal: "未来のティール", paletteNeutral: "標準ホワイト",
     updateDevelopment: "開発実行では本番の更新確認を無効にしています。読み取り専用診断には VITE_UPDATE_DIAGNOSTICS=1 を明示します。インストールはできません。",
     updateMetadataSource: "公式の更新メタデータ（リリースサービスを利用できません）",
     updateNotice: "v{version} の更新があります — バージョン情報を開く",
@@ -77,7 +77,7 @@ export const desktopMessages = {
   },
   ko: {
     palette: "테마 색상", paletteHint: "밝게·어둡게 모드에 맞춰집니다. 로고와 상태 색상은 유지됩니다.",
-    paletteWarm: "따뜻한 옐로", paletteBlue: "지적인 블루", paletteTeal: "미래의 틸", paletteNeutral: "기본 화이트",
+    paletteWarm: "따뜻한 오렌지", paletteBlue: "지적인 블루", paletteTeal: "미래의 틸", paletteNeutral: "기본 화이트",
     updateDevelopment: "개발 실행에서는 프로덕션 업데이트 확인을 비활성화합니다. 읽기 전용 진단에만 VITE_UPDATE_DIAGNOSTICS=1을 명시하세요. 설치는 허용되지 않습니다.",
     updateMetadataSource: "공식 업데이트 메타데이터 (릴리스 서비스 사용 불가)",
     updateNotice: "v{version} 업데이트 사용 가능 — 정보 열기",
