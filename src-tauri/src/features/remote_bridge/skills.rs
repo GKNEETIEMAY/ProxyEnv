@@ -1014,6 +1014,9 @@ pub fn start_monitor() {
     }
     thread::spawn(|| loop {
         thread::sleep(Duration::from_secs(2));
+        let Ok(_operation) = crate::desktop::updates::bridge_operation() else {
+            continue;
+        };
         if monitor_once().is_err() {
             if let Ok(mut runtime) = runtime().lock() {
                 runtime.target_id = None;

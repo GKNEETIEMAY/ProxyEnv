@@ -1,4 +1,5 @@
 const extensionEn = {
+  rbUpdateInProgress: "An update is being prepared. Cancel this installation in Settings → About to resume bridge changes.",
   rbNavDisconnected: "Not connected",
   rbNavConnecting: "Connecting",
   rbNavConnected: "Connected",
@@ -77,6 +78,7 @@ const extensionEn = {
 };
 type ExtensionLabels = { [K in keyof typeof extensionEn]: string };
 const extensionZh: ExtensionLabels = {
+  rbUpdateInProgress: "正在准备更新。可在设置 → 关于中取消本次安装，再继续更改桥接。",
   rbNavDisconnected: "未连接",
   rbNavConnecting: "正在连接",
   rbNavConnected: "已连接",
@@ -154,6 +156,7 @@ const extensionZh: ExtensionLabels = {
   rbSkillsTitle:'远端 Skills',rbSkillsHint:'CC Switch 链接默认同步到对应远端智能体。桥接期间会动态检查；某个工具的链接被移除后，只安全移除该智能体的远端投影。',rbSkillsEmpty:'未发现 CC Switch 管理并链接到工具目录的 Skill。',rbSkillEnable:'启用',rbSkillDisable:'停用',rbSkillNotLinked:'未链接',rbSkillNotSynced:'未同步',rbSkillSynced:'已同步',rbSkillChanged:'检测到本机变化',rbSkillConflict:'远端同名冲突',rbSkillUnavailable:'暂不可用',rbSkillRestart:'如果远端工具没有立即发现 Skill，请新建一个 Agent 会话。',rbSkillError:'无法安全投影该 Skill，RouteSpan 未覆盖远端非托管内容。',
 };
 const extensionJa: ExtensionLabels = {
+  rbUpdateInProgress: "更新の準備中です。設定 → バージョン情報でインストールを中止すると、ブリッジを変更できます。",
   rbNavDisconnected: "未接続",
   rbNavConnecting: "接続中",
   rbNavConnected: "接続済み",
@@ -231,6 +234,7 @@ const extensionJa: ExtensionLabels = {
   rbSkillsTitle:'リモート Skills',rbSkillsHint:'CC Switch のリンクは、対応するリモート Agent へ既定で同期されます。接続中は動的に確認し、リンクが削除された場合はその Agent の投影だけを安全に削除します。',rbSkillsEmpty:'CC Switch が管理するリンク済み Skill が見つかりません。',rbSkillEnable:'有効化',rbSkillDisable:'無効化',rbSkillNotLinked:'未リンク',rbSkillNotSynced:'未同期',rbSkillSynced:'同期済み',rbSkillChanged:'ローカル変更を検出',rbSkillConflict:'リモート名が競合',rbSkillUnavailable:'利用不可',rbSkillRestart:'リモートツールがすぐに Skill を認識しない場合は、新しい Agent セッションを開始してください。',rbSkillError:'Skill を安全に投影できませんでした。RouteSpan はリモートの非管理コンテンツを上書きしていません。',
 };
 const extensionKo: ExtensionLabels = {
+  rbUpdateInProgress: "업데이트 준비 중입니다. 설정 → 정보에서 설치를 취소하면 브리지를 변경할 수 있습니다.",
   rbNavDisconnected: "연결 안 됨",
   rbNavConnecting: "연결 중",
   rbNavConnected: "연결됨",
@@ -932,6 +936,7 @@ export function bridgeErrorCode(error: unknown): string {
 
 export function bridgeError(code: unknown, copy: Labels): string {
   const value = bridgeErrorCode(code);
+  if (value === "updateInProgress") return copy.rbUpdateInProgress;
   if (value === "logUnavailable") return copy.rbAdvLogsUnavailable;
   if (value === "bridgeBusy") return copy.rbCapabilityBusy;
   if (value === "capabilityPartialFailure") return copy.rbCapabilityPartialFailure;

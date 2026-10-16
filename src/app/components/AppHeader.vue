@@ -9,6 +9,7 @@ const props = defineProps<{
   maximized: boolean;
   view: "local" | "remote" | "assistant" | "settings";
   remoteNavState: RemoteNavState;
+  updateVersion: string;
 }>();
 
 const remoteNavStatusLabel = computed(() => ({
@@ -21,6 +22,7 @@ const remoteNavStatusLabel = computed(() => ({
 defineEmits<{
   closeSettings: [];
   openSettings: [];
+  openUpdate: [];
   openReport: [];
   openLocal: [];
   openRemote: [];
@@ -61,6 +63,9 @@ defineEmits<{
           </svg>
         </button>
       </div>
+      <button v-if="updateVersion" class="header-icon-button update-available-button" type="button" :aria-label="copy.updateNotice.replace('{version}', updateVersion)" :title="copy.updateNotice.replace('{version}', updateVersion)" @click="$emit('openUpdate')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-6 6 6-6 6 6" /></svg>
+      </button>
       <div class="window-controls">
         <button type="button" :aria-label="copy.minimizeWindow" @click="$emit('minimize')">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11.5h10" /></svg>
@@ -84,4 +89,5 @@ defineEmits<{
 .remote-nav-status[data-state="idle"] { visibility:hidden; }
 .remote-nav-status[data-state="connected"] { background:var(--success); }
 .remote-nav-status[data-state="attention"] { background:var(--warning); }
+.update-available-button { color:var(--accent); flex:none; }
 </style>

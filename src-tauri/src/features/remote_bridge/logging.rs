@@ -1,7 +1,6 @@
 //! Bounded asynchronous JSONL logging. Only typed, redacted bridge events enter here.
 //! Never subscribe to arbitrary tracing output or serialize requests/summaries.
 use super::events::BridgeEvent;
-#[cfg(any(test, debug_assertions))]
 use super::observations::timestamp;
 use crate::services::local_file;
 use serde::Serialize;
@@ -26,6 +25,7 @@ struct Sink {
 }
 enum Message {
     Event(BridgeEvent),
+    Update(crate::desktop::updates::UpdateDiagnostic),
     Debug,
     Clear(mpsc::Sender<io::Result<()>>),
     Stop(mpsc::Sender<()>),
@@ -58,6 +58,13 @@ pub fn initialize(directory: PathBuf) {
                     let result = serialize_event(&event).and_then(|bytes| writer.append(bytes));
                     worker_health.store(result.is_ok(), Ordering::Release);
                 }
+                Message::Update(event) => {
+                    let mut value = serde_json::to_value(event).expect("typed update diagnostic");
+                    value["timestamp"] = timestamp().into();
+                    value["component"] = "updater".into();
+                    let result = serde_json::to_vec(&value).map_err(io::Error::other).and_then(|bytes| writer.append(bytes));
+                    worker_health.store(result.is_ok(), Ordering::Release);
+                }
                 Message::Debug => {
                     #[cfg(debug_assertions)]
                     {
@@ -79,6 +86,11 @@ pub(super) fn record(event: &BridgeEvent) {
     if let Some(sink) = SINK.get() {
         // A full queue drops a log record, never blocks SSH or relay traffic.
         let _ = sink.sender.try_send(Message::Event(event.clone()));
+    }
+}
+pub(crate) fn record_update(event: crate::desktop::updates::UpdateDiagnostic) {
+    if let Some(sink) = SINK.get() {
+        let _ = sink.sender.try_send(Message::Update(event));
     }
 }
 pub(super) fn debug_diagnostics() {

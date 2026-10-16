@@ -1,22 +1,23 @@
 <script setup lang="ts">
 import { BundleType, getBundleType, getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import ProxyPage from "../features/proxy/components/ProxyPage.vue";
 import ApplicationAssistantPage from "../features/application-assistant/components/ApplicationAssistantPage.vue";
 import SettingsPage, { type SettingsTab } from "../features/settings/components/SettingsPage.vue";
 import {
-  compareVersions,
   isOfficialReleaseUrl,
   parseReleaseNotes,
-  type GitHubRelease,
   type ReleaseNoteLine,
   type UpdateState
 } from "../features/settings/update";
+import { fetchLatestRelease, resolveUpdate, updateFailure, type Availability, type UpdateFailure } from "../features/settings/update-availability";
+import { UpdateInstaller } from "../features/settings/update-installer";
+import UpdateInstallDialog from "../features/settings/components/UpdateInstallDialog.vue";
 import { backend } from "../shared/api/backend";
 import { messages, resolveLocale } from "../shared/i18n";
 import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, TunObservation } from "../shared/types";
@@ -32,6 +33,7 @@ import { useRemoteBridge, type BridgeSummary } from "../features/remote-bridge/s
 const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge, ccDetection } = useRemoteBridge();
 
 const reportDialog = ref<InstanceType<typeof DiagnosticReportDialog>>();
+const updateDialog = ref<InstanceType<typeof UpdateInstallDialog>>();
 const reportApplicationId = ref<string>();
 
 const defaultSettings: AppSettings = {
@@ -56,11 +58,17 @@ const settingsLoadError = ref("");
 const copiedEndpoint = ref(false);
 function openBridgeNotice() { openRemote(); void refreshRemoteBridge(); }
 const appVersion = ref("0.2.0");
-const latestVersion = ref("");
+const updateSnapshot = shallowRef<Availability<NonNullable<Awaited<ReturnType<typeof check>>>> | null>(null);
+const latestVersion = computed(() => updateSnapshot.value?.version ?? "");
 const updateState = ref<UpdateState>("idle");
-const releaseUrl = ref("");
-const releasePublishedAt = ref("");
-const releaseNotesBody = ref("");
+const releaseUrl = computed(() => updateSnapshot.value?.url ?? "");
+const releasePublishedAt = computed(() => updateSnapshot.value?.date ?? "");
+const releaseNotesBody = computed(() => updateSnapshot.value?.body ?? "");
+const checkFailure = ref<UpdateFailure>("service");
+const installStatusError = ref<"updateGuardUnavailable" | "updateBusy" | "updateStateChanged" | "updateInstallError" | null>(null);
+const updateAbandoned = ref(false);
+const installPreparing = ref(false);
+const updateExclusive = ref(false);
 const releaseActionError = ref("");
 const updateProgress = ref<number | null>(null);
 const automaticUpdateSupported = ref(false);
@@ -88,7 +96,12 @@ let settingsSaveTimer: number | undefined;
 let settingsReady = false;
 let saveInFlight = false;
 let pendingSettings: AppSettings | undefined;
-let pendingUpdate: Awaited<ReturnType<typeof check>> = null;
+let versionVerified = false;
+const installer = new UpdateInstaller({
+  prepare: confirmed => invoke<number>("prepare_update_install", { confirmed }),
+  validate: lease => invoke<void>("validate_update_install", { lease }),
+  release: lease => invoke<void>("release_update_install", { lease }),
+});
 let unlistenResize: UnlistenFn | undefined;
 let unlisten: UnlistenFn[] = [];
 
@@ -104,6 +117,7 @@ const detected = computed(() => activeProxyContext.value.candidate ?? undefined)
 const systemProxy = computed(() => candidates.value.find((candidate) => candidate.source.includes("windowsSystemProxy")));
 const endpoint = computed(() => detected.value ? `${detected.value.host}:${detected.value.port}` : "");
 const updateMessage = computed(() => {
+  if (updateAbandoned.value && updateState.value === "downloading") return copy.value.updateCancelling;
   if (updateState.value === "checking") return copy.value.checkingUpdates;
   if (updateState.value === "latest") return copy.value.latestVersion;
   if (updateState.value === "available") return copy.value.updateAvailable.replace("{version}", latestVersion.value);
@@ -115,9 +129,21 @@ const updateMessage = computed(() => {
     : copy.value.downloadingUpdateProgress.replace("{progress}", String(updateProgress.value));
   if (updateState.value === "installing") return copy.value.installingUpdate;
   if (updateState.value === "unpublished") return copy.value.noPublishedRelease;
-  if (updateState.value === "error") return copy.value.updateCheckFailed;
+  if (updateState.value === "conflict") return copy.value.updateConflict;
+  if (updateState.value === "error") return installStatusError.value ? copy.value[installStatusError.value] : updateFailureMessage(checkFailure.value);
   return copy.value.notChecked;
 });
+const availableUpdateVersion = computed(() => ["available", "manual"].includes(updateState.value) ? latestVersion.value : "");
+function recordUpdateDiagnostic(phase: "release" | "metadata" | "download" | "install" | "guard", outcome: string) {
+  if (reviewPreview) return;
+  // Backend deserialization allows only enum values; raw exceptions can never enter the log.
+  void invoke("record_update_diagnostic", { event: { phase, outcome } }).catch(() => {});
+}
+function updateFailureMessage(failure: UpdateFailure): string {
+  return ({ rateLimit: copy.value.updateRateLimit, timeout: copy.value.updateTimeout, network: copy.value.updateNetwork,
+    tls: copy.value.updateTls, proxy: copy.value.updateProxy, signature: copy.value.updateSignature,
+    invalidResponse: copy.value.updateInvalidResponse, service: copy.value.updateService, development: copy.value.updateDevelopment })[failure];
+}
 const releaseVersion = computed(() => latestVersion.value || appVersion.value);
 const releasePublishedLabel = computed(() => {
   if (!releasePublishedAt.value) return "";
@@ -294,6 +320,7 @@ function openSettings() {
 }
 
 function closeSettings() {
+  if (updateExclusive.value && primaryView.value === "remote") { openUpdateAbout(); return; }
   view.value = primaryView.value;
 }
 
@@ -303,6 +330,11 @@ function openLocal() {
 }
 
 function openRemote() {
+  if (updateExclusive.value) {
+    notify(copy.value.rbUpdateInProgress, "info", "update-bridge-paused");
+    openUpdateAbout();
+    return;
+  }
   primaryView.value = "remote";
   view.value = "remote";
 }
@@ -329,65 +361,46 @@ async function copyEndpoint(candidate?: ProxyCandidate) {
 }
 
 async function checkForUpdates() {
-  if (["checking", "downloading", "installing"].includes(updateState.value)) return;
+  if (installer.busy || ["checking", "downloading", "installing"].includes(updateState.value)) return;
+  if (reviewPreview) {
+    // Explicit browser fixture only: no fetch, updater IPC, downloads or installs.
+    updateSnapshot.value = { state: "manual", version: "0.2.1", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1", body: "", date: "", handle: null, source: "release" };
+    updateState.value = "manual";
+    return;
+  }
+  if (import.meta.env.DEV && import.meta.env.VITE_UPDATE_DIAGNOSTICS !== "1") {
+    checkFailure.value = "development";
+    updateState.value = "error";
+    return;
+  }
   updateState.value = "checking";
   releaseActionError.value = "";
   updateProgress.value = null;
-  pendingUpdate = null;
+  const previousHandle = updateSnapshot.value?.handle;
+  updateSnapshot.value = null;
+  updateAbandoned.value = false;
+  installStatusError.value = null;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 10_000);
   try {
-    const releaseRequest = fetch("https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/latest", {
-        cache: "no-store",
-        headers: { Accept: "application/vnd.github+json" },
-        signal: controller.signal
-      })
-      .then(async (response): Promise<GitHubRelease | null> => {
-        if (response.status === 404) return null;
-        if (!response.ok) throw new Error(`GitHub ${response.status}`);
-        return await response.json() as GitHubRelease;
-      });
+    await previousHandle?.close();
+    const releaseRequest = fetchLatestRelease(fetch, controller.signal);
     const [releaseResult, updaterResult] = await Promise.allSettled([
       releaseRequest,
       check({ timeout: 10_000 })
     ]);
 
-    const release = releaseResult.status === "fulfilled" ? releaseResult.value : null;
-    const signedUpdate = updaterResult.status === "fulfilled" ? updaterResult.value : null;
-    if (release) {
-      if (!release.tag_name) throw new Error("missing release tag");
-      if (!release.html_url || !isOfficialReleaseUrl(release.html_url)) throw new Error("invalid release URL");
-      latestVersion.value = release.tag_name.replace(/^v/i, "");
-      releaseUrl.value = release.html_url;
-      releasePublishedAt.value = release.published_at ?? "";
-      releaseNotesBody.value = release.body ?? "";
-    } else if (signedUpdate) {
-      latestVersion.value = signedUpdate.version;
-      releaseUrl.value = `https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v${signedUpdate.version}`;
-      releasePublishedAt.value = signedUpdate.date ?? "";
-      releaseNotesBody.value = signedUpdate.body ?? "";
-    } else if (releaseResult.status === "fulfilled") {
-      updateState.value = "unpublished";
-      latestVersion.value = "";
-      releaseUrl.value = "";
-      releasePublishedAt.value = "";
-      releaseNotesBody.value = "";
-      return;
-    } else {
-      throw new Error("release metadata is unavailable");
-    }
-
-    if (signedUpdate && automaticUpdateSupported.value) {
-      pendingUpdate = signedUpdate;
-      latestVersion.value = signedUpdate.version;
-      updateState.value = "available";
-      return;
-    }
-    manualUpdateReason.value = signedUpdate ? "bundle" : "missing";
-    updateState.value = compareVersions(latestVersion.value, appVersion.value) > 0
-      ? "manual"
-      : "latest";
-  } catch {
+    const snapshot = resolveUpdate(versionVerified ? appVersion.value : "", releaseResult, updaterResult, automaticUpdateSupported.value);
+    recordUpdateDiagnostic("release", releaseResult.status === "fulfilled" ? releaseResult.value ? "success" : "unpublished" : updateFailure(releaseResult.reason));
+    recordUpdateDiagnostic("metadata", updaterResult.status === "rejected" ? updateFailure(updaterResult.reason) : snapshot.failure ?? snapshot.state);
+    const metadata = updaterResult.status === "fulfilled" ? updaterResult.value : null;
+    if (metadata && snapshot.handle !== metadata) await metadata.close();
+    updateSnapshot.value = snapshot;
+    manualUpdateReason.value = metadata ? "bundle" : "missing";
+    checkFailure.value = snapshot.failure ?? "service";
+    updateState.value = snapshot.state;
+  } catch (cause) {
+    checkFailure.value = updateFailure(cause);
     updateState.value = "error";
   } finally {
     window.clearTimeout(timeout);
@@ -395,17 +408,24 @@ async function checkForUpdates() {
 }
 
 async function installPendingUpdate() {
-  if (!pendingUpdate || updateState.value !== "available") {
+  if (installer.busy) return;
+  if (reviewPreview) { await updateDialog.value?.open(); return; }
+  const handle = updateSnapshot.value?.handle;
+  if (!handle || updateState.value !== "available") {
     releaseActionError.value = copy.value.updateInstallUnavailable;
     return;
   }
   releaseActionError.value = "";
   updateProgress.value = null;
-  updateState.value = "downloading";
+  installPreparing.value = true;
   let downloaded = 0;
   let contentLength = 0;
   try {
-    await pendingUpdate.downloadAndInstall((event) => {
+    const outcome = await installer.run(handle, () => updateDialog.value?.open() ?? Promise.resolve(false), phase => {
+      updateExclusive.value = true;
+      updateState.value = phase === "download" ? "downloading" : "installing";
+      recordUpdateDiagnostic(phase, "started");
+    }, (event) => {
       if (event.event === "Started") {
         contentLength = event.data.contentLength ?? 0;
         updateProgress.value = contentLength > 0 ? 0 : null;
@@ -416,16 +436,47 @@ async function installPendingUpdate() {
           : null;
       } else if (event.event === "Finished") {
         updateProgress.value = 100;
-        updateState.value = "installing";
       }
     });
-    updateState.value = "installing";
-    await relaunch();
-  } catch {
-    updateState.value = "available";
+    if (outcome === "cancelled") {
+      updateState.value = "idle";
+      notify(copy.value.updateCancelled, "info", "update-cancel");
+    }
+    if (outcome !== "deferred") recordUpdateDiagnostic(outcome === "cancelled" ? "guard" : "install", outcome === "cancelled" ? "cancelled" : "success");
+  } catch (cause) {
+    updateState.value = installer.phase === "prepare" ? "available" : "error";
+    checkFailure.value = updateFailure(cause);
     updateProgress.value = null;
-    releaseActionError.value = copy.value.updateInstallFailed;
+    const code = String(cause);
+    installStatusError.value = updateAbandoned.value && !installer.guardReleased ? "updateGuardUnavailable"
+      : code === "updateBusy" ? "updateBusy" : code === "updateStateChanged" ? "updateStateChanged"
+      : installer.phase === "prepare" ? "updateGuardUnavailable"
+      : installer.phase === "install" ? "updateInstallError" : null;
+    releaseActionError.value = installStatusError.value ? copy.value[installStatusError.value] : updateFailureMessage(checkFailure.value);
+    recordUpdateDiagnostic(installer.phase === "prepare" ? "guard" : installer.phase,
+      code === "updateBusy" ? "busy" : code === "updateStateChanged" ? "stateChanged" : checkFailure.value);
+    if (updateAbandoned.value && installer.guardReleased) {
+      updateState.value = "idle";
+      releaseActionError.value = "";
+      notify(copy.value.updateCancelled, "info", "update-cancel");
+    }
+  } finally {
+    installPreparing.value = false;
+    if (installer.guardReleased) updateExclusive.value = false;
+    if (installer.phase !== "prepare" && updateSnapshot.value) updateSnapshot.value = { ...updateSnapshot.value, handle: null };
   }
+}
+
+async function cancelUpdateInstall() {
+  if (installer.phase !== "download" || updateAbandoned.value) return;
+  updateAbandoned.value = true;
+  try { await installer.cancel(); if (installer.guardReleased) updateExclusive.value = false; }
+  catch { releaseActionError.value = copy.value.updateGuardUnavailable; }
+}
+
+function openUpdateAbout() {
+  openSettings();
+  settingsTab.value = "about";
 }
 
 async function openLatestRelease() {
@@ -513,12 +564,13 @@ watch([view, settingsTab], ([nextView, nextTab]) => {
 onMounted(async () => {
   window.addEventListener("keydown", onViewShortcut);
   try {
-    automaticUpdateSupported.value = await getBundleType() === BundleType.Nsis;
+    automaticUpdateSupported.value = !import.meta.env.DEV && await getBundleType() === BundleType.Nsis;
   } catch {
     automaticUpdateSupported.value = false;
   }
   try {
     appVersion.value = await getVersion();
+    versionVerified = true;
   } catch {
     appVersion.value = "0.2.0";
   }
@@ -600,9 +652,13 @@ onMounted(async () => {
         { kind: "broadRoute", interfaceName: preview === "tun-only" ? "bby104_2" : "singbox_tun", detail: "split-default route" }
       ]
     };
-    if (preview === "settings" || preview === "about") {
+    if (preview === "settings" || preview === "about" || preview === "update") {
       view.value = "settings";
-      settingsTab.value = preview === "about" ? "about" : "general";
+      settingsTab.value = preview === "settings" ? "general" : "about";
+      if (preview === "update") {
+        updateSnapshot.value = { state: "available", version: "0.2.1", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1", body: "", date: "", handle: null, source: "release" };
+        updateState.value = "available";
+      }
     } else if (preview === "assistant" || preview === "assistant-result") {
       view.value = "assistant";
     } else if (["remote", "remote-connected", "remote-connected-advanced", "remote-auth", "remote-auth-rejected", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(preview ?? "")) {
@@ -634,6 +690,8 @@ onMounted(async () => {
     settingsLoadError.value = String(cause);
   }
   settingsReady = true;
+  // One non-blocking check per launch; window visibility and tab switches do not restart it.
+  if (!import.meta.env.DEV) void checkForUpdates();
   maximized.value = await appWindow!.isMaximized();
   document.documentElement.classList.toggle("window-maximized", maximized.value);
   unlistenResize = await appWindow!.onResized(async () => {
@@ -670,10 +728,12 @@ onBeforeUnmount(() => {
       :maximized="maximized"
       :view="view"
       :remote-nav-state="remoteNavState"
+      :update-version="availableUpdateVersion"
       @close-settings="closeSettings"
       @open-local="openLocal"
       @open-remote="openRemote"
       @open-settings="openSettings"
+      @open-update="openUpdateAbout"
       @open-report="reportDialog?.open()"
       @minimize="minimizeWindow"
       @toggle-maximize="toggleMaximizeWindow"
@@ -713,7 +773,7 @@ onBeforeUnmount(() => {
     />
     </div>
 
-    <div v-show="view === 'remote'" class="view-pane remote-view-pane">
+    <div v-show="view === 'remote'" class="view-pane remote-view-pane" :inert="updateExclusive" :aria-busy="updateExclusive">
     <RemoteBridgePage
       :visible="view === 'remote'"
       :copy="copy"
@@ -750,18 +810,23 @@ onBeforeUnmount(() => {
       :app-version="appVersion"
       :update-state="updateState"
       :update-message="updateMessage"
+      :update-source="updateSnapshot?.source === 'metadata' ? copy.updateMetadataSource : 'GitHub Releases'"
       :release-version="releaseVersion"
       :release-published-label="releasePublishedLabel"
       :release-notes="displayReleaseNotes"
       :release-url="releaseUrl"
       :release-action-error="releaseActionError"
       :update-progress="updateProgress"
+      :install-preparing="installPreparing"
+      :update-abandoned="updateAbandoned"
       @check-for-updates="checkForUpdates"
       @install-update="installPendingUpdate"
+      @cancel-update="cancelUpdateInstall"
       @open-release="openLatestRelease"
     />
     </div>
     </div>
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
+    <UpdateInstallDialog ref="updateDialog" :copy="copy" />
   </div>
 </template>

@@ -178,6 +178,9 @@ static SESSIONS: OnceLock<Mutex<HashMap<String, Session>>> = OnceLock::new();
 fn sessions() -> &'static Mutex<HashMap<String, Session>> {
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
+pub(crate) fn update_busy() -> BridgeResult<bool> {
+    Ok(!sessions().try_lock().map_err(|_| "updateBusy")?.is_empty())
+}
 
 fn lock_sessions() -> BridgeResult<std::sync::MutexGuard<'static, HashMap<String, Session>>> {
     sessions().lock().map_err(|_| "stateUnavailable".into())

@@ -34,7 +34,7 @@ pub async fn remote_bridge_run_diagnostics(
 #[tauri::command]
 pub async fn remote_bridge_diagnostics_snapshot(
 ) -> CommandResult<bridge::diagnostics::RuntimeDiagnostics> {
-    run("diagnostics", None, bridge::diagnostics::snapshot).await
+    run("stateRead", None, bridge::diagnostics::snapshot).await
 }
 #[tauri::command]
 pub fn remote_bridge_log_status() -> bridge::logging::LogStatus {
@@ -95,10 +95,25 @@ async fn run<T: Send + 'static>(
     target: Option<&'static str>,
     f: impl FnOnce() -> BridgeResult<T> + Send + 'static,
 ) -> CommandResult<T> {
-    tauri::async_runtime::spawn_blocking(f)
-        .await
-        .map_err(|_| command_error("stateUnavailable".into(), phase, target))?
-        .map_err(|code| command_error(code, phase, target))
+    tauri::async_runtime::spawn_blocking(move || {
+        let _operation = if matches!(
+            phase,
+            "stateRead"
+                | "targetDiscovery"
+                | "localDetection"
+                | "modelSettingsRead"
+                | "logs"
+                | "skillInspection"
+        ) {
+            None
+        } else {
+            Some(crate::desktop::updates::bridge_operation()?)
+        };
+        f()
+    })
+    .await
+    .map_err(|_| command_error("stateUnavailable".into(), phase, target))?
+    .map_err(|code| command_error(code, phase, target))
 }
 #[tauri::command]
 pub async fn remote_bridge_targets() -> CommandResult<Vec<RemoteTarget>> {

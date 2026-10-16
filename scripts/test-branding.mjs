@@ -13,6 +13,7 @@ const moduleUrl = (path, replacements = {}) => {
 const { messages } = await import(moduleUrl("src/shared/i18n/index.ts", {
   '"./remote-bridge"': JSON.stringify(moduleUrl("src/shared/i18n/remote-bridge.ts")),
   '"./diagnostic-report"': JSON.stringify(moduleUrl("src/shared/i18n/diagnostic-report.ts")),
+  '"./desktop"': JSON.stringify(moduleUrl("src/shared/i18n/desktop.ts")),
 }));
 const config = JSON.parse(read("src-tauri/tauri.conf.json"));
 
@@ -87,7 +88,8 @@ test("package, storage, session, repository and updater identities stay compatib
   assert.match(read("src/features/remote-bridge/components/RemoteBridgePage.vue"), /proxyenv\.remoteBridge\.lastTargetId/);
   assert.match(read("src-tauri/src/features/remote_bridge/authenticated_relay.rs"), /x-proxyenv-session/i);
   assert.match(read("src-tauri/src/features/remote_bridge/remote.sh"), /\.proxyenv/);
-  assert.match(read("src/app/AppShell.vue"), /repos\/GKNEETIEMAY\/ProxyEnv\/releases\/latest/);
+  assert.match(read("src/features/settings/update-availability.ts"), /repos\/GKNEETIEMAY\/ProxyEnv\/releases\/latest/);
+  assert.match(read("src/app/AppShell.vue"), /fetchLatestRelease\(fetch, controller.signal\)/);
   assert.match(read("src/features/settings/update.ts"), /proxyenv-release:end/);
   const workflow = read(".github/workflows/release.yml");
   assert.match(workflow, /target\/release\/proxyenv\.exe/);

@@ -12,7 +12,8 @@ async function moduleUrl(path, replacements = {}) {
 }
 const remoteLabels = await moduleUrl("../src/shared/i18n/remote-bridge.ts");
 const labels = await moduleUrl("../src/shared/i18n/diagnostic-report.ts");
-const { messages } = await import(await moduleUrl("../src/shared/i18n/index.ts", { '"./diagnostic-report"': JSON.stringify(labels), '"./remote-bridge"': JSON.stringify(remoteLabels) }));
+const desktopLabels = await moduleUrl("../src/shared/i18n/desktop.ts");
+const { messages } = await import(await moduleUrl("../src/shared/i18n/index.ts", { '"./diagnostic-report"': JSON.stringify(labels), '"./remote-bridge"': JSON.stringify(remoteLabels), '"./desktop"': JSON.stringify(desktopLabels) }));
 const { formatDiagnosticReport } = await import(await moduleUrl("../src/features/diagnostic-report/format.ts"));
 const data = {
   appVersion: "0.1.3", os: "windows", osVersion: "11 (26100)", detectedCount: 2, listeningCount: 1,

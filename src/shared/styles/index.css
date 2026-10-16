@@ -479,6 +479,7 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .update-latest .update-dot { background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
 .update-available .update-dot, .update-manual .update-dot, .update-downloading .update-dot, .update-installing .update-dot { background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
 .update-error .update-dot { background: var(--danger); box-shadow: 0 0 0 4px var(--danger-soft); }
+.update-conflict .update-dot { background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
 .update-actions { display: flex; margin-top: 20px; align-items: center; flex-wrap: wrap; gap: 9px; }
 .check-update-button, .install-update-button, .release-link-button { display: inline-flex; width: fit-content; padding: 9px 13px; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--surface-strong); cursor: pointer; transition: border-color .16s, color .16s, background .16s, opacity .16s; }
 .check-update-button:hover, .release-link-button:hover { border-color: var(--accent); background: var(--accent-soft); }

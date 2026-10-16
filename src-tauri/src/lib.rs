@@ -53,6 +53,10 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            desktop::updates::prepare_update_install,
+            desktop::updates::validate_update_install,
+            desktop::updates::release_update_install,
+            desktop::updates::record_update_diagnostic,
             commands::remote_bridge::remote_bridge_targets,
             commands::remote_bridge::remote_bridge_add_connection,
             commands::remote_bridge::remote_bridge_pick_identity_file,

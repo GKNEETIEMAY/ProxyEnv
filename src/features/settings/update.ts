@@ -6,6 +6,7 @@ export type UpdateState =
   | "latest"
   | "available"
   | "manual"
+  | "conflict"
   | "downloading"
   | "installing"
   | "unpublished"
@@ -21,15 +22,23 @@ export type GitHubRelease = {
   html_url?: string;
   body?: string | null;
   published_at?: string | null;
+  draft?: boolean;
+  prerelease?: boolean;
 };
 
+export function stableVersion(value: string): string | null {
+  if (typeof value !== "string") return null;
+  const match = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(value);
+  if (!match || match.slice(1).some((part) => !Number.isSafeInteger(Number(part)))) return null;
+  return match.slice(1).join(".");
+}
+
 export function compareVersions(left: string, right: string): number {
-  const normalize = (value: string) => value
-    .replace(/^v/i, "")
-    .split(".")
-    .map((part) => Number.parseInt(part, 10) || 0);
-  const leftParts = normalize(left);
-  const rightParts = normalize(right);
+  const normalizedLeft = stableVersion(left);
+  const normalizedRight = stableVersion(right);
+  if (!normalizedLeft || !normalizedRight) throw new Error("invalidVersion");
+  const leftParts = normalizedLeft.split(".").map(Number);
+  const rightParts = normalizedRight.split(".").map(Number);
   const length = Math.max(leftParts.length, rightParts.length);
   for (let index = 0; index < length; index += 1) {
     const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
@@ -98,10 +107,12 @@ export function hasLocalizedReleaseNotes(body: string | null | undefined): boole
 }
 
 export function isOfficialReleaseUrl(value: string): boolean {
+  if (typeof value !== "string") return false;
   try {
     const url = new URL(value);
     return url.protocol === "https:"
       && url.hostname === "github.com"
+      && !url.username && !url.password && !url.port
       && url.pathname.startsWith("/GKNEETIEMAY/ProxyEnv/releases/");
   } catch {
     return false;

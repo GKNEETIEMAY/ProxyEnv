@@ -15,7 +15,8 @@
     "autostart:allow-is-enabled",
     "process:allow-restart",
     "updater:allow-check",
-    "updater:allow-download-and-install",
+    "updater:allow-download",
+    "updater:allow-install",
     {
       "identifier": "opener:allow-open-url",
       "allow": [

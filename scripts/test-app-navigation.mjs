@@ -36,7 +36,8 @@ test("optional preparation and diagnostic outcomes never change the healthy navi
 });
 
 test("contextual Settings and Assistant return to the selected primary workspace", () => {
-  const context = { view: ref("local"), primaryView: ref("local"), remoteBridgeSummary: ref({}) };
+  const context = { view: ref("local"), primaryView: ref("local"), remoteBridgeSummary: ref({}), updateExclusive: ref(false),
+    copy: ref({ rbUpdateInProgress: "paused" }), notify: () => {}, openUpdateAbout: () => { context.view.value = "settings"; } };
   runInNewContext(compile(shell.slice(shell.indexOf("function openSettings()"), shell.indexOf("async function copyEndpoint("))), context);
   for (const workspace of ["local", "remote"]) {
     context[workspace === "local" ? "openLocal" : "openRemote"]();
@@ -50,6 +51,13 @@ test("contextual Settings and Assistant return to the selected primary workspace
   assert.equal(context.view.value, "local");
   context.acceptRemoteBridgeSummary({ status: "connected" });
   assert.equal(context.view.value, "local", "A background bridge summary does not navigate");
+  context.updateExclusive.value = true;
+  context.openRemote();
+  assert.equal(context.view.value, "settings", "Installation ownership keeps new bridge actions in About");
+  assert.equal(context.primaryView.value, "local");
+  context.primaryView.value = "remote";
+  context.closeSettings();
+  assert.equal(context.view.value, "settings", "Back cannot bypass the update gate");
 });
 
 test("keyboard navigation respects modal ownership and editable fields", () => {

@@ -437,6 +437,28 @@ fn store() -> &'static Mutex<Store> {
 fn lock() -> BridgeResult<std::sync::MutexGuard<'static, Store>> {
     store().lock().map_err(|_| "stateUnavailable".into())
 }
+pub(crate) fn update_activity() -> BridgeResult<crate::desktop::updates::Activity> {
+    let mut state = store().try_lock().map_err(|_| "updateBusy")?;
+    if ssh_auth::update_busy()?
+        || state.profile_syncing
+        || state.summary.post_connect_status == PostConnectStatus::Preparing
+        || state.summary.status == Status::Connecting
+        || state.reconnect.is_some()
+    {
+        return Err("updateBusy".into());
+    }
+    let connected = match state.child.as_mut() {
+        Some(child) => child.is_running().map_err(|_| "stateUnavailable")?,
+        None => false,
+    };
+    if state.child.is_some() && !connected {
+        return Err("updateStateChanged".into());
+    }
+    Ok(crate::desktop::updates::Activity {
+        generation: state.connection_generation,
+        connected,
+    })
+}
 fn listening(endpoint: &ProxyEndpoint) -> bool {
     endpoint.host.parse().ok().is_some_and(|ip| {
         TcpStream::connect_timeout(
@@ -1053,6 +1075,9 @@ pub fn start_monitor() {
         let mut last_profile = tool_adapter::RemoteToolId::Claude;
         loop {
             std::thread::sleep(Duration::from_secs(2));
+            let Ok(_operation) = crate::desktop::updates::bridge_operation() else {
+                continue;
+            };
             ssh_auth::cleanup();
             reconnect::tick();
             let candidate = {
@@ -1308,6 +1333,7 @@ fn discover_tools_for_generation(
     target_id: String,
     expected_generation: Option<u64>,
 ) -> BridgeResult<tool_discovery::RemoteToolDiscoverySnapshot> {
+    let _operation = crate::desktop::updates::bridge_operation()?;
     let target = targets()?
         .into_iter()
         .find(|target| target.id == target_id && target.available)
@@ -2661,6 +2687,7 @@ fn start_auto_proxy_test(generation: u64) {
 }
 
 fn test_proxy_egress(expected_generation: Option<u64>, only_unchecked: bool) -> BridgeResult<()> {
+    let _operation = crate::desktop::updates::bridge_operation()?;
     let started = Instant::now();
     let (endpoint, target_id, fingerprint, generation, ticket) = {
         let mut state = lock()?;

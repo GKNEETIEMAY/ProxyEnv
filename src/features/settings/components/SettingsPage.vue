@@ -14,12 +14,15 @@ const props = defineProps<{
   appVersion: string;
   updateState: UpdateState;
   updateMessage: string;
+  updateSource: string;
   releaseVersion: string;
   releasePublishedLabel: string;
   releaseNotes: ReleaseNoteLine[];
   releaseUrl: string;
   releaseActionError: string;
   updateProgress: number | null;
+  installPreparing: boolean;
+  updateAbandoned: boolean;
 }>();
 
 const hasNewerRelease = computed(() =>
@@ -30,7 +33,7 @@ const hasNewerRelease = computed(() =>
 const settings = defineModel<AppSettings>("settings", { required: true });
 const tab = defineModel<SettingsTab>("tab", { required: true });
 
-defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
+defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: []; cancelUpdate: [] }>();
 </script>
 
 <template>
@@ -100,10 +103,10 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
             </span>
           </dd>
         </div>
-        <div><dt>{{ copy.updateSource }}</dt><dd>GitHub Releases</dd></div>
+        <div><dt>{{ copy.updateSource }}</dt><dd>{{ updateSource }}</dd></div>
       </dl>
       <div class="update-actions">
-        <button v-if="['available', 'downloading', 'installing'].includes(updateState)" class="install-update-button" type="button" :disabled="updateState !== 'available'" @click="$emit('installUpdate')">
+        <button v-if="['available', 'downloading', 'installing'].includes(updateState)" class="install-update-button" type="button" :disabled="updateState !== 'available' || installPreparing" @click="$emit('installUpdate')">
           <svg :class="{ spinning: updateState === 'installing' }" viewBox="0 0 24 24" aria-hidden="true">
             <path v-if="updateState === 'installing'" d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" />
             <path v-else d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />
@@ -112,7 +115,8 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: [] }>();
           <template v-else-if="updateState === 'installing'">{{ copy.installingUpdate }}</template>
           <template v-else>{{ copy.installUpdate }}</template>
         </button>
-        <button class="check-update-button" type="button" :disabled="['checking', 'downloading', 'installing'].includes(updateState)" @click="$emit('checkForUpdates')">
+        <button v-if="updateState === 'downloading'" class="secondary-action" type="button" :disabled="updateAbandoned" @click="$emit('cancelUpdate')">{{ copy.updateCancel }}</button>
+        <button class="check-update-button" type="button" :disabled="installPreparing || ['checking', 'downloading', 'installing'].includes(updateState)" @click="$emit('checkForUpdates')">
           <svg :class="{ spinning: updateState === 'checking' }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>
           {{ updateState === 'checking' ? copy.checkingUpdates : copy.checkForUpdates }}
         </button>

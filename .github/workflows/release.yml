@@ -66,6 +66,9 @@ jobs:
       - name: Test release contracts
         run: pnpm test:release
 
+      - name: Test update resolution and installation guards
+        run: pnpm test:updates
+
       - name: Build frontend
         run: pnpm build
 
