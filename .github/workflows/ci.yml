@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - v0.2.0dev
+      - v0.2.1dev
       - develop
       - main
       - "release/**"
@@ -73,6 +74,9 @@ jobs:
 
       - name: Test update resolution and installation guards
         run: pnpm test:updates
+
+      - name: Test theme preferences and contrast
+        run: pnpm test:themes
 
       - name: Test diagnostic report localization
         run: pnpm test:report

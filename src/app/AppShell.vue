@@ -27,6 +27,7 @@ import { remoteNavigationState } from "./navigation";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 import NotificationCenter from "../shared/components/NotificationCenter.vue";
 import { notify, useNotification } from "../shared/state/notifications";
+import { applyTheme, readAppearance, readPalette, saveAppearance, savePalette } from "../shared/theme/palette";
 
 import RemoteBridgePage from "../features/remote-bridge/components/RemoteBridgePage.vue";
 import { useRemoteBridge, type BridgeSummary } from "../features/remote-bridge/state";
@@ -84,7 +85,8 @@ const environment = ref<EnvironmentStatus>({
 });
 const candidates = ref<ProxyCandidate[]>([]);
 const tun = ref<TunObservation>({ state: "unknown", evidence: [] });
-const draftSettings = ref<AppSettings>({ ...defaultSettings });
+const draftSettings = ref<AppSettings>({ ...defaultSettings, theme: readAppearance() });
+const palette = ref(readPalette());
 const maximized = ref(false);
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 const reviewPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has("impeccable-review");
@@ -163,10 +165,8 @@ const displayReleaseNotes = computed<ReleaseNoteLine[]>(() => {
 });
 
 function applyPresentation() {
-  const theme = draftSettings.value.theme === "system"
-    ? (systemDark.matches ? "dark" : "light")
-    : draftSettings.value.theme;
-  document.documentElement.dataset.theme = theme;
+  applyTheme(document.documentElement, draftSettings.value.theme, palette.value, systemDark.matches);
+  if (!reviewPreview) saveAppearance(draftSettings.value.theme);
   document.documentElement.lang = locale.value;
   document.title = copy.value.appName;
 }
@@ -547,7 +547,8 @@ function showSecondInstanceNotice() {
   notify(copy.value.secondInstanceOpened, "info", "second-instance");
 }
 
-watch([draftSettings, locale], applyPresentation, { deep: true, immediate: true });
+watch([draftSettings, locale, palette], applyPresentation, { deep: true, immediate: true });
+watch(palette, value => { if (!reviewPreview) savePalette(value); });
 watch(draftSettings, () => {
   if (!settingsReady || reviewPreview) return;
   if (settingsSaveTimer !== undefined) window.clearTimeout(settingsSaveTimer);
@@ -563,6 +564,7 @@ watch([view, settingsTab], ([nextView, nextTab]) => {
 
 onMounted(async () => {
   window.addEventListener("keydown", onViewShortcut);
+  systemDark.addEventListener("change", onSystemThemeChange);
   try {
     automaticUpdateSupported.value = !import.meta.env.DEV && await getBundleType() === BundleType.Nsis;
   } catch {
@@ -698,7 +700,6 @@ onMounted(async () => {
     maximized.value = await appWindow!.isMaximized();
     document.documentElement.classList.toggle("window-maximized", maximized.value);
   });
-  systemDark.addEventListener("change", onSystemThemeChange);
   unlisten = await Promise.all([
     listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { acceptEnvironmentStatus(payload); }),
     listen<string>("operation-error", ({ payload }) => { error.value = payload; }),
@@ -804,6 +805,7 @@ onBeforeUnmount(() => {
       v-if="view === 'settings'"
       v-model:settings="draftSettings"
       v-model:tab="settingsTab"
+      v-model:palette="palette"
       :copy="copy"
       :settings-error="settingsError"
       :settings-load-error="settingsLoadError"

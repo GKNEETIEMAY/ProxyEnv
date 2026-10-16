@@ -212,6 +212,44 @@ mod tests {
     }
 
     #[test]
+    fn ui_palette_keeps_v020_settings_readable_after_round_trip() {
+        // Freeze the v0.2.0 on-disk shape, including its strict unknown-field rule.
+        #[derive(Deserialize, Serialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct V020Settings {
+            language: LanguagePreference,
+            theme: ThemePreference,
+            launch_at_startup: bool,
+            silent_start: bool,
+            close_to_tray: bool,
+            notifications_enabled: bool,
+            notification_sound: bool,
+            proxy_variables: Vec<ProxyVariable>,
+        }
+        let original = br#"{
+            "language":"zh-CN","theme":"light","launchAtStartup":false,
+            "silentStart":false,"closeToTray":true,"notificationsEnabled":true,
+            "notificationSound":false,"proxyVariables":["http","https"]
+        }"#;
+        let mut current = decode_settings(original).unwrap();
+        current.theme = ThemePreference::Dark;
+        let saved = serde_json::to_vec(&current).unwrap();
+        let legacy: V020Settings = serde_json::from_slice(&saved).unwrap();
+        assert!(matches!(legacy.theme, ThemePreference::Dark));
+        let mut expected: serde_json::Value = serde_json::from_slice(original).unwrap();
+        expected["theme"] = "dark".into();
+        assert_eq!(serde_json::to_value(&legacy).unwrap(), expected);
+        assert_eq!(
+            serde_json::to_value(decode_settings(&saved).unwrap()).unwrap(),
+            expected
+        );
+        // Palette preferences must never leak into the strict backend settings.
+        expected["palette"] = "blue".into();
+        assert!(serde_json::from_value::<V020Settings>(expected.clone()).is_err());
+        assert!(decode_settings(&serde_json::to_vec(&expected).unwrap()).is_err());
+    }
+
+    #[test]
     fn unsupported_traditional_chinese_locales_fall_back_to_english() {
         assert_eq!(locale_code("zh-TW"), "en");
         assert_eq!(locale_code("zh-HK"), "en");

@@ -1,0 +1,92 @@
+/* Palette changes remap roles, never the supplied logo or status meanings. */
+:root {
+  --action-primary-bg: #a54b30;
+  --action-primary-fg: #ffffff;
+  --action-primary-hover: #8c3d28;
+  --action-secondary-bg: var(--surface-strong);
+  --action-secondary-fg: var(--ink);
+  --focus-ring: #246ca8;
+  --link-fg: var(--accent-strong);
+  --control-border: #8a8175;
+  --control-thumb: #ffffff;
+  --control-thumb-off: var(--muted);
+  --selection-bg: #8f3e26;
+  --selection-fg: #ffffff;
+  --action-danger-bg: #a24338;
+  --action-danger-fg: #ffffff;
+  --brand-claude: #c96645;
+}
+:root[data-theme="dark"] {
+  --action-primary-bg: #df8565;
+  --action-primary-fg: #241811;
+  --action-primary-hover: #ef9a79;
+  --focus-ring: #83bde8;
+  --control-border: #928679;
+  --control-thumb: #241811;
+  --control-thumb-off: var(--ink);
+  --selection-bg: #ef9a79;
+  --selection-fg: #241811;
+  --action-danger-bg: #a94236;
+  --brand-claude: #df8565;
+}
+:root[data-palette="blue"] {
+  --canvas: #f8fafc; --surface: #f0f4f9; --surface-strong: #ffffff;
+  --ink: #202c3d; --muted: #536277; --faint: #56657a;
+  --line: #d9e1eb; --line-strong: #b9c6d6;
+  --accent: #3478f6; --accent-strong: #2055a3; --accent-soft: #e2ecfb;
+  --action-primary-bg: #245ec2; --action-primary-hover: #1d4d9f;
+  --control-border: #77869b; --focus-ring: #245ec2;
+  --selection-bg: #245ec2; --selection-fg: #ffffff;
+}
+:root[data-palette="blue"][data-theme="dark"] {
+  --canvas: #151c28; --surface: #1c2635; --surface-strong: #243145;
+  --ink: #e8effb; --muted: #b1c0d6; --faint: #a8b8cf;
+  --line: #36465d; --line-strong: #51647d;
+  --accent: #88b5ff; --accent-strong: #adceff; --accent-soft: #2a405f;
+  --action-primary-bg: #88b5ff; --action-primary-hover: #adceff; --action-primary-fg: #14223a;
+  --control-border: #8398b5; --control-thumb: #14223a; --focus-ring: #adceff;
+  --selection-bg: #adceff; --selection-fg: #14223a;
+}
+:root[data-palette="teal"] {
+  --canvas: #f7fbfa; --surface: #edf5f3; --surface-strong: #ffffff;
+  --ink: #20352f; --muted: #4e6860; --faint: #506a62;
+  --line: #d2e2dc; --line-strong: #b0cac0;
+  --accent: #18867d; --accent-strong: #095f5b; --accent-soft: #daeeea;
+  --action-primary-bg: #096c66; --action-primary-hover: #075751;
+  --control-border: #718b80; --focus-ring: #096c66;
+  --selection-bg: #096c66; --selection-fg: #ffffff;
+}
+:root[data-palette="teal"][data-theme="dark"] {
+  --canvas: #142321; --surface: #1c2e2b; --surface-strong: #263c37;
+  --ink: #e4f3ee; --muted: #abc8be; --faint: #a5c3b8;
+  --line: #39554b; --line-strong: #527065;
+  --accent: #6bcbbc; --accent-strong: #94e1d3; --accent-soft: #254b43;
+  --action-primary-bg: #6bcbbc; --action-primary-hover: #94e1d3; --action-primary-fg: #102d28;
+  --control-border: #83a79a; --control-thumb: #102d28; --focus-ring: #94e1d3;
+  --selection-bg: #94e1d3; --selection-fg: #102d28;
+}
+:root[data-palette="neutral"] {
+  --canvas: #fafafa; --surface: #f2f3f4; --surface-strong: #ffffff;
+  --ink: #282c32; --muted: #606570; --faint: #626873;
+  --line: #dcdfe3; --line-strong: #bfc5ce;
+  --accent: #64748b; --accent-strong: #42516a; --accent-soft: #e7ebf0;
+  --action-primary-bg: #4c5b70; --action-primary-hover: #3d495c;
+  --control-border: #7e8793; --focus-ring: #42516a;
+  --selection-bg: #4c5b70; --selection-fg: #ffffff;
+}
+:root[data-palette="neutral"][data-theme="dark"] {
+  --canvas: #1b1d21; --surface: #24272c; --surface-strong: #2d3138;
+  --ink: #eeeff2; --muted: #b9bec8; --faint: #afb6c2;
+  --line: #40464f; --line-strong: #5b6572;
+  --accent: #b5c1d3; --accent-strong: #d1dbe9; --accent-soft: #3a4454;
+  --action-primary-bg: #b5c1d3; --action-primary-hover: #d1dbe9; --action-primary-fg: #202833;
+  --control-border: #929eae; --control-thumb: #202833; --focus-ring: #b5c1d3;
+  --selection-bg: #d1dbe9; --selection-fg: #202833;
+}
+
+/* High-contrast mode uses the OS palette rather than preserving decorative hues. */
+@media (forced-colors: active) {
+  :root[data-palette][data-theme] { --focus-ring: Highlight; --control-border: ButtonText; }
+  .primary-action, .install-update-button { border: 1px solid ButtonText; }
+  .palette-options input:checked + span, .theme-options input:checked + span { outline: 2px solid Highlight; }
+}

@@ -141,7 +141,7 @@ function runMenuAction(event: MouseEvent, action: "edit" | "remove", target: Rem
 .remote-target:hover:not(.unavailable) { border-color:var(--line-strong); background:color-mix(in srgb,var(--surface-strong) 88%,var(--accent-soft)); }
 .remote-target.selected { border-color:color-mix(in srgb,var(--accent) 44%,var(--line)); border-left-color:var(--accent); background:color-mix(in srgb,var(--surface-strong) 94%,var(--accent)); }
 .remote-target.unavailable { opacity:.68; }
-.remote-target:focus-within { box-shadow:0 0 0 3px color-mix(in srgb,var(--focus) 24%,transparent); }
+.remote-target:focus-within { outline:2px solid var(--focus-ring); outline-offset:2px; }
 .remote-target-main { display:grid; min-width:0; height:100%; padding:6px 8px 6px 12px; align-items:center; grid-template-columns:16px minmax(0,1fr); gap:10px; border:0; color:inherit; text-align:left; background:transparent; cursor:pointer; }
 .remote-target-main:disabled { cursor:not-allowed; }
 .remote-target-main:focus-visible { outline:0; }

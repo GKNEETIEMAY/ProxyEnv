@@ -4,6 +4,7 @@ import type { Copy } from "../../../shared/i18n";
 import type { AppSettings } from "../../../shared/types";
 import type { ReleaseNoteLine, UpdateState } from "../update";
 import BrandMark from "../../../shared/components/BrandMark.vue";
+import { palettes, type Palette } from "../../../shared/theme/palette";
 
 export type SettingsTab = "general" | "about";
 
@@ -32,6 +33,8 @@ const hasNewerRelease = computed(() =>
 
 const settings = defineModel<AppSettings>("settings", { required: true });
 const tab = defineModel<SettingsTab>("tab", { required: true });
+const palette = defineModel<Palette>("palette", { default: "warm" });
+const paletteLabels = computed(() => ({ warm: props.copy.paletteWarm, blue: props.copy.paletteBlue, teal: props.copy.paletteTeal, neutral: props.copy.paletteNeutral }));
 
 defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: []; cancelUpdate: [] }>();
 </script>
@@ -64,6 +67,19 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: []; cancelUpd
             <label><input v-model="settings.theme" type="radio" value="system" /><span><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>{{ copy.themeSystem }}</span></label>
             <label><input v-model="settings.theme" type="radio" value="light" /><span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>{{ copy.themeLight }}</span></label>
             <label><input v-model="settings.theme" type="radio" value="dark" /><span><svg viewBox="0 0 24 24"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7Z"/></svg>{{ copy.themeDark }}</span></label>
+          </div>
+        </div>
+        <div class="setting-row setting-row-stack palette-setting">
+          <div><span class="setting-label">{{ copy.palette }}</span><p>{{ copy.paletteHint }}</p></div>
+          <div class="palette-options" role="radiogroup" :aria-label="copy.palette">
+            <label v-for="option in palettes" :key="option">
+              <input v-model="palette" type="radio" name="palette" :value="option" />
+              <span>
+                <span class="palette-swatch" :data-palette="option" aria-hidden="true"><i></i><i></i><b></b></span>
+                <strong>{{ paletteLabels[option] }}</strong>
+                <svg class="palette-selected" viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10 3 3 7-7" /></svg>
+              </span>
+            </label>
           </div>
         </div>
       </section>

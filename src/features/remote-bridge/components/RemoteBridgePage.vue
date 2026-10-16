@@ -1594,7 +1594,7 @@ onBeforeUnmount(() => {
 .remote-button-spinner path { stroke-linecap:round; }
 @keyframes remote-button-spin { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce) { .remote-button-spinner { animation:none; } }
-.confirmation-actions .primary-action.danger-action { border-color:var(--danger); color:#fff; background:var(--danger); }
+.confirmation-actions .primary-action.danger-action { border-color:var(--action-danger-bg); color:var(--action-danger-fg); background:var(--action-danger-bg); }
 .confirmation-actions .primary-action.danger-action:hover:not(:disabled) { filter:brightness(.94); }
 .remote-capability { padding:18px 0; border-bottom:1px solid var(--line); }
 .remote-capability h3 { margin:0 0 12px; font-size:16px; }

@@ -12,5 +12,5 @@ defineProps<{ tool: RemoteToolId }>();
 </template>
 <style scoped>
 .remote-tool-icon { width:36px; height:36px; flex:none; fill:currentColor; color:var(--ink); }
-.remote-tool-icon.claude { color:var(--accent); }
+.remote-tool-icon.claude { color:var(--brand-claude); }
 </style>
