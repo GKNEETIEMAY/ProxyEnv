@@ -21,9 +21,10 @@
     "test:release": "node --test scripts/test-release-contract.mjs",
     "test:updates": "node --test scripts/test-updates.mjs",
     "test:themes": "node --test scripts/test-theme-palette.mjs",
+    "test:tray": "node --test scripts/test-tray-management.mjs",
     "tauri": "tauri",
     "release:build": "tauri build --ci -- --locked",
-    "check": "pnpm build && pnpm test:brand && pnpm test:docs && pnpm test:release && pnpm test:updates && pnpm test:themes && pnpm test:report && pnpm test:remote && pnpm test:extensions && cargo test --manifest-path src-tauri/Cargo.toml --locked"
+    "check": "pnpm build && pnpm test:brand && pnpm test:docs && pnpm test:release && pnpm test:updates && pnpm test:themes && pnpm test:tray && pnpm test:report && pnpm test:remote && pnpm test:extensions && cargo test --manifest-path src-tauri/Cargo.toml --locked"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

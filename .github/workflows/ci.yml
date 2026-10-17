@@ -78,6 +78,9 @@ jobs:
       - name: Test theme preferences and contrast
         run: pnpm test:themes
 
+      - name: Test tray navigation and capability guards
+        run: pnpm test:tray
+
       - name: Test diagnostic report localization
         run: pnpm test:report
 
