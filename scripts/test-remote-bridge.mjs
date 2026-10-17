@@ -1241,6 +1241,13 @@ test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary"
   assert.doesNotMatch(dialog,/routeMappings|compatibilityRules|incomingModel|targetModel/);
 });
 
+test("Skills remote script keeps POSIX line endings on Windows checkouts",()=>{
+  const path="src-tauri/src/features/remote_bridge/skill-remote.sh";
+  const attributes=readFileSync(".gitattributes","utf8");
+  assert.match(attributes,/^src-tauri\/src\/features\/remote_bridge\/skill-remote\.sh text eol=lf$/m);
+  assert.doesNotMatch(readFileSync(path,"utf8"),/\r/,"The exact script sent to Linux must not contain CRLF shell commands");
+});
+
 for(const tool of ["codex","claude"]) test(`${tool}: Skills status revalidates an existing usable copy without uploading and rejects tampering`,{skip:!available},()=>{
   const f=fixture();
   const content="# Fixture skill\n", hash=createHash("sha256").update(content).digest("hex");

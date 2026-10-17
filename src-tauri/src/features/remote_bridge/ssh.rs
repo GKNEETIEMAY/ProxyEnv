@@ -1515,7 +1515,8 @@ fn skill_payload(request: &serde_json::Value) -> BridgeResult<Zeroizing<String>>
     }
     Ok(Zeroizing::new(format!(
         "operation='{operation}'\ntool='{tool}'\nskill_name='{name}'\nskill_hash='{hash}'\nfile_count={file_count}\ntotal_size={total_size}\nmanifest_b64='{manifest}'\ndirectories_b64='{directories}'\n{}",
-        include_str!("skill-remote.sh")
+        // Also protect builds from existing Windows checkouts or editor CRLF saves.
+        include_str!("skill-remote.sh").replace("\r\n", "\n")
     )))
 }
 
@@ -2220,6 +2221,7 @@ mod tests {
             "directoriesBase64":""
         });
         let payload = skill_payload(&valid).unwrap();
+        assert!(!payload.contains('\r'), "Linux shell payload must use LF");
         assert!(payload.contains("skill_name='safe-skill'"));
         assert!(payload.contains("skills_staging=\"$staging_root/skills\""));
         for (field, value) in [

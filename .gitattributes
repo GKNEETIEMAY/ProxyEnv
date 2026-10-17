@@ -1,3 +1,4 @@
 src-tauri/src/features/remote_bridge/remote.sh text eol=lf
+src-tauri/src/features/remote_bridge/skill-remote.sh text eol=lf
 src-tauri/src/features/remote_bridge/extension-launch.sh text eol=lf
 src-tauri/src/features/remote_bridge/extension-helper.cjs text eol=lf
