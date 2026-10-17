@@ -5,7 +5,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import ProxyPage from "../features/proxy/components/ProxyPage.vue";
 import ApplicationAssistantPage from "../features/application-assistant/components/ApplicationAssistantPage.vue";
 import SettingsPage, { type SettingsTab } from "../features/settings/components/SettingsPage.vue";
@@ -23,7 +23,7 @@ import { messages, resolveLocale } from "../shared/i18n";
 import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, TunObservation } from "../shared/types";
 import { copyText } from "../shared/utils/clipboard";
 import AppHeader from "./components/AppHeader.vue";
-import { remoteNavigationState } from "./navigation";
+import { remoteNavigationState, trayNavigationAction } from "./navigation";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 import NotificationCenter from "../shared/components/NotificationCenter.vue";
 import { notify, useNotification } from "../shared/state/notifications";
@@ -34,6 +34,7 @@ import { useRemoteBridge, type BridgeSummary } from "../features/remote-bridge/s
 const { summary: remoteBridgeSummary, refresh: refreshRemoteBridge, ccDetection } = useRemoteBridge();
 
 const reportDialog = ref<InstanceType<typeof DiagnosticReportDialog>>();
+const remotePage = ref<InstanceType<typeof RemoteBridgePage>>();
 const updateDialog = ref<InstanceType<typeof UpdateInstallDialog>>();
 const reportApplicationId = ref<string>();
 
@@ -345,6 +346,25 @@ function openAssistant() {
 
 function acceptRemoteBridgeSummary(summary: BridgeSummary) {
   remoteBridgeSummary.value = summary;
+}
+
+let trayNavigationRevision = 0;
+async function handleTrayNavigation(payload: unknown) {
+  const action = trayNavigationAction(payload);
+  if (!action) return;
+  const revision = ++trayNavigationRevision;
+  if (document.querySelector("dialog[open]")) {
+    notify(copy.value.rbCapabilityBusy, "info", "tray-busy");
+    return;
+  }
+  if (action === "local") { openLocal(); return; }
+  openRemote();
+  if (action === "remote" || updateExclusive.value) return;
+  await refreshRemoteBridge();
+  await nextTick();
+  if (revision !== trayNavigationRevision || view.value !== "remote") return;
+  if (updateExclusive.value) { openRemote(); return; }
+  remotePage.value?.requestTrayCapability(action);
 }
 
 async function copyEndpoint(candidate?: ProxyCandidate) {
@@ -663,9 +683,9 @@ onMounted(async () => {
       }
     } else if (preview === "assistant" || preview === "assistant-result") {
       view.value = "assistant";
-    } else if (["remote", "remote-connected", "remote-connected-advanced", "remote-auth", "remote-auth-rejected", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(preview ?? "")) {
+    } else if (["remote", "remote-connected", "remote-connected-advanced", "remote-connected-tray", "remote-auth", "remote-auth-rejected", "remote-auth-completing", "remote-auth-timeout", "remote-auth-unavailable"].includes(preview ?? "")) {
       openRemote();
-      if (["remote-connected", "remote-connected-advanced"].includes(preview ?? "")) remoteBridgeSummary.value = {
+      if (["remote-connected", "remote-connected-advanced", "remote-connected-tray"].includes(preview ?? "")) remoteBridgeSummary.value = {
         status: "connected",
         target: { id: "openssh|preview|aliyun-dev", displayName: "aliyun-dev", source: "openssh", sourceLabel: "OpenSSH", configPath: "~\\.ssh\\config", sshAlias: "aliyun-dev", host: "8.138.152.49", user: "lxl", port: 22, identityFile: null, authenticationMethod: "password", available: true, compatibility: "compatible", unavailableReason: null, canOpenVscode: true, canOpenMobaxterm: false },
         proxy: { local: { host: "127.0.0.1", port: 10809, protocol: "mixed" }, remotePort: 23841 },
@@ -683,6 +703,10 @@ onMounted(async () => {
       };
     }
     loading.value = false;
+    if (preview === "remote-connected-tray") {
+      await nextTick();
+      remotePage.value?.requestTrayCapability("proxy");
+    }
     return;
   }
   try {
@@ -704,7 +728,8 @@ onMounted(async () => {
     listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { acceptEnvironmentStatus(payload); }),
     listen<string>("operation-error", ({ payload }) => { error.value = payload; }),
     listen("second-instance-opened", showSecondInstanceNotice),
-    listen("bridge-notification-open", openBridgeNotice)
+    listen("bridge-notification-open", openBridgeNotice),
+    listen<unknown>("tray-navigation", ({ payload }) => { void handleTrayNavigation(payload); })
   ]);
   await refresh();
   refreshTimer = window.setInterval(() => void refresh(true), 5000);
@@ -776,12 +801,14 @@ onBeforeUnmount(() => {
 
     <div v-show="view === 'remote'" class="view-pane remote-view-pane" :inert="updateExclusive" :aria-busy="updateExclusive">
     <RemoteBridgePage
+      ref="remotePage"
       :visible="view === 'remote'"
       :copy="copy"
       :active-proxy="activeProxyContext"
       :summary="remoteBridgeSummary"
       :cc-detection="ccDetection"
       :review-preview="reviewPreview"
+      :update-locked="updateExclusive"
       @refresh="refreshRemoteBridge"
       @connected="acceptRemoteBridgeSummary"
       @open-report="reportDialog?.open()"

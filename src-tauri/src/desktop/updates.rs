@@ -98,6 +98,13 @@ fn gate() -> &'static Mutex<Gate> {
 }
 
 pub(crate) struct BridgeOperation;
+pub(crate) fn bridge_changes_busy() -> bool {
+    gate()
+        .try_lock()
+        .map(|state| state.lease.is_some() || state.operations != 0)
+        .unwrap_or(true)
+}
+
 pub(crate) fn bridge_operation() -> BridgeResult<BridgeOperation> {
     gate()
         .lock()

@@ -579,6 +579,8 @@ const connectionKo: ConnectionLabels = {
   rbWorkspaceTitle:"원격 브리지",rbWorkspaceSubtitle:"SSH 연결을 선택하고 이 원격 환경에 제공할 기능을 설정하세요.",rbConnectionList:"SSH 연결",rbRefreshShort:"새로 고침",rbCurrentConnection:"현재 연결",rbNoSelectionTitle:"선택한 SSH 연결이 없습니다",rbNoSelectionHint:"왼쪽에서 SSH 연결을 선택하거나 추가하세요.",rbConnectionMoreActions:"연결 작업",rbConnectionHide:"목록에서 숨기기",rbConnectionHideTitle:"이 SSH 연결을 숨길까요?",rbConnectionHideHint:"RouteSpan 목록에서만 숨기며 원본 OpenSSH, VS Code 또는 MobaXterm 설정은 변경하지 않습니다.",
 };
 const overviewEn = {
+  rbTrayEnableCapability: "Enable {capability}?", rbTrayPauseCapability: "Pause {capability}?",
+  rbTrayStateChanged: "The bridge state changed. Review the current connection before trying again.",
   rbOverviewCollapse: "Collapse", rbOverviewSkillsCount: "{count} Skills found", rbOverviewSkillsSearch: "Search Skills by name", rbOverviewSkillsNoResults: "No matching Skills.",
   rbOverviewSkillSync: "Sync", rbOverviewSkillUnsync: "Stop syncing", rbOverviewSkillsManageHint: "Manage each agent separately. Sync creates a managed remote copy; stopping removes only that copy, not your local Skill or other remote files.",
   rbCapabilityBusy: "Bridge setup or configuration is still running. Wait a moment and retry.",
@@ -597,6 +599,8 @@ const overviewEn = {
 };
 type OverviewLabels = { [K in keyof typeof overviewEn]: string };
 const overviewZh: OverviewLabels = {
+  rbTrayEnableCapability: "开启{capability}？", rbTrayPauseCapability: "暂停{capability}？",
+  rbTrayStateChanged: "桥接状态已变化，请确认当前连接后重试。",
   rbOverviewCollapse: "收起", rbOverviewSkillsCount: "读取到 {count} 个 Skills", rbOverviewSkillsSearch: "按名称搜索 Skills", rbOverviewSkillsNoResults: "没有找到匹配的 Skills。",
   rbOverviewSkillSync: "同步", rbOverviewSkillUnsync: "取消同步", rbOverviewSkillsManageHint: "可分别管理每个智能体。同步会创建远端副本；取消同步仅移除 RouteSpan 管理的副本，不删除本机 Skill 或远端其它文件。",
   rbCapabilityBusy: "桥接初始化或配置操作尚未完成，请稍后再试。",
@@ -614,6 +618,8 @@ const overviewZh: OverviewLabels = {
   rbOverviewMobaUnavailable: "此目标暂时无法使用 MobaXterm，请在高级页检查安装与连接设置。",
 };
 const overviewJa: OverviewLabels = {
+  rbTrayEnableCapability: "{capability}を有効にしますか？", rbTrayPauseCapability: "{capability}を一時停止しますか？",
+  rbTrayStateChanged: "ブリッジの状態が変わりました。現在の接続を確認してから再試行してください。",
   rbOverviewCollapse: "折りたたむ", rbOverviewSkillsCount: "{count} 件の Skills を検出", rbOverviewSkillsSearch: "名前で Skills を検索", rbOverviewSkillsNoResults: "一致する Skills はありません。",
   rbOverviewSkillSync: "同期", rbOverviewSkillUnsync: "同期を停止", rbOverviewSkillsManageHint: "エージェントごとに管理できます。同期は管理対象のリモートコピーを作成し、停止はそのコピーだけを削除します。ローカル Skill や他のリモートファイルは削除しません。",
   rbCapabilityBusy: "ブリッジの初期化または設定処理中です。少し待って再試行してください。",
@@ -631,6 +637,8 @@ const overviewJa: OverviewLabels = {
   rbOverviewMobaUnavailable: "この接続では MobaXterm を利用できません。詳細画面でインストールと接続設定を確認してください。",
 };
 const overviewKo: OverviewLabels = {
+  rbTrayEnableCapability: "{capability} 기능을 켤까요?", rbTrayPauseCapability: "{capability} 기능을 일시 중지할까요?",
+  rbTrayStateChanged: "브리지 상태가 변경되었습니다. 현재 연결을 확인한 뒤 다시 시도하세요.",
   rbOverviewCollapse: "접기", rbOverviewSkillsCount: "Skills {count}개 발견", rbOverviewSkillsSearch: "이름으로 Skills 검색", rbOverviewSkillsNoResults: "일치하는 Skills가 없습니다.",
   rbOverviewSkillSync: "동기화", rbOverviewSkillUnsync: "동기화 중지", rbOverviewSkillsManageHint: "에이전트별로 관리하세요. 동기화는 원격 관리 사본을 만들고 중지는 그 사본만 제거합니다. 로컬 Skill이나 다른 원격 파일은 삭제하지 않습니다.",
   rbCapabilityBusy: "브리지 초기화 또는 설정 작업이 진행 중입니다. 잠시 후 다시 시도하세요.",

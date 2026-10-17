@@ -22,6 +22,7 @@ mod ssh;
 pub mod ssh_auth;
 pub mod tool_adapter;
 pub mod tool_discovery;
+pub(crate) mod tray_state;
 pub(crate) mod vscode;
 mod vscode_network;
 #[cfg(test)]
@@ -429,13 +430,62 @@ impl Default for Store {
         }
     }
 }
-static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
-static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-fn store() -> &'static Mutex<Store> {
-    STORE.get_or_init(|| Mutex::new(Store::default()))
+// Every Store access uses this guard, including monitor/reconnect try_lock paths.
+// Publish a small read model on release, never while a mutation is incomplete.
+#[derive(Default)]
+struct StateStore {
+    inner: Mutex<Store>,
+    tray: tray_state::Cache,
 }
-fn lock() -> BridgeResult<std::sync::MutexGuard<'static, Store>> {
-    store().lock().map_err(|_| "stateUnavailable".into())
+struct StoreGuard<'a> {
+    inner: std::sync::MutexGuard<'a, Store>,
+    tray: &'a tray_state::Cache,
+}
+impl StateStore {
+    fn lock(&self) -> BridgeResult<StoreGuard<'_>> {
+        self.inner
+            .lock()
+            .map(|inner| StoreGuard {
+                inner,
+                tray: &self.tray,
+            })
+            .map_err(|_| "stateUnavailable".into())
+    }
+    fn try_lock(&self) -> BridgeResult<StoreGuard<'_>> {
+        self.inner
+            .try_lock()
+            .map(|inner| StoreGuard {
+                inner,
+                tray: &self.tray,
+            })
+            .map_err(|_| "stateUnavailable".into())
+    }
+}
+impl std::ops::Deref for StoreGuard<'_> {
+    type Target = Store;
+    fn deref(&self) -> &Store {
+        &self.inner
+    }
+}
+impl std::ops::DerefMut for StoreGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Store {
+        &mut self.inner
+    }
+}
+impl Drop for StoreGuard<'_> {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            self.tray.publish(&self.inner);
+        }
+    }
+}
+static STORE: OnceLock<StateStore> = OnceLock::new();
+static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+fn store() -> &'static StateStore {
+    STORE.get_or_init(StateStore::default)
+}
+fn lock() -> BridgeResult<StoreGuard<'static>> {
+    store().lock()
 }
 pub(crate) fn update_activity() -> BridgeResult<crate::desktop::updates::Activity> {
     let mut state = store().try_lock().map_err(|_| "updateBusy")?;

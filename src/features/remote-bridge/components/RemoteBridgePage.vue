@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { notify, useNotification } from "../../../shared/state/notifications";
+import { trayCapabilityIntent } from "../../../app/navigation";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ActiveProxyContext, CheckState } from "../../../shared/types";
 import { bridgeError, bridgeErrorCode, type RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
@@ -35,8 +36,15 @@ import {
   type SshAuthSnapshot,
 } from "../state";
 
-const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; ccDetection: CcDetection | null; reviewPreview?: boolean; visible?: boolean }>();
+const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; ccDetection: CcDetection | null; reviewPreview?: boolean; visible?: boolean; updateLocked?: boolean }>();
 const capabilityPending = ref<BridgeCapability>();
+const trayConfirmation = ref<HTMLDialogElement>();
+const trayChange = ref<NonNullable<ReturnType<typeof trayCapabilityIntent>>>();
+const trayChangeTitle = computed(() => {
+  if (!trayChange.value) return "";
+  const capability = trayChange.value.capability === "proxy" ? props.copy.rbLocalNetworkTitle : props.copy.rbCcUseTitle;
+  return (trayChange.value.enabled ? props.copy.rbTrayEnableCapability : props.copy.rbTrayPauseCapability).replace("{capability}", capability);
+});
 const skillPending = ref<string>();
 const emit = defineEmits<{ refresh: []; connected: [summary: BridgeSummary]; openReport: [] }>();
 const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
@@ -1000,18 +1008,71 @@ function toggleTool(adapter: RemoteToolAdapter, configured: boolean) {
 function toggleCapability(capability: BridgeCapability, enabled: boolean) {
   const target = props.summary.target;
   if (!target || busy.value) return;
+  void perform(() => changeCapability(target.id, capability, enabled));
+}
+
+async function changeCapability(targetId: string, capability: BridgeCapability, enabled: boolean) {
   capabilityPending.value = capability;
+  try {
+    const summary = await remoteBackend.setCapability({
+      targetId, capability, enabled,
+      expectedRevision: props.activeProxy.revision,
+      ccLocalPort: props.ccDetection?.localPort ?? ccLocalPort.value,
+    });
+    emit("connected", summary);
+  } finally { capabilityPending.value = undefined; }
+}
+
+function requestTrayCapability(capability: BridgeCapability) {
+  if (busy.value || props.updateLocked || document.querySelector("dialog[open]")) {
+    notify(props.copy.rbCapabilityBusy, "info", "tray-busy");
+    return;
+  }
+  const change = trayCapabilityIntent(props.summary, capability);
+  if (!change) {
+    notify(props.copy.rbTrayStateChanged, "info", "tray-state-changed");
+    return;
+  }
+  if (change.enabled && !(capability === "proxy" ? proxyAvailable.value : ccUsable.value)) {
+    notify(capability === "proxy" ? props.copy.rbNoProxy : props.copy.rbCcRouteReminder, "warning", "tray-unavailable");
+    return;
+  }
+  advancedView.value = false;
+  trayChange.value = change;
+  trayConfirmation.value?.showModal();
+}
+
+function closeTrayConfirmation() {
+  trayConfirmation.value?.close();
+  trayChange.value = undefined;
+}
+
+function confirmTrayCapability() {
+  const requested = trayChange.value;
+  if (!requested || busy.value) return;
+  closeTrayConfirmation();
   void perform(async () => {
-    try {
-      const summary = await remoteBackend.setCapability({
-        targetId: target.id, capability, enabled,
-        expectedRevision: props.activeProxy.revision,
-        ccLocalPort: props.ccDetection?.localPort ?? ccLocalPort.value,
-      });
-      emit("connected", summary);
-    } finally { capabilityPending.value = undefined; }
+    if (props.updateLocked) throw "updateInProgress";
+    const current = props.reviewPreview ? props.summary : await remoteBackend.summary();
+    const next = trayCapabilityIntent(current, requested.capability);
+    // A stale confirmation must not apply to a different connection or invert a newer change.
+    if (!next || next.targetId !== requested.targetId || next.enabled !== requested.enabled) {
+      emit("connected", current);
+      notify(props.copy.rbTrayStateChanged, "info", "tray-state-changed");
+      return;
+    }
+    if (props.reviewPreview) return; // Browser fixture cannot mutate the real bridge.
+    await changeCapability(requested.targetId, requested.capability, requested.enabled);
   });
 }
+
+watch(() => [props.summary.target?.id, props.summary.status, props.summary.reconnectState, props.summary.postConnectStatus, props.updateLocked], () => {
+  if (!trayChange.value) return;
+  const next = trayCapabilityIntent(props.summary, trayChange.value.capability);
+  if (props.updateLocked || !next || next.targetId !== trayChange.value.targetId) closeTrayConfirmation();
+});
+
+defineExpose({ requestTrayCapability });
 
 function runDiagnostics() {
   void perform(async () => {
@@ -1415,6 +1476,14 @@ onBeforeUnmount(() => {
     </form>
   </dialog>
 
+  <dialog ref="trayConfirmation" class="confirmation-dialog remote-disconnect-dialog" aria-labelledby="remote-tray-title" aria-describedby="remote-tray-hint" @cancel.prevent="closeTrayConfirmation">
+    <form @submit.prevent="confirmTrayCapability">
+      <h2 id="remote-tray-title">{{ trayChangeTitle }}</h2>
+      <p>{{ summary.target?.displayName }}</p>
+      <p id="remote-tray-hint">{{ copy.rbOverviewCapabilityHelp }}</p>
+      <div class="confirmation-actions"><button class="secondary-action" type="button" autofocus @click="closeTrayConfirmation">{{ copy.rbCancel }}</button><button class="primary-action" type="submit" :disabled="busy || updateLocked">{{ copy.rbConfirm }}</button></div>
+    </form>
+  </dialog>
   <dialog ref="confirmation" class="confirmation-dialog remote-disconnect-dialog" aria-labelledby="remote-confirm-title" @cancel.prevent="confirmation?.close()">
     <form @submit.prevent="confirmDisconnect">
       <h2 id="remote-confirm-title">{{ copy.rbDisconnect }}</h2>
