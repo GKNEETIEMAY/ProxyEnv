@@ -12,6 +12,7 @@ export interface Notification {
 // Session-only feedback. Never persist, upload or log notification contents.
 export const notifications = reactive<Notification[]>([]);
 let sequence = 0;
+let optionalEnabled = true;
 const timers = new Map<number, { timer?: ReturnType<typeof setTimeout>; remaining: number; started: number }>();
 
 export function dismissNotification(id: number) {
@@ -37,7 +38,7 @@ export function resumeNotification(id: number) {
 }
 
 export function notify(message: string, kind: NotificationKind = "info", key?: string, title?: string) {
-  if (!message.trim()) return;
+  if (!message.trim() || (!optionalEnabled && (kind === "info" || kind === "success"))) return;
   // A repeated error updates one notice rather than flooding the desktop.
   const identity = key ?? `${kind}:${message}`;
   const existing = notifications.find(item => item.key === identity);
@@ -54,6 +55,16 @@ export function notify(message: string, kind: NotificationKind = "info", key?: s
   timers.set(id, { remaining: kind === "error" || kind === "warning" ? 10000 : 4000, started: Date.now() });
   if (!paused) resumeNotification(id);
   return id;
+}
+
+// Necessary failures and security warnings remain visible when optional feedback is off.
+export function setOptionalNotificationsEnabled(enabled: boolean) {
+  optionalEnabled = enabled;
+  if (!enabled) {
+    for (const notice of [...notifications]) {
+      if (notice.kind === "info" || notice.kind === "success") dismissNotification(notice.id);
+    }
+  }
 }
 
 export function clearNotifications() {

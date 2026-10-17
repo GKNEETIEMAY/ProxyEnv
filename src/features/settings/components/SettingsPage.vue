@@ -12,6 +12,10 @@ const props = defineProps<{
   copy: Copy;
   settingsError: string;
   settingsLoadError: string;
+  desktopAlerts: boolean;
+  desktopAlertsReady: boolean;
+  desktopAlertsBusy: boolean;
+  desktopAlertsError: boolean;
   appVersion: string;
   updateState: UpdateState;
   updateMessage: string;
@@ -36,7 +40,15 @@ const tab = defineModel<SettingsTab>("tab", { required: true });
 const palette = defineModel<Palette>("palette", { default: "warm" });
 const paletteLabels = computed(() => ({ warm: props.copy.paletteWarm, blue: props.copy.paletteBlue, teal: props.copy.paletteTeal, neutral: props.copy.paletteNeutral }));
 
-defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: []; cancelUpdate: [] }>();
+const emit = defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: []; cancelUpdate: []; desktopAlertsChange: [enabled: boolean]; retryDesktopAlerts: [] }>();
+const desktopDisabled = computed(() => !settings.value.notificationsEnabled || !props.desktopAlertsReady || props.desktopAlertsBusy || Boolean(props.settingsLoadError));
+const soundDisabled = computed(() => desktopDisabled.value || !props.desktopAlerts);
+function changeDesktopAlerts(event: Event) {
+  const input = event.currentTarget as HTMLInputElement;
+  const enabled = input.checked;
+  input.checked = props.desktopAlerts;
+  emit("desktopAlertsChange", enabled);
+}
 </script>
 
 <template>
@@ -97,6 +109,25 @@ defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: []; cancelUpd
         <label class="setting-row boolean-row">
           <span><strong>{{ copy.closeToTray }}</strong><small>{{ copy.closeToTrayHint }}</small></span>
           <input v-model="settings.closeToTray" class="switch-input" type="checkbox" />
+        </label>
+      </section>
+      <section class="settings-group">
+        <div class="group-heading"><h2>{{ copy.notificationSettings }}</h2><p>{{ copy.notificationSettingsHint }}</p></div>
+        <label class="setting-row boolean-row">
+          <span><strong>{{ copy.optionalNotifications }}</strong><small>{{ copy.optionalNotificationsHint }}</small></span>
+          <input v-model="settings.notificationsEnabled" class="switch-input" type="checkbox" :disabled="Boolean(settingsLoadError)" />
+        </label>
+        <label class="setting-row boolean-row" :class="{ muted: desktopDisabled }" :aria-busy="desktopAlertsBusy">
+          <span><strong>{{ copy.desktopAlerts }}</strong><small>{{ copy.desktopAlertsHint }}</small></span>
+          <input :checked="desktopAlerts" class="switch-input" type="checkbox" :disabled="desktopDisabled" @change="changeDesktopAlerts" />
+        </label>
+        <div v-if="desktopAlertsError" class="setting-row notification-preferences-error" role="status">
+          <p>{{ copy.desktopAlertsLoadError }}</p>
+          <button type="button" class="secondary-action" :disabled="desktopAlertsBusy" @click="$emit('retryDesktopAlerts')">{{ copy.notificationRetry }}</button>
+        </div>
+        <label class="setting-row boolean-row" :class="{ muted: soundDisabled }">
+          <span><strong>{{ copy.notificationSound }}</strong><small>{{ copy.notificationSoundHint }}</small></span>
+          <input v-model="settings.notificationSound" class="switch-input" type="checkbox" :disabled="soundDisabled" />
         </label>
       </section>
     </template>

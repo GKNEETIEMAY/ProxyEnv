@@ -45,6 +45,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Focused(_)) {
+                desktop::notifications::wake();
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if tray::should_hide_on_close() {
                     api.prevent_close();
@@ -134,6 +137,8 @@ pub fn run() {
             commands::proxy::get_last_proxy_connectivity_result,
             commands::settings::get_app_settings,
             commands::settings::save_app_settings,
+            commands::settings::get_desktop_alerts,
+            commands::settings::set_desktop_alerts,
         ])
         .build(tauri::generate_context!())
         .expect("failed to run RouteSpan")

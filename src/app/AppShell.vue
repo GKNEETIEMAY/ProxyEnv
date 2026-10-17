@@ -26,7 +26,7 @@ import AppHeader from "./components/AppHeader.vue";
 import { remoteNavigationState, trayNavigationAction } from "./navigation";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 import NotificationCenter from "../shared/components/NotificationCenter.vue";
-import { notify, useNotification } from "../shared/state/notifications";
+import { notify, setOptionalNotificationsEnabled, useNotification } from "../shared/state/notifications";
 import { applyTheme, readAppearance, readPalette, saveAppearance, savePalette } from "../shared/theme/palette";
 
 import RemoteBridgePage from "../features/remote-bridge/components/RemoteBridgePage.vue";
@@ -57,6 +57,10 @@ const toggling = ref(false);
 const error = ref("");
 const settingsError = ref("");
 const settingsLoadError = ref("");
+const desktopAlerts = ref(false);
+const desktopAlertsReady = ref(false);
+const desktopAlertsBusy = ref(false);
+const desktopAlertsError = ref(false);
 const copiedEndpoint = ref(false);
 function openBridgeNotice() { openRemote(); void refreshRemoteBridge(); }
 const appVersion = ref("0.2.0");
@@ -99,6 +103,8 @@ let settingsSaveTimer: number | undefined;
 let settingsReady = false;
 let saveInFlight = false;
 let pendingSettings: AppSettings | undefined;
+let savedNotificationSettings = { notificationsEnabled: true, notificationSound: false };
+let restoringNotificationSettings = false;
 let versionVerified = false;
 const installer = new UpdateInstaller({
   prepare: confirmed => invoke<number>("prepare_update_install", { confirmed }),
@@ -549,13 +555,57 @@ async function flushSettings() {
   settingsError.value = "";
   try {
     await backend.saveAppSettings(settings);
+    savedNotificationSettings = { notificationsEnabled: settings.notificationsEnabled, notificationSound: settings.notificationSound };
     settingsLoadError.value = "";
   } catch (cause) {
+    // Do not claim reminders are off when the durable write failed. Preserve newer edits.
+    restoringNotificationSettings = true;
+    if (draftSettings.value.notificationsEnabled === settings.notificationsEnabled) draftSettings.value.notificationsEnabled = savedNotificationSettings.notificationsEnabled;
+    if (draftSettings.value.notificationSound === settings.notificationSound) draftSettings.value.notificationSound = savedNotificationSettings.notificationSound;
+    reconcileQueuedNotifications();
+    restoringNotificationSettings = false;
     if (view.value === "settings") settingsError.value = String(cause);
     else error.value = String(cause);
   } finally {
     saveInFlight = false;
     if (pendingSettings) void flushSettings();
+  }
+}
+
+function reconcileQueuedNotifications() {
+  // Other edits may have queued a save while the previous write was awaiting IPC.
+  if (pendingSettings) {
+    pendingSettings.notificationsEnabled = draftSettings.value.notificationsEnabled;
+    pendingSettings.notificationSound = draftSettings.value.notificationSound;
+  }
+}
+
+async function loadDesktopAlerts() {
+  if (desktopAlertsBusy.value) return;
+  desktopAlertsBusy.value = true;
+  desktopAlertsError.value = false;
+  try {
+    desktopAlerts.value = reviewPreview ? false : await backend.desktopAlerts();
+    desktopAlertsReady.value = true;
+  } catch {
+    desktopAlerts.value = false;
+    desktopAlertsReady.value = false;
+    desktopAlertsError.value = true;
+  } finally {
+    desktopAlertsBusy.value = false;
+  }
+}
+
+async function saveDesktopAlerts(enabled: boolean) {
+  if (!desktopAlertsReady.value || desktopAlertsBusy.value || !draftSettings.value.notificationsEnabled || settingsLoadError.value) return;
+  desktopAlertsBusy.value = true;
+  try {
+    // Commit only after durable backend consent; a failed save cannot turn the UI on.
+    desktopAlerts.value = reviewPreview ? enabled : await backend.setDesktopAlerts(enabled);
+  } catch {
+    notify(copy.value.desktopAlertsSaveError, "error", "desktop-alerts-save");
+  } finally {
+    desktopAlertsBusy.value = false;
   }
 }
 
@@ -568,9 +618,10 @@ function showSecondInstanceNotice() {
 }
 
 watch([draftSettings, locale, palette], applyPresentation, { deep: true, immediate: true });
+watch(() => draftSettings.value.notificationsEnabled, setOptionalNotificationsEnabled, { immediate: true });
 watch(palette, value => { if (!reviewPreview) savePalette(value); });
 watch(draftSettings, () => {
-  if (!settingsReady || reviewPreview) return;
+  if (!settingsReady || reviewPreview || restoringNotificationSettings) return;
   if (settingsSaveTimer !== undefined) window.clearTimeout(settingsSaveTimer);
   settingsSaveTimer = window.setTimeout(() => {
     pendingSettings = copySettings(draftSettings.value);
@@ -599,6 +650,7 @@ onMounted(async () => {
   if (reviewPreview) {
     const preview = new URLSearchParams(window.location.search).get("impeccable-review");
     draftSettings.value = copySettings({ ...defaultSettings, language: "zh-CN" });
+    desktopAlertsReady.value = true;
     environment.value = {
       state: "enabled",
       selectedVariables: ["http", "https"],
@@ -712,10 +764,12 @@ onMounted(async () => {
   try {
     const settings = await backend.appSettings();
     draftSettings.value = copySettings(settings);
+    savedNotificationSettings = { notificationsEnabled: settings.notificationsEnabled, notificationSound: settings.notificationSound };
   } catch (cause) {
     settingsLoadError.value = String(cause);
   }
   settingsReady = true;
+  void loadDesktopAlerts();
   // One non-blocking check per launch; window visibility and tab switches do not restart it.
   if (!import.meta.env.DEV) void checkForUpdates();
   maximized.value = await appWindow!.isMaximized();
@@ -836,6 +890,10 @@ onBeforeUnmount(() => {
       :copy="copy"
       :settings-error="settingsError"
       :settings-load-error="settingsLoadError"
+      :desktop-alerts="desktopAlerts"
+      :desktop-alerts-ready="desktopAlertsReady"
+      :desktop-alerts-busy="desktopAlertsBusy"
+      :desktop-alerts-error="desktopAlertsError"
       :app-version="appVersion"
       :update-state="updateState"
       :update-message="updateMessage"
@@ -852,6 +910,8 @@ onBeforeUnmount(() => {
       @install-update="installPendingUpdate"
       @cancel-update="cancelUpdateInstall"
       @open-release="openLatestRelease"
+      @desktop-alerts-change="saveDesktopAlerts"
+      @retry-desktop-alerts="loadDesktopAlerts"
     />
     </div>
     </div>

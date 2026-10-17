@@ -26,5 +26,7 @@ export const backend = {
   launchApplicationWithoutProxy: (applicationId: string) => invoke<LaunchApplicationResult>("launch_application_without_proxy", { applicationId }),
   restartApplicationWithoutProxy: (applicationId: string, pid: number) => invoke<LaunchApplicationResult>("restart_application_without_proxy", { applicationId, pid }),
   appSettings: () => invoke<AppSettings>("get_app_settings"),
-  saveAppSettings: (settings: AppSettings) => invoke<AppSettings>("save_app_settings", { settings })
+  saveAppSettings: (settings: AppSettings) => invoke<AppSettings>("save_app_settings", { settings }),
+  desktopAlerts: () => invoke<boolean>("get_desktop_alerts"),
+  setDesktopAlerts: (enabled: boolean) => invoke<boolean>("set_desktop_alerts", { enabled })
 };

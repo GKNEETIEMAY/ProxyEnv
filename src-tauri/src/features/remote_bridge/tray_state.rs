@@ -18,6 +18,7 @@ pub(crate) struct Snapshot {
     pub proxy: bool,
     pub cc: bool,
     pub can_change: bool,
+    pub attention_generation: Option<u64>,
 }
 
 impl Default for Snapshot {
@@ -27,6 +28,7 @@ impl Default for Snapshot {
             proxy: false,
             cc: false,
             can_change: false,
+            attention_generation: None,
         }
     }
 }
@@ -50,6 +52,7 @@ impl Snapshot {
             can_change: connection == Connection::Connected
                 && summary.post_connect_status != PostConnectStatus::Preparing
                 && !busy,
+            attention_generation: None,
         }
     }
 }
@@ -72,16 +75,20 @@ impl Cache {
 
     fn subscribe(&self) -> mpsc::Receiver<()> {
         let (sender, receiver) = mpsc::sync_channel(1);
+        self.listen(sender);
+        receiver
+    }
+
+    fn listen(&self, sender: mpsc::SyncSender<()>) {
         self.0
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .listeners
             .push(sender);
-        receiver
     }
 
     pub(super) fn publish(&self, state: &Store) {
-        let snapshot = Snapshot::project(
+        let mut snapshot = Snapshot::project(
             &state.summary,
             state.child.is_some(),
             state.profile_syncing
@@ -89,6 +96,9 @@ impl Cache {
                 || state.extension_pending.is_some()
                 || state.reconnect.is_some(),
         );
+        snapshot.attention_generation = (state.summary.reconnect_state
+            == reconnect::State::AttentionRequired)
+            .then_some(state.connection_generation);
         let mut cache = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if cache.snapshot == snapshot {
             return;
@@ -109,6 +119,10 @@ pub(crate) fn snapshot() -> Snapshot {
 
 pub(crate) fn subscribe() -> mpsc::Receiver<()> {
     store().tray.subscribe()
+}
+
+pub(crate) fn listen(sender: mpsc::SyncSender<()>) {
+    store().tray.listen(sender);
 }
 
 /// Only actions revalidate the live safety gates. Display reads never compete
@@ -305,5 +319,36 @@ mod tests {
         assert!(second.try_recv().is_err());
         first.try_recv().unwrap();
         assert_eq!(source.tray.snapshot(), Snapshot::default());
+    }
+
+    #[test]
+    fn only_manual_reconnect_attention_publishes_an_episode_and_resolution_clears_it() {
+        let source = super::super::StateStore::default();
+        let changes = source.tray.subscribe();
+        {
+            let mut state = source.lock().unwrap();
+            state.connection_generation = 9;
+            state.summary.status = Status::Stale;
+        }
+        changes.try_recv().unwrap();
+        assert_eq!(source.tray.snapshot().attention_generation, None);
+        {
+            let mut state = source.lock().unwrap();
+            state.summary.reconnect_state = reconnect::State::AttentionRequired;
+        }
+        changes.try_recv().unwrap();
+        assert_eq!(source.tray.snapshot().attention_generation, Some(9));
+        {
+            let mut state = source.lock().unwrap();
+            state.connection_generation = 10;
+        }
+        changes.try_recv().unwrap();
+        assert_eq!(source.tray.snapshot().attention_generation, Some(10));
+        {
+            let mut state = source.lock().unwrap();
+            state.summary = Summary::default();
+        }
+        changes.try_recv().unwrap();
+        assert_eq!(source.tray.snapshot().attention_generation, None);
     }
 }

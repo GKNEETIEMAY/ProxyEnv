@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Emitter};
 
 use crate::{
-    desktop::tray,
+    desktop::{notifications, tray},
     error::{ProxyEnvError, Result},
     services::settings::{self, AppSettings},
 };
@@ -54,6 +54,19 @@ pub async fn save_app_settings(app: AppHandle, mut settings: AppSettings) -> Res
     settings::save(&settings)?;
 
     tray::update_language(&app, settings.clone().resolved_language());
+    notifications::wake();
     let _ = app.emit("settings-changed", settings.clone());
     Ok(settings)
+}
+
+#[tauri::command]
+pub async fn get_desktop_alerts() -> Result<bool> {
+    crate::services::desktop_alerts::load()
+}
+
+#[tauri::command]
+pub async fn set_desktop_alerts(enabled: bool) -> Result<bool> {
+    crate::services::desktop_alerts::save(enabled)?;
+    notifications::wake();
+    Ok(enabled)
 }

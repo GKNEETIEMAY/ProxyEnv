@@ -1,6 +1,12 @@
 // Desktop polish copy is kept separate from SSH/proxy business messages.
 export const desktopMessages = {
   en: {
+    notificationSettings: "Notifications", notificationSettingsHint: "Choose optional reminders. Errors, security confirmations and connection status remain available.",
+    optionalNotifications: "Optional notifications", optionalNotificationsHint: "Show success messages and informational reminders in RouteSpan.",
+    desktopAlerts: "Windows desktop reminders", desktopAlertsHint: "Off by default. Remind you only when background reconnection pauses and needs your attention. Windows may suppress delivery.",
+    notificationSound: "Desktop reminder sound", notificationSoundHint: "Silent by default. Available only when optional notifications and desktop reminders are on.",
+    desktopAlertsLoadError: "Desktop reminder preferences could not be read. Reminders remain off; retry to change this setting.",
+    desktopAlertsSaveError: "Desktop reminder preferences could not be saved. Your previous setting is unchanged.", notificationRetry: "Retry",
     palette: "Color palette", paletteHint: "Follows your light or dark appearance. The logo and status colors stay unchanged.",
     paletteWarm: "Warm orange", paletteBlue: "Thoughtful blue", paletteTeal: "Future teal", paletteNeutral: "Everyday white",
     updateDevelopment: "Production update checks are disabled in development. Enable VITE_UPDATE_DIAGNOSTICS=1 only for read-only diagnostics; installation remains disabled.",
@@ -26,6 +32,12 @@ export const desktopMessages = {
     updateGuardUnavailable: "Unable to confirm the bridge state. Installation has been stopped safely.",
   },
   "zh-CN": {
+    notificationSettings: "通知", notificationSettingsHint: "按需开启提醒。必要的错误、安全确认与连接状态不受影响。",
+    optionalNotifications: "可选通知", optionalNotificationsHint: "在 RouteSpan 内显示操作成功与一般信息提醒。",
+    desktopAlerts: "Windows 桌面提醒", desktopAlertsHint: "默认关闭。仅在后台自动重连暂停、需要您处理时提醒；是否显示仍受 Windows 通知设置控制。",
+    notificationSound: "桌面提醒声音", notificationSoundHint: "默认静音。开启可选通知与桌面提醒后可设置。",
+    desktopAlertsLoadError: "无法读取桌面提醒偏好，提醒保持关闭。请重试后再修改。",
+    desktopAlertsSaveError: "无法保存桌面提醒偏好，已保留之前的设置。", notificationRetry: "重试",
     palette: "主题配色", paletteHint: "配色随浅色或深色外观适配，Logo 与状态颜色保持不变。",
     paletteWarm: "温暖橙", paletteBlue: "睿智蓝", paletteTeal: "未来青", paletteNeutral: "常规白",
     updateDevelopment: "开发运行默认不检查生产更新。只读诊断需显式设置 VITE_UPDATE_DIAGNOSTICS=1，仍不允许安装。",
@@ -51,6 +63,12 @@ export const desktopMessages = {
     updateGuardUnavailable: "无法确认当前桥接状态，已安全停止安装。",
   },
   ja: {
+    notificationSettings: "通知", notificationSettingsHint: "任意の通知を選べます。エラー、安全確認、接続状態は引き続き表示します。",
+    optionalNotifications: "任意の通知", optionalNotificationsHint: "RouteSpan 内に操作成功や一般的なお知らせを表示します。",
+    desktopAlerts: "Windows デスクトップ通知", desktopAlertsHint: "初期状態はオフ。バックグラウンドで再接続が停止し、対応が必要な場合のみ通知します。Windows の設定により非表示になる場合があります。",
+    notificationSound: "デスクトップ通知音", notificationSoundHint: "初期状態は無音です。任意の通知とデスクトップ通知がオンの場合に設定できます。",
+    desktopAlertsLoadError: "通知設定を読み込めないため、デスクトップ通知をオフにしています。再試行してから変更してください。",
+    desktopAlertsSaveError: "通知設定を保存できませんでした。以前の設定を維持します。", notificationRetry: "再試行",
     palette: "テーマカラー", paletteHint: "ライト・ダーク表示に合わせて配色します。ロゴと状態の色は変わりません。",
     paletteWarm: "暖かなオレンジ", paletteBlue: "知的なブルー", paletteTeal: "未来のティール", paletteNeutral: "標準ホワイト",
     updateDevelopment: "開発実行では本番の更新確認を無効にしています。読み取り専用診断には VITE_UPDATE_DIAGNOSTICS=1 を明示します。インストールはできません。",
@@ -76,6 +94,12 @@ export const desktopMessages = {
     updateGuardUnavailable: "ブリッジの状態を確認できないため、安全にインストールを停止しました。",
   },
   ko: {
+    notificationSettings: "알림", notificationSettingsHint: "선택 알림을 설정하세요. 오류, 보안 확인 및 연결 상태는 계속 표시됩니다.",
+    optionalNotifications: "선택 알림", optionalNotificationsHint: "RouteSpan에서 작업 성공 및 일반 안내를 표시합니다.",
+    desktopAlerts: "Windows 데스크톱 알림", desktopAlertsHint: "기본값은 꺼짐입니다. 백그라운드 재연결이 일시 중지되어 조치가 필요할 때만 알립니다. Windows 설정에 따라 표시되지 않을 수 있습니다.",
+    notificationSound: "데스크톱 알림 소리", notificationSoundHint: "기본값은 무음입니다. 선택 알림과 데스크톱 알림이 모두 켜져 있어야 설정할 수 있습니다.",
+    desktopAlertsLoadError: "알림 설정을 읽지 못해 데스크톱 알림이 꺼져 있습니다. 다시 시도한 후 변경하세요.",
+    desktopAlertsSaveError: "알림 설정을 저장하지 못했습니다. 이전 설정을 유지합니다.", notificationRetry: "다시 시도",
     palette: "테마 색상", paletteHint: "밝게·어둡게 모드에 맞춰집니다. 로고와 상태 색상은 유지됩니다.",
     paletteWarm: "따뜻한 오렌지", paletteBlue: "지적인 블루", paletteTeal: "미래의 틸", paletteNeutral: "기본 화이트",
     updateDevelopment: "개발 실행에서는 프로덕션 업데이트 확인을 비활성화합니다. 읽기 전용 진단에만 VITE_UPDATE_DIAGNOSTICS=1을 명시하세요. 설치는 허용되지 않습니다.",
