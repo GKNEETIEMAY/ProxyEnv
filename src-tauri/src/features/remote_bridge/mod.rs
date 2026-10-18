@@ -431,15 +431,17 @@ impl Default for Store {
     }
 }
 // Every Store access uses this guard, including monitor/reconnect try_lock paths.
-// Publish a small read model on release, never while a mutation is incomplete.
+// Publish read models on release, never while a mutation is incomplete.
 #[derive(Default)]
 struct StateStore {
     inner: Mutex<Store>,
     tray: tray_state::Cache,
+    report: Mutex<Report>,
 }
 struct StoreGuard<'a> {
     inner: std::sync::MutexGuard<'a, Store>,
     tray: &'a tray_state::Cache,
+    report: &'a Mutex<Report>,
 }
 impl StateStore {
     fn lock(&self) -> BridgeResult<StoreGuard<'_>> {
@@ -448,6 +450,7 @@ impl StateStore {
             .map(|inner| StoreGuard {
                 inner,
                 tray: &self.tray,
+                report: &self.report,
             })
             .map_err(|_| "stateUnavailable".into())
     }
@@ -457,8 +460,15 @@ impl StateStore {
             .map(|inner| StoreGuard {
                 inner,
                 tray: &self.tray,
+                report: &self.report,
             })
             .map_err(|_| "stateUnavailable".into())
+    }
+    fn report(&self) -> Report {
+        self.report
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 impl std::ops::Deref for StoreGuard<'_> {
@@ -475,6 +485,9 @@ impl std::ops::DerefMut for StoreGuard<'_> {
 impl Drop for StoreGuard<'_> {
     fn drop(&mut self) {
         if !std::thread::panicking() {
+            // Cache only the existing allowlisted projection, never the private Store.
+            let report = project_report(&self.inner);
+            *self.report.lock().unwrap_or_else(|e| e.into_inner()) = report;
             self.tray.publish(&self.inner);
         }
     }
@@ -1540,10 +1553,7 @@ pub fn save_model_settings(
 }
 pub fn report() -> Report {
     // Report generation reads cached observations only: no SSH or socket probes.
-    let Ok(state) = store().try_lock() else {
-        return Report::default();
-    };
-    project_report(&state)
+    store().report()
 }
 
 fn project_report(state: &Store) -> Report {
@@ -3949,6 +3959,77 @@ mod tests {
         ] {
             assert!(!text.contains(forbidden), "report leaked {forbidden}");
         }
+    }
+
+    #[test]
+    fn diagnostic_report_preserves_verified_snapshot_during_store_contention() {
+        let source = StateStore::default();
+        {
+            let mut state = source.lock().unwrap();
+            state.summary.status = Status::Connected;
+            state.reachable = true;
+            state.summary.codex_configured = true;
+            state.summary.claude_configured = true;
+            state.summary.runtime_proxy_match = RuntimeProxyMatch::Matched;
+            state.summary.tool_installations = vec![tool_adapter::project_installation(
+                tool_adapter::RemoteToolId::Claude,
+                true,
+                true,
+                Some("2.1.227"),
+            )];
+            let ticket = state.summary.diagnostics.general_proxy_egress.begin();
+            state
+                .summary
+                .diagnostics
+                .general_proxy_egress
+                .finish(ticket, None, 12);
+            state.summary.environment = "private-host secret-token /home/private".into();
+        }
+        let expected = serde_json::to_value(source.report()).unwrap();
+        assert_eq!(expected["status"], "connected");
+        assert_eq!(expected["toolInstallations"][0]["version"], "2.1.227");
+        let _busy = source.lock().unwrap();
+        for _ in 0..3 {
+            assert_eq!(
+                serde_json::to_value(source.report()).unwrap(),
+                expected,
+                "A busy bridge must not replace verified report data with defaults"
+            );
+        }
+        assert!(!expected.to_string().contains("private"));
+        assert!(!expected.to_string().contains("secret-token"));
+    }
+
+    #[test]
+    fn diagnostic_report_publishes_complete_updates_and_clears_previous_session() {
+        let source = StateStore::default();
+        {
+            let mut state = source.lock().unwrap();
+            state.summary.status = Status::Connected;
+            state.summary.codex_configured = true;
+        }
+        let previous = serde_json::to_value(source.report()).unwrap();
+        let mut state = source.try_lock().unwrap();
+        state.summary.status = Status::Stale;
+        state.summary.codex_configured = false;
+        assert_eq!(serde_json::to_value(source.report()).unwrap(), previous);
+        drop(state);
+        let current = source.report();
+        assert_eq!(current.status, Status::Stale);
+        assert!(!current.codex_configured);
+        {
+            let mut state = source.lock().unwrap();
+            *state = Store::default();
+        }
+        let current = source.report();
+        assert_eq!(current.status, Status::Disconnected);
+        assert!(!current.codex_configured);
+        assert_eq!(
+            current.diagnostics.general_proxy_egress.state,
+            DiagnosticState::NotTested
+        );
+        let other = StateStore::default();
+        assert_eq!(other.report().status, Status::Disconnected);
     }
 
     #[test]
