@@ -24,6 +24,20 @@ builds now require a pinned Rust dependency audit before packaging. These change
 affect subsequent source/builds only: the published v0.2.0 assets are unchanged,
 its tag has not moved, and no released binary has been replaced or claimed repaired.
 
+## In development: RouteSpan v0.2.1
+
+The `v0.2.1dev` branch targets update reliability and installation guards, four
+palettes, safe tray actions, opt-in desktop reminders and focused pixel-animation
+refinements. Existing local proxy, CC Switch, CLI/plugin and managed Skills
+boundaries remain unchanged. Development release notes are prepared in
+[four languages](../.github/release-notes/v0.2.1.md); they are not a publication notice.
+
+Automated checks do not close real Windows 10/11, DPI, installation/upgrade,
+background notification or remote-server acceptance. User-requested white labels
+on pastel controls have documented contrast exceptions. Detailed device records
+remain private. Tag/signed Draft and public Publish require separate authorization;
+v0.2.0 remains the published stable baseline until that process completes.
+
 ## Gates retained for future releases
 
 - Preserve the high-severity frontend audit gate and rerun full CI for release-preflight changes.

@@ -7,9 +7,10 @@ MSVC. Repository/package identities retain the legacy ProxyEnv name for compatib
 Read [Architecture](docs/ARCHITECTURE.md), [Internal contracts](docs/INTERNAL_CONTRACTS.md)
 and [Security](SECURITY.md) before changing an IPC or persistence boundary.
 
-The previous stable baseline is ProxyEnv v0.1.4 (maintainer designation; GitHub Draft).
-RouteSpan v0.2.0 is unreleased. Code completion does not prove packaged-device
-acceptance. Current evidence belongs in [release QA](docs/RELEASE_QA_V0.2.md).
+RouteSpan v0.2.0 is the public stable baseline. The `v0.2.1dev` branch targets
+v0.2.1 development, not a published release. Code completion does not prove
+packaged-device acceptance. See [release QA](docs/RELEASE_QA_V0.2.md);
+detailed device records remain private.
 
 ## Local checks
 
@@ -22,6 +23,9 @@ pnpm build
 pnpm test:brand
 pnpm test:docs
 pnpm test:release
+pnpm test:updates
+pnpm test:themes
+pnpm test:tray
 pnpm test:report
 pnpm test:remote
 pnpm test:extensions
@@ -30,7 +34,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-`pnpm check` combines frontend, brand/docs/release/report/remote/extension checks and locked
+`pnpm check` combines frontend, brand/docs/release/update/theme/tray/report/remote/extension checks and locked
 Rust tests. Documentation tests are offline. Extension tests include POSIX and
 Linux filesystem cases; platform-skipped tests are not PASS evidence for those cases.
 The generated remote helper must stay reproducible: `pnpm test:extensions` checks

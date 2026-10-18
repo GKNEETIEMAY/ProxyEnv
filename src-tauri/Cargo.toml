@@ -1,6 +1,6 @@
 [package]
 name = "proxyenv"
-version = "0.2.0"
+version = "0.2.1"
 description = "A local-first bridge for remote AI development"
 authors = ["ProxyEnv contributors"]
 edition = "2021"
@@ -31,7 +31,8 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
-tauri-plugin-updater = "2"
+# Signed updates use the raw NSIS .exe; archive extraction is not needed.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }
 thiserror = "2"
 toml = "0.8"
 tracing = "0.1"

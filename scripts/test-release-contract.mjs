@@ -15,13 +15,28 @@ const cargo = read("src-tauri/Cargo.toml");
 const workflow = read(".github/workflows/release.yml");
 const repository = "GKNEETIEMAY/ProxyEnv";
 const packageSection = cargo.split("[package]\n")[1]?.split(/^\[/m)[0];
+// Explicit development target: equality alone must not let all manifests stay stale.
+const targetVersion = "0.2.1";
+const notesPath = `.github/release-notes/v${targetVersion}.md`;
 
-test("v0.2 package, Cargo manifest/lock and Tauri versions agree", () => {
+test("Windows updater keeps TLS/signature verification without unused ZIP extraction", () => {
+  assert.match(cargo, /^tauri-plugin-updater = \{ version = "2", default-features = false, features = \["rustls-tls"\] \}$/m);
+  assert.doesNotMatch(read("src-tauri/Cargo.lock"), /^name = "zip"$/m);
+  assert.ok(workflow.includes('RouteSpan-$version-windows-x64-setup.exe'));
+  assert.equal(config.bundle.createUpdaterArtifacts, true);
+  assert.ok(config.plugins.updater.pubkey.length > 0);
+});
+
+test("development target, package, Cargo manifest/lock, Tauri and UI fallback versions agree", () => {
   const cargoVersion = packageSection?.match(/^version = "([^"]+)"$/m)?.[1];
-  assert.deepEqual([pkg.version, cargoVersion, config.version], ["0.2.0", "0.2.0", "0.2.0"]);
+  assert.equal(pkg.version, targetVersion);
+  assert.deepEqual([cargoVersion, config.version], [pkg.version, pkg.version]);
   const lockedPackage = read("src-tauri/Cargo.lock").split("[[package]]")
     .find(block => /^name = "proxyenv"$/m.test(block));
-  assert.match(lockedPackage ?? "", /^version = "0\.2\.0"$/m);
+  assert.equal(lockedPackage?.match(/^version = "([^"]+)"$/m)?.[1], pkg.version);
+  const shell = read("src/app/AppShell.vue");
+  assert.ok(shell.includes(`const appVersion = ref("${pkg.version}")`));
+  assert.ok(shell.includes(`appVersion.value = "${pkg.version}"`));
 });
 
 test("display brand and protected compatibility identities remain separate", () => {
@@ -42,10 +57,10 @@ test("display brand and protected compatibility identities remain separate", () 
 
 test("formal tag policy accepts stable versions and rejects prereleases without changing the updater comparator", () => {
   const pattern = workflow.match(/if \(\$version -notmatch '([^']+)'\)/)?.[1];
-  assert.equal(pattern, "^\\d+\\.\\d+\\.\\d+$");
+  assert.equal(pattern, "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$");
   const accepts = version => new RegExp(pattern).test(version);
   for (const version of ["0.2.0", "0.2.1", "1.0.0"]) assert.equal(accepts(version), true, version);
-  for (const version of ["0.2.0-rc.1", "0.2.0-beta", "0.2.0+build", "0.2", "v0.2.0", "0.2.0\nextra"])
+  for (const version of ["0.2.0-rc.1", "0.2.0-beta", "0.2.0+build", "0.2", "v0.2.0", "0.2.0\nextra", "00.2.1", "0.02.1", "0.2.01"])
     assert.equal(accepts(version), false, version);
   assert.match(workflow, /\$packageVersion -ne \$version -or \$tauriVersion -ne \$version -or \$cargoVersion -ne \$version/);
 });
@@ -103,6 +118,30 @@ test("release preflight is wired into local checks, CI and signed release before
     assert.match(source, /pnpm audit --audit-level high/);
   }
   assert.ok(workflow.indexOf("name: Test release contracts") < workflow.indexOf("name: Build Tauri bundles"));
+});
+
+test("development release notes have substantive, equivalent four-language sections and compatibility markers", () => {
+  const notes = read(notesPath);
+  const sections = {
+    "zh-CN": ["新功能", "改进", "增强", "修复"], en: ["New Features", "Improvements", "Enhancements", "Fixes"],
+    ja: ["新機能", "改善", "強化", "修正"], ko: ["새로운 기능", "개선", "강화", "수정"],
+  };
+  const counts = [];
+  assert.equal((notes.match(/<!-- proxyenv-release:end -->/g) ?? []).length, 4);
+  assert.doesNotMatch(notes, /routespan-release:|Full Changelog:|\b(?:TODO|TBD)\b/);
+  for (const [locale, headings] of Object.entries(sections)) {
+    const marker = `<!-- proxyenv-release:${locale} -->`;
+    assert.equal(notes.split(marker).length, 2);
+    const block = notes.split(marker)[1].split("<!-- proxyenv-release:end -->")[0];
+    assert.deepEqual([...block.matchAll(/^## (.+)$/gm)].map(match => match[1]), headings);
+    const bullets = block.split(/^## /m).slice(1).map(chunk => (chunk.match(/^- \S/gm) ?? []).length);
+    assert.ok(bullets.every(count => count > 0));
+    counts.push(bullets);
+    for (const term of ["RouteSpan", "CC Switch", "Codex", "Claude", "Skills", "NSIS", "VS Code", "MobaXterm"])
+      assert.ok(block.includes(term), `${locale}: ${term}`);
+  }
+  for (const count of counts) assert.deepEqual(count, counts[0]);
+  execFileSync(process.execPath, [resolve(root, "scripts/validate-release-notes.mjs"), resolve(root, notesPath)], { cwd: root, stdio: "pipe" });
 });
 
 test("release RustSec gate is pinned, fail-closed and precedes all artifact packaging", () => {
@@ -165,8 +204,8 @@ test("Windows artifact collector preserves bytes, pairs renamed signatures and t
   const command = stage.split("        run: |\n")[1].split("\n")
     .map(line => line.startsWith("          ") ? line.slice(10) : line).join("\n");
   const fixture = mkdtempSync(resolve(tmpdir(), "routespan-release-contract-"));
-  const setup = "src-tauri/target/release/bundle/nsis/RouteSpan_0.2.0_x64-setup.exe";
-  const msi = "src-tauri/target/release/bundle/msi/RouteSpan_0.2.0_x64_en-US.msi";
+  const setup = `src-tauri/target/release/bundle/nsis/RouteSpan_${targetVersion}_x64-setup.exe`;
+  const msi = `src-tauri/target/release/bundle/msi/RouteSpan_${targetVersion}_x64_en-US.msi`;
   const put = (path, value) => {
     mkdirSync(dirname(resolve(fixture, path)), { recursive: true });
     writeFileSync(resolve(fixture, path), value);
@@ -178,27 +217,27 @@ test("Windows artifact collector preserves bytes, pairs renamed signatures and t
     put(`${setup}.sig`, "fixture-nsis-signature");
     put(msi, "MSI fixture");
     put(`${msi}.sig`, "fixture-msi-signature");
-    put(".github/release-notes/v0.2.0.md", "Fixture notes");
+    put(notesPath, "Fixture notes");
     // Windows PowerShell 5 lacks utf8NoBOM; the actual workflow runs PowerShell 7.
     // Use pwsh when installed; otherwise do not falsely claim this collector was tested.
     const ps7 = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
       "(Get-Command pwsh -ErrorAction SilentlyContinue).Source"], { encoding: "utf8" }).trim();
     assert.ok(ps7, "PowerShell 7 is required for the release collector test");
     const run = () => execFileSync(ps7, ["-NoProfile", "-NonInteractive", "-Command", command], {
-      cwd: fixture, env: { ...process.env, GITHUB_REF_NAME: "v0.2.0" }, timeout: 15000, stdio: "pipe",
+      cwd: fixture, env: { ...process.env, GITHUB_REF_NAME: `v${targetVersion}` }, timeout: 15000, stdio: "pipe",
     });
     run();
     const output = name => readFileSync(resolve(fixture, "release-artifacts", name));
     const names = { "portable.exe": "portable fixture", "setup.exe": "NSIS fixture", "installer.msi": "MSI fixture" };
     for (const [suffix, bytes] of Object.entries(names))
-      assert.equal(output(`RouteSpan-0.2.0-windows-x64-${suffix}`).toString(), bytes);
-    assert.equal(output("RouteSpan-0.2.0-windows-x64-setup.exe.sig").toString(), "fixture-nsis-signature");
-    assert.equal(output("RouteSpan-0.2.0-windows-x64-installer.msi.sig").toString(), "fixture-msi-signature");
+      assert.equal(output(`RouteSpan-${targetVersion}-windows-x64-${suffix}`).toString(), bytes);
+    assert.equal(output(`RouteSpan-${targetVersion}-windows-x64-setup.exe.sig`).toString(), "fixture-nsis-signature");
+    assert.equal(output(`RouteSpan-${targetVersion}-windows-x64-installer.msi.sig`).toString(), "fixture-msi-signature");
     const latest = JSON.parse(output("latest.json").toString("utf8"));
-    assert.equal(latest.version, "0.2.0");
+    assert.equal(latest.version, targetVersion);
     assert.equal(latest.platforms["windows-x86_64"].signature, "fixture-nsis-signature");
     assert.equal(latest.platforms["windows-x86_64"].url,
-      `https://github.com/${repository}/releases/download/v0.2.0/RouteSpan-0.2.0-windows-x64-setup.exe`);
+      `https://github.com/${repository}/releases/download/v${targetVersion}/RouteSpan-${targetVersion}-windows-x64-setup.exe`);
     const lines = output("SHA256SUMS.txt").toString("utf8").trim().split(/\r?\n/);
     assert.equal(lines.length, 6);
     for (const line of lines) {

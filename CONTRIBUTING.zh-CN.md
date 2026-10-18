@@ -6,8 +6,8 @@ RouteSpan 面向 Windows 10/11 x64，使用 Tauri 2、Vue 3、TypeScript 和 Rus
 仓库/package 为兼容保留旧品牌 ProxyEnv 标识。修改 IPC 或持久化边界前，请阅读
 [架构](docs/ARCHITECTURE.zh-CN.md)、[内部契约](docs/INTERNAL_CONTRACTS.zh-CN.md)和[安全策略](SECURITY.zh-CN.md)。
 
-上一版稳定基线为旧品牌 ProxyEnv v0.1.4（维护者指定，GitHub Draft）；RouteSpan v0.2.0 尚未发布。
-代码完成不证明安装包实机验收。证据记录在[发行验收](docs/RELEASE_QA_V0.2.zh-CN.md)。
+RouteSpan v0.2.0 是公开稳定基线。`v0.2.1dev` 分支面向 v0.2.1 开发，不代表已发布。
+代码完成不代表安装包实机验收，状态见[发行验收](docs/RELEASE_QA_V0.2.zh-CN.md)；详细设备记录仍私下保存。
 
 ## 本地检查
 
@@ -19,6 +19,9 @@ pnpm build
 pnpm test:brand
 pnpm test:docs
 pnpm test:release
+pnpm test:updates
+pnpm test:themes
+pnpm test:tray
 pnpm test:report
 pnpm test:remote
 pnpm test:extensions
@@ -27,7 +30,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-`pnpm check` 汇总前端、品牌/文档/发行/报告/远端/扩展检查和锁定依赖 Rust 测试。文档测试离线执行。
+`pnpm check` 汇总前端、品牌/文档/发行/更新/主题/托盘/报告/远端/扩展检查和锁定依赖 Rust 测试。文档测试离线执行。
 扩展测试包含 POSIX/Linux 文件系统用例；平台跳过不是对应行为通过的证据。
 生成的远端助手必须可复现，`pnpm test:extensions` 在事务测试前检查它。
 浏览器模拟数据测试只是 UI 辅助证据，不等于原生 Windows、真实 SSH 或模型验收。

@@ -32,7 +32,7 @@ jobs:
           $tauriVersion = (Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json).version
           $cargoVersionMatch = [regex]::Match((Get-Content -Raw -LiteralPath 'src-tauri/Cargo.toml'), '(?m)^version\s*=\s*"([^"]+)"')
           $cargoVersion = $cargoVersionMatch.Groups[1].Value
-          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+          if ($version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
             throw "Formal releases require a stable version tag; RC/prerelease tags are not supported"
           }
           if ($packageVersion -ne $version -or $tauriVersion -ne $version -or $cargoVersion -ne $version) {

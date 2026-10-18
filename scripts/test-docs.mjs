@@ -192,6 +192,21 @@ test("published v0.2 status agrees across current EN/ZH docs without rewriting h
   }
 });
 
+test("v0.2.1 development is separate from published baseline and private device acceptance", () => {
+  for (const file of ["CONTRIBUTING.md", "CONTRIBUTING.zh-CN.md", "docs/ROADMAP.md", "docs/ROADMAP.zh-CN.md"]) {
+    const source = read(file);
+    assert.ok(source.includes("v0.2.1dev"), file);
+    assert.ok(source.includes("v0.2.0"), file);
+    assert.match(source, /private|私下保存/, file);
+    assert.doesNotMatch(source, /v0\.2\.0 is unreleased|v0\.2\.0 尚未发布/, file);
+    if (file.startsWith("docs/ROADMAP")) {
+      assert.ok(links(source).includes("../.github/release-notes/v0.2.1.md"), file);
+      assert.match(source, /separate authorization|分别需要授权/, file);
+      assert.match(source, /contrast exceptions|对比度例外/, file);
+    }
+  }
+});
+
 test("every current document has a navigable Chinese mirror with matching structure and commands", () => {
   for (const path of pairedDocs) {
     const translatedPath = chinesePath(path);

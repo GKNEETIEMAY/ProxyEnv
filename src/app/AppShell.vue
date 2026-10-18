@@ -63,7 +63,7 @@ const desktopAlertsBusy = ref(false);
 const desktopAlertsError = ref(false);
 const copiedEndpoint = ref(false);
 function openBridgeNotice() { openRemote(); void refreshRemoteBridge(); }
-const appVersion = ref("0.2.0");
+const appVersion = ref("0.2.1");
 const updateSnapshot = shallowRef<Availability<NonNullable<Awaited<ReturnType<typeof check>>>> | null>(null);
 const latestVersion = computed(() => updateSnapshot.value?.version ?? "");
 const updateState = ref<UpdateState>("idle");
@@ -390,7 +390,7 @@ async function checkForUpdates() {
   if (installer.busy || ["checking", "downloading", "installing"].includes(updateState.value)) return;
   if (reviewPreview) {
     // Explicit browser fixture only: no fetch, updater IPC, downloads or installs.
-    updateSnapshot.value = { state: "manual", version: "0.2.1", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1", body: "", date: "", handle: null, source: "release" };
+    updateSnapshot.value = { state: "manual", version: "0.2.2", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2", body: "", date: "", handle: null, source: "release" };
     updateState.value = "manual";
     return;
   }
@@ -645,7 +645,7 @@ onMounted(async () => {
     appVersion.value = await getVersion();
     versionVerified = true;
   } catch {
-    appVersion.value = "0.2.0";
+    appVersion.value = "0.2.1";
   }
   if (reviewPreview) {
     const preview = new URLSearchParams(window.location.search).get("impeccable-review");
@@ -730,7 +730,7 @@ onMounted(async () => {
       view.value = "settings";
       settingsTab.value = preview === "settings" ? "general" : "about";
       if (preview === "update") {
-        updateSnapshot.value = { state: "available", version: "0.2.1", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1", body: "", date: "", handle: null, source: "release" };
+        updateSnapshot.value = { state: "available", version: "0.2.2", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2", body: "", date: "", handle: null, source: "release" };
         updateState.value = "available";
       }
     } else if (preview === "assistant" || preview === "assistant-result") {
