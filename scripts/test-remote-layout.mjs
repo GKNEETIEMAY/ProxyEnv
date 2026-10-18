@@ -243,6 +243,15 @@ try {
           await page.screenshot({path:resolve(output,`${route}-${theme}-${width}x${height}.png`)});
         }
       }
+      if (route === "local") {
+        // Palette changes must not race the earlier cross-page surface comparison.
+        for (const palette of ["warm", "blue", "teal", "neutral"]) {
+          await page.evaluate(value => document.documentElement.dataset.palette = value, palette);
+          const marks = await page.locator(".variable-choice input:checked + span svg").evaluateAll(elements => elements.map(element => getComputedStyle(element).stroke));
+          assert.ok(marks.length >= 2, `${theme}/${palette}: HTTP/HTTPS environment-variable checks are present`);
+          assert.ok(marks.every(color => color === "rgb(255, 255, 255)"), `${theme}/${palette}: selected variable checkmarks stay white`);
+        }
+      }
       await reference?.close();
     }
     await context.close();

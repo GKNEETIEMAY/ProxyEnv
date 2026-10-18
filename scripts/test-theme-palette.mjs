@@ -103,11 +103,15 @@ for (const palette of palettes) for (const mode of ["light", "dark"]) test(`${pa
       required: 3, ratio, exception: ratio < 3
         ? "User-requested soft switch edges and white thumbs; does not meet WCAG AA non-text contrast. Position and keyboard focus remain distinct." : null });
   }
+  const checkRatio = contrast(get("--control-check-fg"), get("--action-primary-bg"));
+  rows.push({ palette, mode, foreground: "control-check-fg", background: "action-primary-bg",
+    foregroundHex: get("--control-check-fg"), backgroundHex: get("--action-primary-bg"), required: 3, ratio: checkRatio,
+    exception: checkRatio < 3 ? "User-requested white environment-variable checkmarks on the existing fills; does not meet WCAG AA non-text contrast. Strong borders and keyboard focus remain unchanged." : null });
   report.push(...rows);
   const failed = rows.filter(row => row.ratio < row.required && !row.exception);
   assert.equal(failed.length, 0, JSON.stringify(failed, null, 2));
 });
-test("white labels apply to light buttons only; dark labels and non-button control marks stay readable", () => {
+test("button labels keep their theme rules; environment-variable checkmarks use their own white role", () => {
   for (const palette of palettes) for (const mode of ["light", "dark"]) {
     const get = tokens(palette, mode);
     assert.equal(get("--action-button-fg"), mode === "light" ? "#ffffff" : get("--action-primary-fg"));
@@ -118,10 +122,12 @@ test("white labels apply to light buttons only; dark labels and non-button contr
     const rule = css.slice(css.indexOf(`${selector} {`)).split("}")[0];
     assert.match(rule, /color: var\(--action-button-fg\)/);
   }
-  for (const selector of [".assistant-steps li.active", ".variable-choice input:checked + span"]) {
-    const rule = css.slice(css.indexOf(`${selector} {`)).split("}")[0];
-    assert.match(rule, /color: var\(--action-primary-fg\)/);
-  }
+  const step = css.slice(css.indexOf(".assistant-steps li.active {")).split("}")[0];
+  assert.match(step, /color: var\(--action-primary-fg\)/);
+  const check = css.slice(css.indexOf(".variable-choice input:checked + span {")).split("}")[0];
+  assert.match(check, /color: var\(--control-check-fg\)/);
+  for (const palette of palettes) for (const mode of ["light", "dark"]) assert.equal(tokens(palette, mode)("--control-check-fg"), "#ffffff");
+  assert.match(readFileSync("src/shared/theme/palettes.css", "utf8"), /\.variable-choice input:checked \+ span \{ color: HighlightText; background: Highlight; forced-color-adjust: none;/);
   const exceptions = report.filter(row => row.exception && row.foreground === "action-button-fg");
   assert.equal(exceptions.length, 6, "only three light palettes, normal and hover");
   assert.ok(exceptions.every(row => row.foregroundHex === "#ffffff"));

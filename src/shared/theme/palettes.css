@@ -22,6 +22,7 @@
   --control-thumb-off: #ffffff;
   --control-thumb-border: #ffffff;
   --control-thumb-off-border: #ffffff;
+  --control-check-fg: #ffffff;
   --selection-bg: #f89868;
   --selection-fg: #38251d;
   --action-danger-bg: #a24338;
@@ -105,6 +106,7 @@
 /* High-contrast mode uses the OS palette rather than preserving decorative hues. */
 @media (forced-colors: active) {
   :root[data-palette][data-theme] { --focus-ring: Highlight; --control-border: ButtonText; --button-border: ButtonText; --button-hover-border: Highlight; --button-selected-border: Highlight; --switch-border: ButtonText; }
+  .variable-choice input:checked + span { color: HighlightText; background: Highlight; forced-color-adjust: none; }
   .primary-action, .install-update-button, .switch-input:checked, .toggle-control.active .toggle-track { border: 1px solid ButtonText; }
   .palette-options input:checked + span, .theme-options input:checked + span { outline: 2px solid Highlight; }
 }

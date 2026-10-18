@@ -399,7 +399,7 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .variable-choice input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .variable-choice > span { display: grid; width: 18px; height: 18px; place-items: center; border: 1px solid var(--control-border); border-radius: 5px; color: transparent; background: var(--surface-strong); transition: border-color .18s, color .18s, background .18s; }
 .variable-choice svg { width: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.variable-choice input:checked + span { border-color: var(--control-border); color: var(--action-primary-fg); background: var(--action-primary-bg); }
+.variable-choice input:checked + span { border-color: var(--control-border); color: var(--control-check-fg); background: var(--action-primary-bg); }
 .variable-choice input:focus-visible + span { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .variable-choice.locked { cursor: not-allowed; opacity: .48; }
 .variable-choice-spacer { width: 22px; }
