@@ -1732,6 +1732,7 @@ test("remote SSH empty state finishes actions before random scenes and duets wit
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const mascot=readFileSync("src/features/remote-bridge/components/RemoteEmptyMascot.vue","utf8");
   const sprite=readFileSync("src/features/remote-bridge/components/PixelMascotSprite.vue","utf8");
+  const game=readFileSync("src/features/remote-bridge/components/PixelMascotGame.vue","utf8");
   assert.match(page,/<div v-else class="remote-current-empty">[\s\S]*?copy\.rbNoSelectionHint[\s\S]*?<RemoteEmptyMascot :paused="visible === false" \/>/);
   assert.match(mascot,/const scene = ref\(randomChoice\(soloScenes\)\)/);
   assert.match(mascot,/sceneId\.value % 3 === 2 \? duoScenes/);
@@ -1764,11 +1765,11 @@ test("remote SSH empty state finishes actions before random scenes and duets wit
   assert.doesNotMatch(mascot,/M18 4h4v6h6v4h-6v6h-4v-6h-6v-4h6Z/);
   assert.match(mascot,/scene\.action === 'game'/);
   assert.match(mascot,/class="pixel-shared-prop pixel-shared-plant"/);
-  assert.match(mascot,/pixel-fighter--claude/);
-  assert.match(mascot,/pixel-fighter--codex/);
+  assert.match(game,/pixel-fighter--claude/);
+  assert.match(game,/pixel-fighter--codex/);
   assert.match(sprite,/v-if="!sharedPlant" class="solo-plant"/);
   assert.match(sprite,/@keyframes coffee-sip/);
-  assert.match(sprite,/@keyframes typing/);
+  assert.match(sprite,/@keyframes code-pulse/);
   assert.match(sprite,/@keyframes page-turn/);
   assert.match(sprite,/\.pixel-mascot--sleep \.claude-eye \{ animation:none/);
   assert.match(sprite,/data-theme="dark"/);

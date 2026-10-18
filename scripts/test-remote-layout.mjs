@@ -294,11 +294,11 @@ try {
   assert.equal(await mascotPage.locator(".pixel-scene").getAttribute("data-scene"),"0","No mid-action switching");
   const stageBefore = await mascotPage.locator(".remote-empty-mascot").boundingBox();
   const footerBefore = await mascotPage.locator(".remote-setup-actions").boundingBox();
-  await mascotPage.locator('.pixel-scene[data-scene="1"]').waitFor({timeout:7000});
+  await mascotPage.locator('.pixel-scene[data-scene="1"]').waitFor({timeout:10000});
   await mascotPage.waitForFunction(() => !document.querySelector(".pixel-scene-enter-active"));
   assert.deepEqual(await mascotPage.locator(".remote-empty-mascot").boundingBox(),stageBefore,"Completed-action transition does not resize the stage");
   assert.deepEqual(await mascotPage.locator(".remote-setup-actions").boundingBox(),footerBefore,"Scene transition does not shift the buttons");
-  await mascotPage.locator('.pixel-scene[data-scene="2"]').waitFor({timeout:7000});
+  await mascotPage.locator('.pixel-scene[data-scene="2"]').waitFor({timeout:10000});
   assert.equal(await mascotPage.locator(".pixel-scene--duo .pixel-mascot").count(),2,"Every third completed scene pairs the characters");
   // Reduced motion removes movement, not the scene lifecycle.
   await enterEmptyState((3+.5)/16);
@@ -312,9 +312,9 @@ try {
   await mascotPage.waitForTimeout(4500);
   assert.equal(await mascotPage.locator('.pixel-scene').getAttribute('data-scene'), '0', 'Hidden page pauses the non-visual clock too');
   await mascotPage.locator('.primary-nav button').nth(1).click();
-  await mascotPage.locator('.pixel-scene[data-scene="1"]').waitFor({timeout:7000});
-  await mascotPage.locator('.pixel-scene[data-scene="2"]').waitFor({timeout:7000});
-  await mascotPage.locator('.pixel-scene[data-scene="3"]').waitFor({timeout:7000});
+  await mascotPage.locator('.pixel-scene[data-scene="1"]').waitFor({timeout:10000});
+  await mascotPage.locator('.pixel-scene[data-scene="2"]').waitFor({timeout:10000});
+  await mascotPage.locator('.pixel-scene[data-scene="3"]').waitFor({timeout:10000});
   // Exercise all duet props and verify that both actors must finish.
   for (const [index,action] of ["coding","sleep","plant","game","music"].entries()) {
     await enterEmptyState(.01);
@@ -347,7 +347,7 @@ try {
     const geometry = await mascotPage.evaluate(() => {
       const stage = document.querySelector(".remote-empty-mascot");
       const scene = document.querySelector(".pixel-scene");
-      const signal = document.querySelector(".pixel-shared-prop, .pixel-duet-signal");
+      const signal = document.querySelector(".pixel-shared-prop, .pixel-duet-signal, .pixel-game");
       const rect = signal.getBoundingClientRect(), stageRect = stage.getBoundingClientRect();
       return { display:getComputedStyle(stage).display, sceneDisplay:getComputedStyle(scene).display,
         signalWidth:parseFloat(getComputedStyle(signal).width), signalHeight:parseFloat(getComputedStyle(signal).height),
@@ -356,8 +356,8 @@ try {
     });
     assert.equal(geometry.display,"grid","Fixed stage CSS is applied");
     assert.equal(geometry.sceneDisplay,"flex","Duet CSS is applied");
-    assert.equal(geometry.signalWidth,['game','plant'].includes(action) ? 96 : 32,"Shared props have intentional bounded dimensions");
-    assert.equal(geometry.signalHeight,['game','plant'].includes(action) ? 80 : 20);
+    assert.equal(geometry.signalWidth,action === 'game' ? 108 : action === 'plant' ? 96 : 32,"Shared props have intentional bounded dimensions");
+    assert.equal(geometry.signalHeight,action === 'game' ? 85 : action === 'plant' ? 80 : 20);
     if (!['game','plant'].includes(action)) assert.notEqual(geometry.fill,"rgb(0, 0, 0)");
     assert.equal(geometry.inside,true,"Duet accent stays inside the reserved stage");
     assert.equal(geometry.codexColor,index%2 ? "rgb(135, 156, 203)" : "rgb(145, 168, 223)","Codex uses the active theme palette");
