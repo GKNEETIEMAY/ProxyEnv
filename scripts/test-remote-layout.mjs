@@ -15,6 +15,15 @@ const output = process.argv.includes("--screenshots") ? resolve(".debug-tmp/remo
 if (output) mkdirSync(output, { recursive: true });
 const sizes = [[880,720], [1920,1080], [1280,720], [1024,640], [761,620], [760,620], [704,576], [587,480], [560,620]];
 const routes = process.env.PROXYENV_LAYOUT_ROUTES?.split(",") || ["local", "remote", "remote-empty", "remote-add", "remote-connected", "remote-connected-advanced", "remote-auth", "remote-auth-rejected", "remote-auth-completing", "settings", "about", "assistant"];
+function workspaceMetrics(element) {
+  const style = getComputedStyle(element);
+  const pageStyle = getComputedStyle(element.closest("main"));
+  return { bounds:element.getBoundingClientRect().toJSON(),
+    pagePadding:[pageStyle.paddingTop,pageStyle.paddingRight,pageStyle.paddingBottom,pageStyle.paddingLeft],
+    padding:[style.paddingTop,style.paddingRight,style.paddingBottom,style.paddingLeft],
+    radius:style.borderRadius, border:[style.borderTopWidth,style.borderTopStyle,style.borderTopColor],
+    background:style.backgroundColor, shadow:style.boxShadow };
+}
 
 try {
   for (const theme of ["light", "dark"]) {
@@ -29,6 +38,12 @@ try {
       if (route === "remote-empty") await page.locator(".remote-setup-actions .secondary-action").click();
       if (route === "remote-add") await page.locator(".remote-panel-actions button").first().click();
       await page.evaluate(value => document.documentElement.dataset.theme = value, theme);
+      const reference = route === "local" ? await context.newPage() : null;
+      if (reference) {
+        await reference.goto(`${base}/?impeccable-review=remote`);
+        await reference.locator(".remote-current-summary").waitFor();
+        await reference.evaluate(value => document.documentElement.dataset.theme = value, theme);
+      }
       for (const [width,height] of sizes) {
         await page.setViewportSize({width,height});
         await page.waitForFunction(({width,height}) => {
@@ -76,6 +91,32 @@ try {
         assert.equal(result.frame.width,width,`${label}: window shell must fill viewport`);
         assert.ok(result.header.right <= width + 1,`${label}: window controls overflow`);
         assert.equal(result.horizontalOverflow,false,`${label}: page has horizontal overflow`);
+        if (route === "local") {
+          await reference.setViewportSize({width,height});
+          await reference.waitForFunction(({width,height}) => {
+            const frame = document.querySelector(".app-frame").getBoundingClientRect();
+            return Math.abs(frame.width - width) < 1 && Math.abs(frame.height - height) < 1;
+          },{width,height});
+          await reference.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+          const remoteFrame = await reference.locator(".remote-workspace-configure").evaluate(workspaceMetrics);
+          const localFrame = await page.locator(".local-workspace").evaluate(workspaceMetrics);
+          assert.deepEqual(localFrame,remoteFrame,`${label}: all four edges, padding, border and surface must match the actual remote setup frame`);
+          const local = await page.locator(".local-workspace-content").evaluate(element => {
+            const stage = document.querySelector(".view-stage");
+            const bounds = element.getBoundingClientRect();
+            const previous = element.scrollTop;
+            element.scrollTop = element.scrollHeight;
+            const last = element.querySelector(".table-caption").getBoundingClientRect();
+            const reachable = last.bottom <= bounds.bottom + 1 && last.bottom > bounds.top;
+            element.scrollTop = previous;
+            return { reachable, gap:getComputedStyle(element).rowGap,
+              outerScroll:stage.scrollHeight > stage.clientHeight + 1 };
+          });
+          assert.equal(local.gap,"16px",`${label}: local groups keep compact, consistent spacing`);
+          assert.equal(local.outerScroll,false,`${label}: only the content scrolls, never the workspace border`);
+          assert.ok(local.reachable,`${label}: the complete variable list remains reachable`);
+          if (output && [880,1280,560].includes(width)) await page.screenshot({path:resolve(output,`${route}-${theme}-${width}x${height}.png`)});
+        }
         if (route === "remote-connected") {
           const overview = await page.evaluate(() => {
             const cards = [...document.querySelectorAll('.bridge-capability')].map(element => element.getBoundingClientRect().toJSON());
@@ -202,6 +243,7 @@ try {
           await page.screenshot({path:resolve(output,`${route}-${theme}-${width}x${height}.png`)});
         }
       }
+      await reference?.close();
     }
     await context.close();
   }

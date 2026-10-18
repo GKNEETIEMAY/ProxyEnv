@@ -827,7 +827,7 @@ onBeforeUnmount(() => {
 
     <div class="view-stage">
     <div class="view-outlet">
-    <div v-show="view === 'local'" class="view-pane">
+    <div v-show="view === 'local'" class="view-pane local-view-pane">
     <ProxyPage
       :copy="copy"
       :environment="environment"

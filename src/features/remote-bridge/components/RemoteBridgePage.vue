@@ -1311,8 +1311,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="page remote-bridge-page" :class="{ 'remote-setup-page': !live, 'remote-connected-page': live, 'remote-overview-page': live && !advancedView }">
-    <section class="remote-workspace" :class="{ 'remote-workspace-configure': !live, 'remote-workspace-connected': live, 'remote-workspace-advanced': live && advancedView, 'remote-workspace-simple': live && !advancedView }">
+  <main class="page remote-bridge-page" :class="{ 'workspace-page': !live, 'remote-setup-page': !live, 'remote-connected-page': live, 'remote-overview-page': live && !advancedView }">
+    <section class="remote-workspace" :class="{ 'workspace-panel': !live, 'remote-workspace-configure': !live, 'remote-workspace-connected': live, 'remote-workspace-advanced': live && advancedView, 'remote-workspace-simple': live && !advancedView }">
       <div v-if="live" class="remote-workspace-heading">
         <h1 ref="connectedHeading" tabindex="-1">{{ copy.rbStatus }}</h1>
         <div class="remote-status-toolbar">
@@ -1554,14 +1554,13 @@ onBeforeUnmount(() => {
 .remote-overview-page .remote-fields:not(:has(.bridge-skills-manage[aria-expanded="true"])) { scrollbar-color:transparent transparent; }
 .remote-overview-page .remote-fields:not(:has(.bridge-skills-manage[aria-expanded="true"]))::-webkit-scrollbar-thumb { background:transparent; }
 .remote-connected-page .remote-workspace-heading { flex:none; margin-bottom:8px; }
-.remote-bridge-page.remote-setup-page { height:100%; min-height:0; padding:20px 24px; gap:0; overflow:hidden; }
+.remote-bridge-page.remote-setup-page { height:100%; min-height:0; gap:0; overflow:hidden; }
 .remote-setup-page .remote-workspace-configure { display:flex; min-height:0; flex-direction:column; }
 .remote-setup-page .remote-fields { display:flex; min-height:0; flex:1; }
 .remote-setup-page .remote-setup-grid { width:100%; min-height:0; flex:1; }
 .confirmation-dialog.remote-bridge-dialog { width:min(640px,calc(100vw - 40px)); max-height:calc(100vh - 40px); overflow-y:auto; }
 .remote-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .remote-workspace { padding:22px 28px 26px; border:1px solid var(--line); border-radius:16px; background:var(--surface); box-shadow:var(--shadow); }
-.remote-workspace-configure { padding:18px 20px 14px; border-color:color-mix(in srgb,var(--line) 88%,transparent); background:color-mix(in srgb,var(--surface) 97%,var(--surface-strong)); box-shadow:0 10px 34px rgba(45,39,33,.055); }
 .remote-page-intro { margin:0 6px 14px; }
 .remote-page-intro h1 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:23px; letter-spacing:-.028em; }
 .remote-page-intro p { margin:5px 0 0; color:var(--muted); font-size:12px; line-height:1.55; }
@@ -1803,7 +1802,7 @@ onBeforeUnmount(() => {
 .remote-auth-diagnostic dt { color:var(--muted); font-size:11px; }
 .remote-auth-diagnostic dd { margin:0; color:var(--text); font:600 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; }
 @media (max-width:760px) {
-  .remote-bridge-page.remote-setup-page { --ssh-row-height:60px; padding:14px 20px; }
+  .remote-bridge-page.remote-setup-page { --ssh-row-height:60px; }
   /* Reserve two complete SSH rows, their gap, and the panel heading/padding. */
   .remote-setup-grid { grid-template-columns:1fr; grid-template-rows:minmax(calc(var(--ssh-row-height) * 2 + 66px),1fr) minmax(0,2fr); }
   .remote-connections-panel,.remote-current-panel { padding:10px 14px; }
@@ -1817,16 +1816,13 @@ onBeforeUnmount(() => {
   .remote-capability-choice { min-height:48px; padding:6px 10px; margin-top:6px; }
 }
 @media (max-height:680px) and (min-width:761px) {
-  .remote-bridge-page.remote-setup-page { --ssh-row-height:60px; padding:14px 24px; }
-  .remote-workspace-configure { padding:14px 16px; }
+  .remote-bridge-page.remote-setup-page { --ssh-row-height:60px; }
   .remote-current-summary { padding:8px 10px; grid-template-columns:36px minmax(0,1fr) auto; gap:9px; }
   .remote-server-icon { width:36px; height:36px; }
   .remote-setup-panel { padding-top:10px; margin-top:10px; }
   .remote-capability-choice { padding:8px 10px; }
 }
 @media (max-width:760px) and (max-height:680px) {
-  .remote-bridge-page.remote-setup-page { padding-block:8px; }
-  .remote-setup-page .remote-workspace-configure { padding:8px; }
   .remote-page-intro { margin-bottom:8px; }
   .remote-page-intro h1 { line-height:1.3; }
   .remote-connections-panel,.remote-current-panel { padding:8px 12px; }
@@ -1839,7 +1835,6 @@ onBeforeUnmount(() => {
   .remote-status-toolbar { width:100%; flex-wrap:wrap; justify-content:space-between; }
   .remote-view-switch { order:-1; }
   .remote-workspace { padding:22px 20px; }
-  .remote-workspace-configure { padding:10px; }
   .remote-page-intro h1 { font-size:21px; }
   .remote-connections-panel,.remote-current-panel { padding-inline:14px; }
   .remote-panel-heading { gap:8px; }

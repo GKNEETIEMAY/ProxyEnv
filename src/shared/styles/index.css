@@ -115,9 +115,37 @@ html.window-maximized, html.window-maximized body, html.window-maximized body::a
 .view-stage::-webkit-scrollbar { display: none; }
 .view-outlet { height: 100%; min-width: 0; min-height: 0; }
 .view-pane { min-width: 0; }
-.remote-view-pane { height: 100%; min-height: 0; }
+.local-view-pane, .remote-view-pane { height: 100%; min-height: 0; }
 .app-frame > .active-proxy-alert { flex: none; }
-.home-page { display: grid; gap: 24px; }
+.page.workspace-page { display: flex; height: 100%; min-height: 0; padding: 20px 24px; flex-direction: column; overflow: hidden; }
+.workspace-page > .workspace-panel { display: flex; min-width: 0; min-height: 0; flex: 1; padding: 18px 20px 14px; flex-direction: column; border: 1px solid color-mix(in srgb, var(--line) 88%, transparent); border-radius: 16px; background: color-mix(in srgb, var(--surface) 97%, var(--surface-strong)); box-shadow: 0 10px 34px rgba(45, 39, 33, .055); }
+.local-workspace-content { display: grid; min-height: 0; flex: 1; align-content: start; gap: 16px; overflow-y: scroll; scrollbar-gutter: stable; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.local-workspace-content::-webkit-scrollbar { width: 6px; }
+.local-workspace-content::-webkit-scrollbar-track { background: transparent; }
+.local-workspace-content::-webkit-scrollbar-thumb { border-radius: 6px; background: var(--line); }
+.local-workspace-content:hover { scrollbar-color: var(--line-strong) transparent; }
+.local-workspace-content:hover::-webkit-scrollbar-thumb { background: var(--line-strong); }
+.local-workspace-content::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.local-workspace .proxy-console { overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.local-workspace .client-layer { padding: 0 6px 20px; }
+.local-workspace .network-observation-heading { padding: 18px 6px 14px; }
+.local-workspace .network-observation-item { padding-inline: 6px; }
+.local-workspace .environment-layer { padding: 20px 6px 4px; }
+.local-workspace .assistant-entry, .local-workspace .variables-section { padding-inline: 6px; }
+@media (max-width: 760px) {
+  .page.workspace-page { padding: 14px 20px; }
+}
+@media (max-height: 680px) and (min-width: 761px) {
+  .page.workspace-page { padding: 14px 24px; }
+  .workspace-page > .workspace-panel { padding: 14px 16px; }
+}
+@media (max-width: 680px) {
+  .workspace-page > .workspace-panel { padding: 10px; }
+}
+@media (max-width: 760px) and (max-height: 680px) {
+  .page.workspace-page { padding-block: 8px; }
+  .workspace-page > .workspace-panel { padding: 8px; }
+}
 .proxy-stage { display: grid; overflow: hidden; grid-template-columns: minmax(0, 1fr) minmax(350px, 1fr); border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
 .proxy-identity { min-height: 244px; padding: 30px; border-right: 1px solid var(--line); }
 .proxy-action { display: flex; min-height: 244px; padding: 30px 27px; align-items: center; justify-content: space-between; gap: 22px; }

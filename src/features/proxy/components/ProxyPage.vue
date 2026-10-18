@@ -164,8 +164,9 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
 </script>
 
 <template>
-  <main class="page home-page">
-
+  <main class="page workspace-page home-page">
+    <section class="workspace-panel local-workspace">
+    <div class="local-workspace-content">
     <section class="proxy-console">
       <div class="layer-row client-layer">
         <div class="layer-heading"><h2>{{ copy.proxyClient }}</h2><span>{{ automaticDetectionLabel }}</span></div>
@@ -237,6 +238,9 @@ function isLastManagedVariable(name: string): boolean { return isManagedVariable
       </div>
       <div v-else class="skeleton-list" :aria-label="copy.detecting"><span v-for="item in 4" :key="item"></span></div>
       <p class="table-caption">{{ activeCount }} / {{ environment.entries.length }} · {{ copy.localOnly }}</p>
+    </section>
+
+    </div>
     </section>
 
     <dialog ref="confirmationDialog" class="confirmation-dialog" @cancel="cancelManualApply">
