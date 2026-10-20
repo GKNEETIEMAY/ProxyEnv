@@ -81,8 +81,10 @@ const eventRows = computed(() => recentEvents.value.map(event => {
   const components = {ssh:"SSH", generalProxy:props.copy.rbLocalNetworkTitle, aiRoute:props.copy.rbCcUseTitle, sessionEnvironment:props.copy.rbAdvTerminal, vscode:"VS Code", codex:"Codex", claude:"Claude Code", skills:"Skills"};
   const actions = {connect:props.copy.rbAdvConnect, disconnect:props.copy.rbAdvDisconnect, transportLost:props.copy.rbAdvTransportLost, reconnect:props.copy.rbAdvReconnect, serverDirect:props.copy.rbAdvServerDirect, egressTest:props.copy.rbAdvEgressTest, toolVerify:props.copy.rbAdvToolVerify, toolDiscovery:props.copy.rbInstallDiscovery, environmentSetup:props.copy.rbAdvEnvironmentSetup, vscodeSetup:props.copy.rbAdvVscodeSetup, toolSetup:props.copy.rbAdvToolSetup, credentialClear:props.copy.rbAdvCredentialClear, enable:props.copy.rbAdvEnable, disable:props.copy.rbAdvDisable};
   const states = {success:"healthy", warning:"warning", failed:"failed", started:"idle"} as const;
-  const status = bridgeEventStatus(event, props.copy);
-  return {...event, time:new Date(event.timestamp).toLocaleTimeString(undefined,{hour12:false}), label:`${components[event.component]} · ${actions[event.action]}`, status, state:states[event.outcome]};
+  const inactiveRoute = event.action === "toolSetup" && event.errorCode === "localRouteInactive" && event.outcome !== "success";
+  const status = inactiveRoute ? props.copy.rbNotConfigured : bridgeEventStatus(event, props.copy);
+  const detail = inactiveRoute ? `${props.copy.rbLocalRouteInactive}\n\n${props.copy.rbLocalRouteInactiveHint}` : "";
+  return {...event, time:new Date(event.timestamp).toLocaleTimeString(undefined,{hour12:false}), label:`${components[event.component]} · ${actions[event.action]}`, status, detail, state:states[event.outcome]};
 }));
 const proxyOn = computed(() => !!props.summary.proxy && props.summary.proxyStatus === "connected");
 const aiOn = computed(() => !!props.summary.cc && props.summary.ccStatus === "connected");
@@ -185,7 +187,7 @@ const installationTools = computed(() => remoteToolAdapters.map(adapter => ({id:
     <section class="advanced-card advanced-events" aria-labelledby="advanced-events-title">
       <h2 id="advanced-events-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 5h14M7 12h14M7 19h14M3 5h.1M3 12h.1M3 19h.1"/></svg>{{ copy.rbAdvEvents }}</h2>
       <ul v-if="eventRows.length" class="advanced-event-list" tabindex="0" :aria-label="copy.rbAdvEvents"><li v-for="(event,index) in eventRows" :key="`${event.timestamp}-${index}`">
-        <time>{{ event.time }}</time><span class="advanced-event-label">{{ event.label }}</span><StatusIndicator :state="event.state" :label="event.status" />
+        <time>{{ event.time }}</time><span class="advanced-event-label">{{ event.label }}</span><span class="advanced-event-status"><StatusIndicator :state="event.state" :label="event.status" /><HelpTooltip v-if="event.detail" pinnable :label="`${event.label} · ${event.status}`" :text="event.detail" /></span>
       </li></ul>
       <p v-else class="advanced-note">{{ eventsLoaded ? copy.rbAdvNoEvents : copy.rbCheckChecking }}</p>
     </section>
@@ -281,7 +283,9 @@ const installationTools = computed(() => remoteToolAdapters.map(adapter => ({id:
 .advanced-event-list time { color:var(--muted); flex:none; font-variant-numeric:tabular-nums; }
 .advanced-event-label { flex:1; min-width:0; overflow-wrap:anywhere; }
 .advanced-event-label small { display:block; color:var(--muted); }
-.advanced-event-list :deep(.check-status) { flex:none; font-size:11px; }
+.advanced-event-status { display:flex; align-items:center; gap:5px; min-width:0; max-width:45%; }
+.advanced-event-status :deep(.check-status) { min-width:0; font-size:11px; overflow-wrap:anywhere; }
+.advanced-event-status :deep(.help-tooltip) { flex:none; }
 .advanced-clear-logs.is-cleared { color:var(--success); }
 .advanced-clear-logs-dialog { width:min(400px,calc(100vw - 40px)); padding:20px; }
 .advanced-clear-logs-dialog h2 { margin:0 0 12px; font-size:17px; }
