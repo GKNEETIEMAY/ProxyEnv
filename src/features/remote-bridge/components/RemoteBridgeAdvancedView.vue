@@ -4,6 +4,7 @@ import type { CheckState } from "../../../shared/types";
 import type { RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
 import { remoteBackend, type BridgeEvent, type BridgeSummary, type RemoteRuntimeState } from "../state";
 import { diagnosticCheckState, toolInstallationRows } from "../overview-presentation";
+import { bridgeErrorLabels, bridgeEventStatus } from "../event-presentation";
 import { remoteToolAdapters } from "../tool-adapters";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
 import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
@@ -16,7 +17,7 @@ import { useNotification } from "../../../shared/state/notifications";
 const props = defineProps<{ copy:RemoteBridgeCopy; summary:BridgeSummary; busy:boolean; connected:boolean; active:boolean; diagnosing:boolean; sessionCommand:string; commandLoading:boolean; copying:boolean; copied:boolean }>();
 const emit = defineEmits<{ copyEnvironment:[]; manualTerminal:[]; openConfig:[]; revealConfig:[]; vscodeSettings:[]; clearCredential:[]; runDiagnostics:[]; openReport:[]; openLogs:[] }>();
 const timingDialog = ref<HTMLDialogElement>();
-const errorLabels = computed(() => ({network:props.copy.rbAdvErrorNetwork, ssh:props.copy.rbAdvErrorSsh, authentication:props.copy.rbAdvErrorAuthentication, conflict:props.copy.rbAdvErrorConflict, unsupported:props.copy.rbAdvErrorUnsupported, unavailable:props.copy.rbAdvErrorUnavailable, invalidResponse:props.copy.rbAdvErrorResponse, unknown:props.copy.rbAdvErrorUnknown}));
+const errorLabels = computed(() => bridgeErrorLabels(props.copy));
 const recentEvents = ref<BridgeEvent[]>([]);
 const eventsLoaded = ref(false);
 const logsAvailable = ref(false);
@@ -79,10 +80,8 @@ onBeforeUnmount(() => { eventsRevision++; clearTimeout(eventsTimer); clearTimeou
 const eventRows = computed(() => recentEvents.value.map(event => {
   const components = {ssh:"SSH", generalProxy:props.copy.rbLocalNetworkTitle, aiRoute:props.copy.rbCcUseTitle, sessionEnvironment:props.copy.rbAdvTerminal, vscode:"VS Code", codex:"Codex", claude:"Claude Code", skills:"Skills"};
   const actions = {connect:props.copy.rbAdvConnect, disconnect:props.copy.rbAdvDisconnect, transportLost:props.copy.rbAdvTransportLost, reconnect:props.copy.rbAdvReconnect, serverDirect:props.copy.rbAdvServerDirect, egressTest:props.copy.rbAdvEgressTest, toolVerify:props.copy.rbAdvToolVerify, toolDiscovery:props.copy.rbInstallDiscovery, environmentSetup:props.copy.rbAdvEnvironmentSetup, vscodeSetup:props.copy.rbAdvVscodeSetup, toolSetup:props.copy.rbAdvToolSetup, credentialClear:props.copy.rbAdvCredentialClear, enable:props.copy.rbAdvEnable, disable:props.copy.rbAdvDisable};
-  const outcomes = {success:props.copy.rbAdvSuccess, warning:props.copy.rbAdvWarning, failed:props.copy.rbAdvFailed, started:props.copy.rbAdvStarted};
   const states = {success:"healthy", warning:"warning", failed:"failed", started:"idle"} as const;
-  const outcome = event.action === "toolVerify" && event.outcome === "failed" ? props.copy.rbAdvFailed : outcomes[event.outcome];
-  const status = event.errorCode ? `${outcome} · ${errorLabels.value[event.errorCode]}` : outcome;
+  const status = bridgeEventStatus(event, props.copy);
   return {...event, time:new Date(event.timestamp).toLocaleTimeString(undefined,{hour12:false}), label:`${components[event.component]} · ${actions[event.action]}`, status, state:states[event.outcome]};
 }));
 const proxyOn = computed(() => !!props.summary.proxy && props.summary.proxyStatus === "connected");

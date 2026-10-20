@@ -47,6 +47,22 @@ execution of an unverified installer is authorized.
 
 ## Formal release workflow
 
+### v0.2.1 upgrade acceptance baseline
+
+This release targets **published v0.2.0 → v0.2.1 (Windows x64 NSIS)**.
+The historical v0.1.4 upgrade failure is no longer in scope. Preserve v0.2.0's
+embedded public key, update endpoint, application identity and per-user installation
+mode; sign with the original matching private key. Paid Windows Authenticode is not required.
+
+Before publication:
+
+- Automated contracts: forward version transition, unchanged identities, paired installer / `.sig` / `latest.json`; missing or empty signatures block release.
+- Real artifacts: verify the final installer signature against v0.2.0's public key and check downloaded checksums. Test fixtures are not real signature acceptance.
+- Real device: upgrade a formal v0.2.0 NSIS installation, verify before installation, restart into v0.2.1, and retain settings and SSH entries.
+- Failure protection: failed signatures or interrupted downloads must not install; v0.2.1 must not reinstall itself or downgrade to v0.2.0.
+
+Real-artifact and device checks remain pending until the v0.2.1 release candidate is built.
+
 `.github/workflows/release.yml` verifies matching tag/package/Cargo/Tauri versions
 and localized notes, installs locked dependencies, audits/builds/tests, packages
 signed updater artifacts, collects installers/portable executable, checksums and

@@ -656,6 +656,14 @@ const overviewKo: OverviewLabels = {
   rbOverviewMobaUnavailable: "이 연결에서 MobaXterm을 사용할 수 없습니다. 고급 화면에서 설치와 연결 설정을 확인하세요.",
 };
 const advancedEn = {
+  rbAdvConfigurationFailed: "Configuration failed",
+  rbAdvOperationFailed: "Failed",
+  rbAdvErrorUnsafePath: "Path or permission safety check failed",
+  rbAdvErrorDependencyMissing: "Required tool or dependency missing",
+  rbAdvErrorWriteFailed: "Remote configuration write failed",
+  rbAdvErrorVerificationFailed: "Configuration read-back check failed",
+  rbAdvErrorRolledBack: "Change rolled back",
+  rbAdvErrorRollbackFailed: "Rollback failed; check recovery files",
   rbAdvDiagnosticActions:"Diagnostic tools", rbAdvLogActions:"Log management",
   rbAdvClearLogs:"Clear logs", rbAdvClearLogsTitle:"Clear bridge logs?", rbAdvClearLogsBody:"Clear all saved RouteSpan bridge logs. This cannot be undone. Configuration and recovery files are not affected; new events will still be logged.", rbAdvLogsCleared:"Logs cleared", rbAdvLogsClearing:"Clearing…", rbAdvClearLogsError:"Could not clear logs. Check local folder permissions or file access, then restart RouteSpan and try again.",
   rbAdvCopyShort:"Copy",
@@ -681,6 +689,14 @@ const advancedEn = {
 };
 type AdvancedLabels = { [K in keyof typeof advancedEn]: string };
 const advancedZh: AdvancedLabels = {
+  rbAdvConfigurationFailed: "配置失败",
+  rbAdvOperationFailed: "操作失败",
+  rbAdvErrorUnsafePath: "路径或权限安全检查未通过",
+  rbAdvErrorDependencyMissing: "缺少必需工具或依赖",
+  rbAdvErrorWriteFailed: "远端配置写入失败",
+  rbAdvErrorVerificationFailed: "配置回读校验失败",
+  rbAdvErrorRolledBack: "已回滚本次修改",
+  rbAdvErrorRollbackFailed: "回滚失败，请检查恢复文件",
   rbAdvDiagnosticActions:"诊断工具", rbAdvLogActions:"日志管理",
   rbAdvClearLogs:"清除日志", rbAdvClearLogsTitle:"清除桥接日志？", rbAdvClearLogsBody:"清空已保存的 RouteSpan 桥接日志，无法恢复。不会影响配置或恢复文件；后续事件仍会正常记录。", rbAdvLogsCleared:"日志已清除", rbAdvLogsClearing:"正在清除…", rbAdvClearLogsError:"未能清除日志。请检查本地目录权限或文件占用，重新启动 RouteSpan 后重试。",
   rbAdvCopyShort:"复制",
@@ -705,6 +721,14 @@ const advancedZh: AdvancedLabels = {
   rbAdvReport: "诊断报告", rbAdvReportHelp: "打开现有脱敏报告预览，可选择语言并复制。生成报告不会发起新的网络请求。", rbAdvEnvironmentActions: "环境工具", rbAdvConfigActions: "配置工具", rbAdvSecurityActions: "会话安全", rbAdvNoConfig: "此连接没有可用的配置文件操作。", rbAdvNotSupported: "暂不支持验证", rbAdvVerified: "验证通过", rbAdvFailed: "验证失败",
 };
 const advancedJa: AdvancedLabels = {
+  rbAdvConfigurationFailed: "設定失敗",
+  rbAdvOperationFailed: "操作失敗",
+  rbAdvErrorUnsafePath: "パスまたは権限の安全確認に失敗",
+  rbAdvErrorDependencyMissing: "必要なツールまたは依存関係が不足",
+  rbAdvErrorWriteFailed: "リモート設定の書き込み失敗",
+  rbAdvErrorVerificationFailed: "設定の再読み取り検証に失敗",
+  rbAdvErrorRolledBack: "今回の変更を復元済み",
+  rbAdvErrorRollbackFailed: "復元失敗。復元ファイルを確認してください",
   rbAdvDiagnosticActions:"診断ツール", rbAdvLogActions:"ログ管理",
   rbAdvClearLogs:"ログを消去", rbAdvClearLogsTitle:"ブリッジログを消去しますか？", rbAdvClearLogsBody:"保存済みの RouteSpan ブリッジログを空にします。元に戻せません。設定と復元ファイルには影響せず、新しいイベントは引き続き記録されます。", rbAdvLogsCleared:"ログを消去しました", rbAdvLogsClearing:"消去中…", rbAdvClearLogsError:"ログを消去できません。フォルダーの権限やファイルの使用状況を確認し、RouteSpan を再起動して再試行してください。",
   rbAdvCopyShort:"コピー",
@@ -729,6 +753,14 @@ const advancedJa: AdvancedLabels = {
   rbAdvReport: "診断レポート", rbAdvReportHelp: "既存の匿名化レポートを開き、言語を選択してコピーします。生成時に新しいネットワーク要求は送りません。", rbAdvEnvironmentActions: "環境", rbAdvConfigActions: "設定", rbAdvSecurityActions: "セッション安全性", rbAdvNoConfig: "この接続では設定ファイルの操作を利用できません。", rbAdvNotSupported: "検証非対応", rbAdvVerified: "検証成功", rbAdvFailed: "検証失敗",
 };
 const advancedKo: AdvancedLabels = {
+  rbAdvConfigurationFailed: "설정 실패",
+  rbAdvOperationFailed: "작업 실패",
+  rbAdvErrorUnsafePath: "경로 또는 권한 안전 검사 실패",
+  rbAdvErrorDependencyMissing: "필수 도구 또는 의존성 없음",
+  rbAdvErrorWriteFailed: "원격 설정 쓰기 실패",
+  rbAdvErrorVerificationFailed: "설정 다시 읽기 검증 실패",
+  rbAdvErrorRolledBack: "이번 변경을 되돌림",
+  rbAdvErrorRollbackFailed: "복원 실패. 복원 파일을 확인하세요",
   rbAdvDiagnosticActions:"진단 도구", rbAdvLogActions:"로그 관리",
   rbAdvClearLogs:"로그 지우기", rbAdvClearLogsTitle:"브리지 로그를 지울까요?", rbAdvClearLogsBody:"저장된 RouteSpan 브리지 로그를 비웁니다. 복구할 수 없습니다. 설정 및 복원 파일에는 영향을 주지 않으며 새 이벤트는 계속 기록됩니다.", rbAdvLogsCleared:"로그를 지웠습니다", rbAdvLogsClearing:"지우는 중…", rbAdvClearLogsError:"로그를 지우지 못했습니다. 폴더 권한이나 파일 사용 여부를 확인하고 RouteSpan를 다시 시작한 뒤 재시도하세요.",
   rbAdvCopyShort:"복사",

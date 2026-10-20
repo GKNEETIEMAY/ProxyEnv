@@ -14,7 +14,9 @@ const remoteLabels = await moduleUrl("../src/shared/i18n/remote-bridge.ts");
 const labels = await moduleUrl("../src/shared/i18n/diagnostic-report.ts");
 const desktopLabels = await moduleUrl("../src/shared/i18n/desktop.ts");
 const { messages } = await import(await moduleUrl("../src/shared/i18n/index.ts", { '"./diagnostic-report"': JSON.stringify(labels), '"./remote-bridge"': JSON.stringify(remoteLabels), '"./desktop"': JSON.stringify(desktopLabels) }));
-const { formatDiagnosticReport } = await import(await moduleUrl("../src/features/diagnostic-report/format.ts"));
+const eventPresentation = await moduleUrl("../src/features/remote-bridge/event-presentation.ts");
+const { bridgeEventStatus, bridgeErrorLabels } = await import(eventPresentation);
+const { formatDiagnosticReport } = await import(await moduleUrl("../src/features/diagnostic-report/format.ts", { '"../remote-bridge/event-presentation"': JSON.stringify(eventPresentation) }));
 const data = {
   appVersion: "0.1.3", os: "windows", osVersion: "11 (26100)", detectedCount: 2, listeningCount: 1,
   selectedClient: "Clash Verge Rev", hasSelection: true, available: true, protocol: "mixed", confidence: "high",
@@ -22,6 +24,30 @@ const data = {
   connectivity: "partial", successfulTargets: 2, totalTargets: 3, errorCategories: ["connectTimeout"],
   assistant: { category: "unrecognized", state: "environmentConfigured", action: "none" }
 };
+
+test("client configuration failures retain specific safe reasons in events and reports in all locales", () => {
+  const reasons = {invalidLocalProfile:"rbProfileInvalid", unsafePath:"rbAdvErrorUnsafePath", dependencyMissing:"rbAdvErrorDependencyMissing", writeFailed:"rbAdvErrorWriteFailed", verificationFailed:"rbAdvErrorVerificationFailed", rolledBack:"rbAdvErrorRolledBack", rollbackFailed:"rbAdvErrorRollbackFailed"};
+  for (const copy of Object.values(messages)) {
+    for (const [errorCode, key] of Object.entries(reasons)) {
+      const event = {action:"toolSetup", outcome:"failed", errorCode};
+      assert.equal(bridgeEventStatus(event, copy), `${copy.rbAdvConfigurationFailed} · ${copy[key]}`);
+      assert.equal(bridgeErrorLabels(copy)[errorCode], copy[key]);
+      const report = formatDiagnosticReport({...data, remoteBridge:{configured:true, reachable:true, status:"connected", protocol:"mixed", proxyPort:7897, ccDetected:true, ccPort:15721, codexConfigured:false, claudeConfigured:true, postConnectErrorCategory:errorCode}}, copy);
+      assert.ok(report.includes(copy[key]));
+      assert.doesNotMatch(report, /undefined/);
+    }
+    for (const action of ["toolVerify", "egressTest", "serverDirect"]) {
+      assert.equal(bridgeEventStatus({action, outcome:"failed", errorCode:"network"}, copy), `${copy.rbAdvFailed} · ${copy.rbAdvErrorNetwork}`);
+    }
+    for (const action of ["toolSetup", "environmentSetup", "vscodeSetup"]) {
+      assert.equal(bridgeEventStatus({action, outcome:"failed", errorCode:null}, copy), copy.rbAdvConfigurationFailed);
+      assert.equal(bridgeEventStatus({action, outcome:"success", errorCode:null}, copy), copy.rbAdvSuccess);
+    }
+    assert.equal(bridgeEventStatus({action:"connect", outcome:"failed", errorCode:null}, copy), copy.rbAdvOperationFailed);
+    assert.equal(bridgeEventStatus({action:"toolSetup", outcome:"failed", errorCode:"unknown"}, copy), `${copy.rbAdvConfigurationFailed} · ${copy.rbAdvErrorUnknown}`);
+    assert.equal(bridgeEventStatus({action:"toolSetup", outcome:"failed", errorCode:"private-token"}, copy), `${copy.rbAdvConfigurationFailed} · ${copy.rbAdvErrorUnknown}`);
+  }
+});
 
 test("VS Code proxy configuration states use specific localized descriptions", () => {
   for (const copy of Object.values(messages)) {

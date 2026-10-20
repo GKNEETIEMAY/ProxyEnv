@@ -318,8 +318,8 @@ function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path
   const run=(operation,tool="codex",port=25721,expected="absent",env={})=>{
     let backupHash="absent";
     if(operation==="restore") { const reviewed=run("restore-preview",tool,port); if(reviewed.error) return reviewed; if(expected==="absent") expected=reviewed.expectedHash; backupHash=reviewed.backupHash; }
-    const profileModel=env.TEST_PROFILE_MODEL || "fixture-model";
-    const profileCatalog=env.TEST_PROFILE_CATALOG || JSON.stringify({models:[{slug:profileModel,future:{preserved:true}}],futureRoot:[1,2]});
+    const profileModel=env.TEST_PROFILE_MODEL ?? "fixture-model";
+    const profileCatalog=env.TEST_PROFILE_CATALOG ?? JSON.stringify({models:[{slug:profileModel,future:{preserved:true}}],futureRoot:[1,2]});
     const profileHash=createHash("sha256").update(profileModel).update(Buffer.from([0])).update(profileCatalog).digest("hex");
     const needsProfile=tool==="codex" && ["preview","apply"].includes(operation);
     const claudeProfile=env.TEST_CLAUDE_PROFILE || '{"model":"fixture-claude"}';
@@ -528,6 +528,86 @@ test("Claude request verification returns only an allowlisted state",{skip:!avai
     assert.equal(f.run("tool-verify","codex").error,"invalidRequest");
   } finally { f.cleanup(); }
 });
+test("Codex no-catalog profiles survive status, disable/re-enable and provider switches",{skip:!available || !python},()=>{
+  const f=fixture();
+  try {
+    const file=join(f.home,".codex/config.toml"), catalog=join(f.home,".codex/proxyenv-codex-model-catalog.json");
+    const original='model = "original"\n';
+    mkdirSync(dirname(file),{recursive:true}); writeFileSync(file,original);
+    for (const model of ["", "deepseek", "", "deepseek"]) {
+      const env={TEST_PROFILE_MODEL:model,TEST_PROFILE_CATALOG:""};
+      const preview=f.run("preview","codex",25721,"absent",env);
+      assert.equal(preview.error,undefined);
+      assert.equal(f.run("apply","codex",25721,preview.expectedHash,env).configured,true);
+      assert.equal(f.run("status").configured,true);
+      assert.equal(existsSync(catalog),false);
+      assert.doesNotMatch(readFileSync(file,"utf8"),/model_catalog_json/);
+      if (model) assert.match(readFileSync(file,"utf8"),/model = "deepseek"/);
+      else assert.doesNotMatch(readFileSync(file,"utf8"),/^model\s*=/m);
+      assert.equal(f.run("restore").configured,false);
+      assert.equal(readFileSync(file,"utf8"),original);
+    }
+    // A custom provider catalog can be removed on return to a default model,
+    // then created again; every transition must retain its verified status.
+    for (const env of [{},{TEST_PROFILE_MODEL:"",TEST_PROFILE_CATALOG:""},{}]) {
+      const preview=f.run("preview","codex",25721,"absent",env);
+      assert.equal(f.run("apply","codex",25721,preview.expectedHash,env).configured,true);
+      assert.equal(f.run("status").configured,true);
+    }
+    writeFileSync(catalog,'{"userEdited":true}');
+    assert.equal(f.run("status").configured,false);
+    assert.equal(f.run("preview").configured,false);
+    const env={TEST_PROFILE_MODEL:"",TEST_PROFILE_CATALOG:""};
+    const preview=f.run("preview","codex",25721,"absent",env);
+    assert.equal(f.run("apply","codex",25721,preview.expectedHash,env).error,"configConflict");
+    assert.equal(readFileSync(catalog,"utf8"),'{"userEdited":true}');
+    assert.equal(f.run("apply","codex",25721,preview.expectedHash).error,"configConflict");
+    assert.equal(f.run("restore").error,"configConflict");
+    assert.equal(readFileSync(catalog,"utf8"),'{"userEdited":true}');
+  } finally { f.cleanup(); }
+});
+
+test("Codex readback rejects stale model, catalog reference and session receipts",{skip:!available || !python},()=>{
+  const f=fixture();
+  try {
+    const env={TEST_PROFILE_MODEL:"deepseek",TEST_PROFILE_CATALOG:""};
+    assert.equal(f.run("apply","codex",25721,"absent",env).configured,true);
+    const file=join(f.home,".codex/config.toml"), original=readFileSync(file,"utf8");
+    const before=f.run("preview","codex",25721,"absent",env);
+    assert.equal(before.configured,true);
+    for (const changed of [original.replace('model = "deepseek"','model = "other"'), 'model_catalog_json = "external.json"\n'+original]) {
+      writeFileSync(file,changed);
+      const preview=f.run("preview","codex",25721,"absent",env);
+      assert.equal(preview.configured,false);
+      assert.notEqual(preview.profileHash,before.profileHash);
+      assert.equal(f.run("status").configured,false);
+    }
+    writeFileSync(file,original);
+    const session={...env,TEST_SESSION_TOKEN:"a".repeat(64)};
+    const preview=f.run("preview","codex",25721,"absent",session);
+    assert.equal(preview.configured,false);
+    assert.equal(preview.profileHash,before.profileHash,"Matching model alone does not prove the active route");
+    assert.equal(f.run("apply","codex",25721,preview.expectedHash,session).configured,true);
+    assert.equal(f.run("status","codex",25721,"absent",session).configured,true);
+  } finally { f.cleanup(); }
+});
+
+test("Codex catalog removal rolls back config, catalog and receipt after failed replacement",{skip:!available || !python},()=>{
+  const f=fixture();
+  try {
+    assert.equal(f.run("apply").configured,true);
+    const file=join(f.home,".codex/config.toml"), catalog=join(f.home,".codex/proxyenv-codex-model-catalog.json");
+    const paths=[file,catalog,`${file}.proxyenv-applied`];
+    const before=paths.map(path=>readFileSync(path,"utf8"));
+    const env={TEST_PROFILE_MODEL:"",TEST_PROFILE_CATALOG:"",TEST_FAIL_REPLACE:"1"};
+    const preview=f.run("preview","codex",25721,"absent",env);
+    assert.equal(f.run("apply","codex",25721,preview.expectedHash,env).error,"remoteFailed");
+    assert.deepEqual(paths.map(path=>readFileSync(path,"utf8")),before);
+    assert.equal(f.run("status").configured,true);
+    assert.equal(f.run("restore").configured,false);
+  } finally { f.cleanup(); }
+});
+
 test("Codex synchronizes the selected model and opaque catalog, then restores the original profile",{skip:!available || !python},()=>{
   const f=fixture();try {
     const file=join(f.home,".codex/config.toml");
@@ -1163,7 +1243,7 @@ test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debo
   assert.equal((sync.match(/remote_request\(\s*"preview"/g) ?? []).length,1,"readback receipt avoids a third SSH round trip");
   assert.match(sync,/applied\["profileHash"\]/);
   assert.match(sync,/claude_profile_state != settings::ProfileSyncState::RestartRequired/);
-  assert.match(profile,/profile_stamp_changed[\s\S]*file_stamp\(&config_path\)[\s\S]*file_stamp\(&profile\.catalog_path\)/);
+  assert.match(profile,/profile_stamp_changed[\s\S]*file_stamp\(&config_path\)[\s\S]*profile\.catalog_path\.as_ref\(\)/);
   const lightweight=profile.slice(profile.indexOf("pub fn profile_stamp_changed"),profile.indexOf("#[cfg(test)]"));
   assert.doesNotMatch(lightweight,/safe_read|from_slice|from_str/);
 });
@@ -1362,6 +1442,12 @@ test("overview preserves independent statuses, public port mappings, and existin
     assert.deepEqual(overviewServerDirectStatus(copy,"checking"),{state:"checking",label:copy.rbCheckChecking});
     assert.equal(overviewToolLabel(copy,summary,"codex",true),copy.rbOverviewConfigured,"Codex sync cannot be inferred from Claude or configured status");
     assert.equal(overviewToolLabel(copy,summary,"claude",true),copy.rbOverviewSynced);
+    for (const id of ["codex", "claude"]) {
+      const synced = {...summary, [id + "ProfileState"]:"synced"};
+      assert.equal(overviewToolLabel(copy,synced,id,true),copy.rbOverviewSynced);
+      assert.equal(overviewToolLabel(copy,synced,id,false),copy.rbNotConfigured);
+      assert.equal(overviewToolLabel(copy,{...synced,[id + "ProfileState"]:"invalidLocalProfile"},id,true),copy.rbProfileInvalid);
+    }
     assert.equal(overviewToolLabel(copy,summary,"claude",false),copy.rbNotConfigured);
     for (const id of ["codex", "claude"]) {
       for (const state of ["pending", "preparing"]) {

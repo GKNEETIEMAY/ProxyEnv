@@ -19,7 +19,7 @@ pub enum ProfileError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalCodexProfile {
     pub model: String,
-    pub catalog_path: PathBuf,
+    pub catalog_path: Option<PathBuf>,
     pub catalog_bytes: Vec<u8>,
     pub hash: String,
     pub stamp: LocalCodexProfileStamp,
@@ -273,17 +273,29 @@ fn inspect_codex_profile_at(home: &Path) -> Result<LocalCodexProfile, ProfileErr
     let config_text = std::str::from_utf8(&config_bytes).map_err(|_| ProfileError::Invalid)?;
     let config = toml::from_str::<toml::Value>(config_text).map_err(|_| ProfileError::Invalid)?;
     let root = config.as_table().ok_or(ProfileError::Invalid)?;
-    let model = root
-        .get("model")
-        .and_then(toml::Value::as_str)
-        .filter(|value| safe_text(value, 256))
-        .ok_or(ProfileError::Missing)?
-        .to_owned();
-    let catalog_name = root
-        .get("model_catalog_json")
-        .and_then(toml::Value::as_str)
-        .filter(|value| safe_text(value, 1024))
-        .ok_or(ProfileError::Missing)?;
+    // Default/provider models need no custom catalog. Never synthesize one or
+    // copy provider credentials to make a profile valid.
+    let model = match root.get("model") {
+        None => String::new(),
+        Some(value) => value.as_str().filter(|value| safe_text(value, 256))
+            .ok_or(ProfileError::Invalid)?.to_owned(),
+    };
+    let Some(catalog_value) = root.get("model_catalog_json") else {
+        if config_stamp != file_stamp(&config_path)? {
+            return Err(ProfileError::Invalid);
+        }
+        let hash = hex::encode(Sha256::digest([model.as_bytes(), b"\0"].concat()));
+        return Ok(LocalCodexProfile {
+            model, catalog_path: None, catalog_bytes: Vec::new(), hash,
+            stamp: LocalCodexProfileStamp {
+                config_modified: config_stamp.0, config_len: config_stamp.1,
+                catalog_modified: 0, catalog_len: 0,
+            },
+        });
+    };
+    if model.is_empty() { return Err(ProfileError::Missing); }
+    let catalog_name = catalog_value.as_str().filter(|value| safe_text(value, 1024))
+        .ok_or(ProfileError::Invalid)?;
     let catalog_path = safe_catalog_path(&directory, catalog_name).ok_or(ProfileError::Invalid)?;
     let catalog_stamp = file_stamp(&catalog_path)?;
     let catalog_bytes = local_file::safe_read(&catalog_path, MAX_CODEX_CATALOG_BYTES)
@@ -323,7 +335,7 @@ fn inspect_codex_profile_at(home: &Path) -> Result<LocalCodexProfile, ProfileErr
     ));
     Ok(LocalCodexProfile {
         model,
-        catalog_path,
+        catalog_path: Some(catalog_path),
         catalog_bytes,
         hash,
         stamp: LocalCodexProfileStamp {
@@ -341,7 +353,8 @@ pub fn profile_stamp_changed(profile: &LocalCodexProfile) -> Result<bool, Profil
     let home = dirs::home_dir().ok_or(ProfileError::Missing)?;
     let config_path = home.join(".codex").join("config.toml");
     let (config_modified, config_len) = file_stamp(&config_path)?;
-    let (catalog_modified, catalog_len) = file_stamp(&profile.catalog_path)?;
+    let (catalog_modified, catalog_len) = profile.catalog_path.as_ref()
+        .map(|path| file_stamp(path)).transpose()?.unwrap_or((0, 0));
     Ok(profile.stamp
         != LocalCodexProfileStamp {
             config_modified,
@@ -489,6 +502,23 @@ mod tests {
         assert_eq!(profile.catalog_bytes, catalog.as_bytes());
         assert!(!profile.hash.is_empty());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn codex_default_and_provider_models_do_not_require_a_custom_catalog() {
+        for config in ["model_provider = \"openai\"\n", "model = \"deepseek\"\n", ""] {
+            let root = fixture(config, "unused.json", None);
+            let profile = inspect_codex_profile_at(&root).unwrap();
+            assert!(profile.catalog_path.is_none());
+            assert!(profile.catalog_bytes.is_empty());
+            assert!(!profile.hash.is_empty());
+            fs::remove_dir_all(root).unwrap();
+        }
+        for config in ["model = 42", "model = \"\"", "model_catalog_json = 42"] {
+            let root = fixture(config, "unused.json", None);
+            assert!(inspect_codex_profile_at(&root).is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

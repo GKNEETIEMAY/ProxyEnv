@@ -37,6 +37,19 @@ test("stable version parsing rejects previews, garbage, shorthand and unsafe num
   assert.equal(compareVersions("v0.2.1", "0.2.1"), 0);
   assert.throws(() => compareVersions("0.2.1-rc.1", "0.2.0"));
 });
+test("v0.2.0 to v0.2.1 is an upgrade and v0.2.1 never offers the same or older release", () => {
+  const handle = metadata("0.2.1");
+  const result = resolveUpdate("0.2.0", ok(release("0.2.1")), ok(handle), true);
+  assert.equal(result.state, "available");
+  assert.equal(result.version, "0.2.1");
+  assert.equal(result.handle, handle);
+  for (const version of ["0.2.0", "0.2.1"]) {
+    const current = resolveUpdate("0.2.1", ok(release(version)), ok(metadata(version)), true);
+    assert.equal(current.state, "latest");
+    assert.equal(current.handle, null);
+  }
+});
+
 test("announcement, version, notes, URL and install handle come from one resolved version", () => {
   const handle = metadata();
   const result = resolveUpdate("0.2.1", ok(release()), ok(handle), true);

@@ -19,6 +19,19 @@ const packageSection = cargo.split("[package]\n")[1]?.split(/^\[/m)[0];
 const targetVersion = "0.2.1";
 const notesPath = `.github/release-notes/v${targetVersion}.md`;
 
+test("v0.2.1 preserves the v0.2.0 installed updater trust and NSIS identity", () => {
+  // Frozen from v0.2.0 (0a731b47d17bd5d2f8a4885cbf926a1bac68d35f).
+  // Keep this independent of current config so a coordinated key/identity change fails CI.
+  assert.equal(config.productName, "RouteSpan");
+  assert.equal(config.identifier, "io.github.gkneeteiemay.proxyenv");
+  assert.equal(pkg.name, "proxyenv");
+  assert.equal(config.mainBinaryName ?? pkg.name, "proxyenv");
+  assert.equal(config.plugins.updater.pubkey, "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5MEFBN0QwNzRDQzE0OUUKUldTZUZNeDAwS2NLcWFqSXlFSVU0eHRRQnlEeWtoRWUwaFNoTitRVmN0NE9uMmxlZW1Bc3pSdFkK");
+  assert.deepEqual(config.plugins.updater.endpoints, ["https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest/download/latest.json"]);
+  assert.deepEqual(config.plugins.updater.windows, {installMode:"passive"});
+  assert.deepEqual(config.bundle.windows.nsis, {installMode:"currentUser"});
+});
+
 test("Windows updater keeps TLS/signature verification without unused ZIP extraction", () => {
   assert.match(cargo, /^tauri-plugin-updater = \{ version = "2", default-features = false, features = \["rustls-tls"\] \}$/m);
   assert.doesNotMatch(read("src-tauri/Cargo.lock"), /^name = "zip"$/m);
@@ -243,6 +256,14 @@ test("Windows artifact collector preserves bytes, pairs renamed signatures and t
     for (const line of lines) {
       const [hash, name] = line.split("  ");
       assert.equal(createHash("sha256").update(output(name)).digest("hex"), hash);
+    }
+    // A preview or incomplete signature pair must never produce publishable metadata.
+    for (const invalidSignature of [null, "   \n"]) {
+      rmSync(resolve(fixture, "release-artifacts"), { recursive: true });
+      if (invalidSignature === null) rmSync(resolve(fixture, `${setup}.sig`));
+      else put(`${setup}.sig`, invalidSignature);
+      assert.throws(run, invalidSignature === null ? /Missing Tauri Updater signature/ : /NSIS updater signature is empty/);
+      put(`${setup}.sig`, "fixture-nsis-signature");
     }
     rmSync(resolve(fixture, "release-artifacts"), { recursive: true });
     put("src-tauri/target/release/bundle/nsis/duplicate.exe", "ambiguous fixture");

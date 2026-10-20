@@ -21,6 +21,13 @@ pub enum ErrorCategory {
     Unsupported,
     Unavailable,
     InvalidResponse,
+    InvalidLocalProfile,
+    UnsafePath,
+    DependencyMissing,
+    WriteFailed,
+    VerificationFailed,
+    RolledBack,
+    RollbackFailed,
     Unknown,
 }
 
@@ -30,11 +37,28 @@ impl ErrorCategory {
             "networkFailed" => Self::Network,
             "sshTimeout" | "sshFailed" | "forwardDenied" | "sshConfigChanged" => Self::Ssh,
             "sshAuth" | "authenticationRequired" => Self::Authentication,
-            "configConflict" | "remoteProfileConflict" => Self::Conflict,
-            "remoteUnsupported" | "toolVerificationUnsupported" => Self::Unsupported,
+            "configConflict"
+            | "remoteProfileConflict"
+            | "remoteProfileOutOfSync"
+            | "rollbackConflict" => Self::Conflict,
+            "remoteUnsupported"
+            | "toolVerificationUnsupported"
+            | "cliUnsupported"
+            | "customHome" => Self::Unsupported,
             "bridgeUnavailable" | "proxyUnavailable" | "routeUnavailable" | "relayUnavailable"
-            | "toolNotConfigured" => Self::Unavailable,
+            | "toolNotConfigured" | "ccUnavailable" | "stateUnavailable" => Self::Unavailable,
             "remoteFailed" => Self::InvalidResponse,
+            "localCodexProfileInvalid"
+            | "localClaudeProfileInvalid"
+            | "localCatalogMissing"
+            | "localCatalogUnsafe"
+            | "legacyModelSelectionRequired" => Self::InvalidLocalProfile,
+            "unsafePath" | "unsafeBinding" | "rootForbidden" => Self::UnsafePath,
+            "cliMissing" | "dependencyMissing" | "jsonEditorMissing" => Self::DependencyMissing,
+            "remoteCatalogWriteFailed" | "remoteConfigWriteFailed" => Self::WriteFailed,
+            "profileVerifyFailed" | "verifyFailed" => Self::VerificationFailed,
+            "writeRolledBack" => Self::RolledBack,
+            "rollbackFailed" => Self::RollbackFailed,
             _ => Self::Unknown,
         }
     }
@@ -111,6 +135,59 @@ pub struct DiagnosticSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn client_configuration_errors_keep_actionable_safe_categories() {
+        for (codes, category) in [
+            (
+                vec![
+                    "localCodexProfileInvalid",
+                    "localClaudeProfileInvalid",
+                    "localCatalogMissing",
+                    "localCatalogUnsafe",
+                    "legacyModelSelectionRequired",
+                ],
+                "invalidLocalProfile",
+            ),
+            (
+                vec!["unsafePath", "unsafeBinding", "rootForbidden"],
+                "unsafePath",
+            ),
+            (
+                vec!["cliMissing", "dependencyMissing", "jsonEditorMissing"],
+                "dependencyMissing",
+            ),
+            (
+                vec!["remoteCatalogWriteFailed", "remoteConfigWriteFailed"],
+                "writeFailed",
+            ),
+            (
+                vec!["profileVerifyFailed", "verifyFailed"],
+                "verificationFailed",
+            ),
+            (vec!["writeRolledBack"], "rolledBack"),
+            (vec!["rollbackFailed"], "rollbackFailed"),
+            (
+                vec![
+                    "configConflict",
+                    "remoteProfileConflict",
+                    "remoteProfileOutOfSync",
+                    "rollbackConflict",
+                ],
+                "conflict",
+            ),
+            (vec!["cliUnsupported", "customHome"], "unsupported"),
+            (vec!["ccUnavailable", "stateUnavailable"], "unavailable"),
+        ] {
+            for code in codes {
+                assert_eq!(
+                    serde_json::to_value(ErrorCategory::from_code(code)).unwrap(),
+                    category,
+                    "{code}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn proof_is_cached_and_invalidated_without_accepting_late_results() {
         let mut observation = DiagnosticObservation::default();

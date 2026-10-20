@@ -268,7 +268,7 @@ fn disable(
             state.paused_cc = state.summary.cc.take();
             state.summary.cc_status = None;
             state.cc_status = Status::Disconnected;
-            state.profile_sync_state = settings::ProfileSyncState::NotStarted;
+            state.summary.codex_profile_state = settings::ProfileSyncState::NotStarted;
             state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
             state.summary.codex_state = RuntimeState::Ready;
             state.summary.claude_state = RuntimeState::Ready;
@@ -413,7 +413,7 @@ fn enable(
             tool_adapter::by_id(tool).apply(&mut state.summary);
             set_cached_profile(state, Some(profile));
             if tool == tool_adapter::RemoteToolId::Codex {
-                state.profile_sync_state = settings::ProfileSyncState::RestartRequired;
+                state.summary.codex_profile_state = settings::ProfileSyncState::RestartRequired;
             } else {
                 state.summary.claude_profile_state = settings::ProfileSyncState::RestartRequired;
             }
@@ -455,7 +455,8 @@ fn apply_tool(
         target,
         remote_request("preview", adapter, port, Some(profile), Some(token)),
     )?;
-    if verified["profileHash"].as_str() != Some(profile.hash())
+    if verified["configured"].as_bool() != Some(true)
+        || verified["profileHash"].as_str() != Some(profile.hash())
         || verified["previousPort"].as_u64() != Some(u64::from(port))
     {
         return Err("profileVerifyFailed".into());

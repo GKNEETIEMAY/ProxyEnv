@@ -1,5 +1,6 @@
 import type { Copy } from "../../shared/i18n";
 import type { DiagnosticReportData } from "../../shared/types";
+import { bridgeErrorLabels } from "../remote-bridge/event-presentation";
 
 /** Pure formatting: one immutable safe snapshot can be rendered in any locale. */
 export function formatDiagnosticReport(data: DiagnosticReportData, copy: Copy): string {
@@ -31,7 +32,7 @@ export function formatDiagnosticReport(data: DiagnosticReportData, copy: Copy): 
   const os = ({ windows: "Windows", macos: "macOS", linux: "Linux" } as Record<string, string>)[data.os] ?? unknown;
   const bridge = data.remoteBridge;
   const runtime = {pending:copy.rbAdvPending, preparing:copy.rbAdvPreparing, ready:copy.rbAdvReady, warning:copy.rbAdvWarning};
-  const errorCategory = {network:copy.rbAdvErrorNetwork, ssh:copy.rbAdvErrorSsh, authentication:copy.rbAdvErrorAuthentication, conflict:copy.rbAdvErrorConflict, unsupported:copy.rbAdvErrorUnsupported, unavailable:copy.rbAdvErrorUnavailable, invalidResponse:copy.rbAdvErrorResponse, unknown:copy.rbAdvErrorUnknown};
+  const errorCategory = bridgeErrorLabels(copy);
   const proof = {notTested:copy.rbAdvNotVerified, testing:copy.rbCheckChecking, passed:copy.rbAdvVerified, failed:copy.rbAdvFailed};
   const bridgeDetails:string[] = [];
   if (bridge) {

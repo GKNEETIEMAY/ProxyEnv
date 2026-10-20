@@ -50,13 +50,13 @@ export function overviewToolLabel(copy: RemoteBridgeCopy, summary: BridgeSummary
   if (inspection.installation !== "installed" && inspection.extensionInstallation !== "installed") return `${toolInstallationLabel(copy, summary, id)}${configured ? ` · ${copy.rbInstallConfigured}` : ""}`;
   if (!configured) return copy.rbNotConfigured;
   if (!summary.cc || summary.ccStatus !== "connected") return copy.rbToolRouteUnavailable;
-  const profile = id === "claude" ? summary.claudeProfileState : undefined;
+  const profile = id === "claude" ? summary.claudeProfileState : summary.codexProfileState;
   if (profile === "conflict" || profile === "remoteChanged") return copy.rbProfileConflict;
   if (profile === "restartRequired") return copy.rbOverviewRestartRequired;
   if (profile === "localChanged") return copy.rbProfileLocalChanged;
   if (profile === "invalidLocalProfile") return copy.rbProfileInvalid;
   if (profile === "remoteUnavailable") return copy.rbToolRouteUnavailable;
-  // No Codex profile-sync evidence is returned by BridgeSummary. Do not invent it.
+  // Both tools report sync only after verified remote configuration writes.
   return profile === "synced" ? copy.rbOverviewSynced : copy.rbOverviewConfigured;
 }
 
@@ -65,7 +65,7 @@ export function overviewToolConfigurationState(summary: BridgeSummary, id: Remot
   if (!configured || !summary.cc || summary.ccStatus !== "connected") return "warning";
   const inspection = getRemoteToolAdapter(id).inspect(summary);
   if (inspection.installation !== "installed" && inspection.extensionInstallation !== "installed") return "warning";
-  const profile = id === "claude" ? summary.claudeProfileState : undefined;
+  const profile = id === "claude" ? summary.claudeProfileState : summary.codexProfileState;
   return profile === undefined || profile === "synced" ? "healthy" : "warning";
 }
 

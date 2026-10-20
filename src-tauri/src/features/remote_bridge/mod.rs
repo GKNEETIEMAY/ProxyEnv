@@ -172,6 +172,7 @@ pub struct Summary {
     pub environment: String,
     pub codex_configured: bool,
     pub claude_configured: bool,
+    pub codex_profile_state: settings::ProfileSyncState,
     pub claude_profile_state: settings::ProfileSyncState,
     #[serde(skip)]
     pub(crate) codex_verification: tool_adapter::RemoteToolVerification,
@@ -389,7 +390,6 @@ struct Store {
     follow_local_codex_profile: bool,
     local_codex_profile: Option<local_model::LocalCodexProfile>,
     local_claude_profile: Option<local_model::LocalClaudeProfile>,
-    profile_sync_state: settings::ProfileSyncState,
     profile_syncing: bool,
     connect_started_at: Option<Instant>,
 }
@@ -424,7 +424,6 @@ impl Default for Store {
             follow_local_codex_profile: true,
             local_codex_profile: None,
             local_claude_profile: None,
-            profile_sync_state: settings::ProfileSyncState::NotStarted,
             profile_syncing: false,
             connect_started_at: None,
         }
@@ -632,7 +631,7 @@ fn refresh(state: &mut Store) {
             state.local_codex_profile = None;
             state.local_claude_profile = None;
             state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
-            state.profile_sync_state = settings::ProfileSyncState::NotStarted;
+            state.summary.codex_profile_state = settings::ProfileSyncState::NotStarted;
             state.profile_syncing = false;
             return;
         }
@@ -799,7 +798,7 @@ fn finish_profile_sync(tool: tool_adapter::RemoteToolId, value: settings::Profil
     if let Ok(mut state) = store().lock() {
         state.profile_syncing = false;
         if tool == tool_adapter::RemoteToolId::Codex {
-            state.profile_sync_state = value;
+            state.summary.codex_profile_state = value;
         } else {
             state.summary.claude_profile_state = value;
         }
@@ -869,9 +868,9 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
             set_cached_profile(&mut state, Some(profile));
             state.profile_syncing = false;
             if tool == tool_adapter::RemoteToolId::Codex
-                && state.profile_sync_state != settings::ProfileSyncState::RestartRequired
+                && state.summary.codex_profile_state != settings::ProfileSyncState::RestartRequired
             {
-                state.profile_sync_state = settings::ProfileSyncState::Synced;
+                state.summary.codex_profile_state = settings::ProfileSyncState::Synced;
             } else if tool == tool_adapter::RemoteToolId::Claude
                 && state.summary.claude_profile_state != settings::ProfileSyncState::RestartRequired
             {
@@ -930,16 +929,24 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
             return;
         }
     };
-    if preview["profileHash"].as_str() == Some(profile.hash())
+    if preview["configured"].as_bool() == Some(true)
+        && preview["profileHash"].as_str() == Some(profile.hash())
         && preview["previousPort"].as_u64() == Some(u64::from(snapshot.1))
     {
         if let Ok(mut state) = store().lock() {
+            if state.connection_generation != snapshot.4
+                || !profile_sync_enabled(&state, tool)
+                || state.ai_relay.as_ref().is_none_or(|relay| relay.token().as_str() != snapshot.3.as_str())
+            {
+                state.profile_syncing = false;
+                return;
+            }
             set_cached_profile(&mut state, Some(profile));
             state.profile_syncing = false;
             if tool == tool_adapter::RemoteToolId::Codex
-                && state.profile_sync_state != settings::ProfileSyncState::RestartRequired
+                && state.summary.codex_profile_state != settings::ProfileSyncState::RestartRequired
             {
-                state.profile_sync_state = settings::ProfileSyncState::Synced;
+                state.summary.codex_profile_state = settings::ProfileSyncState::Synced;
             } else if tool == tool_adapter::RemoteToolId::Claude
                 && state.summary.claude_profile_state != settings::ProfileSyncState::RestartRequired
             {
@@ -1026,22 +1033,22 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
             adapter.apply(&mut state.summary);
             sync_tool_states(&mut state.summary);
             if tool == tool_adapter::RemoteToolId::Codex {
-                state.profile_sync_state = settings::ProfileSyncState::RestartRequired;
+                state.summary.codex_profile_state = settings::ProfileSyncState::RestartRequired;
             } else {
                 state.summary.claude_profile_state = settings::ProfileSyncState::RestartRequired;
             }
         } else if tool == tool_adapter::RemoteToolId::Codex && !state.follow_local_codex_profile {
             clear_cached_profile(&mut state, tool);
-            state.profile_sync_state = settings::ProfileSyncState::Disabled;
+            state.summary.codex_profile_state = settings::ProfileSyncState::Disabled;
         } else if state.child.is_none() || state.ai_relay.is_none() {
             clear_cached_profile(&mut state, tool);
             if tool == tool_adapter::RemoteToolId::Codex {
-                state.profile_sync_state = settings::ProfileSyncState::NotStarted;
+                state.summary.codex_profile_state = settings::ProfileSyncState::NotStarted;
             } else {
                 state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
             }
         } else if tool == tool_adapter::RemoteToolId::Codex {
-            state.profile_sync_state = settings::ProfileSyncState::RemoteUnavailable;
+            state.summary.codex_profile_state = settings::ProfileSyncState::RemoteUnavailable;
         } else {
             state.summary.claude_profile_state = settings::ProfileSyncState::RemoteUnavailable;
         }
@@ -1157,7 +1164,7 @@ pub fn start_monitor() {
                     state.local_codex_profile = None;
                     state.local_claude_profile = None;
                     state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
-                    state.profile_sync_state = if state.follow_local_codex_profile {
+                    state.summary.codex_profile_state = if state.follow_local_codex_profile {
                         settings::ProfileSyncState::NotStarted
                     } else {
                         settings::ProfileSyncState::Disabled
@@ -1169,7 +1176,7 @@ pub fn start_monitor() {
                     if !profile_sync_enabled(&state, tool) {
                         clear_cached_profile(&mut state, tool);
                         if tool == tool_adapter::RemoteToolId::Codex {
-                            state.profile_sync_state = if state.follow_local_codex_profile {
+                            state.summary.codex_profile_state = if state.follow_local_codex_profile {
                                 settings::ProfileSyncState::NotStarted
                             } else {
                                 settings::ProfileSyncState::Disabled
@@ -1185,7 +1192,7 @@ pub fn start_monitor() {
                             Ok(false) => {}
                             Ok(true) => {
                                 if tool == tool_adapter::RemoteToolId::Codex {
-                                    state.profile_sync_state =
+                                    state.summary.codex_profile_state =
                                         settings::ProfileSyncState::LocalChanged;
                                 } else {
                                     state.summary.claude_profile_state =
@@ -1196,7 +1203,7 @@ pub fn start_monitor() {
                             }
                             Err(_) => {
                                 if tool == tool_adapter::RemoteToolId::Codex {
-                                    state.profile_sync_state =
+                                    state.summary.codex_profile_state =
                                         settings::ProfileSyncState::InvalidLocalProfile;
                                 } else {
                                     state.summary.claude_profile_state =
@@ -1525,7 +1532,7 @@ pub fn recent_events(limit: usize) -> BridgeResult<Vec<events::BridgeEvent>> {
 pub fn model_settings() -> BridgeResult<settings::RemoteBridgeSettingsView> {
     let state = lock()?;
     let mut view = settings::current_view(None)?;
-    view.profile_state = state.profile_sync_state;
+    view.profile_state = state.summary.codex_profile_state;
     if let Some(profile) = state.local_codex_profile.as_ref() {
         view.model = Some(profile.model.clone());
         view.profile_hash = Some(profile.hash.clone());
@@ -1542,13 +1549,13 @@ pub fn save_model_settings(
     state.follow_local_codex_profile = follow;
     if !follow {
         state.local_codex_profile = None;
-        state.profile_sync_state = settings::ProfileSyncState::Disabled;
+        state.summary.codex_profile_state = settings::ProfileSyncState::Disabled;
     } else if state.child.is_some() && state.ai_relay.is_some() && state.summary.codex_configured {
-        state.profile_sync_state = settings::ProfileSyncState::LocalChanged;
+        state.summary.codex_profile_state = settings::ProfileSyncState::LocalChanged;
     } else {
-        state.profile_sync_state = settings::ProfileSyncState::NotStarted;
+        state.summary.codex_profile_state = settings::ProfileSyncState::NotStarted;
     }
-    view.profile_state = state.profile_sync_state;
+    view.profile_state = state.summary.codex_profile_state;
     Ok(view)
 }
 pub fn report() -> Report {
@@ -2656,7 +2663,7 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     state.local_codex_profile = None;
     state.local_claude_profile = None;
     state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
-    state.profile_sync_state = if state.follow_local_codex_profile {
+    state.summary.codex_profile_state = if state.follow_local_codex_profile {
         settings::ProfileSyncState::NotStarted
     } else {
         settings::ProfileSyncState::Disabled
@@ -3211,7 +3218,7 @@ fn config_preview_locked(
     if adapter.id() == tool_adapter::RemoteToolId::Codex
         && value["remoteChanged"].as_bool() == Some(true)
     {
-        state.profile_sync_state = settings::ProfileSyncState::RemoteChanged;
+        state.summary.codex_profile_state = settings::ProfileSyncState::RemoteChanged;
     } else if adapter.id() == tool_adapter::RemoteToolId::Claude
         && value["remoteChanged"].as_bool() == Some(true)
     {
@@ -3362,7 +3369,10 @@ fn config_apply_locked(state: &mut Store, id: String) -> BridgeResult<()> {
         .local_profile
         .as_ref()
         .is_none_or(|profile| verified["profileHash"].as_str() == Some(profile.hash()));
-    if verified["previousPort"].as_u64() != Some(u64::from(pending.port)) || !profile_verified {
+    if verified["configured"].as_bool() != Some(true)
+        || verified["previousPort"].as_u64() != Some(u64::from(pending.port))
+        || !profile_verified
+    {
         return Err(if rollback().is_ok() {
             "writeRolledBack"
         } else {
@@ -3375,7 +3385,7 @@ fn config_apply_locked(state: &mut Store, id: String) -> BridgeResult<()> {
         let tool = pending.preview.tool;
         set_cached_profile(state, Some(profile));
         if tool == tool_adapter::RemoteToolId::Codex {
-            state.profile_sync_state = settings::ProfileSyncState::Synced;
+            state.summary.codex_profile_state = settings::ProfileSyncState::Synced;
         } else {
             state.summary.claude_profile_state = settings::ProfileSyncState::Synced;
         }
@@ -3463,7 +3473,7 @@ pub fn config_restore(id: String, confirmed: bool) -> BridgeResult<()> {
         tool_adapter::by_id(pending.preview.tool).restore(&mut state.summary);
         if pending.preview.tool == tool_adapter::RemoteToolId::Codex {
             state.local_codex_profile = None;
-            state.profile_sync_state = settings::ProfileSyncState::NotStarted;
+            state.summary.codex_profile_state = settings::ProfileSyncState::NotStarted;
         } else {
             state.local_claude_profile = None;
             state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
@@ -3910,6 +3920,28 @@ mod tests {
         use tool_adapter::RemoteToolId::{Claude, Codex};
         assert_eq!(profile_poll_order(Codex), [Claude, Codex]);
         assert_eq!(profile_poll_order(Claude), [Codex, Claude]);
+    }
+
+    #[test]
+    fn summary_exposes_independent_codex_sync_state_after_reenable() {
+        use settings::ProfileSyncState;
+        let mut summary = Summary::default();
+        summary.claude_profile_state = ProfileSyncState::InvalidLocalProfile;
+        let adapter = tool_adapter::by_id(tool_adapter::RemoteToolId::Codex);
+        for synced in [true, false, true] {
+            if synced {
+                adapter.apply(&mut summary);
+                summary.codex_profile_state = ProfileSyncState::Synced;
+            } else {
+                adapter.restore(&mut summary);
+                summary.codex_profile_state = ProfileSyncState::NotStarted;
+            }
+            let value = serde_json::to_value(exposed_summary(&summary)).unwrap();
+            assert_eq!(value["codexConfigured"], synced);
+            assert_eq!(value["codexProfileState"], if synced { "synced" } else { "notStarted" });
+            assert_eq!(value["claudeProfileState"], "invalidLocalProfile");
+            assert_eq!(value["tools"][0]["configured"], synced);
+        }
     }
 
     #[test]
