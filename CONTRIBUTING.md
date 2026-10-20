@@ -7,8 +7,8 @@ MSVC. Repository/package identities retain the legacy ProxyEnv name for compatib
 Read [Architecture](docs/ARCHITECTURE.md), [Internal contracts](docs/INTERNAL_CONTRACTS.md)
 and [Security](SECURITY.md) before changing an IPC or persistence boundary.
 
-RouteSpan v0.2.0 is the public stable baseline. The `v0.2.1dev` branch targets
-v0.2.1 development, not a published release. Code completion does not prove
+RouteSpan v0.2.1 is the public stable baseline, following v0.2.0. The release was
+built from `v0.2.1dev` at tag `v0.2.1`. Code completion does not prove
 packaged-device acceptance. See [release QA](docs/RELEASE_QA_V0.2.md);
 detailed device records remain private.
 

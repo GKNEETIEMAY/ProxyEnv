@@ -2,10 +2,10 @@
 
 English · [简体中文](GETTING_STARTED.zh-CN.md)
 
-This guide describes the RouteSpan v0.2.0 stable UI. Install an
-[official v0.2.0 package](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0).
-Legacy ProxyEnv v0.1.3 NSIS users can use About → Check for updates;
-v0.1.4 remains a Draft predecessor baseline. A preview is not a signed update release.
+This guide describes the RouteSpan v0.2.1 stable UI. Install an
+[official v0.2.1 package](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1).
+Existing RouteSpan and legacy ProxyEnv NSIS users can use About → Check for updates.
+v0.1.4 is a public historical release. A preview is not a signed update release.
 
 ## Before installing / 安装前
 

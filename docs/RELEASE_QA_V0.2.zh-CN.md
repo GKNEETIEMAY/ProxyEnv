@@ -9,7 +9,16 @@
 
 ## 基线与发布状态
 
-**当前状态（2026-10-13）：RouteSpan v0.2.0 已发布并设为最新稳定版，发行门槛已关闭。**
+**当前状态（2026-10-20）：RouteSpan v0.2.1 已发布并设为最新稳定版。**
+[公开 v0.2.1 发行](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1)，冻结源码
+`85be2e17d185ccff526936e0de3321ca99463789`。
+[源码 CI](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/39395982837) 与
+[签名发行构建](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/39395982821) 均通过。
+独立下载的 Release 与 Actions 产物字节一致，SHA-256、使用 v0.2.0 公钥验证的更新签名，
+以及仓库/工作流/tag/提交来源证明均验证通过。维护者确认升级及远端功能验收，设备记录私下保存。
+旧品牌 ProxyEnv v0.1.4 已于 2026-10-13 公开发布。
+
+**前版记录（2026-10-13）：RouteSpan v0.2.0 已发布，当次发行门槛已关闭。**
 [公开发行](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0)，冻结源码
 `0a731b47d17bd5d2f8a4885cbf926a1bac68d35f`。
 [源码 CI](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38266259096) 与

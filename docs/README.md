@@ -2,9 +2,9 @@
 
 English · [简体中文](README.zh-CN.md)
 
-Current documentation describes the RouteSpan v0.2.0 stable release, published on
-2026-10-13; earlier public packages do not contain Remote Bridge. The legacy brand
-was ProxyEnv; v0.1.4 remains a Draft predecessor baseline.
+Current documentation describes the RouteSpan v0.2.1 stable release, published on
+2026-10-20; earlier public packages do not contain Remote Bridge. The legacy brand
+was ProxyEnv; v0.1.4 is a public historical release, published on 2026-10-13.
 See [English README](../README.md) or [中文 README](../README.zh-CN.md).
 
 ## Users / 用户

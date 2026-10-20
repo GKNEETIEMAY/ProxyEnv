@@ -145,7 +145,7 @@ test("EN/ZH README section order, capability count, entries and documentation li
   assert.deepEqual(featureCounts(en), featureCounts(zh));
   for (const [source, minimumLength, maximumLength] of [[en, 6000, 10000], [zh, 5000, 9000]]) {
     for (const label of ["Codex CLI", "Claude Code CLI", "VS Code Remote", "MobaXterm", "Skills"]) assert.ok(source.includes(label));
-    for (const version of ["v0.1.4", "v0.1.3", "v0.2.0", "Draft", "X-ProxyEnv-Session"]) assert.ok(source.includes(version));
+    for (const version of ["v0.1.4", "v0.1.3", "v0.2.0", "v0.2.1", "X-ProxyEnv-Session"]) assert.ok(source.includes(version));
     assert.equal(source.split("\n").filter(line => line.startsWith("| ")).length, 8);
     assert.match(source, /<img src="assets\/brand\/routespan-mark\.png" width="88" alt="RouteSpan">/);
     // Illustration links/badges add markup, not reading length. Keep the prose budget.
@@ -162,19 +162,20 @@ test("EN/ZH README section order, capability count, entries and documentation li
   assert.match(zh, /不能隔离共享 Linux/);
   assert.match(en, /not protect against root/);
   assert.match(zh, /不能防御服务器 root/);
-  assert.match(en, /RouteSpan v0\.2\.0 is the latest public stable release/);
-  assert.match(zh, /RouteSpan v0\.2\.0 是最新公开稳定版/);
+  assert.match(en, /RouteSpan v0\.2\.1 is the latest public stable release/);
+  assert.match(zh, /RouteSpan v0\.2\.1 是最新公开稳定版/);
   assert.match(en, /automatic external egress check/);
   assert.match(zh, /自动执行一次外网出口检查/);
 });
 
 test("published v0.2 status agrees across current EN/ZH docs without rewriting historical evidence", () => {
-  const releaseUrl = "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0";
+  const releaseUrl = "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1";
   for (const file of ["README.md", "README.zh-CN.md", "SECURITY.md", "SECURITY.zh-CN.md",
     ...["README", "GETTING_STARTED", "REMOTE_BRIDGE", "ROADMAP", "INTERNAL_CONTRACTS", "release-security"]
       .flatMap(name => [`docs/${name}.md`, `docs/${name}.zh-CN.md`])]) {
     const source = read(file);
-    assert.match(source, /RouteSpan v0\.2\.0/, file);
+    assert.match(source, /RouteSpan v0\.2\.1/, file);
+    assert.doesNotMatch(source, /v0\.1\.4[^\n。]*?(?:remains a Draft|仍为 Draft)|Its GitHub Release remains Draft/, file);
     assert.doesNotMatch(source, /not yet (?:publicly )?released|is unreleased|v0\.2\.0[^\n。]*尚未|v0\.2\.0[^\n。]*未发布/i, file);
     assert.doesNotMatch(source, /latest public release is v0\.1\.3|最新公开(?: Release|版)为 v0\.1\.3/, file);
   }
@@ -186,13 +187,15 @@ test("published v0.2 status agrees across current EN/ZH docs without rewriting h
     const source = read(file);
     assert.ok(source.includes("0a731b47d17bd5d2f8a4885cbf926a1bac68d35f"));
     assert.ok(source.includes("38335015721"));
+    assert.ok(source.includes("85be2e17d185ccff526936e0de3321ca99463789"));
+    assert.ok(source.includes("39395982821"));
     assert.match(source, /historical snapshots|历史快照/);
     assert.match(source, /kept privately|私下保存/);
     assert.match(source, /^\|.*\| BLOCKED \|$/m, "Preserve earlier failed-build results");
   }
 });
 
-test("v0.2.1 development is separate from published baseline and private device acceptance", () => {
+test("v0.2.1 publication retains its source branch and private device acceptance", () => {
   for (const file of ["CONTRIBUTING.md", "CONTRIBUTING.zh-CN.md", "docs/ROADMAP.md", "docs/ROADMAP.zh-CN.md"]) {
     const source = read(file);
     assert.ok(source.includes("v0.2.1dev"), file);
@@ -200,6 +203,7 @@ test("v0.2.1 development is separate from published baseline and private device 
     assert.match(source, /private|私下保存/, file);
     assert.doesNotMatch(source, /v0\.2\.0 is unreleased|v0\.2\.0 尚未发布/, file);
     if (file.startsWith("docs/ROADMAP")) {
+      assert.match(source, /Released: RouteSpan v0\.2\.1|已发布：RouteSpan v0\.2\.1/, file);
       assert.ok(links(source).includes("../.github/release-notes/v0.2.1.md"), file);
       assert.match(source, /separate authorization|分别需要授权/, file);
       assert.match(source, /contrast exceptions|对比度例外/, file);

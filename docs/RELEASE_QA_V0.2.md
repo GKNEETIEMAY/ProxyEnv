@@ -10,7 +10,17 @@ records are kept privately at the maintainer's request, not uploaded to GitHub.
 
 ## Baseline and release state
 
-**Current status (2026-10-13): RouteSpan v0.2.0 is published and latest; release gates are closed.**
+**Current status (2026-10-20): RouteSpan v0.2.1 is published and latest.**
+[Public v0.2.1 release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1), frozen source
+`85be2e17d185ccff526936e0de3321ca99463789`.
+[Source CI](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/39395982837) and
+[signed release build](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/39395982821) passed.
+Downloaded Release and Actions bytes match; SHA-256, updater signatures against
+the v0.2.0 public key, and repository/workflow/tag/commit provenance were verified.
+The maintainer confirmed upgrade and remote-function acceptance; device records remain private.
+Legacy ProxyEnv v0.1.4 was publicly released on 2026-10-13.
+
+**Previous release (2026-10-13): RouteSpan v0.2.0 was published; release gates were closed.**
 [Public release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0), frozen source
 `0a731b47d17bd5d2f8a4885cbf926a1bac68d35f`.
 [Source CI](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/38266259096) and

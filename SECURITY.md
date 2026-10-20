@@ -2,8 +2,8 @@
 
 English · [简体中文](SECURITY.zh-CN.md)
 
-RouteSpan v0.2.0 is the current public stable release, published on 2026-10-13.
-The legacy brand was ProxyEnv; v0.1.4 remains a Draft predecessor baseline.
+RouteSpan v0.2.1 is the current public stable release, published on 2026-10-20.
+The legacy brand was ProxyEnv; v0.1.4 is a public historical release.
 This policy describes security boundaries, not a guarantee for every environment.
 See [release QA](docs/RELEASE_QA_V0.2.md).
 

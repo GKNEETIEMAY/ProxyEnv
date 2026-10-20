@@ -2,8 +2,8 @@
 
 [English](REMOTE_BRIDGE.md) · 简体中文
 
-这是 RouteSpan v0.2.0 远程桥接的唯一当前用户指南的中文版。它将选定的本机网络/AI 能力延伸到
-非 root Linux SSH 账户，不是 VPN 或代理内核。RouteSpan v0.2.0 已公开发布。
+这是 RouteSpan v0.2.1 远程桥接的唯一当前用户指南的中文版。它将选定的本机网络/AI 能力延伸到
+非 root Linux SSH 账户，不是 VPN 或代理内核。RouteSpan v0.2.1 已公开发布。
 安装要求与首次使用见[快速开始](GETTING_STARTED.zh-CN.md)。
 
 ## 连接来源

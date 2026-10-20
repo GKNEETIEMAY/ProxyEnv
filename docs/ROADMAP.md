@@ -5,12 +5,12 @@ English · [简体中文](ROADMAP.zh-CN.md)
 ## Previous stable baseline
 
 ProxyEnv v0.1.4 is the maintainer-designated legacy-brand stable baseline.
-Its GitHub Release remains Draft; v0.1.3 was the previous public release.
-This designation does not make a draft publicly downloadable.
+Its GitHub Release was published on 2026-10-13. Both v0.1.3 and v0.1.4 are
+public historical releases; RouteSpan v0.2.0 is the predecessor to v0.2.1.
 
 ## Released: RouteSpan v0.2.0
 
-Published as the latest stable release on 2026-10-13: Local Environment, Remote Bridge,
+Published on 2026-10-13: Local Environment, Remote Bridge,
 CC Switch AI route extension, tool readiness, managed Skills, Overview/Advanced
 and RouteSpan branding. The release gates are closed, including the production
 updater smoke. [Release QA](RELEASE_QA_V0.2.md) separates current publication status
@@ -24,19 +24,22 @@ builds now require a pinned Rust dependency audit before packaging. These change
 affect subsequent source/builds only: the published v0.2.0 assets are unchanged,
 its tag has not moved, and no released binary has been replaced or claimed repaired.
 
-## In development: RouteSpan v0.2.1
+## Released: RouteSpan v0.2.1
 
-The `v0.2.1dev` branch targets update reliability and installation guards, four
+Published on 2026-10-20 from `v0.2.1dev` at `85be2e1`: update reliability and installation guards, four
 palettes, safe tray actions, opt-in desktop reminders and focused pixel-animation
 refinements. Existing local proxy, CC Switch, CLI/plugin and managed Skills
-boundaries remain unchanged. Development release notes are prepared in
-[four languages](../.github/release-notes/v0.2.1.md); they are not a publication notice.
+boundaries remain unchanged. Codex/Claude configuration state, route warnings and
+compact event messages are also improved. See the
+[public release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1) and
+[four-language notes](../.github/release-notes/v0.2.1.md).
 
 Automated checks do not close real Windows 10/11, DPI, installation/upgrade,
 background notification or remote-server acceptance. User-requested white labels
 on pastel controls have documented contrast exceptions. Detailed device records
-remain private. Tag/signed Draft and public Publish require separate authorization;
-v0.2.0 remains the published stable baseline until that process completes.
+remain private. The maintainer confirmed upgrade and remote-function acceptance.
+CI, signed packaging and independent artifact verification passed. Future tag/signed
+Draft and public Publish steps continue to require separate authorization.
 
 ## Gates retained for future releases
 

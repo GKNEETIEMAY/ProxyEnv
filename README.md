@@ -15,12 +15,12 @@
 
 ## Release status
 
-**RouteSpan v0.2.0 is the latest public stable release**, published on 2026-10-13.
+**RouteSpan v0.2.1 is the latest public stable release**, published on 2026-10-20.
 Download the Windows x64 NSIS, MSI or portable package from the
-[v0.2.0 release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0).
+[v0.2.1 release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1).
 
-The legacy brand was ProxyEnv: v0.1.3 was the previous public release;
-v0.1.4 remains a Draft predecessor baseline, not a public release. Existing NSIS
+The legacy brand was ProxyEnv: v0.1.3 and v0.1.4 are public historical releases;
+v0.1.4 was published on 2026-10-13. The previous RouteSpan stable release is v0.2.0. Existing NSIS
 users can use **About → Check for updates**; MSI and portable users update manually.
 Manual previews are not stable updates. Earlier public packages do not include Remote Bridge.
 
@@ -110,7 +110,7 @@ CLI or extension may need a restart or reload to consume updated model settings.
 
 ## Quick start
 
-1. Install the official v0.2.0 Windows x64 package.
+1. Install the official v0.2.1 Windows x64 package.
 2. Start your local proxy client; confirm the selected endpoint in **Local Environment**.
 3. For AI access, start CC Switch and enable the corresponding local route first.
 4. In **Remote Bridge**, select or add an SSH connection and choose its capabilities.
@@ -126,7 +126,7 @@ See [Getting started](docs/GETTING_STARTED.md) for prerequisites and
 
 ## Supported remote development tools
 
-| Tool or entry | v0.2.0 behavior |
+| Tool or entry | v0.2.1 behavior |
 | --- | --- |
 | Codex CLI | Supported `0.x` versions from `0.134`; standard remote user configuration |
 | Claude Code CLI | Supported `2.x`; session-header access requires `2.1.227` or newer |
@@ -168,11 +168,11 @@ Read [Security](SECURITY.md) before using a shared host, and
 
 ## Current v0.2 status
 
-v0.2.0 ships Local Environment, Remote Bridge, CC Switch route extension,
+v0.2.1 ships Local Environment, Remote Bridge, CC Switch route extension,
 tool readiness, managed Skills and Overview/Advanced, preserving the legacy
 installation and updater identity. Source CI and the signed release workflow passed;
-the frozen artifacts were verified before publication and the production updater
-smoke was accepted. Tauri update signatures are not Windows Authenticode signatures.
+the frozen artifacts were independently verified, and the maintainer confirmed
+upgrade and remote-function acceptance. Tauri update signatures are not Windows Authenticode signatures.
 
 See [v0.2 release QA](docs/RELEASE_QA_V0.2.md) for release status and historical
 checkpoints, and [Roadmap](docs/ROADMAP.md) for future work. Detailed acceptance

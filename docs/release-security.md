@@ -2,10 +2,10 @@
 
 English · [简体中文](release-security.zh-CN.md)
 
-This defines the formal release trust model. RouteSpan v0.2.0 is the latest public
-stable release, published on 2026-10-13. The legacy brand was ProxyEnv; v0.1.4
-remains a Draft predecessor baseline. v0.2.0's signed updater artifacts, checksums
-and provenance were externally verified; the production updater smoke was accepted.
+This defines the formal release trust model. RouteSpan v0.2.1 is the latest public
+stable release, published on 2026-10-20. The legacy brand was ProxyEnv; v0.1.4
+is a public historical release. v0.2.1's updater signatures, checksums and provenance
+were independently verified. The maintainer confirmed upgrade and remote-function acceptance.
 Publication and evidence remain separate from local preview packaging.
 See [Roadmap](ROADMAP.md) and [release QA](RELEASE_QA_V0.2.md).
 
@@ -61,7 +61,9 @@ Before publication:
 - Real device: upgrade a formal v0.2.0 NSIS installation, verify before installation, restart into v0.2.1, and retain settings and SSH entries.
 - Failure protection: failed signatures or interrupted downloads must not install; v0.2.1 must not reinstall itself or downgrade to v0.2.0.
 
-Real-artifact and device checks remain pending until the v0.2.1 release candidate is built.
+The v0.2.1 artifacts passed independent verification against the v0.2.0 public key.
+The maintainer confirmed real-device upgrade and remote-function acceptance on 2026-10-20;
+detailed device evidence remains private. See the release QA summary.
 
 `.github/workflows/release.yml` verifies matching tag/package/Cargo/Tauri versions
 and localized notes, installs locked dependencies, audits/builds/tests, packages

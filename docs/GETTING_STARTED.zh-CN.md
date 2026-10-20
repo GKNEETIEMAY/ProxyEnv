@@ -2,9 +2,9 @@
 
 [English](GETTING_STARTED.md) · 简体中文
 
-本指南说明 RouteSpan v0.2.0 稳定版界面的用法。请安装
-[官方 v0.2.0 发行包](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.0)。
-旧品牌 ProxyEnv v0.1.3 NSIS 用户可使用关于 → 检查更新；v0.1.4 仍为 Draft 前版基线。
+本指南说明 RouteSpan v0.2.1 稳定版界面的用法。请安装
+[官方 v0.2.1 发行包](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1)。
+已有 RouteSpan 和旧品牌 ProxyEnv NSIS 用户可使用关于 → 检查更新；v0.1.4 已公开发布，为历史版本。
 预览包不是已签名的自动更新版本。
 
 ## 安装前

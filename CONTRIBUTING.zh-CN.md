@@ -6,7 +6,7 @@ RouteSpan 面向 Windows 10/11 x64，使用 Tauri 2、Vue 3、TypeScript 和 Rus
 仓库/package 为兼容保留旧品牌 ProxyEnv 标识。修改 IPC 或持久化边界前，请阅读
 [架构](docs/ARCHITECTURE.zh-CN.md)、[内部契约](docs/INTERNAL_CONTRACTS.zh-CN.md)和[安全策略](SECURITY.zh-CN.md)。
 
-RouteSpan v0.2.0 是公开稳定基线。`v0.2.1dev` 分支面向 v0.2.1 开发，不代表已发布。
+RouteSpan v0.2.1 是当前公开稳定基线，前版为 v0.2.0；本次发行来自 `v0.2.1dev` 分支的 `v0.2.1` 标签。
 代码完成不代表安装包实机验收，状态见[发行验收](docs/RELEASE_QA_V0.2.zh-CN.md)；详细设备记录仍私下保存。
 
 ## 本地检查
