@@ -1243,7 +1243,7 @@ test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debo
   assert.equal((sync.match(/remote_request\(\s*"preview"/g) ?? []).length,1,"readback receipt avoids a third SSH round trip");
   assert.match(sync,/applied\["profileHash"\]/);
   assert.match(sync,/claude_profile_state != settings::ProfileSyncState::RestartRequired/);
-  assert.match(profile,/profile_stamp_changed[\s\S]*file_stamp\(&config_path\)[\s\S]*profile\.catalog_path\.as_ref\(\)/);
+  assert.match(profile,/profile_stamp_changed[\s\S]*file_stamp\(&config_path\)[\s\S]*profile\s*\.catalog_path\s*\.as_ref\(\)/);
   const lightweight=profile.slice(profile.indexOf("pub fn profile_stamp_changed"),profile.indexOf("#[cfg(test)]"));
   assert.doesNotMatch(lightweight,/safe_read|from_slice|from_str/);
 });

@@ -22,6 +22,7 @@ pub enum ErrorCategory {
     Unavailable,
     InvalidResponse,
     InvalidLocalProfile,
+    LocalRouteInactive,
     UnsafePath,
     DependencyMissing,
     WriteFailed,
@@ -48,6 +49,7 @@ impl ErrorCategory {
             "bridgeUnavailable" | "proxyUnavailable" | "routeUnavailable" | "relayUnavailable"
             | "toolNotConfigured" | "ccUnavailable" | "stateUnavailable" => Self::Unavailable,
             "remoteFailed" => Self::InvalidResponse,
+            "localRouteInactive" => Self::LocalRouteInactive,
             "localCodexProfileInvalid"
             | "localClaudeProfileInvalid"
             | "localCatalogMissing"
@@ -177,6 +179,7 @@ mod tests {
             ),
             (vec!["cliUnsupported", "customHome"], "unsupported"),
             (vec!["ccUnavailable", "stateUnavailable"], "unavailable"),
+            (vec!["localRouteInactive"], "localRouteInactive"),
         ] {
             for code in codes {
                 assert_eq!(

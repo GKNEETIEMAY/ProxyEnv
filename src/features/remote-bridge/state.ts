@@ -8,7 +8,7 @@ export type PostConnectStatus = "idle" | "preparing" | "ready" | "partial";
 export type RemoteRuntimeState = "pending" | "preparing" | "ready" | "warning";
 export interface PhaseTiming { phase:string; durationMs:number; outcome:string }
 export type DiagnosticState = "notTested" | "testing" | "passed" | "failed";
-export type BridgeErrorCategory = "network" | "ssh" | "authentication" | "conflict" | "unsupported" | "unavailable" | "invalidResponse" | "invalidLocalProfile" | "unsafePath" | "dependencyMissing" | "writeFailed" | "verificationFailed" | "rolledBack" | "rollbackFailed" | "unknown";
+export type BridgeErrorCategory = "network" | "ssh" | "authentication" | "conflict" | "unsupported" | "unavailable" | "invalidResponse" | "invalidLocalProfile" | "localRouteInactive" | "unsafePath" | "dependencyMissing" | "writeFailed" | "verificationFailed" | "rolledBack" | "rollbackFailed" | "unknown";
 export interface DiagnosticObservation { state:DiagnosticState; checkedAt:number|null; errorCode:BridgeErrorCategory|null; durationMs:number|null }
 export interface DiagnosticSnapshot { generalProxyEgress:DiagnosticObservation; aiRouteVerification:DiagnosticObservation; serverDirect?:DiagnosticObservation; serverInternet?:"reachable"|"unreachable"|"unknown"|null }
 export interface SecuritySnapshot { generalProxyAuth:"none"; aiRouteAuth:"session"; remoteBindScope:"loopback"; shellScope:"sessionOnly" }

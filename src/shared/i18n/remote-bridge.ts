@@ -657,6 +657,8 @@ const overviewKo: OverviewLabels = {
 };
 const advancedEn = {
   rbAdvConfigurationFailed: "Configuration failed",
+  rbLocalRouteInactive: "Local client is not using this CC Switch route",
+  rbLocalRouteInactiveHint: "Choose an available provider and enable its tool route in CC Switch. Official account login in the local client is not automatically shared with the remote client.",
   rbAdvOperationFailed: "Failed",
   rbAdvErrorUnsafePath: "Path or permission safety check failed",
   rbAdvErrorDependencyMissing: "Required tool or dependency missing",
@@ -690,6 +692,8 @@ const advancedEn = {
 type AdvancedLabels = { [K in keyof typeof advancedEn]: string };
 const advancedZh: AdvancedLabels = {
   rbAdvConfigurationFailed: "配置失败",
+  rbLocalRouteInactive: "本机客户端未接入 CC Switch 路由",
+  rbLocalRouteInactiveHint: "请在 CC Switch 中选择可用供应商并开启相应工具路由。本机客户端的官方账号登录不会自动共享到远端，选择官方预设不代表路由已可用。",
   rbAdvOperationFailed: "操作失败",
   rbAdvErrorUnsafePath: "路径或权限安全检查未通过",
   rbAdvErrorDependencyMissing: "缺少必需工具或依赖",
@@ -722,6 +726,8 @@ const advancedZh: AdvancedLabels = {
 };
 const advancedJa: AdvancedLabels = {
   rbAdvConfigurationFailed: "設定失敗",
+  rbLocalRouteInactive: "ローカルクライアントは CC Switch ルートを使用していません",
+  rbLocalRouteInactiveHint: "CC Switch で利用可能なプロバイダーを選び、対象ツールのルートを有効にしてください。ローカルクライアントの公式アカウントのログインはリモートへ自動共有されません。",
   rbAdvOperationFailed: "操作失敗",
   rbAdvErrorUnsafePath: "パスまたは権限の安全確認に失敗",
   rbAdvErrorDependencyMissing: "必要なツールまたは依存関係が不足",
@@ -754,6 +760,8 @@ const advancedJa: AdvancedLabels = {
 };
 const advancedKo: AdvancedLabels = {
   rbAdvConfigurationFailed: "설정 실패",
+  rbLocalRouteInactive: "로컬 클라이언트가 CC Switch 경로를 사용하지 않습니다",
+  rbLocalRouteInactiveHint: "CC Switch에서 사용 가능한 공급자를 선택하고 도구 경로를 켜세요. 로컬 클라이언트의 공식 계정 로그인은 원격 클라이언트에 자동 공유되지 않습니다.",
   rbAdvOperationFailed: "작업 실패",
   rbAdvErrorUnsafePath: "경로 또는 권한 안전 검사 실패",
   rbAdvErrorDependencyMissing: "필수 도구 또는 의존성 없음",
@@ -985,6 +993,7 @@ export function bridgeError(code: unknown, copy: Labels): string {
   if (value === "invalidConnectionDestination") return copy.rbConnectionDestinationInvalid;
   if (value === "invalidConnectionPort") return copy.rbConnectionPortInvalid;
   if (value === "ccUnavailable") return copy.rbCcError;
+  if (value === "localRouteInactive") return copy.rbLocalRouteInactiveHint;
   if (value === "bridgeUnavailable") return copy.rbBridgeUnavailableError;
   if (value === "toolNotConfigured") return copy.rbConfigureBeforeLaunch;
   if (value === "toolVerificationUnsupported") return copy.rbToolVerifyFailed;

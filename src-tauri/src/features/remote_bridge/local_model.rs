@@ -19,6 +19,7 @@ pub enum ProfileError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalCodexProfile {
     pub model: String,
+    pub route_port: Option<u16>,
     pub catalog_path: Option<PathBuf>,
     pub catalog_bytes: Vec<u8>,
     pub hash: String,
@@ -36,6 +37,7 @@ pub struct LocalCodexProfileStamp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalClaudeProfile {
     pub model: Option<String>,
+    pub route_port: Option<u16>,
     pub settings_bytes: Vec<u8>,
     pub hash: String,
     pub stamp: LocalClaudeProfileStamp,
@@ -56,6 +58,24 @@ impl LocalClaudeProfile {
 
 fn safe_text(value: &str, max: usize) -> bool {
     !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
+}
+
+// Only retain a local port as route evidence; never project URLs or credentials.
+fn loopback_route_port(value: Option<&str>) -> Option<u16> {
+    let url = reqwest::Url::parse(value?).ok()?;
+    if url.scheme() != "http"
+        || !matches!(
+            url.host_str(),
+            Some("127.0.0.1" | "localhost" | "::1" | "[::1]")
+        )
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    url.port().filter(|port| *port >= 1024)
 }
 
 #[cfg(windows)]
@@ -176,6 +196,12 @@ fn inspect_claude_profile_at(home: &Path) -> Result<LocalClaudeProfile, ProfileE
         return Err(ProfileError::Invalid);
     }
     let source = root.as_object().ok_or(ProfileError::Invalid)?;
+    let route_port = loopback_route_port(
+        source
+            .get("env")
+            .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
+            .and_then(serde_json::Value::as_str),
+    );
     let mut projected = serde_json::Map::new();
     for key in [
         "model",
@@ -222,6 +248,7 @@ fn inspect_claude_profile_at(home: &Path) -> Result<LocalClaudeProfile, ProfileE
     let hash = hex::encode(Sha256::digest(&settings_bytes));
     Ok(LocalClaudeProfile {
         model,
+        route_port,
         settings_bytes,
         hash,
         stamp,
@@ -273,12 +300,25 @@ fn inspect_codex_profile_at(home: &Path) -> Result<LocalCodexProfile, ProfileErr
     let config_text = std::str::from_utf8(&config_bytes).map_err(|_| ProfileError::Invalid)?;
     let config = toml::from_str::<toml::Value>(config_text).map_err(|_| ProfileError::Invalid)?;
     let root = config.as_table().ok_or(ProfileError::Invalid)?;
+    let provider = root
+        .get("model_provider")
+        .and_then(toml::Value::as_str)
+        .unwrap_or("openai");
+    let route_port = loopback_route_port(
+        root.get("model_providers")
+            .and_then(|providers| providers.get(provider))
+            .and_then(|provider| provider.get("base_url"))
+            .and_then(toml::Value::as_str),
+    );
     // Default/provider models need no custom catalog. Never synthesize one or
     // copy provider credentials to make a profile valid.
     let model = match root.get("model") {
         None => String::new(),
-        Some(value) => value.as_str().filter(|value| safe_text(value, 256))
-            .ok_or(ProfileError::Invalid)?.to_owned(),
+        Some(value) => value
+            .as_str()
+            .filter(|value| safe_text(value, 256))
+            .ok_or(ProfileError::Invalid)?
+            .to_owned(),
     };
     let Some(catalog_value) = root.get("model_catalog_json") else {
         if config_stamp != file_stamp(&config_path)? {
@@ -286,15 +326,25 @@ fn inspect_codex_profile_at(home: &Path) -> Result<LocalCodexProfile, ProfileErr
         }
         let hash = hex::encode(Sha256::digest([model.as_bytes(), b"\0"].concat()));
         return Ok(LocalCodexProfile {
-            model, catalog_path: None, catalog_bytes: Vec::new(), hash,
+            model,
+            route_port,
+            catalog_path: None,
+            catalog_bytes: Vec::new(),
+            hash,
             stamp: LocalCodexProfileStamp {
-                config_modified: config_stamp.0, config_len: config_stamp.1,
-                catalog_modified: 0, catalog_len: 0,
+                config_modified: config_stamp.0,
+                config_len: config_stamp.1,
+                catalog_modified: 0,
+                catalog_len: 0,
             },
         });
     };
-    if model.is_empty() { return Err(ProfileError::Missing); }
-    let catalog_name = catalog_value.as_str().filter(|value| safe_text(value, 1024))
+    if model.is_empty() {
+        return Err(ProfileError::Missing);
+    }
+    let catalog_name = catalog_value
+        .as_str()
+        .filter(|value| safe_text(value, 1024))
         .ok_or(ProfileError::Invalid)?;
     let catalog_path = safe_catalog_path(&directory, catalog_name).ok_or(ProfileError::Invalid)?;
     let catalog_stamp = file_stamp(&catalog_path)?;
@@ -335,6 +385,7 @@ fn inspect_codex_profile_at(home: &Path) -> Result<LocalCodexProfile, ProfileErr
     ));
     Ok(LocalCodexProfile {
         model,
+        route_port,
         catalog_path: Some(catalog_path),
         catalog_bytes,
         hash,
@@ -353,8 +404,12 @@ pub fn profile_stamp_changed(profile: &LocalCodexProfile) -> Result<bool, Profil
     let home = dirs::home_dir().ok_or(ProfileError::Missing)?;
     let config_path = home.join(".codex").join("config.toml");
     let (config_modified, config_len) = file_stamp(&config_path)?;
-    let (catalog_modified, catalog_len) = profile.catalog_path.as_ref()
-        .map(|path| file_stamp(path)).transpose()?.unwrap_or((0, 0));
+    let (catalog_modified, catalog_len) = profile
+        .catalog_path
+        .as_ref()
+        .map(|path| file_stamp(path))
+        .transpose()?
+        .unwrap_or((0, 0));
     Ok(profile.stamp
         != LocalCodexProfileStamp {
             config_modified,
@@ -506,7 +561,11 @@ mod tests {
 
     #[test]
     fn codex_default_and_provider_models_do_not_require_a_custom_catalog() {
-        for config in ["model_provider = \"openai\"\n", "model = \"deepseek\"\n", ""] {
+        for config in [
+            "model_provider = \"openai\"\n",
+            "model = \"deepseek\"\n",
+            "",
+        ] {
             let root = fixture(config, "unused.json", None);
             let profile = inspect_codex_profile_at(&root).unwrap();
             assert!(profile.catalog_path.is_none());
@@ -518,6 +577,42 @@ mod tests {
             let root = fixture(config, "unused.json", None);
             assert!(inspect_codex_profile_at(&root).is_err());
             fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn official_client_settings_are_valid_but_do_not_prove_a_cc_switch_route() {
+        for (config, expected) in [
+            ("", None),
+            ("model_provider = \"openai\"\n", None),
+            ("model_provider = \"bridge\"\n[model_providers.bridge]\nbase_url = \"http://127.0.0.1:15721/v1\"\n", Some(15721)),
+            ("model_provider = \"bridge\"\n[model_providers.bridge]\nbase_url = \"https://api.example.invalid/v1\"\n", None),
+        ] {
+            let root = fixture(config, "unused.json", None);
+            assert_eq!(inspect_codex_profile_at(&root).unwrap().route_port, expected);
+            fs::create_dir_all(root.join(".claude")).unwrap();
+            for (settings, expected) in [
+                (r#"{}"#, None),
+                (r#"{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:15721","ANTHROPIC_AUTH_TOKEN":"private"}}"#, Some(15721)),
+                (r#"{"env":{"ANTHROPIC_BASE_URL":"https://api.example.invalid"}}"#, None),
+            ] {
+                fs::write(root.join(".claude/settings.json"), settings).unwrap();
+                let profile = inspect_claude_profile_at(&root).unwrap();
+                assert_eq!(profile.route_port, expected);
+                let projected = String::from_utf8(profile.settings_bytes).unwrap();
+                assert!(!projected.contains("15721"));
+                assert!(!projected.contains("private"));
+                assert!(!projected.contains("BASE_URL"));
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+        for value in [
+            "http://user:secret@127.0.0.1:15721/v1",
+            "http://127.0.0.1:15721?token=secret",
+            "https://127.0.0.1:15721",
+            "http://127.0.0.1:80",
+        ] {
+            assert_eq!(loopback_route_port(Some(value)), None);
         }
     }
 

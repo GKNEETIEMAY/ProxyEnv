@@ -9,6 +9,7 @@ export function bridgeErrorLabels(copy: RemoteBridgeCopy): Record<BridgeErrorCat
     unsupported: copy.rbAdvErrorUnsupported, unavailable: copy.rbAdvErrorUnavailable,
     invalidResponse: copy.rbAdvErrorResponse, unknown: copy.rbAdvErrorUnknown,
     invalidLocalProfile: copy.rbProfileInvalid, unsafePath: copy.rbAdvErrorUnsafePath,
+    localRouteInactive: copy.rbLocalRouteInactive,
     dependencyMissing: copy.rbAdvErrorDependencyMissing, writeFailed: copy.rbAdvErrorWriteFailed,
     verificationFailed: copy.rbAdvErrorVerificationFailed, rolledBack: copy.rbAdvErrorRolledBack,
     rollbackFailed: copy.rbAdvErrorRollbackFailed,
@@ -16,6 +17,9 @@ export function bridgeErrorLabels(copy: RemoteBridgeCopy): Record<BridgeErrorCat
 }
 
 export function bridgeEventStatus(event: Pick<BridgeEvent, "action" | "outcome" | "errorCode">, copy: RemoteBridgeCopy): string {
+  if (event.action === "toolSetup" && event.errorCode === "localRouteInactive" && event.outcome !== "success") {
+    return `${copy.rbNotConfigured} · ${copy.rbLocalRouteInactive}`;
+  }
   let outcome = {success:copy.rbAdvSuccess, warning:copy.rbAdvWarning, failed:copy.rbAdvOperationFailed, started:copy.rbAdvStarted}[event.outcome];
   if (event.outcome === "failed") {
     if (["toolSetup", "environmentSetup", "vscodeSetup"].includes(event.action)) outcome = copy.rbAdvConfigurationFailed;

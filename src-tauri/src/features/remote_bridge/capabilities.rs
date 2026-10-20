@@ -373,6 +373,10 @@ fn enable(
         // preview/apply/verify flow, with fresh local profiles and no IPC token.
         let mut applied = Vec::new();
         for (tool, profile) in profiles {
+            if !profile.routes_to(endpoint.local.port) {
+                record_inactive_tool_route(state, tool);
+                continue;
+            }
             let mut attempted_write = false;
             match apply_tool(
                 &change.target_id,

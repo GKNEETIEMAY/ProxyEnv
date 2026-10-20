@@ -268,6 +268,12 @@ enum LocalToolProfile {
 }
 
 impl LocalToolProfile {
+    fn routes_to(&self, port: u16) -> bool {
+        match self {
+            Self::Codex(profile) => profile.route_port == Some(port),
+            Self::Claude(profile) => profile.route_port == Some(port),
+        }
+    }
     fn can_replace(&self, cached: Option<&Self>) -> bool {
         // Missing Claude settings are valid on first setup, not while CC Switch
         // is replacing an existing file. Keep the last known good remote profile.
@@ -864,7 +870,29 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
             state.summary.claude_profile_state = settings::ProfileSyncState::LocalChanged;
             return;
         }
-        if cached.is_some_and(|cached| cached.hash() == profile.hash()) {
+        let Some(local_port) = state.summary.cc.as_ref().map(|route| route.local.port) else {
+            state.profile_syncing = false;
+            return;
+        };
+        if !profile.routes_to(local_port) {
+            let changed = cached
+                .as_ref()
+                .is_none_or(|cached| cached.routes_to(local_port));
+            set_cached_profile(&mut state, Some(profile));
+            state.profile_syncing = false;
+            if tool == tool_adapter::RemoteToolId::Codex {
+                state.summary.codex_profile_state = settings::ProfileSyncState::RemoteUnavailable;
+            } else {
+                state.summary.claude_profile_state = settings::ProfileSyncState::RemoteUnavailable;
+            }
+            if changed {
+                record_inactive_tool_route(&mut state, tool);
+            }
+            return;
+        }
+        if cached
+            .is_some_and(|cached| cached.routes_to(local_port) && cached.hash() == profile.hash())
+        {
             set_cached_profile(&mut state, Some(profile));
             state.profile_syncing = false;
             if tool == tool_adapter::RemoteToolId::Codex
@@ -936,7 +964,10 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
         if let Ok(mut state) = store().lock() {
             if state.connection_generation != snapshot.4
                 || !profile_sync_enabled(&state, tool)
-                || state.ai_relay.as_ref().is_none_or(|relay| relay.token().as_str() != snapshot.3.as_str())
+                || state
+                    .ai_relay
+                    .as_ref()
+                    .is_none_or(|relay| relay.token().as_str() != snapshot.3.as_str())
             {
                 state.profile_syncing = false;
                 return;
@@ -1176,7 +1207,8 @@ pub fn start_monitor() {
                     if !profile_sync_enabled(&state, tool) {
                         clear_cached_profile(&mut state, tool);
                         if tool == tool_adapter::RemoteToolId::Codex {
-                            state.summary.codex_profile_state = if state.follow_local_codex_profile {
+                            state.summary.codex_profile_state = if state.follow_local_codex_profile
+                            {
                                 settings::ProfileSyncState::NotStarted
                             } else {
                                 settings::ProfileSyncState::Disabled
@@ -1330,6 +1362,20 @@ fn automatic_tool_setup_allowed(state: &Store, tool: tool_adapter::RemoteToolId)
         })
 }
 
+fn record_inactive_tool_route(state: &mut Store, tool: tool_adapter::RemoteToolId) {
+    state.events.push(
+        if tool == tool_adapter::RemoteToolId::Codex {
+            EventComponent::Codex
+        } else {
+            EventComponent::Claude
+        },
+        EventAction::ToolSetup,
+        EventOutcome::Warning,
+        Some(ErrorCategory::LocalRouteInactive),
+        None,
+    );
+}
+
 fn configure_discovered_tools(target_id: &str, fingerprint: &str, generation: u64, ticket: u64) {
     for adapter in tool_adapter::adapters() {
         let Ok(mut state) = lock() else { return };
@@ -1357,7 +1403,11 @@ fn configure_discovered_tools(target_id: &str, fingerprint: &str, generation: u6
         // preview/apply/read-back/rollback transaction, including plugin fallback.
         let result = config_preview_locked(&mut state, *adapter)
             .and_then(|preview| config_apply_locked(&mut state, preview.id));
-        let runtime = if result.is_ok() {
+        let route_inactive = result
+            .as_ref()
+            .err()
+            .is_some_and(|code| code == "localRouteInactive");
+        let runtime = if result.is_ok() || route_inactive {
             RuntimeState::Ready
         } else {
             RuntimeState::Warning
@@ -1367,7 +1417,10 @@ fn configure_discovered_tools(target_id: &str, fingerprint: &str, generation: u6
         } else {
             state.summary.claude_state = runtime;
         }
-        let entry = timing(&format!("{}.setup", tool.as_str()), started, result.is_ok());
+        let mut entry = timing(&format!("{}.setup", tool.as_str()), started, result.is_ok());
+        if route_inactive {
+            entry.outcome = "unsupported".into();
+        }
         state.events.push(
             if tool == tool_adapter::RemoteToolId::Codex {
                 EventComponent::Codex
@@ -1377,6 +1430,8 @@ fn configure_discovered_tools(target_id: &str, fingerprint: &str, generation: u6
             EventAction::ToolSetup,
             if result.is_ok() {
                 EventOutcome::Success
+            } else if route_inactive {
+                EventOutcome::Warning
             } else {
                 EventOutcome::Failed
             },
@@ -1387,7 +1442,9 @@ fn configure_discovered_tools(target_id: &str, fingerprint: &str, generation: u6
             Some(entry.duration_ms),
         );
         if let Err(code) = result {
-            state.summary.post_connect_error.get_or_insert(code);
+            if !route_inactive {
+                state.summary.post_connect_error.get_or_insert(code);
+            }
         }
         state.summary.timings.push(entry);
     }
@@ -3170,6 +3227,19 @@ fn config_preview_locked(
             _ => {}
         }
     }
+    let local_profile = Some(LocalToolProfile::inspect(adapter.id()).map_err(
+        |_| match adapter.id() {
+            tool_adapter::RemoteToolId::Codex => "localCodexProfileInvalid",
+            tool_adapter::RemoteToolId::Claude => "localClaudeProfileInvalid",
+        },
+    )?);
+    let local_port = state.summary.cc.as_ref().ok_or("ccUnavailable")?.local.port;
+    if !local_profile
+        .as_ref()
+        .is_some_and(|profile| profile.routes_to(local_port))
+    {
+        return Err("localRouteInactive".into());
+    }
     let target_id = state
         .summary
         .target
@@ -3194,12 +3264,6 @@ fn config_preview_locked(
         .as_ref()
         .ok_or("ccUnavailable")?
         .remote_port;
-    let local_profile = Some(LocalToolProfile::inspect(adapter.id()).map_err(
-        |_| match adapter.id() {
-            tool_adapter::RemoteToolId::Codex => "localCodexProfileInvalid",
-            tool_adapter::RemoteToolId::Claude => "localClaudeProfileInvalid",
-        },
-    )?);
     let session_token = state
         .ai_relay
         .as_ref()
@@ -3925,8 +3989,10 @@ mod tests {
     #[test]
     fn summary_exposes_independent_codex_sync_state_after_reenable() {
         use settings::ProfileSyncState;
-        let mut summary = Summary::default();
-        summary.claude_profile_state = ProfileSyncState::InvalidLocalProfile;
+        let mut summary = Summary {
+            claude_profile_state: ProfileSyncState::InvalidLocalProfile,
+            ..Summary::default()
+        };
         let adapter = tool_adapter::by_id(tool_adapter::RemoteToolId::Codex);
         for synced in [true, false, true] {
             if synced {
@@ -3938,9 +4004,30 @@ mod tests {
             }
             let value = serde_json::to_value(exposed_summary(&summary)).unwrap();
             assert_eq!(value["codexConfigured"], synced);
-            assert_eq!(value["codexProfileState"], if synced { "synced" } else { "notStarted" });
+            assert_eq!(
+                value["codexProfileState"],
+                if synced { "synced" } else { "notStarted" }
+            );
             assert_eq!(value["claudeProfileState"], "invalidLocalProfile");
             assert_eq!(value["tools"][0]["configured"], synced);
+        }
+    }
+
+    #[test]
+    fn inactive_local_routes_are_reported_as_unconfigured_warnings() {
+        let mut state = Store::default();
+        for tool in [
+            tool_adapter::RemoteToolId::Codex,
+            tool_adapter::RemoteToolId::Claude,
+        ] {
+            record_inactive_tool_route(&mut state, tool);
+            let event = serde_json::to_value(&state.events.recent(1)[0]).unwrap();
+            assert_eq!(event["action"], "toolSetup");
+            assert_eq!(event["outcome"], "warning");
+            assert_eq!(event["level"], "warning");
+            assert_eq!(event["errorCode"], "localRouteInactive");
+            assert!(!tool_adapter::by_id(tool).configured(&state.summary));
+            assert!(state.summary.post_connect_error.is_none());
         }
     }
 

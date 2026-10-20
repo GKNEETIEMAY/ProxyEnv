@@ -49,6 +49,19 @@ test("client configuration failures retain specific safe reasons in events and r
   }
 });
 
+test("official clients without a CC Switch route stay unconfigured with an explicit reason", () => {
+  for (const copy of Object.values(messages)) {
+    for (const outcome of ["warning","failed"]) {
+      const event={action:"toolSetup",outcome,errorCode:"localRouteInactive"};
+      assert.equal(bridgeEventStatus(event,copy),`${copy.rbNotConfigured} · ${copy.rbLocalRouteInactive}`);
+      assert.ok(!bridgeEventStatus(event,copy).includes(copy.rbAdvConfigurationFailed));
+      assert.ok(!bridgeEventStatus(event,copy).includes(copy.rbAdvErrorUnknown));
+    }
+    const report=formatDiagnosticReport({...data,remoteBridge:{configured:true,reachable:true,status:"connected",codexConfigured:false,claudeConfigured:false,postConnectErrorCategory:"localRouteInactive"}},copy);
+    assert.ok(report.includes(copy.rbLocalRouteInactive));
+  }
+});
+
 test("VS Code proxy configuration states use specific localized descriptions", () => {
   for (const copy of Object.values(messages)) {
     for (const [state,key] of Object.entries({notSet:'rbAdvProxyNotSet',disabled:'rbAdvProxyDisabled',invalidSettings:'rbAdvProxyInvalid',readFailed:'rbAdvProxyReadFailed',unsupportedProxy:'rbAdvProxyUnsupported',notCompared:'rbAdvProxyNotCompared',unknown:'rbAdvPortUnknown'})) {
