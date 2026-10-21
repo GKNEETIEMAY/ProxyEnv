@@ -5,7 +5,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
+import { ConnectivitySession, connectivityTtlMs, type ConnectivityView } from "../features/proxy/connectivity";
+import { RefreshEpoch } from "../features/proxy/refresh-epoch";
 import ProxyPage from "../features/proxy/components/ProxyPage.vue";
 import ApplicationAssistantPage from "../features/application-assistant/components/ApplicationAssistantPage.vue";
 import SettingsPage, { type SettingsTab } from "../features/settings/components/SettingsPage.vue";
@@ -99,6 +101,14 @@ const appWindow = reviewPreview ? undefined : getCurrentWindow();
 let refreshTimer: number | undefined;
 let copyTimer: number | undefined;
 let refreshPending = false;
+let refreshAgain = false;
+const refreshEpoch = new RefreshEpoch();
+const localStale = ref(false);
+const localNow = ref(Date.now());
+const connectivity = reactive<ConnectivityView>({ result: null, testing: false, cached: false, failed: false });
+let connectivityExpiryTimer: number | undefined;
+let settingsInFlight: Promise<AppSettings> | undefined;
+let settingsSaveError: unknown;
 let settingsSaveTimer: number | undefined;
 let settingsReady = false;
 let saveInFlight = false;
@@ -123,6 +133,21 @@ useNotification(settingsLoadError, "error", "settings-load");
 useNotification(releaseActionError, "error", "release-action");
 const activeProxyContext = computed(() => environment.value.activeProxy);
 const detected = computed(() => activeProxyContext.value.candidate ?? undefined);
+const connectivitySession = new ConnectivitySession(connectivity, () => activeProxyContext.value, backend, cause => { error.value = String(cause); });
+watch([() => activeProxyContext.value.revision, () => activeProxyContext.value.available, () => activeProxyContext.value.selectedCandidateId], () => {
+  connectivitySession.invalidate();
+  if (!reviewPreview) void connectivitySession.readCache();
+}, { flush: "sync" });
+watch(() => connectivity.result, result => {
+  localNow.value = Date.now();
+  if (connectivityExpiryTimer !== undefined) window.clearTimeout(connectivityExpiryTimer);
+  if (result) {
+    const remaining = Date.parse(result.testedAt) + connectivityTtlMs - Date.now();
+    if (Number.isFinite(remaining) && remaining > 0) connectivityExpiryTimer = window.setTimeout(() => { localNow.value = Date.now(); }, remaining);
+  }
+});
+function refreshLocalClock() { localNow.value = Date.now(); }
+window.addEventListener("focus", refreshLocalClock);
 const systemProxy = computed(() => candidates.value.find((candidate) => candidate.source.includes("windowsSystemProxy")));
 const endpoint = computed(() => detected.value ? `${detected.value.host}:${detected.value.port}` : "");
 const updateMessage = computed(() => {
@@ -209,8 +234,11 @@ function toggleManagedVariable(name: string) {
 }
 
 async function refresh(silent = false) {
-  if (refreshPending) return;
+  localNow.value = Date.now();
+  if (refreshPending || toggling.value) { refreshAgain = true; return; }
   refreshPending = true;
+  refreshAgain = false;
+  const generation = refreshEpoch.capture();
   if (!silent) {
     loading.value = true;
     error.value = "";
@@ -223,13 +251,20 @@ async function refresh(silent = false) {
         evidence: [{ kind: "enumerationUnavailable", detail: String(cause) }]
       }))
     ]);
-    acceptEnvironmentStatus(status);
-    tun.value = tunObservation;
+    if (refreshEpoch.accepts(generation)) {
+      acceptEnvironmentStatus(status);
+      tun.value = tunObservation;
+      localStale.value = false;
+    }
   } catch (cause) {
-    if (!silent) error.value = String(cause);
+    if (refreshEpoch.accepts(generation)) {
+      localStale.value = true;
+      if (!silent) error.value = String(cause);
+    }
   } finally {
     refreshPending = false;
     if (!silent) loading.value = false;
+    if (refreshAgain && !toggling.value) void refresh(true);
   }
 }
 
@@ -241,6 +276,7 @@ function acceptEnvironmentStatus(status: EnvironmentStatus) {
 
 async function selectActiveProxy(candidateId: string) {
   if (toggling.value) return;
+  refreshEpoch.invalidate();
   toggling.value = true;
   error.value = "";
   try {
@@ -260,35 +296,47 @@ async function selectActiveProxy(candidateId: string) {
     error.value = String(cause);
     await refresh(true);
   } finally {
+    refreshEpoch.invalidate();
     toggling.value = false;
+    await refresh(true);
   }
 }
 
 async function applyDetectedProxy() {
+  if (toggling.value) return;
+  refreshEpoch.invalidate();
   toggling.value = true;
   error.value = "";
   try {
     if (!activeProxyContext.value.available) throw new Error(copy.value.activeProxyUnavailable);
+    await persistProxySettings();
     acceptEnvironmentStatus(await backend.syncProxyEnvironment(activeProxyContext.value.revision));
     await refresh(true);
   } catch (cause) {
     error.value = String(cause);
   } finally {
+    refreshEpoch.invalidate();
     toggling.value = false;
+    await refresh(true);
   }
 }
 
 
 async function applyManualProxy(endpoint: ProxyEndpoint) {
+  if (toggling.value) return;
+  refreshEpoch.invalidate();
   toggling.value = true;
   error.value = "";
   try {
+    await persistProxySettings();
     acceptEnvironmentStatus(await backend.syncManualProxyEnvironment(endpoint));
     await refresh(true);
   } catch (cause) {
     error.value = String(cause);
   } finally {
+    refreshEpoch.invalidate();
     toggling.value = false;
+    await refresh(true);
   }
 }
 
@@ -297,28 +345,36 @@ function inspectManualEndpoint(endpoint: ProxyEndpoint) {
 }
 
 async function disableEnvironment() {
+  if (toggling.value) return;
+  refreshEpoch.invalidate();
   toggling.value = true;
   error.value = "";
   try {
-    await backend.disableProxyEnvironment();
+    acceptEnvironmentStatus(await backend.disableProxyEnvironment());
     await refresh(true);
   } catch (cause) {
     error.value = String(cause);
   } finally {
+    refreshEpoch.invalidate();
     toggling.value = false;
+    await refresh(true);
   }
 }
 
 async function restoreEnvironment() {
+  if (toggling.value) return;
+  refreshEpoch.invalidate();
   toggling.value = true;
   error.value = "";
   try {
-    await backend.restoreProxyEnvironment();
+    acceptEnvironmentStatus(await backend.restoreProxyEnvironment());
     await refresh(true);
   } catch (cause) {
     error.value = String(cause);
   } finally {
+    refreshEpoch.invalidate();
     toggling.value = false;
+    await refresh(true);
   }
 }
 
@@ -548,16 +604,20 @@ async function closeWindow() {
 }
 
 async function flushSettings() {
-  if (saveInFlight || !pendingSettings) return;
+  if (saveInFlight) { await settingsInFlight?.catch(() => undefined); return flushSettings(); }
+  if (!pendingSettings) return;
   const settings = pendingSettings;
   pendingSettings = undefined;
   saveInFlight = true;
   settingsError.value = "";
   try {
-    await backend.saveAppSettings(settings);
+    settingsSaveError = undefined;
+    settingsInFlight = backend.saveAppSettings(settings);
+    await settingsInFlight;
     savedNotificationSettings = { notificationsEnabled: settings.notificationsEnabled, notificationSound: settings.notificationSound };
     settingsLoadError.value = "";
   } catch (cause) {
+    settingsSaveError = cause;
     // Do not claim reminders are off when the durable write failed. Preserve newer edits.
     restoringNotificationSettings = true;
     if (draftSettings.value.notificationsEnabled === settings.notificationsEnabled) draftSettings.value.notificationsEnabled = savedNotificationSettings.notificationsEnabled;
@@ -570,6 +630,14 @@ async function flushSettings() {
     saveInFlight = false;
     if (pendingSettings) void flushSettings();
   }
+}
+
+async function persistProxySettings() {
+  if (reviewPreview) return;
+  if (settingsSaveTimer !== undefined) window.clearTimeout(settingsSaveTimer);
+  pendingSettings = copySettings(draftSettings.value);
+  await flushSettings();
+  if (settingsSaveError) throw settingsSaveError;
 }
 
 function reconcileQueuedNotifications() {
@@ -779,7 +847,7 @@ onMounted(async () => {
     document.documentElement.classList.toggle("window-maximized", maximized.value);
   });
   unlisten = await Promise.all([
-    listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { acceptEnvironmentStatus(payload); }),
+    listen<EnvironmentStatus>("proxy-state-changed", ({ payload }) => { refreshEpoch.invalidate(); acceptEnvironmentStatus(payload); }),
     listen<string>("operation-error", ({ payload }) => { error.value = payload; }),
     listen("second-instance-opened", showSecondInstanceNotice),
     listen("bridge-notification-open", openBridgeNotice),
@@ -790,6 +858,9 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  connectivitySession.invalidate();
+  if (connectivityExpiryTimer !== undefined) window.clearTimeout(connectivityExpiryTimer);
+  window.removeEventListener("focus", refreshLocalClock);
   if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
   if (copyTimer !== undefined) window.clearTimeout(copyTimer);
   if (settingsSaveTimer !== undefined) window.clearTimeout(settingsSaveTimer);
@@ -841,6 +912,10 @@ onBeforeUnmount(() => {
       :copied-endpoint="copiedEndpoint"
       :selected-variables="draftSettings.proxyVariables"
       :inspect-manual-endpoint="inspectManualEndpoint"
+      :stale="localStale"
+      :connectivity="connectivity"
+      :now="localNow"
+      @test-connectivity="connectivitySession.test()"
       @refresh="refresh(false)"
       @apply-detected="applyDetectedProxy"
       @select-active="selectActiveProxy"

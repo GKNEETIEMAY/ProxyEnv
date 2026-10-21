@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>Local proxy component fixture — synthetic data</title></head>
+<body><div id="app"></div><script type="module">
+import { createApp, reactive, computed, h } from "vue";
+import ProxyPage from "/src/features/proxy/components/ProxyPage.vue";
+import { messages } from "/src/shared/i18n/index.ts";
+import { applyTheme } from "/src/shared/theme/palette.ts";
+import "/src/shared/styles/index.css";
+import "/src/shared/theme/palettes.css";
+const candidates = [
+  { id: "a", clientName: "v2rayN", iconKey: "v2rayn", processName: "v2rayN.exe", pid: 42, host: "127.0.0.1", port: 10809, protocol: "http", source: ["processListener"], confidence: "high", listening: true },
+  { id: "b", clientName: "v2rayN", iconKey: "v2rayn", processName: "v2rayN.exe", pid: 42, host: "127.0.0.1", port: 10808, protocol: "socks5", source: ["processListener"], confidence: "high", listening: true },
+  { id: "c", clientName: "Clash Verge Rev", iconKey: "clash-verge-rev", host: "127.0.0.1", port: 7897, protocol: "mixed", source: ["clientConfig"], confidence: "high", listening: false }
+];
+const state = reactive({
+  locale: "zh-CN", candidates, selected: ["http", "https"], now: Date.now(), loading: false, stale: false, busy: false, copied: false,
+  connectivity: { result: null, testing: false, cached: false, failed: false },
+  tun: { state: "possible", interfaceName: "Wintun", evidence: [] },
+  environment: { state: "enabled", entries: [
+    { name: "HTTP_PROXY", value: "http://127.0.0.1:10809", exists: true }, { name: "HTTPS_PROXY", value: "http://127.0.0.1:10809", exists: true },
+    { name: "ALL_PROXY", value: null, exists: false }, { name: "NO_PROXY", value: "localhost,127.0.0.1,::1", exists: true }
+  ], selectedVariables: ["http", "https"], activeProxy: { selectedCandidateId: "a", candidate: candidates[0], available: true, selectionSource: "user", revision: 1 }, candidates, matchesActiveProxy: true, snapshotAvailable: true }
+});
+const calls = [];
+window.fixture = { state, calls, theme: (palette, mode) => applyTheme(document.documentElement, mode, palette, mode === "dark") };
+createApp({ components: { ProxyPage }, setup() {
+  const copy = computed(() => { document.documentElement.lang = state.locale; return messages[state.locale]; });
+  function select(id) { calls.push(["select", id]); state.environment.activeProxy = { selectedCandidateId: id, candidate: candidates.find(c => c.id === id), available: true, selectionSource: "user", revision: state.environment.activeProxy.revision + 1 }; state.environment.state = "mismatch"; state.environment.matchesActiveProxy = false; state.connectivity.result = null; }
+  function toggle(name) { const key = name.split("_")[0].toLowerCase(); state.selected = state.selected.includes(key) ? state.selected.filter(v => v !== key) : [...state.selected, key]; }
+  async function inspect(endpoint) { calls.push(["inspect", endpoint]); return { listening: false, detectedProtocol: "unknown", protocolMatches: false }; }
+  const record = (name, payload) => calls.push([name, payload]);
+  return () => h("div", { class: "app-frame" }, [h(ProxyPage, {
+    copy: copy.value, environment: state.environment, candidates: state.candidates, detected: state.environment.activeProxy.candidate || undefined,
+    tun: state.tun, error: "", loading: state.loading, stale: state.stale, toggling: state.busy, copiedEndpoint: state.copied,
+    selectedVariables: state.selected, inspectManualEndpoint: inspect, connectivity: state.connectivity, now: state.now,
+    onSelectActive: select, onToggleVariable: toggle, onTestConnectivity: () => record("test"), onApplyManual: endpoint => record("manual", endpoint),
+    onApplyDetected: () => record("sync"), onDisable: () => record("disable"), onRestore: () => record("restore"),
+    onCopyEndpoint: () => { state.copied = true; record("copy"); }, onRefresh: () => record("refresh"), onOpenAssistant: () => record("assistant")
+  })]);
+} }).mount("#app");
+</script></body></html>

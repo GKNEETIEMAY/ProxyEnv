@@ -23,6 +23,7 @@ pnpm test:updates
 pnpm test:themes
 pnpm test:tray
 pnpm test:report
+pnpm test:local
 pnpm test:remote
 pnpm test:extensions
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -30,10 +31,16 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-`pnpm check` 汇总前端、品牌/文档/发行/更新/主题/托盘/报告/远端/扩展检查和锁定依赖 Rust 测试。文档测试离线执行。
+`pnpm check` 汇总前端、品牌/文档/发行/更新/主题/托盘/报告/本机/远端/扩展检查和锁定依赖 Rust 测试。文档测试离线执行。
 扩展测试包含 POSIX/Linux 文件系统用例；平台跳过不是对应行为通过的证据。
 生成的远端助手必须可复现，`pnpm test:extensions` 在事务测试前检查它。
 浏览器模拟数据测试只是 UI 辅助证据，不等于原生 Windows、真实 SSH 或模型验收。
+
+本机工作区浏览器检查：先启动 `pnpm dev --host 127.0.0.1 --port 1422`，再运行
+`pnpm test:local:ui`。与现有 UI 脚本一样，需要可用的 Playwright 运行时；
+`PROXYENV_LAYOUT_PLAYWRIGHT` 可指定其包锚点文件，`PROXYENV_LAYOUT_BROWSER` 可指定
+已安装的 Chromium 浏览器路径，其他预览端口通过 `PROXYENV_LAYOUT_URL` 指定。
+测试夹具使用模拟数据，不写入真实代理设置、不请求外网检测站点。
 
 ## 修改原则
 

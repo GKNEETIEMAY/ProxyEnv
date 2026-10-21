@@ -1,0 +1,78 @@
+const en = {
+  localOverview: "Overview", localAdvanced: "Advanced", localViews: "Local environment views",
+  localSwitch: "Switch proxy", localCandidates: "Available proxy endpoints", localSelected: "Selected",
+  localManual: "Configure manually", localVariables: "Variables enabled after sync", localAdjust: "Adjust",
+  localSyncScope: "Sync scope", localSyncEffect: "Sync clears unselected or unsupported proxy variables. Clear removes all managed proxy variables; Restore uses the saved snapshot.",
+  localSyncClearHint: "Sync clears unselected or unsupported proxy variables.",
+  localManualEffect: "This selects the manual proxy and updates user environment variables. Unselected or unsupported proxy variables are cleared.",
+  localUnavailable: "Selection unavailable", localUnavailableHint: "Your selection is kept. Start this proxy or choose another endpoint.",
+  localStale: "Status refresh failed. Displayed values are from the last observation.",
+  localConnectivity: "Proxy connectivity", localTest: "Test connection", localTesting: "Testing…", localNotTested: "Not tested",
+  localTestHint: "Tests Google, GitHub and Cloudflare through the selected proxy only when requested.",
+  localTestPassed: "{passed}/{total} targets passed", localTestFailed: "Test could not complete", localTestRetry: "Check the selected proxy, refresh and try again.",
+  localExpired: "Result expired · test again", localCached: "Cached result", localTestedAt: "Tested", localDetails: "View details",
+  localListener: "Local listener", localProtocol: "Proxy protocol", localSkipped: "Not run", localConfirmed: "Confirmed", localUnconfirmed: "Unconfirmed",
+  localSuccess: "Passed", localFailure: "Failed", localUnknown: "Unknown",
+  localErrorUnavailable: "Proxy unavailable", localErrorHandshake: "Proxy handshake failed", localErrorTimeout: "Connection timed out",
+  localErrorTls: "TLS negotiation failed", localErrorRejected: "Remote service rejected the request", localErrorHttp: "Unexpected HTTP status", localErrorNetwork: "Network request failed",
+  localSource: "Detection source", localSourceProcess: "Process listener", localSourceProbe: "Protocol probe", localSourceConfig: "Client configuration", localSourceComposite: "Multiple signals"
+};
+type LocalCopy = { [K in keyof typeof en]: string };
+const zh: LocalCopy = {
+  localOverview: "概述", localAdvanced: "高级", localViews: "本机环境视图",
+  localSwitch: "切换代理", localCandidates: "代理候选端点", localSelected: "已选择",
+  localManual: "手动配置", localVariables: "同步后启用的变量", localAdjust: "调整",
+  localSyncScope: "同步范围", localSyncEffect: "同步会清除未勾选或协议不支持的代理变量；关闭会清除全部受管代理变量；恢复按快照执行。",
+  localSyncClearHint: "同步会清除未勾选或协议不支持的代理变量。",
+  localManualEffect: "将选用此手动代理并写入用户环境变量，同时清除未勾选或协议不支持的代理变量。",
+  localUnavailable: "当前选择不可用", localUnavailableHint: "已保留当前选择。请启动此代理，或选择其他端点。",
+  localStale: "状态刷新失败，当前显示为上次观测值。",
+  localConnectivity: "代理连通性", localTest: "测试连接", localTesting: "检测中…", localNotTested: "未检测",
+  localTestHint: "仅在主动检测时，经当前代理请求 Google、GitHub 和 Cloudflare。",
+  localTestPassed: "{passed}/{total} 个目标通过", localTestFailed: "检测未完成", localTestRetry: "请检查当前代理，刷新后重试。",
+  localExpired: "结果已过期 · 请重新检测", localCached: "缓存结果", localTestedAt: "检测时间", localDetails: "查看详情",
+  localListener: "本地监听", localProtocol: "代理协议", localSkipped: "未执行", localConfirmed: "已确认", localUnconfirmed: "未确认",
+  localSuccess: "通过", localFailure: "失败", localUnknown: "未知",
+  localErrorUnavailable: "代理不可用", localErrorHandshake: "代理握手失败", localErrorTimeout: "连接超时",
+  localErrorTls: "TLS 协商失败", localErrorRejected: "远端服务拒绝请求", localErrorHttp: "HTTP 状态异常", localErrorNetwork: "网络请求失败",
+  localSource: "检测来源", localSourceProcess: "进程监听", localSourceProbe: "协议探测", localSourceConfig: "客户端配置", localSourceComposite: "综合证据"
+};
+const ja: LocalCopy = {
+  localOverview: "概要", localAdvanced: "詳細", localViews: "ローカル環境の表示",
+  localSwitch: "プロキシを選択", localCandidates: "プロキシ候補", localSelected: "選択中",
+  localManual: "手動設定", localVariables: "同期後に有効にする変数", localAdjust: "変更",
+  localSyncScope: "同期範囲", localSyncEffect: "同期時に未選択・非対応の変数を削除します。解除は管理対象の全変数を削除し、復元はスナップショットを使用します。",
+  localSyncClearHint: "同期時に未選択・非対応のプロキシ変数を削除します。",
+  localManualEffect: "この手動プロキシを選択し、ユーザー環境変数を書き込みます。未選択・非対応のプロキシ変数は削除されます。",
+  localUnavailable: "選択したプロキシは利用不可", localUnavailableHint: "選択は保持されています。起動するか、別の候補を選択してください。",
+  localStale: "更新に失敗しました。前回の観測値を表示しています。",
+  localConnectivity: "プロキシ接続確認", localTest: "接続を確認", localTesting: "確認中…", localNotTested: "未確認",
+  localTestHint: "操作したときだけ、選択中のプロキシ経由で Google・GitHub・Cloudflare を確認します。",
+  localTestPassed: "{passed}/{total} 件が成功", localTestFailed: "確認が完了しませんでした", localTestRetry: "プロキシを確認し、更新して再試行してください。",
+  localExpired: "結果の期限切れ · 再確認してください", localCached: "キャッシュ結果", localTestedAt: "確認時刻", localDetails: "詳細を見る",
+  localListener: "ローカル待受", localProtocol: "プロキシ方式", localSkipped: "未実行", localConfirmed: "確認済み", localUnconfirmed: "未確認",
+  localSuccess: "成功", localFailure: "失敗", localUnknown: "不明",
+  localErrorUnavailable: "プロキシ利用不可", localErrorHandshake: "プロキシ接続交渉失敗", localErrorTimeout: "接続タイムアウト",
+  localErrorTls: "TLS 交渉失敗", localErrorRejected: "接続先が要求を拒否", localErrorHttp: "HTTP 状態異常", localErrorNetwork: "ネットワーク要求失敗",
+  localSource: "検出元", localSourceProcess: "プロセス待受", localSourceProbe: "方式の検出", localSourceConfig: "クライアント設定", localSourceComposite: "複数の情報"
+};
+const ko: LocalCopy = {
+  localOverview: "개요", localAdvanced: "고급", localViews: "로컬 환경 보기",
+  localSwitch: "프록시 선택", localCandidates: "프록시 후보", localSelected: "선택됨",
+  localManual: "수동 설정", localVariables: "동기화 후 활성화할 변수", localAdjust: "변경",
+  localSyncScope: "동기화 범위", localSyncEffect: "동기화 시 선택하지 않았거나 지원하지 않는 변수를 삭제합니다. 해제는 관리 대상 전체 변수를 삭제하고, 복원은 스냅샷을 사용합니다.",
+  localSyncClearHint: "동기화 시 선택하지 않았거나 지원하지 않는 프록시 변수를 삭제합니다.",
+  localManualEffect: "이 수동 프록시를 선택하고 사용자 환경 변수를 적용합니다. 선택하지 않았거나 지원하지 않는 프록시 변수는 삭제됩니다.",
+  localUnavailable: "선택한 프록시 사용 불가", localUnavailableHint: "선택을 유지합니다. 프록시를 시작하거나 다른 주소를 선택하세요.",
+  localStale: "새로 고침에 실패했습니다. 마지막 관측값을 표시합니다.",
+  localConnectivity: "프록시 연결 확인", localTest: "연결 테스트", localTesting: "확인 중…", localNotTested: "확인 안 함",
+  localTestHint: "요청할 때만 선택한 프록시를 통해 Google, GitHub, Cloudflare를 확인합니다.",
+  localTestPassed: "{passed}/{total}개 대상 성공", localTestFailed: "테스트 미완료", localTestRetry: "프록시를 확인하고 새로 고친 후 다시 시도하세요.",
+  localExpired: "결과 만료 · 다시 확인하세요", localCached: "캐시 결과", localTestedAt: "확인 시각", localDetails: "자세히 보기",
+  localListener: "로컬 수신", localProtocol: "프록시 프로토콜", localSkipped: "실행 안 함", localConfirmed: "확인됨", localUnconfirmed: "미확인",
+  localSuccess: "성공", localFailure: "실패", localUnknown: "알 수 없음",
+  localErrorUnavailable: "프록시 사용 불가", localErrorHandshake: "프록시 핸드셰이크 실패", localErrorTimeout: "연결 시간 초과",
+  localErrorTls: "TLS 협상 실패", localErrorRejected: "원격 서비스가 요청 거부", localErrorHttp: "HTTP 상태 오류", localErrorNetwork: "네트워크 요청 실패",
+  localSource: "감지 출처", localSourceProcess: "프로세스 수신", localSourceProbe: "프로토콜 검사", localSourceConfig: "클라이언트 설정", localSourceComposite: "여러 신호"
+};
+export const localProxyMessages = { en, "zh-CN": zh, ja, ko };

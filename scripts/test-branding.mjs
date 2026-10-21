@@ -14,6 +14,7 @@ const { messages } = await import(moduleUrl("src/shared/i18n/index.ts", {
   '"./remote-bridge"': JSON.stringify(moduleUrl("src/shared/i18n/remote-bridge.ts")),
   '"./diagnostic-report"': JSON.stringify(moduleUrl("src/shared/i18n/diagnostic-report.ts")),
   '"./desktop"': JSON.stringify(moduleUrl("src/shared/i18n/desktop.ts")),
+  '"./local-proxy"': JSON.stringify(moduleUrl("src/shared/i18n/local-proxy.ts")),
 }));
 const config = JSON.parse(read("src-tauri/tauri.conf.json"));
 

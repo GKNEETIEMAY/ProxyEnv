@@ -72,6 +72,9 @@ jobs:
       - name: Test theme preferences and contrast
         run: pnpm test:themes
 
+      - name: Test local proxy state and concurrency
+        run: pnpm test:local
+
       - name: Build frontend
         run: pnpm build
 

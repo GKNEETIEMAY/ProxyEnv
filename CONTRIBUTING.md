@@ -27,6 +27,7 @@ pnpm test:updates
 pnpm test:themes
 pnpm test:tray
 pnpm test:report
+pnpm test:local
 pnpm test:remote
 pnpm test:extensions
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -34,12 +35,19 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-`pnpm check` combines frontend, brand/docs/release/update/theme/tray/report/remote/extension checks and locked
+`pnpm check` combines frontend, brand/docs/release/update/theme/tray/report/local/remote/extension checks and locked
 Rust tests. Documentation tests are offline. Extension tests include POSIX and
 Linux filesystem cases; platform-skipped tests are not PASS evidence for those cases.
 The generated remote helper must stay reproducible: `pnpm test:extensions` checks
 it before transaction tests. Browser fixture tests are supporting UI evidence,
 not native Windows, live SSH or model acceptance.
+
+For local workspace browser checks, start `pnpm dev --host 127.0.0.1 --port 1422`
+and run `pnpm test:local:ui`. Like the other UI scripts, this needs an available
+Playwright runtime; `PROXYENV_LAYOUT_PLAYWRIGHT` can point to its package anchor
+and `PROXYENV_LAYOUT_BROWSER` to an installed Chromium executable. Set
+`PROXYENV_LAYOUT_URL` when using another preview port. The fixture uses synthetic
+data and never writes real proxy settings or tests external sites.
 
 ## Change discipline
 

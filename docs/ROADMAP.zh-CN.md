@@ -36,6 +36,10 @@ RouteSpan 的 Windows 依赖图中启用。后续发行构建必须在打包前�
 
 ## 后续发行继续保留的门槛
 
+`v0.2.2dev` 正在实现本机概述/高级工作区、显式连通性检测和过期回包保护；
+当前稳定版仍为 v0.2.1。见[开发方案](development/LOCAL_ENVIRONMENT_V0.2.2.zh-CN.md)
+及[实施证据与待验收项](development/LOCAL_ENVIRONMENT_V0.2.2_QA.md)。开发记录不替代以下发行门槛。
+
 - 保持前端高危审计门槛，发行预检变更重新运行完整 CI。
 - 验证前版升级到 RouteSpan，保留安装身份/数据并验证卸载。
 - 测试真实 Windows 10/11、125%/150% 原生 DPI 及桌面/托盘/安装图标缓存。

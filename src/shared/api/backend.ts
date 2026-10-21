@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DiagnosticReportData } from "../types";
+import type { DiagnosticReportData, ProxyConnectivityResult } from "../types";
 import type { ActiveProxyContext, AppSettings, ApplicationDiagnosis, EnvironmentStatus, LaunchApplicationResult, ManagedApplication, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, RuleApplyResult, RuleChangePlan, RuleChangePreview, RuleRestoreResult, RunningApplication, TunObservation } from "../types";
 
 export const backend = {
@@ -9,6 +9,8 @@ export const backend = {
   syncProxyEnvironment: (expectedRevision: number) => invoke<EnvironmentStatus>("sync_proxy_environment", { expectedRevision }),
   selectActiveProxy: (candidateId: string) => invoke<EnvironmentStatus>("select_active_proxy", { candidateId }),
   activeProxyContext: () => invoke<ActiveProxyContext>("get_active_proxy_context"),
+  testCurrentProxyConnectivity: (expectedRevision: number) => invoke<ProxyConnectivityResult>("test_current_proxy_connectivity", { expectedRevision }),
+  lastProxyConnectivity: () => invoke<ProxyConnectivityResult | null>("get_last_proxy_connectivity_result"),
   syncManualProxyEnvironment: (endpoint: ProxyEndpoint) => invoke<EnvironmentStatus>("sync_manual_proxy_environment", { endpoint }),
   inspectProxyEndpoint: (endpoint: ProxyEndpoint) => invoke<ProxyEndpointInspection>("inspect_proxy_endpoint", { endpoint }),
   disableProxyEnvironment: () => invoke<EnvironmentStatus>("disable_proxy_environment"),

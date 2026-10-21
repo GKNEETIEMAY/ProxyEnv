@@ -60,6 +60,26 @@ export interface ProxyEndpoint {
   protocol: ProxyProtocol;
 }
 
+export type ProxyConnectivityState = "notTested" | "testing" | "reachable" | "partial" | "unreachable" | "localProxyUnavailable" | "unknown";
+export type ConnectivityErrorKind = "proxyUnavailable" | "proxyHandshakeFailed" | "connectTimeout" | "tlsFailed" | "remoteRejected" | "httpStatus" | "networkError" | "unknown";
+export interface ConnectivityTargetResult {
+  name: string;
+  url: string;
+  success: boolean;
+  statusCode: number | null;
+  durationMs: number | null;
+  errorKind: ConnectivityErrorKind | null;
+}
+export interface ProxyConnectivityResult {
+  state: ProxyConnectivityState;
+  endpoint: ProxyEndpoint;
+  localListenerOk: boolean;
+  protocolOk: boolean;
+  targets: ConnectivityTargetResult[];
+  testedAt: string;
+  totalDurationMs: number;
+}
+
 export type CheckState = "idle" | "checking" | "healthy" | "warning" | "failed" | "disabled";
 
 export interface ActiveProxyContext {

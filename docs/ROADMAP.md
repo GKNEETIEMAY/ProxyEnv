@@ -43,6 +43,12 @@ Draft and public Publish steps continue to require separate authorization.
 
 ## Gates retained for future releases
 
+Development is underway on `v0.2.2dev` for the local overview/advanced workspace,
+explicit connectivity checks and stale-response protection. The current stable
+release remains v0.2.1. See the [scoped development plan](development/LOCAL_ENVIRONMENT_V0.2.2.zh-CN.md)
+and [implementation evidence and open acceptance items](development/LOCAL_ENVIRONMENT_V0.2.2_QA.md).
+These development records do not replace the release gates below.
+
 - Preserve the high-severity frontend audit gate and rerun full CI for release-preflight changes.
 - Verify predecessor → RouteSpan upgrade, retained installer identity/data and uninstall.
 - Test real Windows 10/11, 125%/150% native DPI and desktop/tray/installer icon caches.

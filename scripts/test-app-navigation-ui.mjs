@@ -33,6 +33,9 @@ try {
   assert.equal(await local.getAttribute("aria-current"), "page");
   assert.equal(await dot.getAttribute("data-state"), "idle");
   assert.equal(await dot.evaluate(node => getComputedStyle(node).visibility), "hidden");
+  const localViews = page.locator('.local-view-switch button');
+  assert.equal(await localViews.first().getAttribute('aria-pressed'), 'true');
+  await localViews.last().click();
   await page.evaluate(() => { window.retainedRemotePage = document.querySelector('.remote-bridge-page'); });
   const remoteBox = await remote.boundingBox();
   for (const [status, reconnectState, postConnectStatus, expected] of [
@@ -50,6 +53,7 @@ try {
   await page.locator('.primary-nav-actions button').last().click();
   await page.locator('.header-back-button').click();
   assert.equal(await local.getAttribute("aria-current"), "page");
+  assert.equal(await localViews.last().getAttribute('aria-pressed'), 'true', 'Local advanced view survives Settings');
   await remote.click();
   assert.equal(await remote.getAttribute("aria-current"), "page");
   assert.equal(await page.locator('.remote-view-switch').count(), 0, "Disconnected workspace has no usage tabs");
@@ -69,6 +73,7 @@ try {
   assert.equal(await page.locator('.remote-view-switch button').count(), 2);
   await page.locator('.remote-view-switch button').last().click();
   await local.click(); await remote.click();
+  assert.equal(await localViews.last().getAttribute('aria-pressed'), 'true', 'Local advanced view survives Assistant and workspace switching');
   assert.equal(await page.locator('.remote-view-switch button').last().getAttribute('aria-pressed'), 'true', "The remote view is not remounted on workspace changes");
   assert.equal(await page.evaluate(() => window.retainedRemotePage === document.querySelector('.remote-bridge-page')), true);
   await page.locator('.primary-nav-actions button').first().click();
