@@ -100,9 +100,37 @@ struct CachedConnectivityResult {
     result: ProxyConnectivityResult,
     candidate_fingerprint: String,
     stored_at: Instant,
+    revision: u64,
 }
 
-static LAST_RESULT: OnceLock<Mutex<Option<CachedConnectivityResult>>> = OnceLock::new();
+#[derive(Default)]
+struct ConnectivityCache {
+    generation: u64,
+    entry: Option<CachedConnectivityResult>,
+}
+impl ConnectivityCache {
+    fn begin(&mut self) -> u64 {
+        self.generation = self.generation.saturating_add(1);
+        self.generation
+    }
+    fn commit(&mut self, generation: u64, entry: CachedConnectivityResult) -> bool {
+        if generation != self.generation {
+            return false;
+        }
+        self.entry = Some(entry);
+        true
+    }
+}
+static LAST_RESULT: OnceLock<Mutex<ConnectivityCache>> = OnceLock::new();
+
+// Called while the active proxy lock is held, establishing ordering with selection.
+pub fn begin_test() -> u64 {
+    LAST_RESULT
+        .get_or_init(|| Mutex::new(ConnectivityCache::default()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .begin()
+}
 
 pub async fn test_current_proxy(candidate: &ProxyCandidate) -> Result<ProxyConnectivityResult> {
     let started = Instant::now();
@@ -122,33 +150,27 @@ pub async fn test_current_proxy(candidate: &ProxyCandidate) -> Result<ProxyConne
     .map_err(|error| ProxyEnvError::Detection(error.to_string()))?;
 
     if !local_listener_ok {
-        return Ok(store_result(
-            candidate,
-            ProxyConnectivityResult {
-                state: ProxyConnectivityState::LocalProxyUnavailable,
-                endpoint,
-                local_listener_ok: false,
-                protocol_ok: false,
-                targets: Vec::new(),
-                tested_at,
-                total_duration_ms: elapsed_ms(started),
-            },
-        ));
+        return Ok(ProxyConnectivityResult {
+            state: ProxyConnectivityState::LocalProxyUnavailable,
+            endpoint,
+            local_listener_ok: false,
+            protocol_ok: false,
+            targets: Vec::new(),
+            tested_at,
+            total_duration_ms: elapsed_ms(started),
+        });
     }
 
     if matches!(endpoint.protocol, ProxyProtocol::Unknown) {
-        return Ok(store_result(
-            candidate,
-            ProxyConnectivityResult {
-                state: ProxyConnectivityState::Unknown,
-                endpoint,
-                local_listener_ok: true,
-                protocol_ok: false,
-                targets: Vec::new(),
-                tested_at,
-                total_duration_ms: elapsed_ms(started),
-            },
-        ));
+        return Ok(ProxyConnectivityResult {
+            state: ProxyConnectivityState::Unknown,
+            endpoint,
+            local_listener_ok: true,
+            protocol_ok: false,
+            targets: Vec::new(),
+            tested_at,
+            total_duration_ms: elapsed_ms(started),
+        });
     }
 
     let client = build_client(&endpoint)?;
@@ -157,39 +179,34 @@ pub async fn test_current_proxy(candidate: &ProxyCandidate) -> Result<ProxyConne
     let state = classify_state(success_count, targets.len());
     let protocol_ok = protocol_matches(endpoint.protocol, detected_protocol) || success_count > 0;
 
-    Ok(store_result(
-        candidate,
-        ProxyConnectivityResult {
-            state,
-            endpoint,
-            local_listener_ok: true,
-            protocol_ok,
-            targets,
-            tested_at,
-            total_duration_ms: elapsed_ms(started),
-        },
-    ))
+    Ok(ProxyConnectivityResult {
+        state,
+        endpoint,
+        local_listener_ok: true,
+        protocol_ok,
+        targets,
+        tested_at,
+        total_duration_ms: elapsed_ms(started),
+    })
 }
 
 pub fn get_last_result(
     active_candidate: Option<&ProxyCandidate>,
+    revision: u64,
 ) -> Option<ProxyConnectivityResult> {
-    let cache = LAST_RESULT.get_or_init(|| Mutex::new(None));
-    let mut cached = cache
+    let cache = LAST_RESULT.get_or_init(|| Mutex::new(ConnectivityCache::default()));
+    let cached = cache
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let Some(candidate) = active_candidate else {
-        *cached = None;
-        return None;
-    };
+    let candidate = active_candidate?;
     let valid = cached
+        .entry
         .as_ref()
-        .is_some_and(|entry| cache_is_valid(entry, candidate, Instant::now()));
+        .is_some_and(|entry| cache_is_valid(entry, candidate, revision, Instant::now()));
     if !valid {
-        *cached = None;
         return None;
     }
-    cached.as_ref().map(|entry| entry.result.clone())
+    cached.entry.as_ref().map(|entry| entry.result.clone())
 }
 
 fn build_client(endpoint: &ProxyEndpoint) -> Result<Client> {
@@ -309,28 +326,40 @@ fn classify_state(success_count: usize, target_count: usize) -> ProxyConnectivit
     }
 }
 
-fn store_result(
+/// Commit only inside active::with_current, after validating the same selection revision.
+pub fn store_result(
     candidate: &ProxyCandidate,
+    revision: u64,
+    generation: u64,
     result: ProxyConnectivityResult,
-) -> ProxyConnectivityResult {
-    let cache = LAST_RESULT.get_or_init(|| Mutex::new(None));
+) -> Result<ProxyConnectivityResult> {
+    let cache = LAST_RESULT.get_or_init(|| Mutex::new(ConnectivityCache::default()));
     let mut cached = cache
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *cached = Some(CachedConnectivityResult {
-        result: result.clone(),
-        candidate_fingerprint: candidate_fingerprint(candidate),
-        stored_at: Instant::now(),
-    });
-    result
+    let accepted = cached.commit(
+        generation,
+        CachedConnectivityResult {
+            result: result.clone(),
+            candidate_fingerprint: candidate_fingerprint(candidate),
+            stored_at: Instant::now(),
+            revision,
+        },
+    );
+    if !accepted {
+        return Err(ProxyEnvError::ActiveProxyChanged);
+    }
+    Ok(result)
 }
 
 fn cache_is_valid(
     cached: &CachedConnectivityResult,
     candidate: &ProxyCandidate,
+    revision: u64,
     now: Instant,
 ) -> bool {
-    now.saturating_duration_since(cached.stored_at) <= CACHE_TTL
+    cached.revision == revision
+        && now.saturating_duration_since(cached.stored_at) <= CACHE_TTL
         && plan::validate_and_normalize_endpoint(&endpoint_from_candidate(candidate))
             .is_ok_and(|endpoint| cached.result.endpoint == endpoint)
         && cached.candidate_fingerprint == candidate_fingerprint(candidate)
@@ -403,6 +432,7 @@ mod tests {
             },
             candidate_fingerprint: candidate_fingerprint(candidate),
             stored_at,
+            revision: 7,
         }
     }
 
@@ -475,21 +505,39 @@ mod tests {
         let active = candidate();
         let now = Instant::now();
         let fresh = cached(&active, now - Duration::from_secs(60));
-        assert!(cache_is_valid(&fresh, &active, now));
+        assert!(cache_is_valid(&fresh, &active, 7, now));
 
+        // Same endpoint and process after A -> B -> A is a different selection generation.
+        assert!(!cache_is_valid(&fresh, &active, 9, now));
         let stale = cached(&active, now - Duration::from_secs(301));
-        assert!(!cache_is_valid(&stale, &active, now));
+        assert!(!cache_is_valid(&stale, &active, 7, now));
 
         let mut changed_endpoint = active.clone();
         changed_endpoint.port = 7898;
-        assert!(!cache_is_valid(&fresh, &changed_endpoint, now));
+        assert!(!cache_is_valid(&fresh, &changed_endpoint, 7, now));
 
         let mut changed_process = active.clone();
         changed_process.pid = Some(43);
-        assert!(!cache_is_valid(&fresh, &changed_process, now));
+        assert!(!cache_is_valid(&fresh, &changed_process, 7, now));
 
         let mut stopped = active;
         stopped.listening = false;
-        assert!(!cache_is_valid(&fresh, &stopped, now));
+        assert!(!cache_is_valid(&fresh, &stopped, 7, now));
+    }
+    #[test]
+    fn late_requests_cannot_replace_newer_results_even_for_the_same_candidate() {
+        let mut cache = ConnectivityCache::default();
+        let active = candidate();
+        let old = cache.begin();
+        let latest = cache.begin();
+        let mut newest = cached(&active, Instant::now());
+        newest.result.total_duration_ms = 42;
+        assert!(cache.commit(latest, newest));
+        assert!(!cache.commit(old, cached(&active, Instant::now())));
+        assert_eq!(cache.entry.as_ref().unwrap().result.total_duration_ms, 42);
+        // A newer request that has not completed also invalidates an older completion.
+        let pending = cache.begin();
+        assert!(!cache.commit(latest, cached(&active, Instant::now())));
+        assert!(cache.commit(pending, cached(&active, Instant::now())));
     }
 }

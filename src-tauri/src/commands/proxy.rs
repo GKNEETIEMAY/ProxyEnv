@@ -32,15 +32,20 @@ pub async fn get_active_proxy_context() -> Result<active::ActiveProxyContext> {
 pub async fn test_current_proxy_connectivity(
     expected_revision: u64,
 ) -> Result<ProxyConnectivityResult> {
-    let candidate =
-        active::with_current(Some(expected_revision), |candidate| Ok(candidate.clone()))?;
+    let (candidate, generation) = active::with_current(Some(expected_revision), |candidate| {
+        Ok((candidate.clone(), connectivity::begin_test()))
+    })?;
     let result = connectivity::test_current_proxy(&candidate).await?;
-    // The request uses a captured target; never present a completed old-target test as current.
-    active::with_current(Some(expected_revision), |_| Ok(result))
+    active::with_current(Some(expected_revision), |candidate| {
+        connectivity::store_result(candidate, expected_revision, generation, result)
+    })
 }
 
 #[tauri::command]
 pub async fn get_last_proxy_connectivity_result() -> Result<Option<ProxyConnectivityResult>> {
     let context = active::context()?;
-    Ok(connectivity::get_last_result(context.available_candidate()))
+    Ok(connectivity::get_last_result(
+        context.available_candidate(),
+        context.revision,
+    ))
 }

@@ -178,7 +178,10 @@ pub fn generate(application_id: Option<&str>) -> Result<DiagnosticReportData> {
             .map(|diagnosis| AssistantSummary::from_diagnosis(&diagnosis, revision))
             .unwrap_or_else(|_| AssistantSummary::unknown(AppCategory::Unavailable)),
     };
-    let connection = connectivity::get_last_result(status.active_proxy.available_candidate());
+    let connection = connectivity::get_last_result(
+        status.active_proxy.available_candidate(),
+        status.active_proxy.revision,
+    );
     let report = project_report(
         &status,
         network_observation::observe().state,

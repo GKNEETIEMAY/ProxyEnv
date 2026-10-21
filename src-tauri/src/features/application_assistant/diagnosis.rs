@@ -34,7 +34,8 @@ pub(super) fn diagnose_snapshot(
         candidate.listening && !matches!(candidate.protocol, ProxyProtocol::Unknown)
     });
     let proxy_connectivity_state =
-        connectivity::get_last_result(active_candidate.as_ref()).map(|result| result.state);
+        connectivity::get_last_result(active_candidate.as_ref(), context.revision)
+            .map(|result| result.state);
     let active_endpoint = active_candidate
         .as_ref()
         .map(|candidate| proxy::ProxyEndpoint {
