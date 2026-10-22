@@ -20,8 +20,8 @@ async function openRepository() {
   </aside>
 </template>
 <style scoped>
-.star-prompt { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid var(--line); border-radius:10px; background:var(--warning-soft); font-size:12px; }
-.star-symbol { width:18px; height:18px; flex:none; fill:var(--warning); }
+.star-prompt { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid var(--line); border-radius:10px; background:var(--surface); font-size:12px; }
+.star-symbol { width:18px; height:18px; flex:none; fill:#F59E0B; }
 .star-prompt p { flex:1; min-width:0; margin:0; line-height:1.5; color:var(--ink); }
 .star-prompt p span { display:block; color:var(--danger); }
 .star-action { flex:none; padding:6px 10px; border:1px solid var(--line-strong); border-radius:6px; color:var(--ink); background:var(--surface); cursor:pointer; }

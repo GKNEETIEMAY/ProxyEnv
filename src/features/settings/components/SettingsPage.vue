@@ -139,7 +139,6 @@ function changeDesktopAlerts(event: Event) {
         <BrandMark size="large" />
         <div><h2>{{ copy.appName }}</h2><p>{{ copy.appTagline }}</p></div>
       </div>
-      <slot name="support" />
       <dl class="about-details">
         <div><dt>{{ copy.version }}</dt><dd>v{{ appVersion }}</dd></div>
         <div class="about-update-detail" tabindex="-1">
@@ -184,6 +183,7 @@ function changeDesktopAlerts(event: Event) {
           {{ copy.viewRelease }}
         </button>
       </div>
+      <div class="about-support"><slot name="support" /></div>
       <p v-if="['available', 'downloading', 'installing'].includes(updateState)" class="automatic-update-hint">{{ copy.automaticInstallHint }}</p>
       <p v-if="updateState === 'downloading'" class="automatic-update-hint">{{ copy.updateCancelHint }}</p>
       <div v-if="updateState === 'downloading'" class="update-progress" role="progressbar" :aria-label="copy.downloadingUpdate" :aria-valuenow="updateProgress ?? undefined" aria-valuemin="0" aria-valuemax="100">
@@ -216,4 +216,5 @@ function changeDesktopAlerts(event: Event) {
 .new-version-notes summary span { color:var(--muted); font-weight:400; }
 .new-version-notes .release-notes { max-height:240px; overflow:auto; padding-right:8px; }
 .changelog-heading { flex-wrap:wrap; }
+.about-support:not(:empty) { margin-top:16px; }
 </style>
