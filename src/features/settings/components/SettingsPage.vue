@@ -139,6 +139,7 @@ function changeDesktopAlerts(event: Event) {
         <BrandMark size="large" />
         <div><h2>{{ copy.appName }}</h2><p>{{ copy.appTagline }}</p></div>
       </div>
+      <slot name="support" />
       <dl class="about-details">
         <div><dt>{{ copy.version }}</dt><dd>v{{ appVersion }}</dd></div>
         <div class="about-update-detail" tabindex="-1">

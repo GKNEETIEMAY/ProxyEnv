@@ -30,6 +30,7 @@ try {
   const nav = page.locator(".primary-nav"), local = nav.locator("button").first(), remote = nav.locator("button").last();
   const dot = remote.locator(".remote-nav-status");
   await local.waitFor();
+  assert.equal(await page.locator('.star-prompt').count(), 0, 'Star prompt is not a global workspace footer');
   assert.equal(await page.locator('.update-available-button').count(), 0, 'No arrow before a newer release is known');
   assert.equal(await nav.locator("button").count(), 2);
   assert.equal(await local.getAttribute("aria-current"), "page");
@@ -122,12 +123,20 @@ try {
     }
   }
   assert.deepEqual(errors, []);
+  await update.click();
+  assert.equal(await page.locator('.about-panel .star-prompt').count(), 1);
   await page.locator('.star-action').click();
   assert.equal(await page.evaluate(() => window.openedRepository), 'https://github.com/GKNEETIEMAY/ProxyEnv', 'Star action opens only the official repository, never performs a Star');
   await page.locator('.star-dismiss').click();
   assert.equal(await page.locator('.star-prompt').count(), 0);
+  await page.locator('.header-back-button').click();
+  await update.click();
+  assert.equal(await page.locator('.star-prompt').count(), 0, 'Dismissal lasts only for the current app session');
+  await page.evaluate(() => localStorage.setItem('routespan.star-prompt-dismissed', '1'));
   await page.reload();
   await page.locator('.primary-nav').waitFor();
-  assert.equal(await page.locator('.star-prompt').count(), 0, 'Dismissal survives app page reload');
+  await page.locator('.primary-nav-actions button').last().click();
+  await page.locator('.settings-tabs button').last().click();
+  assert.equal(await page.locator('.star-prompt').count(), 1, 'A new app session shows the prompt even with the old saved dismissal');
   console.log('Navigation UI passed: default local, two primary workspaces, background transport states, stable indicator geometry, contextual return, modal Escape, retained remote view and four-language light/dark/scaled logical viewports (synthetic IPC only).');
 } finally { await browser.close(); }

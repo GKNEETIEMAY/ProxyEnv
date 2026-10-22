@@ -67,6 +67,7 @@ const desktopAlertsError = ref(false);
 const copiedEndpoint = ref(false);
 function openBridgeNotice() { openRemote(); void refreshRemoteBridge(); }
 const appVersion = ref("0.2.1");
+const starDismissed = ref(false);
 const updateSnapshot = shallowRef<Availability<NonNullable<Awaited<ReturnType<typeof check>>>> | null>(null);
 const latestVersion = computed(() => updateSnapshot.value?.version ?? "");
 const updateState = ref<UpdateState>("idle");
@@ -1018,10 +1019,11 @@ onBeforeUnmount(() => {
       @open-release="openLatestRelease"
       @desktop-alerts-change="saveDesktopAlerts"
       @retry-desktop-alerts="loadDesktopAlerts"
-    />
+    >
+      <template #support><StarPrompt v-if="!starDismissed" :copy="copy" @dismiss="starDismissed = true" /></template>
+    </SettingsPage>
     </div>
     </div>
-    <StarPrompt :copy="copy" />
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
     <UpdateInstallDialog ref="updateDialog" :copy="copy" />
   </div>
