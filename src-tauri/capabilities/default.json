@@ -21,6 +21,9 @@
       "identifier": "opener:allow-open-url",
       "allow": [
         {
+          "url": "https://github.com/GKNEETIEMAY/ProxyEnv"
+        },
+        {
           "url": "https://github.com/GKNEETIEMAY/ProxyEnv/releases/**"
         },
         {

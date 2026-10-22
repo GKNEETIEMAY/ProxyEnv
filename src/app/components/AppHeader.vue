@@ -45,7 +45,7 @@ defineEmits<{
       <span class="wordmark-copy"><strong>{{ copy.appName }}</strong><small :title="copy.appTagline">{{ copy.appTagline }}</small></span>
     </button>
     <button v-if="updateVersion" class="header-icon-button update-available-button" type="button" :aria-label="copy.updateNotice.replace('{version}', updateVersion)" :title="copy.updateNotice.replace('{version}', updateVersion)" @click="$emit('openUpdate')">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-6 6 6-6 6 6" /></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 17V7m-4 4 4-4 4 4" /></svg>
     </button>
     <div class="titlebar-drag-zone" data-tauri-drag-region @dblclick="$emit('toggleMaximize')"></div>
     <div class="header-actions">
@@ -89,5 +89,6 @@ defineEmits<{
 .remote-nav-status[data-state="idle"] { visibility:hidden; }
 .remote-nav-status[data-state="connected"] { background:var(--success); }
 .remote-nav-status[data-state="attention"] { background:var(--warning); }
-.update-available-button { margin-left:8px; color:var(--accent-strong); flex:none; }
+.update-available-button { color:var(--accent-strong); margin-left:8px; flex:none; }
+.update-available-button svg { width:22px; }
 </style>

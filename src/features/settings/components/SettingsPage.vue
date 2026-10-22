@@ -23,6 +23,8 @@ const props = defineProps<{
   releaseVersion: string;
   releasePublishedLabel: string;
   releaseNotes: ReleaseNoteLine[];
+  installedNotes: ReleaseNoteLine[];
+  installedNotesState: "idle" | "loading" | "ready" | "error";
   releaseUrl: string;
   releaseActionError: string;
   updateProgress: number | null;
@@ -31,8 +33,8 @@ const props = defineProps<{
 }>();
 
 const hasNewerRelease = computed(() =>
-  ["available", "manual", "downloading", "installing"].includes(props.updateState)
-  && Boolean(props.releaseVersion)
+  ["available", "manual", "downloading", "installing", "error", "idle"].includes(props.updateState)
+  && Boolean(props.releaseVersion) && props.releaseVersion !== props.appVersion
 );
 
 const settings = defineModel<AppSettings>("settings", { required: true });
@@ -40,7 +42,7 @@ const tab = defineModel<SettingsTab>("tab", { required: true });
 const palette = defineModel<Palette>("palette", { default: "warm" });
 const paletteLabels = computed(() => ({ warm: props.copy.paletteWarm, blue: props.copy.paletteBlue, teal: props.copy.paletteTeal, neutral: props.copy.paletteNeutral }));
 
-const emit = defineEmits<{ checkForUpdates: []; installUpdate: []; openRelease: []; cancelUpdate: []; desktopAlertsChange: [enabled: boolean]; retryDesktopAlerts: [] }>();
+const emit = defineEmits<{ checkForUpdates: []; reloadNotes: []; installUpdate: []; openRelease: []; cancelUpdate: []; desktopAlertsChange: [enabled: boolean]; retryDesktopAlerts: [] }>();
 const desktopDisabled = computed(() => !settings.value.notificationsEnabled || !props.desktopAlertsReady || props.desktopAlertsBusy || Boolean(props.settingsLoadError));
 const soundDisabled = computed(() => desktopDisabled.value || !props.desktopAlerts);
 function changeDesktopAlerts(event: Event) {
@@ -139,7 +141,7 @@ function changeDesktopAlerts(event: Event) {
       </div>
       <dl class="about-details">
         <div><dt>{{ copy.version }}</dt><dd>v{{ appVersion }}</dd></div>
-        <div class="about-update-detail">
+        <div class="about-update-detail" tabindex="-1">
           <dt>{{ copy.updateStatus }}</dt>
           <dd>
             <span class="update-status-line" :class="`update-${updateState}`" role="status" aria-live="polite"><span class="update-dot"></span>{{ updateMessage }}</span>
@@ -152,6 +154,15 @@ function changeDesktopAlerts(event: Event) {
         </div>
         <div><dt>{{ copy.updateSource }}</dt><dd>{{ updateSource }}</dd></div>
       </dl>
+      <details v-if="hasNewerRelease" class="new-version-notes" open>
+        <summary>{{ copy.newVersionNotes }} · v{{ releaseVersion }}<span v-if="releasePublishedLabel"> · {{ releasePublishedLabel }}</span></summary>
+        <div class="release-notes">
+          <template v-for="(line, index) in releaseNotes" :key="index">
+            <h4 v-if="line.kind === 'heading'">{{ line.text }}</h4>
+            <p v-else :class="`release-note-${line.kind}`">{{ line.text }}</p>
+          </template>
+        </div>
+      </details>
       <div class="update-actions">
         <button v-if="['available', 'downloading', 'installing'].includes(updateState)" class="install-update-button" type="button" :disabled="updateState !== 'available' || installPreparing" @click="$emit('installUpdate')">
           <svg :class="{ spinning: updateState === 'installing' }" viewBox="0 0 24 24" aria-hidden="true">
@@ -173,16 +184,22 @@ function changeDesktopAlerts(event: Event) {
         </button>
       </div>
       <p v-if="['available', 'downloading', 'installing'].includes(updateState)" class="automatic-update-hint">{{ copy.automaticInstallHint }}</p>
+      <p v-if="updateState === 'downloading'" class="automatic-update-hint">{{ copy.updateCancelHint }}</p>
       <div v-if="updateState === 'downloading'" class="update-progress" role="progressbar" :aria-label="copy.downloadingUpdate" :aria-valuenow="updateProgress ?? undefined" aria-valuemin="0" aria-valuemax="100">
         <span :class="{ indeterminate: updateProgress === null }" :style="updateProgress === null ? undefined : { width: `${updateProgress}%` }"></span>
       </div>
       <section class="changelog-section">
         <div class="changelog-heading">
-          <h3>{{ copy.changelog }}</h3>
-          <span>v{{ releaseVersion }} · {{ releasePublishedLabel || copy.stableRelease }}</span>
+          <h3>{{ copy.installedChangelog }}</h3>
+          <span>v{{ appVersion }}</span>
         </div>
-        <div class="release-notes" aria-live="polite">
-          <template v-for="(line, index) in releaseNotes" :key="`${line.kind}-${index}-${line.text}`">
+        <p v-if="installedNotesState === 'idle' || installedNotesState === 'loading'" role="status">{{ copy.installedNotesLoading }}</p>
+        <div v-else-if="installedNotesState === 'error'" role="status">
+          <p>{{ copy.installedNotesFailed }}</p>
+          <button type="button" class="secondary-action" @click="$emit('reloadNotes')">{{ copy.reloadNotes }}</button>
+        </div>
+        <div v-else class="release-notes" aria-live="polite">
+          <template v-for="(line, index) in installedNotes" :key="`${line.kind}-${index}-${line.text}`">
             <h4 v-if="line.kind === 'heading'">{{ line.text }}</h4>
             <p v-else :class="`release-note-${line.kind}`">{{ line.text }}</p>
           </template>
@@ -191,3 +208,11 @@ function changeDesktopAlerts(event: Event) {
     </section>
   </main>
 </template>
+
+<style scoped>
+.new-version-notes { margin-top:20px; }
+.new-version-notes summary { cursor:pointer; color:var(--ink); font-weight:600; font-size:13px; }
+.new-version-notes summary span { color:var(--muted); font-weight:400; }
+.new-version-notes .release-notes { max-height:240px; overflow:auto; padding-right:8px; }
+.changelog-heading { flex-wrap:wrap; }
+</style>

@@ -20,7 +20,7 @@ function load(path) {
   return exports;
 }
 const { stableVersion, compareVersions, isOfficialReleaseUrl } = load("src/features/settings/update.ts");
-const { checkUpdateMetadata, fetchLatestRelease, resolveUpdate, updateFailure, UpdateRequestError } = load("src/features/settings/update-availability.ts");
+const { checkUpdateMetadata, fetchInstalledRelease, fetchLatestRelease, resolveUpdate, updateFailure, UpdateRequestError } = load("src/features/settings/update-availability.ts");
 const { UpdateInstaller } = load("src/features/settings/update-installer.ts");
 const ok = value => ({ status: "fulfilled", value });
 const fail = reason => ({ status: "rejected", reason });
@@ -36,6 +36,31 @@ test("stable version parsing rejects previews, garbage, shorthand and unsafe num
   assert.equal(compareVersions("0.2.10", "0.2.9"), 1);
   assert.equal(compareVersions("v0.2.1", "0.2.1"), 0);
   assert.throws(() => compareVersions("0.2.1-rc.1", "0.2.0"));
+});
+
+test("installed changelog fetches the exact running tag independently of latest", async () => {
+  let requested;
+  const current = release("0.2.1");
+  const result = await fetchInstalledRelease(async url => {
+    requested = url;
+    return { status: 200, ok: true, json: async () => current };
+  }, {}, "0.2.1");
+  assert.equal(requested, "https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/tags/v0.2.1");
+  assert.equal(result.body, "notes-0.2.1");
+  await fetchLatestRelease(async url => {
+    assert.equal(url, "https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/latest");
+    return { status: 404 };
+  }, {});
+  assert.equal(resolveUpdate("0.2.1", ok(release()), ok(metadata()), true).body, "notes-0.2.2");
+});
+
+test("installed changelog never substitutes a different, malformed or unpublished release", async () => {
+  for (const value of [release("0.2.2"), release("0.2.0"), { ...release("0.2.1"), draft: true }, { ...release("0.2.1"), body: {} }]) {
+    await assert.rejects(fetchInstalledRelease(async () => ({ status: 200, ok: true, json: async () => value }), {}, "0.2.1"), error => error.category === "invalidResponse");
+  }
+  assert.equal(await fetchInstalledRelease(async () => ({ status: 404 }), {}, "0.2.1"), null);
+  await assert.rejects(fetchInstalledRelease(async () => { throw Error("must not fetch"); }, {}, "bad"), error => error.category === "invalidResponse");
+  await assert.rejects(fetchInstalledRelease(async () => { throw Error("network"); }, {}, "0.2.1"), /network/);
 });
 test("v0.2.0 to v0.2.1 is an upgrade and v0.2.1 never offers the same or older release", () => {
   const handle = metadata("0.2.1");

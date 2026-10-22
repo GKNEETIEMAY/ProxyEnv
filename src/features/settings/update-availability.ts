@@ -7,7 +7,21 @@ export class UpdateRequestError extends Error {
 }
 
 export async function fetchLatestRelease(fetcher: typeof fetch, signal: AbortSignal): Promise<GitHubRelease | null> {
-  const response = await fetcher("https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/latest", {
+  return fetchRelease(fetcher, signal, "latest");
+}
+
+export async function fetchInstalledRelease(fetcher: typeof fetch, signal: AbortSignal, version: string): Promise<GitHubRelease | null> {
+  const normalized = stableVersion(version);
+  if (!normalized) throw new UpdateRequestError("invalidResponse");
+  const release = await fetchRelease(fetcher, signal, `tags/v${normalized}`);
+  if (!release) return null;
+  const resolved = resolveUpdate(normalized, { status: "fulfilled", value: release }, { status: "fulfilled", value: null }, false);
+  if (resolved.state !== "latest" || resolved.version !== normalized) throw new UpdateRequestError("invalidResponse");
+  return release;
+}
+
+async function fetchRelease(fetcher: typeof fetch, signal: AbortSignal, path: string): Promise<GitHubRelease | null> {
+  const response = await fetcher(`https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/${path}`, {
     cache: "no-store", headers: { Accept: "application/vnd.github+json" }, signal,
   });
   if (response.status === 404) return null;

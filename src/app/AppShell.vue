@@ -17,7 +17,7 @@ import {
   type ReleaseNoteLine,
   type UpdateState
 } from "../features/settings/update";
-import { checkUpdateMetadata, fetchLatestRelease, resolveUpdate, updateFailure, type Availability, type UpdateFailure } from "../features/settings/update-availability";
+import { checkUpdateMetadata, fetchInstalledRelease, fetchLatestRelease, resolveUpdate, updateFailure, type Availability, type UpdateFailure } from "../features/settings/update-availability";
 import { UpdateInstaller } from "../features/settings/update-installer";
 import UpdateInstallDialog from "../features/settings/components/UpdateInstallDialog.vue";
 import { backend } from "../shared/api/backend";
@@ -25,6 +25,7 @@ import { messages, resolveLocale } from "../shared/i18n";
 import type { AppSettings, EnvironmentStatus, ManagedProxyVariable, ProxyCandidate, ProxyEndpoint, TunObservation } from "../shared/types";
 import { copyText } from "../shared/utils/clipboard";
 import AppHeader from "./components/AppHeader.vue";
+import StarPrompt from "./components/StarPrompt.vue";
 import { remoteNavigationState, trayNavigationAction } from "./navigation";
 import DiagnosticReportDialog from "../features/diagnostic-report/components/DiagnosticReportDialog.vue";
 import NotificationCenter from "../shared/components/NotificationCenter.vue";
@@ -72,6 +73,8 @@ const updateState = ref<UpdateState>("idle");
 const releaseUrl = computed(() => updateSnapshot.value?.url ?? "");
 const releasePublishedAt = computed(() => updateSnapshot.value?.date ?? "");
 const releaseNotesBody = computed(() => updateSnapshot.value?.body ?? "");
+const installedNotesBody = ref("");
+const installedNotesState = ref<"idle" | "loading" | "ready" | "error">("idle");
 const checkFailure = ref<UpdateFailure>("service");
 const installStatusError = ref<"updateGuardUnavailable" | "updateBusy" | "updateStateChanged" | "updateInstallError" | null>(null);
 const updateAbandoned = ref(false);
@@ -168,7 +171,7 @@ const updateMessage = computed(() => {
   if (updateState.value === "error") return installStatusError.value ? copy.value[installStatusError.value] : updateFailureMessage(checkFailure.value);
   return copy.value.notChecked;
 });
-const availableUpdateVersion = computed(() => ["available", "manual"].includes(updateState.value) ? latestVersion.value : "");
+const availableUpdateVersion = computed(() => ["available", "manual"].includes(updateSnapshot.value?.state ?? "") ? latestVersion.value : "");
 function recordUpdateDiagnostic(phase: "release" | "metadata" | "download" | "install" | "guard", outcome: string) {
   if (reviewPreview) return;
   // Backend deserialization allows only enum values; raw exceptions can never enter the log.
@@ -196,6 +199,25 @@ const displayReleaseNotes = computed<ReleaseNoteLine[]>(() => {
     ? localizedNotes
     : [{ kind: "paragraph", text: copy.value.noReleaseNotes }];
 });
+const displayInstalledNotes = computed<ReleaseNoteLine[]>(() => {
+  const notes = parseReleaseNotes(installedNotesBody.value, locale.value);
+  return notes.length ? notes : [{ kind: "paragraph", text: copy.value.noReleaseNotes }];
+});
+
+async function loadInstalledNotes() {
+  if (installedNotesState.value === "loading") return;
+  if (reviewPreview) { installedNotesState.value = "ready"; return; }
+  if (!versionVerified) return;
+  installedNotesState.value = "loading";
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 10_000);
+  try {
+    const release = await fetchInstalledRelease(fetch, controller.signal, appVersion.value);
+    installedNotesBody.value = release?.body ?? "";
+    installedNotesState.value = "ready";
+  } catch { installedNotesState.value = "error"; }
+  finally { window.clearTimeout(timer); }
+}
 
 function applyPresentation() {
   applyTheme(document.documentElement, draftSettings.value.theme, palette.value, systemDark.matches);
@@ -557,9 +579,12 @@ async function cancelUpdateInstall() {
   catch { releaseActionError.value = copy.value.updateGuardUnavailable; }
 }
 
-function openUpdateAbout() {
+async function openUpdateAbout() {
   openSettings();
   settingsTab.value = "about";
+  await nextTick();
+  document.querySelector<HTMLElement>(".about-update-detail")?.focus({ preventScroll: true });
+  document.querySelector(".about-update-detail")?.scrollIntoView({ block: "nearest" });
 }
 
 async function openLatestRelease() {
@@ -698,6 +723,7 @@ watch(draftSettings, () => {
   }, 180);
 }, { deep: true, flush: "sync" });
 watch([view, settingsTab], ([nextView, nextTab]) => {
+  if (nextView === "settings" && nextTab === "about" && installedNotesState.value === "idle") void loadInstalledNotes();
   if (reviewPreview || updateState.value !== "idle") return;
   if (nextView === "settings" && nextTab === "about") void checkForUpdates();
 });
@@ -839,6 +865,7 @@ onMounted(async () => {
   }
   settingsReady = true;
   void loadDesktopAlerts();
+  if (view.value === "settings" && settingsTab.value === "about") void loadInstalledNotes();
   // One non-blocking check per launch; window visibility and tab switches do not restart it.
   if (!import.meta.env.DEV) void checkForUpdates();
   maximized.value = await appWindow!.isMaximized();
@@ -977,12 +1004,15 @@ onBeforeUnmount(() => {
       :release-version="releaseVersion"
       :release-published-label="releasePublishedLabel"
       :release-notes="displayReleaseNotes"
+      :installed-notes="displayInstalledNotes"
+      :installed-notes-state="installedNotesState"
       :release-url="releaseUrl"
       :release-action-error="releaseActionError"
       :update-progress="updateProgress"
       :install-preparing="installPreparing"
       :update-abandoned="updateAbandoned"
       @check-for-updates="checkForUpdates"
+      @reload-notes="loadInstalledNotes"
       @install-update="installPendingUpdate"
       @cancel-update="cancelUpdateInstall"
       @open-release="openLatestRelease"
@@ -991,6 +1021,7 @@ onBeforeUnmount(() => {
     />
     </div>
     </div>
+    <StarPrompt :copy="copy" />
     <DiagnosticReportDialog ref="reportDialog" :copy="copy" :locale="locale" :application-id="reportApplicationId" :review-preview="reviewPreview" />
     <UpdateInstallDialog ref="updateDialog" :copy="copy" />
   </div>

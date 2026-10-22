@@ -17,7 +17,8 @@ try {
     window.cachedBridge = { status: "disconnected", target: null, proxy: null, cc: null, proxyStatus: null, ccStatus: null,
       codexConfigured: false, claudeConfigured: false, environment: "", error: null,
       sshAuth: { mode: "nonInteractive", method: "agent", authenticated: false, passwordStored: false }, reconnectState: "idle" };
-    window.__TAURI_INTERNALS__ = { invoke: async command => {
+    window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
+      if (command === "plugin:opener|open_url") { window.openedRepository = args.url; return; }
       if (command === "remote_bridge_summary") return structuredClone(window.cachedBridge);
       if (command === "remote_bridge_detect_cc") return { state: "confirmed", localPort: 15721 };
       if (command === "remote_bridge_targets" || command === "remote_bridge_events" || command === "remote_bridge_skills") return [];
@@ -92,6 +93,11 @@ try {
   assert.equal(await update.evaluate(node => node.nextElementSibling?.className), 'titlebar-drag-zone');
   await update.click();
   assert.equal(await page.locator('.settings-tabs button').last().getAttribute('aria-current'), 'page', 'Arrow opens About');
+  assert.equal(await update.locator('svg circle').count(), 1, 'Update icon has a circle around the arrow');
+  assert.match(await page.locator('.changelog-heading').innerText(), /当前版本更新日志\s+v0\.2\.1/);
+  assert.match(await page.locator('.new-version-notes summary').innerText(), /新版本说明.*v0\.2\.2/);
+  assert.equal(await page.locator('.about-update-detail').evaluate(node => node === document.activeElement), true, 'Update entry moves focus to update information');
+  if (process.argv.includes('--screenshots')) await page.screenshot({ path: resolve(shots, 'update-about.png') });
   assert.equal(await page.locator('.install-update-button').count(), 0, 'Manual-only update cannot install');
   await page.locator('.header-back-button').click();
 
@@ -116,5 +122,12 @@ try {
     }
   }
   assert.deepEqual(errors, []);
+  await page.locator('.star-action').click();
+  assert.equal(await page.evaluate(() => window.openedRepository), 'https://github.com/GKNEETIEMAY/ProxyEnv', 'Star action opens only the official repository, never performs a Star');
+  await page.locator('.star-dismiss').click();
+  assert.equal(await page.locator('.star-prompt').count(), 0);
+  await page.reload();
+  await page.locator('.primary-nav').waitFor();
+  assert.equal(await page.locator('.star-prompt').count(), 0, 'Dismissal survives app page reload');
   console.log('Navigation UI passed: default local, two primary workspaces, background transport states, stable indicator geometry, contextual return, modal Escape, retained remote view and four-language light/dark/scaled logical viewports (synthetic IPC only).');
 } finally { await browser.close(); }
