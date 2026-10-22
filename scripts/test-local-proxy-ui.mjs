@@ -17,9 +17,11 @@ try {
   assert.equal(await overview.getAttribute("aria-pressed"), "true");
   assert.equal(await page.locator(".local-candidates").isVisible(), false);
   assert.equal(await page.evaluate(() => fixture.calls.length), 0, "Mounting does not test or mutate");
+  assert.equal(await page.locator('.local-workspace-content').evaluate(node => getComputedStyle(node).scrollbarWidth), 'none', 'Overview has no space-consuming scroll rail');
   await advanced.click(); assert.equal(await page.locator(".local-candidate-list li").count(), 3, "Same-process ports are individually selectable");
   await page.locator(".local-candidate-list button").nth(1).click();
-  assert.equal(await page.locator(".local-active-address").innerText(), "127.0.0.1:10808\nsocks5");
+  assert.equal(await page.locator(".local-active-address > code").textContent(), "127.0.0.1:10808");
+  assert.equal(await page.locator(".local-active-address > span").textContent(), "socks5");
   assert.deepEqual(await page.evaluate(() => fixture.calls.map(c => c[0])), ["select"], "Selection does not sync");
   assert.equal(await page.locator(".local-candidate-list button").last().isDisabled(), true);
   await overview.click(); await page.locator(".local-sync-scope button.local-text-button").click();
@@ -78,6 +80,13 @@ try {
     checks.push({ locale,palette,mode,width });
   }
   await page.evaluate(() => { fixture.state.locale='zh-CN'; fixture.theme('warm','light'); });
+  await page.evaluate(() => {
+    fixture.state.selected=['http','https'];
+    fixture.state.environment.state='enabled';
+    fixture.state.environment.matchesActiveProxy=true;
+    fixture.state.environment.activeProxy.candidate=fixture.state.candidates[0];
+    fixture.state.environment.activeProxy.selectedCandidateId=fixture.state.candidates[0].id;
+  });
   await page.setViewportSize({ width: 880, height: 760 }); await overview.click();
   await page.waitForFunction(() => document.querySelector('.local-view-switch button')?.getAttribute('aria-pressed') === 'true');
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -90,9 +99,22 @@ try {
   await page.waitForFunction(() => document.querySelector('.local-view-switch button')?.getAttribute('aria-pressed') === 'true');
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   if (shots) await page.screenshot({ path: resolve(output, 'compact.png') });
+  const scroller = page.locator('.local-workspace-content');
+  await scroller.focus();
+  await page.keyboard.press('End');
+  await page.waitForFunction(() => document.querySelector('.local-workspace-content').scrollTop > 0);
+  assert.ok(await scroller.evaluate(node => node.scrollTop > 0), 'Overview remains keyboard-scrollable without a visible rail');
+  await page.locator('.local-sync-action').click();
+  await page.locator('.local-environment .environment-actions button').nth(1).click();
+  await page.locator('.local-environment .environment-actions button').last().click();
+  assert.deepEqual(await page.evaluate(() => fixture.calls.slice(-3).map(c => c[0])), ['sync','disable','restore'], 'Reorganized actions retain their original events');
+  await page.evaluate(() => fixture.state.busy=true);
+  assert.equal(await page.locator('.local-sync-action').isDisabled(), true);
+  assert.equal(await page.locator('.local-environment .environment-actions button').nth(1).isDisabled(), true);
+  await page.evaluate(() => fixture.state.busy=false);
   await page.evaluate(() => { fixture.state.environment.activeProxy.available=false; fixture.state.environment.activeProxy.candidate.listening=false; });
   assert.equal(await page.locator('.local-connectivity .secondary-action').isDisabled(), true);
-  assert.match(await page.locator('.local-active').innerText(), /10808/);
+  assert.match(await page.locator('.local-active').innerText(), /10809/);
   await page.evaluate(() => { fixture.state.candidates=[]; fixture.state.environment.activeProxy.candidate=null; });
   assert.equal(await page.locator('.local-active').getByRole('button', { name: '手动配置' }).isVisible(), true);
   assert.equal(await page.evaluate(() => fixture.calls.filter(c => c[0] === 'test').length), 1, 'Expiry, view changes and unavailable state never start another test');

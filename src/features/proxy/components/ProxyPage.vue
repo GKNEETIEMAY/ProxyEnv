@@ -19,7 +19,7 @@ const active = computed(() => props.environment.activeProxy);
 const source = computed(() => ({ auto: props.copy.activeProxyAuto, user: props.copy.activeProxyUser, systemProxy: props.copy.activeProxySystem, manual: props.copy.manualProxy })[active.value.selectionSource]);
 const stateLabel = computed(() => ({ disabled: props.copy.environmentDisabled, partial: props.copy.environmentPartial, enabled: props.copy.environmentEnabled, mismatch: props.copy.environmentMismatch })[props.environment.state]);
 const stateHint = computed(() => ({ disabled: props.copy.environmentOffHint, partial: props.copy.partialHint, enabled: props.copy.environmentOnHint, mismatch: props.copy.mismatchHint })[props.environment.state]);
-const scope = computed(() => props.selectedVariables.map(name => `${name.toUpperCase()}_PROXY`).join(" · "));
+const scope = computed(() => (["http", "https", "all"] as const).filter(name => props.selectedVariables.includes(name)).map(name => `${name.toUpperCase()}_PROXY`));
 const managedCount = computed(() => props.environment.entries.filter(entry => entry.exists && /^(HTTP|HTTPS|ALL)_PROXY$/i.test(entry.name)).length);
 const detectionSources = computed(() => ({ windowsSystemProxy: props.copy.windowsSystemProxy, processListener: props.copy.localSourceProcess, protocolProbe: props.copy.localSourceProbe, clientConfig: props.copy.localSourceConfig, composite: props.copy.localSourceComposite }));
 async function showAdvanced(target?: string) {
@@ -45,12 +45,12 @@ function showOverview() { localView.value = "overview"; if (content.value) conte
           <button class="refresh-button" type="button" :disabled="loading || toggling" @click="emit('refresh')"><svg :class="{ spinning: loading }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>{{ copy.refresh }}</button>
         </div>
       </header>
-      <div ref="content" class="local-workspace-content">
+      <div ref="content" class="local-workspace-content" :class="{ 'is-overview': localView === 'overview' }" tabindex="0" :aria-label="copy.navLocal" role="region">
         <p v-if="stale" class="local-stale" role="status">{{ copy.localStale }}</p>
         <section class="local-active local-section">
           <div class="local-section-heading"><h2>{{ copy.currentActiveProxy }}</h2><button class="local-text-button" type="button" @click="showAdvanced('.local-candidates')">{{ copy.localSwitch }}</button></div>
           <div class="local-active-identity">
-            <img :src="candidateIcon(detected)" alt="" @error="useGenericIcon" />
+            <span class="client-art"><img :src="candidateIcon(detected)" alt="" @error="useGenericIcon" /></span>
             <div class="local-active-name"><strong>{{ detected ? active.selectionSource === 'manual' ? copy.manualProxy : detected.clientName || detected.processName || copy.localProxy : loading ? copy.detecting : copy.noProxy }}</strong>
               <div class="local-active-status"><StatusIndicator :state="stale ? 'idle' : active.available ? 'healthy' : detected ? 'warning' : 'idle'" :label="active.available ? copy.listening : detected ? copy.localUnavailable : copy.notListening" /><span v-if="detected">{{ source }}</span><HelpTooltip :label="copy.currentActiveProxy" :text="copy.activeProxySharedHint" /></div>
             </div>
@@ -77,15 +77,21 @@ function showOverview() { localView.value = "overview"; if (content.value) conte
         </section>
 
         <section class="local-environment local-section" :class="`state-${environment.state}`">
-          <header class="local-section-heading"><h2>{{ copy.proxyEnvironment }}</h2><StatusIndicator :state="stale ? 'idle' : environment.state === 'enabled' ? 'healthy' : environment.state === 'disabled' ? 'disabled' : 'warning'" :label="stateLabel" /></header>
-          <p class="local-caption">{{ stateHint }}</p>
-          <div class="local-sync-scope"><span>{{ copy.localSyncScope }}</span><code>{{ scope }}</code><HelpTooltip :label="copy.localSyncScope" :text="copy.localSyncEffect" /><button class="local-text-button" type="button" @click="showAdvanced('.variables-section')">{{ copy.localAdjust }}</button></div>
-          <p class="local-caption">{{ copy.localSyncClearHint }}</p>
+          <header class="environment-summary">
+            <div><h2>{{ copy.proxyEnvironment }}</h2><p>{{ copy.environmentLayerHint }}</p></div>
+            <div class="environment-state" :class="{ 'is-stale': stale }" role="status"><span>{{ stateLabel }}</span><p>{{ stateHint }}</p></div>
+          </header>
+          <div class="local-sync-scope">
+            <span class="local-scope-label">{{ copy.localSyncScope }}<HelpTooltip :label="copy.localSyncScope" :text="copy.localSyncEffect" /></span>
+            <div class="local-scope-values"><code v-for="name in scope" :key="name">{{ name }}</code></div>
+            <button class="local-text-button local-scope-adjust" type="button" @click="showAdvanced('.variables-section')">{{ copy.localAdjust }}<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg></button>
+          </div>
           <div class="environment-actions">
-            <button class="primary-action" type="button" :disabled="!active.available || toggling" @click="emit('applyDetected')">{{ toggling ? copy.enabling : copy.syncActiveProxy }}</button>
+            <button class="primary-action local-sync-action" type="button" :disabled="!active.available || toggling" @click="emit('applyDetected')">{{ toggling ? copy.enabling : copy.syncActiveProxy }}</button>
             <button class="secondary-action danger-action" type="button" :disabled="toggling || managedCount === 0" @click="emit('disable')">{{ copy.disableProxyEnvironment }}</button>
             <button class="secondary-action" type="button" :disabled="toggling || !environment.snapshotAvailable" @click="emit('restore')">{{ copy.restorePrevious }}</button>
           </div>
+          <p class="local-sync-note">{{ copy.localSyncClearHint }}</p>
         </section>
         <LocalProxyManual v-show="localView === 'advanced'" :copy="copy" :toggling="toggling" :selected-variables="selectedVariables" :inspect-manual-endpoint="inspectManualEndpoint" @apply-manual="emit('applyManual', $event)" />
         <LocalEnvironmentVariables v-show="localView === 'advanced'" :copy="copy" :environment="environment" :selected-variables="selectedVariables" :toggling="toggling" @toggle-variable="emit('toggleVariable', $event)" />
