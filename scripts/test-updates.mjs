@@ -20,7 +20,7 @@ function load(path) {
   return exports;
 }
 const { stableVersion, compareVersions, isOfficialReleaseUrl } = load("src/features/settings/update.ts");
-const { fetchLatestRelease, resolveUpdate, updateFailure, UpdateRequestError } = load("src/features/settings/update-availability.ts");
+const { checkUpdateMetadata, fetchLatestRelease, resolveUpdate, updateFailure, UpdateRequestError } = load("src/features/settings/update-availability.ts");
 const { UpdateInstaller } = load("src/features/settings/update-installer.ts");
 const ok = value => ({ status: "fulfilled", value });
 const fail = reason => ({ status: "rejected", reason });
@@ -73,10 +73,56 @@ test("API limit can fall back to official metadata, not a fake latest result", (
   assert.equal(resolveUpdate("0.2.1", fail(new Error("fetch failed")), ok(null), true).state, "error");
 });
 test("missing metadata and unsupported bundles only offer manual official downloads", () => {
-  for (const result of [resolveUpdate("0.2.1", ok(release()), fail(new Error("network")), true),
+  for (const result of [resolveUpdate("0.2.1", ok(release()), ok(null), true),
     resolveUpdate("0.2.1", ok(release()), ok(metadata()), false)]) {
     assert.equal(result.state, "manual");
     assert.equal(result.handle, null);
+  }
+});
+test("first metadata connection failure recovers within the same check", async () => {
+  for (const message of ["network request failed", "request timed out"]) {
+    let calls = 0;
+    const handle = metadata("0.2.1"), announcement = release("0.2.1");
+    const result = await checkUpdateMetadata("0.2.0", Promise.resolve(announcement), async () => {
+      if (++calls === 1) throw new Error(message);
+      return handle;
+    });
+    const snapshot = resolveUpdate("0.2.0", ok(announcement), ok(result), true);
+    assert.equal(calls, 2);
+    assert.equal(snapshot.state, "available");
+    assert.equal(snapshot.handle, handle);
+  }
+});
+test("empty metadata retries only when the announcement proves a newer stable release", async () => {
+  for (const [announcement, expected] of [[release(), 2], [release("0.2.1"), 1], [null, 1], [release("0.2.2-rc.1"), 1]]) {
+    let calls = 0;
+    const result = await checkUpdateMetadata("0.2.1", Promise.resolve(announcement), async () => ++calls === 1 ? null : metadata());
+    assert.equal(calls, expected);
+    assert.equal(result?.version ?? null, expected === 2 ? "0.2.2" : null);
+  }
+});
+test("persistent transport failure is bounded and never described as missing signed metadata", async () => {
+  let calls = 0;
+  const [result] = await Promise.allSettled([checkUpdateMetadata("0.2.1", Promise.resolve(release()), async () => {
+    calls++; throw new Error("network private path");
+  })]);
+  assert.equal(calls, 2);
+  const snapshot = resolveUpdate("0.2.1", ok(release()), result, true);
+  assert.equal(snapshot.state, "manual");
+  assert.equal(snapshot.failure, "network");
+  assert.equal(snapshot.handle, null);
+  assert.equal(snapshot.version, "0.2.2");
+});
+test("trust and validation errors never retry or enable installation", async () => {
+  for (const category of ["tls", "signature", "invalidResponse", "proxy", "rateLimit", "service"]) {
+    let calls = 0;
+    const [result] = await Promise.allSettled([checkUpdateMetadata("0.2.1", Promise.resolve(release()), async () => {
+      calls++; throw new UpdateRequestError(category);
+    })]);
+    assert.equal(calls, 1, category);
+    const snapshot = resolveUpdate("0.2.1", ok(release()), result, true);
+    assert.equal(snapshot.failure, category);
+    assert.equal(snapshot.handle, null);
   }
 });
 test("latest needs valid announcement evidence; 404 is unpublished, not latest", () => {

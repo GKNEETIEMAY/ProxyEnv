@@ -29,6 +29,7 @@ try {
   const nav = page.locator(".primary-nav"), local = nav.locator("button").first(), remote = nav.locator("button").last();
   const dot = remote.locator(".remote-nav-status");
   await local.waitFor();
+  assert.equal(await page.locator('.update-available-button').count(), 0, 'No arrow before a newer release is known');
   assert.equal(await nav.locator("button").count(), 2);
   assert.equal(await local.getAttribute("aria-current"), "page");
   assert.equal(await dot.getAttribute("data-state"), "idle");
@@ -81,8 +82,22 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await remote.getAttribute('aria-current'), 'page', "Dialog Escape never navigates the underlying workspace");
 
+  await page.locator('.primary-nav-actions button').last().click();
+  await page.locator('.settings-tabs button').last().click();
+  await page.locator('.check-update-button').click();
+  await page.locator('.update-available-button').waitFor();
+  await page.locator('.header-back-button').click();
+  const update = page.locator('.update-available-button');
+  assert.equal(await update.evaluate(node => node.previousElementSibling?.className), 'wordmark');
+  assert.equal(await update.evaluate(node => node.nextElementSibling?.className), 'titlebar-drag-zone');
+  await update.click();
+  assert.equal(await page.locator('.settings-tabs button').last().getAttribute('aria-current'), 'page', 'Arrow opens About');
+  assert.equal(await page.locator('.install-update-button').count(), 0, 'Manual-only update cannot install');
+  await page.locator('.header-back-button').click();
+
   for (const [locale, names] of [["zh-CN", ["本机环境", "远程桥接"]], ["en", ["Local environment", "Remote bridge"]], ["ja", ["ローカル環境", "リモートブリッジ"]], ["ko", ["로컬 환경", "원격 브리지"]]]) {
     await page.locator('.primary-nav-actions button').last().click();
+    await page.locator('.settings-tabs button').first().click();
     await page.locator('#language').selectOption(locale);
     await page.locator('.header-back-button').click();
     assert.equal(await local.innerText(), names[0]);

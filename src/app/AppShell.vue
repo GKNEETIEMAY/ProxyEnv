@@ -17,7 +17,7 @@ import {
   type ReleaseNoteLine,
   type UpdateState
 } from "../features/settings/update";
-import { fetchLatestRelease, resolveUpdate, updateFailure, type Availability, type UpdateFailure } from "../features/settings/update-availability";
+import { checkUpdateMetadata, fetchLatestRelease, resolveUpdate, updateFailure, type Availability, type UpdateFailure } from "../features/settings/update-availability";
 import { UpdateInstaller } from "../features/settings/update-installer";
 import UpdateInstallDialog from "../features/settings/components/UpdateInstallDialog.vue";
 import { backend } from "../shared/api/backend";
@@ -155,6 +155,7 @@ const updateMessage = computed(() => {
   if (updateState.value === "checking") return copy.value.checkingUpdates;
   if (updateState.value === "latest") return copy.value.latestVersion;
   if (updateState.value === "available") return copy.value.updateAvailable.replace("{version}", latestVersion.value);
+  if (updateState.value === "manual" && updateSnapshot.value?.failure) return `${copy.value.updateAvailable.replace("{version}", latestVersion.value)} ${updateFailureMessage(updateSnapshot.value.failure)}`;
   if (updateState.value === "manual") return (manualUpdateReason.value === "bundle"
     ? copy.value.automaticUpdateUnsupported
     : copy.value.signedUpdateUnavailable).replace("{version}", latestVersion.value);
@@ -469,7 +470,7 @@ async function checkForUpdates() {
     const releaseRequest = fetchLatestRelease(fetch, controller.signal);
     const [releaseResult, updaterResult] = await Promise.allSettled([
       releaseRequest,
-      check({ timeout: 10_000 })
+      checkUpdateMetadata(versionVerified ? appVersion.value : "", releaseRequest, () => check({ timeout: 10_000 }))
     ]);
 
     const snapshot = resolveUpdate(versionVerified ? appVersion.value : "", releaseResult, updaterResult, automaticUpdateSupported.value);
@@ -478,7 +479,7 @@ async function checkForUpdates() {
     const metadata = updaterResult.status === "fulfilled" ? updaterResult.value : null;
     if (metadata && snapshot.handle !== metadata) await metadata.close();
     updateSnapshot.value = snapshot;
-    manualUpdateReason.value = metadata ? "bundle" : "missing";
+    manualUpdateReason.value = automaticUpdateSupported.value ? "missing" : "bundle";
     checkFailure.value = snapshot.failure ?? "service";
     updateState.value = snapshot.state;
   } catch (cause) {

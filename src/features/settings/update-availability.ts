@@ -39,6 +39,28 @@ export interface UpdateMetadata {
   date?: string;
 }
 
+// A cold connection or briefly stale release asset must not require a second click.
+// Each attempt uses the caller's timeout; never retry trust or validation failures.
+export async function checkUpdateMetadata<T extends UpdateMetadata>(
+  current: string,
+  releaseRequest: Promise<GitHubRelease | null>,
+  checker: () => Promise<T | null>,
+): Promise<T | null> {
+  let metadata: T | null;
+  try { metadata = await checker(); }
+  catch (cause) {
+    if (!["network", "timeout"].includes(updateFailure(cause))) throw cause;
+    return checker();
+  }
+  if (metadata) return metadata;
+  const announcement = await releaseRequest.then(
+    value => ({ status: "fulfilled" as const, value }),
+    reason => ({ status: "rejected" as const, reason }),
+  );
+  const result = resolveUpdate(current, announcement, { status: "fulfilled", value: null }, true);
+  return result.state === "manual" ? checker() : null;
+}
+
 export type Availability<T extends UpdateMetadata> = {
   state: "latest" | "available" | "manual" | "unpublished" | "conflict" | "error";
   version: string;
@@ -78,6 +100,8 @@ export function resolveUpdate<T extends UpdateMetadata>(
       state: !newer ? "latest" : metadata && installSupported ? "available" : "manual",
       version: apiVersion, url: release.html_url!, body: release.body ?? "", date: release.published_at ?? "",
       handle: newer && metadata && installSupported ? metadata : null, source: "release",
+      ...(newer && installSupported && metadataResult.status === "rejected"
+        ? { failure: updateFailure(metadataResult.reason) } : {}),
     };
   }
   // The official updater metadata can be used when the announcement service fails.
