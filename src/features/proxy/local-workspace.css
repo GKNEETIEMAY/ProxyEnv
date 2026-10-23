@@ -38,7 +38,7 @@
 .local-environment-tools > .check-status { font-size:12px; }
 .local-scope-adjust { display:inline-flex; align-items:center; gap:4px; min-height:28px; flex:none; }
 .local-scope-adjust svg { width:14px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
-.local-environment .environment-actions { gap:9px; margin-top:10px; }
+.local-environment .environment-actions { gap:9px; margin-top:8px; padding-top:24px; border-top:1px solid var(--line); }
 .local-environment .local-assistant-action { margin-left:auto; }
 .is-overview .local-environment { border-bottom:0; }
 .local-environment .environment-actions :is(.primary-action,.secondary-action) { min-height:36px; padding:8px 13px; font-size:11px; }
