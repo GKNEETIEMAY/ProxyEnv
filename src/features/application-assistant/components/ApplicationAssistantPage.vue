@@ -1,24 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { Copy } from "../../../shared/i18n";
-import type { ActiveProxyContext, EnvironmentStatus, ManagedApplication, RunningApplication } from "../../../shared/types";
+import type { ActiveProxyContext, CheckState, EnvironmentStatus, ManagedApplication, RunningApplication } from "../../../shared/types";
 import { backend } from "../../../shared/api/backend";
 import { withoutWindowsExtendedPathPrefix } from "../../../shared/utils/path";
 import { copyText } from "../../../shared/utils/clipboard";
 import { useNotification } from "../../../shared/state/notifications";
 import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
+import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
 
 const props = defineProps<{ copy: Copy; reviewPreview?: boolean; activeProxyContext: ActiveProxyContext; environment: Pick<EnvironmentStatus, "state" | "entries" | "matchesActiveProxy">; stale: boolean }>();
 const emit = defineEmits<{ selectionChange: [applicationId: string | undefined]; backLocal: [] }>();
 const candidate = computed(() => props.activeProxyContext.candidate);
 const protocols = computed(() => candidate.value?.protocol === "mixed" ? ["http", "socks5"] : candidate.value?.protocol === "http" || candidate.value?.protocol === "socks5" ? [candidate.value.protocol] : []);
 const available = computed(() => !props.stale && props.activeProxyContext.available && Boolean(candidate.value?.listening) && protocols.value.length > 0);
-const environmentStatus = computed(() => {
-  if (props.stale || !props.environment.entries.length) return { title: props.copy.appProxyStatusPending, hint: props.copy.appProxyStatusPendingHint };
-  if (!available.value) return { title: props.copy.activeProxyUnavailableTitle, hint: props.copy.appProxyUnavailable };
-  if (props.environment.state === "enabled" && props.environment.matchesActiveProxy) return { title: props.copy.appProxyStatusConfigured, hint: props.copy.appProxyStatusConfiguredHint };
-  if (props.environment.state === "disabled") return { title: props.copy.appProxyStatusUnset, hint: props.copy.appProxyStatusUnsetHint };
-  return { title: props.copy.appProxyStatusUnsynced, hint: props.copy.appProxyStatusUnsyncedHint };
+const environmentStatus = computed<{ title: string; hint: string; tone: CheckState }>(() => {
+  if (props.stale || !props.environment.entries.length) return { title: props.copy.appProxyStatusPending, hint: props.copy.appProxyStatusPendingHint, tone: "idle" };
+  if (!available.value) return { title: props.copy.activeProxyUnavailableTitle, hint: props.copy.appProxyUnavailable, tone: "warning" };
+  if (props.environment.state === "enabled" && props.environment.matchesActiveProxy) return { title: props.copy.appProxyStatusConfigured, hint: props.copy.appProxyStatusConfiguredHint, tone: "healthy" };
+  if (props.environment.state === "disabled") return { title: props.copy.appProxyStatusUnset, hint: props.copy.appProxyStatusUnsetHint, tone: "idle" };
+  return { title: props.copy.appProxyStatusUnsynced, hint: props.copy.appProxyStatusUnsyncedHint, tone: "warning" };
 });
 const manualHelp = computed(() => `${props.copy.appProxySourceHint.replace('{name}', candidate.value?.clientName || candidate.value?.processName || props.copy.localProxy)} ${props.copy.appProxyFieldsHelp} ${props.copy.appProxyManualHint}`);
 const protocol = ref("http");
@@ -165,26 +166,27 @@ async function launch() {
       <header class="app-proxy-heading"><div class="app-proxy-title-help"><h1>{{ copy.appProxyTitle }}</h1><HelpTooltip :label="copy.appProxyTitle" :text="copy.appProxyRoutingHelp" pinnable /></div></header>
       <div class="app-proxy-content" tabindex="0" :aria-label="copy.appProxyTitle" role="region">
         <section class="app-proxy-status">
-          <div class="app-proxy-title-help"><h2>{{ environmentStatus.title }}</h2><HelpTooltip :label="environmentStatus.title" :text="copy.appProxyEnvironmentHelp" pinnable /></div>
-          <p class="app-proxy-note" role="status">{{ environmentStatus.hint }}</p>
+          <div class="app-proxy-title-help"><StatusIndicator :state="environmentStatus.tone" :label="environmentStatus.title" /><HelpTooltip :label="environmentStatus.title" :text="copy.appProxyEnvironmentHelp" pinnable /></div>
+          <p class="app-proxy-note">{{ environmentStatus.hint }}</p>
           <button v-if="!available" class="secondary-action app-proxy-back" type="button" @click="emit('backLocal')">{{ copy.assistantBackLocal }}</button>
         </section>
         <section v-if="available" class="app-proxy-manual">
           <header class="app-proxy-section-heading">
             <div class="app-proxy-title-help"><h2>{{ copy.appProxyManualTitle }}</h2><HelpTooltip :label="copy.appProxyManualTitle" :text="manualHelp" pinnable /></div>
+            <div v-if="protocols.length > 1" class="app-proxy-protocols" role="group" :aria-label="copy.localProtocol"><button v-for="value in protocols" :key="value" type="button" :aria-pressed="protocol === value" @click="protocol = value">{{ value.toUpperCase() }}</button></div>
+            <span v-else class="app-proxy-protocol-label">{{ protocol.toUpperCase() }}</span>
           </header>
           <div class="app-proxy-address-row">
-            <select v-model="protocol" :aria-label="copy.localProtocol" :disabled="protocols.length === 1"><option v-for="value in protocols" :key="value" :value="value">{{ value.toUpperCase() }}</option></select>
             <code>{{ fullAddress }}</code>
-            <button class="secondary-action app-proxy-copy-address" type="button" @click="copyField('address', fullAddress)">{{ copiedField === 'address' ? copy.endpointCopied : copy.appProxyCopyAddress }}</button>
+            <button class="secondary-action app-proxy-copy-address" type="button" @click="copyField('address', fullAddress)"><svg viewBox="0 0 20 20" aria-hidden="true"><path v-if="copiedField === 'address'" d="m4.5 10.2 3.2 3.2 7.8-7.8"/><template v-else><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></template></svg>{{ copiedField === 'address' ? copy.endpointCopied : copy.appProxyCopyAddress }}</button>
           </div>
-          <details class="app-proxy-split"><summary>{{ copy.appProxySplitFields }}</summary>
+          <details class="app-proxy-split"><summary><span>{{ copy.appProxySplitFields }}</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"/></svg></summary>
           <dl class="app-proxy-fields"><div v-for="field in fields" :key="field.key"><dt>{{ field.label }}</dt><dd><code>{{ field.value }}</code><button class="app-proxy-copy" type="button" :aria-label="`${copy.copyEndpoint}: ${field.label}`" :title="copiedField === field.key ? copy.endpointCopied : copy.copyEndpoint" @click="copyField(field.key, field.value)"><svg v-if="copiedField !== field.key" viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg><svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8"/></svg></button></dd></div></dl>
           </details>
           <span class="app-proxy-announcement" role="status">{{ copiedField ? copy.endpointCopied : '' }}</span>
         </section>
         <section class="app-proxy-launch">
-          <header class="app-proxy-section-heading"><h2>{{ copy.appProxyNoSettings }}</h2><button class="app-proxy-text-action" type="button" :disabled="busy || (!available && !expanded)" :aria-expanded="expanded" aria-controls="app-proxy-picker" @click="togglePicker">{{ expanded ? copy.appProxyHide : copy.appProxyTryLaunch }}<svg viewBox="0 0 20 20" aria-hidden="true"><path :d="expanded ? 'm5 12 5-5 5 5' : 'M4 10h12m-5-5 5 5-5 5'"/></svg></button></header>
+          <header class="app-proxy-section-heading"><h2>{{ copy.appProxyNoSettings }}</h2><button class="secondary-action" type="button" :disabled="busy || (!available && !expanded)" :aria-expanded="expanded" aria-controls="app-proxy-picker" @click="togglePicker">{{ expanded ? copy.appProxyHide : copy.appProxyTryLaunch }}</button></header>
           <div v-if="expanded" id="app-proxy-picker">
             <div v-if="choosing" class="application-picker">
             <div class="application-picker-actions">

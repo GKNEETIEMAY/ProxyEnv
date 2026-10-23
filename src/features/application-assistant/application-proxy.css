@@ -1,47 +1,55 @@
-.app-proxy-workspace { padding:22px; }
-.app-proxy-heading { padding:0 6px 18px; }
+.app-proxy-heading { flex:none; padding:0 6px 14px; }
 .app-proxy-title-help { display:flex; align-items:center; gap:8px; min-width:0; }
 .app-proxy-heading h1 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:23px; font-weight:700; letter-spacing:-.028em; }
-.app-proxy-content { min-height:0; overflow-y:auto; scrollbar-width:none; }
+.app-proxy-content { flex:1; min-height:0; overflow-y:auto; scrollbar-width:none; }
 .app-proxy-content::-webkit-scrollbar { display:none; }
 .app-proxy-content:focus-visible,.application-proxy-page :is(button,input,select,summary):focus-visible { outline:2px solid var(--focus); outline-offset:3px; }
-.app-proxy-status { padding:4px 6px 20px; border-bottom:1px solid var(--line); }
-.app-proxy-status h2 { margin:0; font-size:14px; font-weight:650; }
+.app-proxy-status { display:flex; align-items:center; flex-wrap:wrap; gap:8px 18px; padding:0 6px 16px; border-bottom:1px solid var(--line); }
+.app-proxy-status .check-status { font-size:12px; font-weight:600; }
+.app-proxy-status > .app-proxy-note { flex:1 1 240px; min-width:0; margin:0; }
 .app-proxy-back { margin-top:12px; }
-.app-proxy-manual,.app-proxy-launch { padding:20px 6px; }
+.app-proxy-manual,.app-proxy-launch { padding:16px 6px; }
 .app-proxy-launch { border-top:1px solid var(--line); }
-.app-proxy-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px 20px; flex-wrap:wrap; }
+.app-proxy-section-heading { display:flex; min-height:32px; align-items:center; justify-content:space-between; gap:10px 16px; flex-wrap:wrap; }
 .app-proxy-section-heading h2 { margin:0; font-size:13px; font-weight:650; }
-.app-proxy-section-heading > div { flex:1; min-width:180px; }
+.app-proxy-section-heading > .app-proxy-title-help { flex:1; min-width:180px; }
 .app-proxy-section-heading > button { flex:none; }
-.app-proxy-address-row { display:grid; grid-template-columns:94px minmax(0,1fr) auto; align-items:center; gap:12px; margin:18px 0 16px; }
-.app-proxy-address-row select { min-height:36px; padding:6px 10px; border:1px solid var(--button-border); border-radius:8px; color:var(--ink); background:var(--surface-strong); font-size:12px; }
-.app-proxy-address-row select:disabled { opacity:1; }
-.app-proxy-address-row > code { color:var(--accent-strong); font-size:13px; overflow-wrap:anywhere; }
-.app-proxy-split > summary { width:fit-content; padding:4px 0; color:var(--muted); font-size:11px; cursor:pointer; }
+.app-proxy-protocols { display:flex; flex:none; min-width:0; padding:2px; border:1px solid var(--line); border-radius:10px; background:var(--surface-strong); }
+.app-proxy-protocols button { min-height:28px; padding:4px 10px; border:0; border-radius:8px; color:var(--muted); background:transparent; cursor:pointer; font-size:11px; font-weight:650; }
+.app-proxy-protocols button[aria-pressed="true"] { color:var(--accent-strong); background:var(--accent-soft); }
+.app-proxy-protocols button:hover { color:var(--ink); }
+.app-proxy-protocol-label { color:var(--muted); font-size:11px; }
+.app-proxy-address-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 0 12px; }
+.app-proxy-address-row > code { min-width:0; color:var(--accent-strong); font:600 16px/1.5 "Cascadia Mono","SFMono-Regular",Consolas,monospace; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.app-proxy-copy-address { display:inline-flex; align-items:center; flex:none; gap:6px; }
+.app-proxy-copy-address svg { width:15px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.app-proxy-split > summary { display:flex; align-items:center; gap:6px; width:fit-content; min-height:28px; color:var(--accent-strong); font-size:11px; cursor:pointer; list-style:none; }
+.app-proxy-split > summary::-webkit-details-marker { display:none; }
+.app-proxy-split > summary:hover { text-decoration:underline; text-underline-offset:3px; }
+.app-proxy-split > summary svg { width:14px; flex:none; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+.app-proxy-split[open] > summary svg { transform:rotate(90deg); }
 .app-proxy-fields { margin:8px 0 0; }
-.app-proxy-fields > div { display:grid; grid-template-columns:minmax(100px,.32fr) minmax(0,1fr); align-items:center; gap:16px; min-height:48px; padding:8px 0; border-bottom:1px solid var(--line); }
+.app-proxy-fields > div { display:grid; grid-template-columns:minmax(100px,.32fr) minmax(0,1fr); align-items:center; gap:16px; min-height:38px; padding:8px 0; border-top:1px solid var(--line); }
 .app-proxy-fields dt { color:var(--muted); font-size:12px; }
 .app-proxy-fields dd { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0; min-width:0; }
-.app-proxy-fields code { font-size:13px; overflow-wrap:anywhere; }
+.app-proxy-fields code { font-size:12px; overflow-wrap:anywhere; }
 .app-proxy-copy { display:grid; place-items:center; flex:none; width:30px; height:30px; border-radius:8px; padding:6px; color:var(--muted); background:transparent; cursor:pointer; }
 .app-proxy-copy:hover { color:var(--accent-strong); background:var(--accent-soft); }
 .app-proxy-copy svg { width:18px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 .app-proxy-note { margin:8px 0 0; color:var(--muted); font-size:11px; line-height:1.6; overflow-wrap:anywhere; }
 .app-proxy-announcement { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-.app-proxy-launch .application-picker { margin-top:20px; }
+.app-proxy-launch .application-picker { margin-top:16px; }
 .app-proxy-launch .application-list { max-height:220px; scrollbar-width:thin; }
 .app-proxy-launch .application-list button[aria-pressed="true"] { background:var(--accent-soft); }
-.app-proxy-selected { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-top:20px; font-size:12px; }
+.app-proxy-selected { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:16px; padding-top:16px; border-top:1px solid var(--line); font-size:12px; }
 .app-proxy-selected > strong { flex:1; min-width:0; overflow-wrap:anywhere; }
 .app-proxy-text-action { display:inline-flex; align-items:center; gap:7px; padding:4px 0; border:0; color:var(--accent-strong); background:transparent; font-size:11px; cursor:pointer; }
 .app-proxy-text-action:hover { text-decoration:underline; text-underline-offset:3px; }
 .app-proxy-text-action:disabled { opacity:.48; cursor:not-allowed; }
-.app-proxy-text-action svg { flex:none; width:16px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
 .app-proxy-picker-help { display:flex; align-items:center; gap:6px; margin-top:12px; color:var(--muted); font-size:11px; }
 .app-proxy-result { color:var(--muted); font-size:12px; line-height:1.6; }
 .app-proxy-result strong { display:block; color:var(--success); margin-bottom:4px; }
 @media (max-width:700px) {
-  .app-proxy-workspace { padding:16px; }
   .app-proxy-heading h1 { font-size:21px; }
+  .app-proxy-status > .app-proxy-note { flex-basis:100%; }
 }
