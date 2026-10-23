@@ -17,7 +17,7 @@ try {
   assert.deepEqual(await page.evaluate(() => fixture.calls), [], 'Opening the page does not enumerate, inspect, test, launch or write');
   assert.equal(await page.locator('.application-picker').count(), 0);
   assert.equal(await page.locator('.app-proxy-address-row code').innerText(), 'http://[::1]:10808');
-  assert.equal(await page.locator('.app-proxy-fields').isVisible(), false, 'Separate fields stay collapsed by default');
+  assert.equal(await page.locator('.app-proxy-fields').isVisible(), true, 'Server and port are visible without expanding');
   assert.match(await page.locator('.app-proxy-status .check-status').innerText(), /本机代理环境已配置/);
   await page.locator('.app-proxy-status [role=button]').click();
   await page.locator('[role=tooltip]').waitFor();
@@ -33,7 +33,6 @@ try {
   assert.match(await page.locator('.app-proxy-status .check-status').innerText(), /待刷新/);
   assert.equal(await page.locator('.app-proxy-copy-address').count(), 0, 'Stale observations do not offer outdated addresses');
   await page.evaluate(() => fixture.state.stale=false);
-  await page.locator('.app-proxy-split summary').click();
   await page.locator('.app-proxy-copy').first().click();
   assert.equal(await page.evaluate(() => window.copiedText), '::1');
   await page.locator('.app-proxy-copy').nth(1).click();

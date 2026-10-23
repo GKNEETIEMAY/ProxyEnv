@@ -180,9 +180,9 @@ async function launch() {
             <code>{{ fullAddress }}</code>
             <button class="secondary-action app-proxy-copy-address" type="button" @click="copyField('address', fullAddress)"><svg viewBox="0 0 20 20" aria-hidden="true"><path v-if="copiedField === 'address'" d="m4.5 10.2 3.2 3.2 7.8-7.8"/><template v-else><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></template></svg>{{ copiedField === 'address' ? copy.endpointCopied : copy.appProxyCopyAddress }}</button>
           </div>
-          <details class="app-proxy-split"><summary><span>{{ copy.appProxySplitFields }}</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"/></svg></summary>
+          <div class="app-proxy-split"><p class="app-proxy-note">{{ copy.appProxySplitFields }}</p>
           <dl class="app-proxy-fields"><div v-for="field in fields" :key="field.key"><dt>{{ field.label }}</dt><dd><code>{{ field.value }}</code><button class="app-proxy-copy" type="button" :aria-label="`${copy.copyEndpoint}: ${field.label}`" :title="copiedField === field.key ? copy.endpointCopied : copy.copyEndpoint" @click="copyField(field.key, field.value)"><svg v-if="copiedField !== field.key" viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg><svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8"/></svg></button></dd></div></dl>
-          </details>
+          </div>
           <span class="app-proxy-announcement" role="status">{{ copiedField ? copy.endpointCopied : '' }}</span>
         </section>
         <section class="app-proxy-launch">

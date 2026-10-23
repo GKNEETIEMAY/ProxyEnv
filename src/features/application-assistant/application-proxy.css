@@ -23,11 +23,6 @@
 .app-proxy-address-row > code { min-width:0; color:var(--accent-strong); font:600 16px/1.5 "Cascadia Mono","SFMono-Regular",Consolas,monospace; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
 .app-proxy-copy-address { display:inline-flex; align-items:center; flex:none; gap:6px; }
 .app-proxy-copy-address svg { width:15px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
-.app-proxy-split > summary { display:flex; align-items:center; gap:6px; width:fit-content; min-height:28px; color:var(--accent-strong); font-size:11px; cursor:pointer; list-style:none; }
-.app-proxy-split > summary::-webkit-details-marker { display:none; }
-.app-proxy-split > summary:hover { text-decoration:underline; text-underline-offset:3px; }
-.app-proxy-split > summary svg { width:14px; flex:none; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
-.app-proxy-split[open] > summary svg { transform:rotate(90deg); }
 .app-proxy-fields { margin:8px 0 0; }
 .app-proxy-fields > div { display:grid; grid-template-columns:minmax(100px,.32fr) minmax(0,1fr); align-items:center; gap:16px; min-height:38px; padding:8px 0; border-top:1px solid var(--line); }
 .app-proxy-fields dt { color:var(--muted); font-size:12px; }
