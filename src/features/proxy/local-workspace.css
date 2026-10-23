@@ -39,6 +39,8 @@
 .local-scope-adjust { display:inline-flex; align-items:center; gap:4px; min-height:28px; flex:none; }
 .local-scope-adjust svg { width:14px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
 .local-environment .environment-actions { gap:9px; margin-top:10px; }
+.local-environment .local-assistant-action { margin-left:auto; }
+.is-overview .local-environment { border-bottom:0; }
 .local-environment .environment-actions :is(.primary-action,.secondary-action) { min-height:36px; padding:8px 13px; font-size:11px; }
 .local-scope-warning { margin:8px 0 0; color:var(--warning); font-size:12px; line-height:1.6; }
 .local-connectivity .secondary-action { min-height:36px; padding:8px 13px; font-size:11px; }
@@ -99,7 +101,6 @@
 .local-targets li { display:grid; grid-template-columns:85px minmax(0,1fr) auto; gap:10px; align-items:center; padding:9px 0; border-top:1px solid var(--line); font-size:11px; }
 .local-targets code { font-size:10px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .local-stale { margin:0; padding:8px 6px; color:var(--warning); font-size:11px; line-height:1.5; }
-.local-workspace .assistant-entry { padding-block:14px; margin:0; border:0; }
 @media (max-width:700px) {
   .local-active-tools { margin-left:auto; }
   .local-workspace-heading { flex-wrap:wrap; gap:10px; }

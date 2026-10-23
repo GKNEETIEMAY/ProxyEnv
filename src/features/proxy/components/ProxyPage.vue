@@ -98,14 +98,10 @@ function showOverview() { localView.value = "overview"; if (content.value) conte
             <button class="primary-action local-sync-action" type="button" :disabled="!active.available || !scopeSupported || toggling" @click="emit('applyDetected')">{{ toggling ? copy.enabling : copy.syncActiveProxy }}</button>
             <button class="secondary-action danger-action" type="button" :disabled="toggling || managedCount === 0" @click="emit('disable')">{{ copy.disableProxyEnvironment }}</button>
             <button class="secondary-action" type="button" :disabled="toggling || !environment.snapshotAvailable" @click="emit('restore')">{{ copy.restorePrevious }}</button>
+            <button class="secondary-action local-assistant-action" type="button" :title="copy.assistantEntryHint" @click="emit('openAssistant')">{{ copy.assistantEntryTitle }}</button>
           </div>
         </section>
         <LocalProxyManual v-show="localView === 'advanced'" :copy="copy" :toggling="toggling" :selected-variables="selectedVariables" :inspect-manual-endpoint="inspectManualEndpoint" @apply-manual="emit('applyManual', $event)" />
-        <section class="assistant-entry">
-          <span class="assistant-entry-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6.5h16v10H4zM8 20h8M12 16.5V20M8 10l2.2 2.2L14.8 8" /></svg></span>
-          <div><h2>{{ copy.assistantEntryTitle }}</h2><p>{{ copy.assistantEntryHint }}</p></div>
-          <button class="secondary-action" type="button" @click="emit('openAssistant')">{{ copy.assistantEntryAction }}</button>
-        </section>
       </div>
     </section>
   </main>

@@ -156,7 +156,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.local-view-switch button')?.getAttribute('aria-pressed') === 'true');
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   if (shots) await page.screenshot({ path: resolve(output, 'compact.png') });
-  await page.setViewportSize({ width: 560, height: 560 });
+  await page.setViewportSize({ width: 560, height: 420 });
   const scroller = page.locator('.local-workspace-content');
   await scroller.focus();
   await page.keyboard.press('End');
@@ -164,8 +164,10 @@ try {
   assert.ok(await scroller.evaluate(node => node.scrollTop > 0), 'Overview remains keyboard-scrollable without a visible rail');
   await page.locator('.local-sync-action').click();
   await page.locator('.local-environment .environment-actions button').nth(1).click();
-  await page.locator('.local-environment .environment-actions button').last().click();
+  await page.locator('.local-environment .environment-actions button').nth(2).click();
   assert.deepEqual(await page.evaluate(() => fixture.calls.slice(-3).map(c => c[0])), ['sync','disable','restore'], 'Reorganized actions retain their original events');
+  await page.locator('.local-environment .environment-actions button').last().click();
+  assert.equal(await page.evaluate(() => fixture.calls.at(-1)[0]), 'assistant', 'Application inspection follows the three environment actions');
   await page.evaluate(() => fixture.state.busy=true);
   assert.equal(await page.locator('.local-sync-action').isDisabled(), true);
   assert.equal(await page.locator('.local-environment .environment-actions button').nth(1).isDisabled(), true);

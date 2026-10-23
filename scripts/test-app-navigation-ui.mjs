@@ -64,7 +64,7 @@ try {
   await page.keyboard.press("Escape");
   assert.equal(await remote.getAttribute("aria-current"), "page");
   await local.click();
-  await page.locator('.home-page').getByRole('button', { name: '检查应用', exact: true }).click();
+  await page.locator('.home-page').getByRole('button', { name: '检查应用代理配置', exact: true }).click();
   assert.equal(await nav.count(), 0, "Assistant is contextual, not a third primary workspace");
   await page.locator('.header-back-button').click();
   assert.equal(await local.getAttribute("aria-current"), "page");
