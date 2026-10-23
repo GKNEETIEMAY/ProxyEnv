@@ -71,13 +71,23 @@ impl ActiveProxyStore {
                 self.candidates
                     .iter()
                     .find(|candidate| same_identity(previous, candidate))
+                    .or_else(|| {
+                        self.candidates
+                            .iter()
+                            .find(|candidate| same_restarted_client(previous, candidate))
+                    })
             };
             let available = current.is_some_and(usable);
-            if available != self.context.available {
+            if available != self.context.available
+                || current.is_some_and(|candidate| {
+                    usable(candidate) && !same_identity(previous, candidate)
+                })
+            {
                 self.context.revision += 1;
             }
             self.context.available = available;
             if let Some(candidate) = current.filter(|candidate| usable(candidate)) {
+                self.context.selected_candidate_id = Some(candidate.id.clone());
                 self.context.candidate = Some(candidate.clone());
             } else if let Some(candidate) = self.context.candidate.as_mut() {
                 candidate.listening = false;
@@ -137,6 +147,29 @@ fn same_identity(previous: &ProxyCandidate, current: &ProxyCandidate) -> bool {
         && previous.protocol == current.protocol
         && previous.pid == current.pid
         && previous.process_name == current.process_name
+}
+
+fn same_restarted_client(previous: &ProxyCandidate, current: &ProxyCandidate) -> bool {
+    // A known client can restart its core without changing the selected endpoint.
+    // Never recover by port alone or substitute a different client/protocol.
+    usable(current)
+        && previous.host == current.host
+        && previous.port == current.port
+        && previous.protocol == current.protocol
+        && previous
+            .process_name
+            .as_ref()
+            .is_some_and(|name| !name.is_empty())
+        && previous.process_name == current.process_name
+        && previous.pid.is_some()
+        && current.pid.is_some()
+        && previous.client_name.is_some()
+        && previous.client_name == current.client_name
+        && previous
+            .icon_key
+            .as_deref()
+            .is_some_and(|key| !key.is_empty() && key != "generic-proxy")
+        && previous.icon_key == current.icon_key
 }
 
 pub fn endpoint(candidate: &ProxyCandidate) -> ProxyEndpoint {
@@ -302,6 +335,82 @@ mod tests {
         store.select(candidate(7897, 1), SelectionSource::User);
         store.reconcile(vec![candidate(7897, 3)], None);
         assert!(!store.context.available);
+    }
+
+    fn known_client(pid: u32) -> ProxyCandidate {
+        let mut proxy = candidate(7897, pid);
+        proxy.id = format!("127.0.0.1:7897:{pid}:Mixed");
+        proxy.process_name = Some("verge-mihomo.exe".into());
+        proxy.client_name = Some("Clash Verge Rev".into());
+        proxy.icon_key = Some("clash-verge-rev".into());
+        proxy
+    }
+
+    #[test]
+    fn restarted_client_recovers_with_or_without_an_observed_gap() {
+        for observe_gap in [false, true] {
+            let mut store = ActiveProxyStore::default();
+            store.select(known_client(1), SelectionSource::User);
+            let original_revision = store.context.revision;
+            if observe_gap {
+                store.reconcile(vec![candidate(10809, 2)], None);
+                assert!(!store.context.available);
+            }
+            let before_recovery = store.context.revision;
+            let restarted = known_client(3);
+            store.reconcile(vec![candidate(10809, 2), restarted.clone()], None);
+            assert!(store.context.available);
+            assert_eq!(store.context.selection_source, SelectionSource::User);
+            assert_eq!(
+                store.context.selected_candidate_id.as_ref(),
+                Some(&restarted.id)
+            );
+            assert_eq!(store.context.candidate.as_ref().unwrap().pid, Some(3));
+            assert_eq!(store.context.revision, before_recovery + 1);
+            assert!(store
+                .context
+                .require_candidate(Some(original_revision))
+                .is_err());
+            let recovered_revision = store.context.revision;
+            store.reconcile(vec![restarted], None);
+            assert_eq!(store.context.revision, recovered_revision);
+        }
+    }
+
+    #[test]
+    fn recovery_requires_the_same_known_client_and_endpoint() {
+        for change in 0..6 {
+            let mut store = ActiveProxyStore::default();
+            store.select(known_client(1), SelectionSource::User);
+            let mut replacement = known_client(3);
+            match change {
+                0 => replacement.port = 7898,
+                1 => replacement.host = "::1".into(),
+                2 => replacement.protocol = ProxyProtocol::Http,
+                3 => replacement.process_name = Some("other.exe".into()),
+                4 => replacement.client_name = Some("Other client".into()),
+                _ => replacement.icon_key = Some("generic-proxy".into()),
+            }
+            store.reconcile(vec![replacement], None);
+            assert!(
+                !store.context.available,
+                "unexpected recovery for change {change}"
+            );
+        }
+    }
+
+    #[test]
+    fn temporary_probe_failure_recovers_the_original_selection() {
+        let mut store = ActiveProxyStore::default();
+        let original = known_client(1);
+        store.select(original.clone(), SelectionSource::User);
+        let mut failed = original.clone();
+        failed.protocol = ProxyProtocol::Unknown;
+        store.reconcile(vec![failed], None);
+        assert!(!store.context.available);
+        store.reconcile(vec![original.clone()], None);
+        assert!(store.context.available);
+        assert_eq!(store.context.selected_candidate_id, Some(original.id));
     }
 
     #[test]

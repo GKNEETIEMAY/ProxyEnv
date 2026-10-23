@@ -154,9 +154,9 @@ pub fn detect() -> Result<Vec<ProxyCandidate>> {
     let mut candidates = Vec::new();
 
     for listener in &listeners {
-        let is_system = system_endpoint
-            .as_ref()
-            .is_some_and(|endpoint| endpoint.port == listener.port);
+        let is_system = system_endpoint.as_ref().is_some_and(|endpoint| {
+            matches_system_endpoint(&listener.host, listener.port, endpoint)
+        });
         let process = owner(listener, &processes);
         let client = identify(process.map(|process| process.name.as_str()), &running_names);
         if !is_system && process.is_some_and(|process| is_frontend_only(process.name.as_str())) {
@@ -208,7 +208,7 @@ pub fn detect() -> Result<Vec<ProxyCandidate>> {
     if let Some(endpoint) = system_endpoint {
         if !candidates
             .iter()
-            .any(|candidate| candidate.port == endpoint.port)
+            .any(|candidate| matches_system_endpoint(&candidate.host, candidate.port, &endpoint))
         {
             let running_clients = CLIENTS
                 .iter()
@@ -244,12 +244,20 @@ pub fn detect() -> Result<Vec<ProxyCandidate>> {
         }
     }
 
-    candidates.sort_by_key(candidate_priority);
+    candidates.sort_by(|a, b| candidate_priority(a).cmp(&candidate_priority(b)));
     Ok(candidates)
 }
 
-fn candidate_priority(candidate: &ProxyCandidate) -> (u8, u8, u8, u8) {
-    let listening = u8::from(!candidate.listening);
+fn matches_system_endpoint(host: &str, port: u16, endpoint: &system_proxy::ProxyEndpoint) -> bool {
+    // Both detector and system-proxy parser normalize wildcard/localhost hosts.
+    host == endpoint.host && port == endpoint.port
+}
+
+fn candidate_priority(
+    candidate: &ProxyCandidate,
+) -> (u8, u8, u8, u8, bool, &str, u16, Option<u32>, &str) {
+    let unavailable =
+        u8::from(!candidate.listening || matches!(candidate.protocol, ProxyProtocol::Unknown));
     let system_proxy = u8::from(
         !candidate
             .source
@@ -268,7 +276,17 @@ fn candidate_priority(candidate: &ProxyCandidate) -> (u8, u8, u8, u8) {
         Confidence::Medium => 2,
         Confidence::Low => 3,
     };
-    (listening, system_proxy, confidence, protocol)
+    (
+        unavailable,
+        system_proxy,
+        protocol,
+        confidence,
+        candidate.host.contains(':'),
+        &candidate.host,
+        candidate.port,
+        candidate.pid,
+        &candidate.id,
+    )
 }
 
 #[cfg(test)]
@@ -335,6 +353,38 @@ mod tests {
         current.confidence = Confidence::VeryHigh;
         let old_client = candidate(7897, ProxyProtocol::Mixed, true);
         assert!(candidate_priority(&current) < candidate_priority(&old_client));
+    }
+
+    #[test]
+    fn unrecognized_system_listener_never_beats_a_verified_proxy() {
+        let mut system = candidate(7897, ProxyProtocol::Unknown, true);
+        system.source.push(DetectionSource::WindowsSystemProxy);
+        system.confidence = Confidence::VeryHigh;
+        let verified = candidate(10808, ProxyProtocol::Socks5, true);
+        assert!(candidate_priority(&verified) < candidate_priority(&system));
+    }
+
+    #[test]
+    fn equal_endpoints_prefer_ipv4_and_have_stable_port_order() {
+        let ipv4 = candidate(10808, ProxyProtocol::Mixed, true);
+        let mut ipv6 = ipv4.clone();
+        ipv6.host = "::1".into();
+        assert!(candidate_priority(&ipv4) < candidate_priority(&ipv6));
+        assert!(
+            candidate_priority(&ipv4)
+                < candidate_priority(&candidate(10812, ProxyProtocol::Mixed, true))
+        );
+    }
+
+    #[test]
+    fn system_proxy_match_requires_host_and_port() {
+        let system = system_proxy::ProxyEndpoint {
+            host: "127.0.0.1".into(),
+            port: 10808,
+        };
+        assert!(matches_system_endpoint("127.0.0.1", 10808, &system));
+        assert!(!matches_system_endpoint("::1", 10808, &system));
+        assert!(!matches_system_endpoint("127.0.0.1", 10809, &system));
     }
 
     #[test]
