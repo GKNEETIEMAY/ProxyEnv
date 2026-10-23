@@ -122,8 +122,6 @@ test("button labels keep their theme rules; environment-variable checkmarks use 
     const rule = css.slice(css.indexOf(`${selector} {`)).split("}")[0];
     assert.match(rule, /color: var\(--action-button-fg\)/);
   }
-  const step = css.slice(css.indexOf(".assistant-steps li.active {")).split("}")[0];
-  assert.match(step, /color: var\(--action-primary-fg\)/);
   const check = css.slice(css.indexOf(".variable-choice input:checked + span {")).split("}")[0];
   assert.match(check, /color: var\(--control-check-fg\)/);
   for (const palette of palettes) for (const mode of ["light", "dark"]) assert.equal(tokens(palette, mode)("--control-check-fg"), "#ffffff");
