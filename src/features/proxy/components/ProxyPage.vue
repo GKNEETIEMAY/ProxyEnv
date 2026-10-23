@@ -45,7 +45,7 @@ function showOverview() { localView.value = "overview"; if (content.value) conte
             <button type="button" :aria-pressed="localView === 'overview'" @click="showOverview">{{ copy.localOverview }}</button>
             <button type="button" :aria-pressed="localView === 'advanced'" @click="showAdvanced()">{{ copy.localAdvanced }}</button>
           </div>
-          <button class="refresh-button" type="button" :disabled="loading || toggling" @click="emit('refresh')"><svg :class="{ spinning: loading }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>{{ copy.refresh }}</button>
+          <button class="refresh-button secondary-action" type="button" :disabled="loading || toggling" @click="emit('refresh')"><svg :class="{ spinning: loading }" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 5v6h-6" /></svg>{{ copy.refresh }}</button>
         </div>
       </header>
       <div ref="content" class="local-workspace-content" :class="{ 'is-overview': localView === 'overview' }" tabindex="0" :aria-label="copy.navLocal" role="region">

@@ -89,7 +89,10 @@ const items = computed<ObservationItem[]>(() => {
 <template>
   <section class="network-observation-panel" :class="[`context-${context}`, { 'has-local-proxy': showLocalProxy, 'is-compact': compact }]" :aria-busy="loading">
     <div class="network-observation-heading">
-      <div><h2>{{ copy.assistantCurrentNetwork }}</h2><p>{{ copy.assistantObservationHint }}</p></div>
+      <div>
+        <div v-if="context === 'console'" class="local-title-help"><h2>{{ copy.assistantCurrentNetwork }}</h2><HelpTooltip :label="copy.assistantCurrentNetwork" :text="copy.assistantObservationHint" pinnable /></div>
+        <template v-else><h2>{{ copy.assistantCurrentNetwork }}</h2><p>{{ copy.assistantObservationHint }}</p></template>
+      </div>
       <span class="read-only-badge"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="8.5" width="10" height="7.5" rx="2"/><path d="M7.5 8.5V6.7a2.5 2.5 0 0 1 5 0v1.8"/></svg>{{ copy.readOnly }}</span>
     </div>
 

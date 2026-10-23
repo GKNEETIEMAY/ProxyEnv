@@ -1,6 +1,8 @@
 .local-workspace-heading { display:flex; flex:none; align-items:center; justify-content:space-between; gap:12px; padding:0 6px 14px; }
 .local-workspace-heading h1 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:23px; font-weight:700; letter-spacing:-.028em; }
 .local-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.local-toolbar .refresh-button { padding:8px 13px; color:var(--action-secondary-fg); background:var(--action-secondary-bg); }
+.local-toolbar .refresh-button:hover { background:var(--accent-soft); }
 .local-view-switch { display:flex; padding:2px; border:1px solid var(--line); border-radius:10px; background:var(--surface-strong); }
 .local-view-switch button { min-height:28px; padding:4px 10px; border:0; border-radius:8px; color:var(--muted); background:transparent; cursor:pointer; font-size:11px; font-weight:650; }
 .local-view-switch button[aria-pressed="true"] { color:var(--accent-strong); background:var(--accent-soft); }
@@ -79,12 +81,11 @@
 .variable-value-details:not([open]) .expanded-label,.variable-value-details[open] .collapsed-label { display:none; }
 .variable-value-details > code { display:block; padding-top:8px; }
 .local-workspace .variable-value { white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }
-.local-workspace .network-observation-panel { padding-bottom:10px; border-bottom:1px solid var(--line); }
-.local-workspace .network-observation-heading { padding-top:16px; }
-.local-workspace .network-observation-panel.is-compact .network-observation-heading { padding:12px 6px 8px; }
-.local-workspace .network-observation-panel.is-compact .network-observation-heading { flex-direction:row; align-items:center; gap:10px; }
+.local-workspace .network-observation-panel { padding-bottom:12px; border-bottom:1px solid var(--line); }
+.local-workspace .network-observation-heading { padding:16px 6px 8px; flex-direction:row; align-items:center; gap:10px; }
+.local-workspace .network-observation-item { min-height:68px; padding:12px 6px; }
+.local-workspace .observation-copy strong { white-space:normal; overflow-wrap:anywhere; }
 .local-workspace .network-observation-panel.is-compact .network-observation-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-.local-workspace .network-observation-panel.is-compact .network-observation-heading p { display:none; }
 .local-workspace .network-observation-panel.is-compact .network-observation-item { padding-block:6px; }
 .local-workspace .network-observation-panel.is-compact .network-observation-item { gap:8px; border-bottom:0; }
 .local-workspace .network-observation-panel.is-compact .observation-state-mark { width:24px; height:24px; }

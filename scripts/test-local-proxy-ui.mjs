@@ -134,6 +134,22 @@ try {
     }
     checks.push({ locale,palette,mode,width });
   }
+  for (const locale of ['zh-CN','en','ja','ko']) {
+    await page.setViewportSize({ width: 560, height: 760 });
+    await page.evaluate(locale => { fixture.state.locale=locale; fixture.theme('blue','light'); }, locale);
+    const expected = await page.evaluate(async locale => (await import('/src/shared/i18n/index.ts')).messages[locale].assistantObservationHint, locale);
+    for (const [name, view] of [['overview',overview],['advanced',advanced]]) {
+      await view.click();
+      const heading = page.locator('.network-observation-heading');
+      assert.equal(await heading.locator('p').count(), 0, `${locale}/${name}: explanation stays in help`);
+      await heading.getByRole('button').click();
+      await page.locator('[role="tooltip"]').waitFor();
+      assert.equal(await page.locator('[role="tooltip"]').innerText(), expected, `${locale}/${name}: localized observation help`);
+      await page.keyboard.press('Escape');
+      await page.locator('.local-toolbar .refresh-button').focus();
+      if (shots) await page.screenshot({ path: resolve(output, `${locale}-${name}.png`) });
+    }
+  }
   await page.evaluate(() => { fixture.state.locale='zh-CN'; fixture.theme('warm','light'); });
   await page.evaluate(() => {
     fixture.state.selected=['http','https'];
