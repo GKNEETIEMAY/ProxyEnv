@@ -1,548 +1,188 @@
 <script setup lang="ts">
-import { useNotification } from "../../../shared/state/notifications";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { backend } from "../../../shared/api/backend";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { Copy } from "../../../shared/i18n";
-import type { ActiveProxyContext, ApplicationDiagnosis, ManagedApplication, ProxyCandidate, RuleChangePreview, RunningApplication, TunObservation } from "../../../shared/types";
+import type { ActiveProxyContext, ManagedApplication, ProxyCandidate, RunningApplication, TunObservation } from "../../../shared/types";
+import { backend } from "../../../shared/api/backend";
 import { withoutWindowsExtendedPathPrefix } from "../../../shared/utils/path";
+import { copyText } from "../../../shared/utils/clipboard";
+import { useNotification } from "../../../shared/state/notifications";
+import HelpTooltip from "../../../shared/components/HelpTooltip.vue";
+import StatusIndicator from "../../../shared/components/StatusIndicator.vue";
 import { candidateEndpoint } from "../../proxy/client-presentation";
-import NetworkObservationPanel from "../../network-observation/components/NetworkObservationPanel.vue";
-import ApplicationProxyGuideDialog from "./ApplicationProxyGuideDialog.vue";
 
 const props = defineProps<{ copy: Copy; reviewPreview?: boolean; activeProxyContext: ActiveProxyContext; systemProxy?: ProxyCandidate; activeProxy?: ProxyCandidate; tun: TunObservation; proxyAvailable: boolean; networkLoading: boolean }>();
-
-type ResultState = { success: boolean; title: string; detail: string; backupId?: string; launched?: boolean };
 const emit = defineEmits<{ selectionChange: [applicationId: string | undefined]; backLocal: [] }>();
+const candidate = computed(() => props.activeProxyContext.candidate);
+const protocols = computed(() => candidate.value?.protocol === "mixed" ? ["http", "socks5"] : candidate.value?.protocol === "http" || candidate.value?.protocol === "socks5" ? [candidate.value.protocol] : []);
+const available = computed(() => props.activeProxyContext.available && Boolean(candidate.value?.listening) && protocols.value.length > 0);
+const protocol = ref("http");
+watch(protocols, values => { if (!values.includes(protocol.value)) protocol.value = values[0] ?? ""; }, { immediate: true });
+const host = computed(() => candidate.value?.host.replace(/^\[(.*)\]$/, "$1") ?? "");
+const fullAddress = computed(() => candidate.value ? `${protocol.value}://${host.value.includes(":") ? `[${host.value}]` : host.value}:${candidate.value.port}` : "");
+const fields = computed(() => [
+  { key: "host", label: props.copy.assistantHostAddress, value: host.value },
+  { key: "port", label: props.copy.port, value: String(candidate.value?.port ?? "") },
+  { key: "address", label: props.copy.assistantFullAddress, value: fullAddress.value },
+]);
+const copiedField = ref("");
+const copyError = ref("");
+useNotification(copyError, "error", "assistant-copy");
+let copyTimer: ReturnType<typeof setTimeout> | undefined;
+let copyGeneration = 0;
+function clearCopy() {
+  copyGeneration++;
+  copiedField.value = "";
+  copyError.value = "";
+  if (copyTimer) clearTimeout(copyTimer);
+}
+async function copyField(key: string, value: string) {
+  if (!available.value) return;
+  clearCopy();
+  const generation = copyGeneration;
+  try {
+    await copyText(value);
+    if (generation !== copyGeneration) return;
+    copiedField.value = key;
+    copyTimer = setTimeout(() => { copiedField.value = ""; }, 1600);
+  } catch { if (generation === copyGeneration) copyError.value = props.copy.copyFailed; }
+}
+watch([() => props.activeProxyContext.revision, protocol], clearCopy);
 
+const expanded = ref(false);
 const applications = ref<RunningApplication[]>([]);
+const loadingApps = ref(false);
 const search = ref("");
-const filteredApplications = computed(() => {
-  const query = search.value.trim().toLocaleLowerCase();
-  return applications.value.filter(application => !query || `${application.displayName} ${application.executablePath ?? ""}`.toLocaleLowerCase().includes(query));
-});
+const searchInput = ref<HTMLInputElement>();
 const selected = ref<ManagedApplication>();
-watch(() => selected.value?.id, id => emit("selectionChange", id));
-onBeforeUnmount(() => emit("selectionChange", undefined));
-const selectedPid = ref<number>();
-const diagnosis = ref<ApplicationDiagnosis>();
-const rulePreview = ref<RuleChangePreview>();
-const result = ref<ResultState>();
 const busy = ref(false);
-const loadingApps = ref(true);
 const error = ref("");
 useNotification(error, "error", "assistant-operation");
-const restorePending = ref(false);
-const showAdvanced = ref(false);
-const retainedBackupId = ref<string>();
-const assistantPage = ref<HTMLElement>();
-const proxyGuide = ref<InstanceType<typeof ApplicationProxyGuideDialog>>();
-const AUTHORIZATION_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
-let authorizationRefreshTimer: ReturnType<typeof setInterval> | undefined;
-
-const diagnosisTitle = computed(() => {
-  if (!diagnosis.value) return "";
-  return ({
-    confirmedReady: props.copy.assistantConfirmedReadyTitle,
-    environmentConfigured: props.copy.assistantEnvironmentConfiguredTitle,
-    proxyLaunchRecommended: props.copy.assistantProxyLaunchRecommendedTitle,
-    ruleSyncRecommended: props.copy.assistantRuleSyncRecommendedTitle,
-    conflict: props.copy.assistantConflictTitle,
-    unsupported: props.copy.assistantUnsupportedStateTitle,
-    unknown: props.copy.assistantUnknownTitle
-  })[diagnosis.value.applicationNetworkState];
+const launchedPid = ref<number>();
+const filteredApplications = computed(() => {
+  const query = search.value.trim().toLocaleLowerCase();
+  return applications.value.filter(app => !query || `${app.displayName} ${app.executablePath ?? ""}`.toLocaleLowerCase().includes(query));
 });
-const applicationCount = computed(() => props.copy.assistantFoundApps.replace("{count}", String(applications.value.length)));
-const currentStep = computed<1 | 2 | 3>(() => result.value ? 3 : diagnosis.value ? 2 : 1);
+watch(() => selected.value?.id, id => emit("selectionChange", id));
+watch(() => props.activeProxyContext.revision, () => { launchedPid.value = undefined; error.value = ""; });
+onBeforeUnmount(() => { clearCopy(); emit("selectionChange", undefined); });
 
-const diagnosisBody = computed(() => {
-  if (!diagnosis.value) return "";
-  return ({
-    confirmedReady: props.copy.assistantConfirmedReadyBody,
-    environmentConfigured: props.copy.assistantEnvironmentConfiguredBody,
-    proxyLaunchRecommended: props.copy.assistantProxyLaunchRecommendedBody,
-    ruleSyncRecommended: props.copy.assistantRuleSyncRecommendedBody,
-    conflict: props.copy.assistantConflictBody,
-    unsupported: props.copy.assistantUnsupportedStateBody,
-    unknown: props.copy.assistantUnknownBody
-  })[diagnosis.value.applicationNetworkState];
-});
-
-const diagnosisIsCurrent = computed(() => diagnosis.value?.activeProxyRevision === props.activeProxyContext.revision);
-const canExplicitProxyLaunch = computed(() => Boolean(
-  diagnosisIsCurrent.value
-  && props.activeProxyContext.available
-  && diagnosis.value?.proxyAvailable === true
-));
-const recommendedActionKind = computed<"rule" | "proxy" | "none">(() => {
-  if (!diagnosisIsCurrent.value || !props.activeProxyContext.available) return "none";
-  const action = diagnosis.value?.recommendedAction;
-  if (action === "launchWithProxy") return "proxy";
-  if (typeof action === "object" && action !== null && "applyKnownRule" in action) return "rule";
-  return "none";
-});
-
-const actionTitle = computed(() => ({
-  rule: props.copy.assistantOneClickFix,
-  proxy: props.copy.assistantSafeLaunch,
-  none: props.copy.assistantNoAutomaticAction
-})[recommendedActionKind.value]);
-
-const actionHint = computed(() => ({
-  rule: props.copy.assistantOneClickFixHint,
-  proxy: props.copy.assistantSafeLaunchHint,
-  none: props.copy.assistantNoAutomaticActionHint
-})[recommendedActionKind.value]);
-
-function managedFromRunning(application: RunningApplication): ManagedApplication | undefined {
-  if (!application.applicationId || !application.executablePath) return undefined;
-  return {
-    id: application.applicationId,
-    displayName: application.displayName,
-    executablePath: application.executablePath,
-    iconKey: null,
-    ruleId: null,
-    lastAction: null
-  };
-}
-
-function failureDetail(cause: unknown): string {
-  const message = String(cause);
-  if (message.includes("the active proxy changed")) return props.copy.activeProxyChanged;
-  if (message.includes("the current active proxy is unavailable")) return props.copy.activeProxyUnavailable;
-  return message.toLocaleLowerCase("en-US").includes("invalid application:")
-    ? props.copy.assistantInvalidExecutable
-    : message;
-}
-
-function failure(cause: unknown) {
-  const detail = failureDetail(cause);
-  error.value = `${props.copy.assistantErrorWhat}: ${detail} ${props.copy.assistantErrorUnchanged} ${props.copy.assistantErrorNext}`;
-}
-
-function isExpiredAuthorization(cause: unknown): boolean {
-  return String(cause).includes("application authorization is missing or expired");
-}
-
-function isRenewCommandUnavailable(cause: unknown): boolean {
-  const message = String(cause).toLocaleLowerCase("en-US");
-  return message.includes("command renew_application_authorization not found")
-    || message.includes("unknown command") && message.includes("renew_application_authorization");
-}
-
-function comparableExecutablePath(path: string): string {
-  const normalized = withoutWindowsExtendedPathPrefix(path).replace(/\\/g, "/");
-  return /^(?:[a-z]:|\/\/)/i.test(normalized) ? normalized.toLocaleLowerCase("en-US") : normalized;
-}
-
-function updateSelectedAuthorization(application: ManagedApplication) {
+function selectApplication(application: ManagedApplication) {
   selected.value = application;
-  if (diagnosis.value) diagnosis.value = { ...diagnosis.value, application };
+  error.value = "";
+  launchedPid.value = undefined;
 }
-
-async function recoverRunningApplicationAuthorization(application: ManagedApplication): Promise<ManagedApplication | undefined> {
-  const refreshed = await backend.runningApplications();
-  applications.value = refreshed;
-  const expectedPath = comparableExecutablePath(application.executablePath);
-  const match = refreshed.find((candidate) =>
-    candidate.executablePath
-    && comparableExecutablePath(candidate.executablePath) === expectedPath
-  );
-  if (!match) return undefined;
-  selectedPid.value = match.pid;
-  return managedFromRunning(match);
+function chooseRunning(app: RunningApplication) {
+  if (busy.value || !app.applicationId || !app.executablePath) return;
+  selectApplication({ id: app.applicationId, displayName: app.displayName, executablePath: app.executablePath, iconKey: null, ruleId: null, lastAction: null });
 }
-
-async function ensureSelectedAuthorization(): Promise<ManagedApplication> {
-  const application = selected.value;
-  if (!application) throw props.copy.assistantAuthorizationExpired;
-  try {
-    const renewed = await backend.renewApplicationAuthorization(application.id);
-    updateSelectedAuthorization(renewed);
-    return renewed;
-  } catch (cause) {
-    if (isRenewCommandUnavailable(cause)) {
-      const recovered = await recoverRunningApplicationAuthorization(application);
-      if (recovered) {
-        updateSelectedAuthorization(recovered);
-        return recovered;
-      }
-      return application;
-    }
-    if (!isExpiredAuthorization(cause)) throw cause;
-    const recovered = await recoverRunningApplicationAuthorization(application);
-    if (!recovered) {
-      selected.value = undefined;
-      selectedPid.value = undefined;
-      diagnosis.value = undefined;
-      rulePreview.value = undefined;
-      throw props.copy.assistantAuthorizationExpired;
-    }
-    updateSelectedAuthorization(recovered);
-    return recovered;
-  }
-}
-
-async function keepSelectedAuthorizationAlive() {
-  if (!selected.value || busy.value || props.reviewPreview) return;
-  const application = selected.value;
-  try {
-    const renewed = await backend.renewApplicationAuthorization(application.id);
-    if (selected.value?.id === application.id) updateSelectedAuthorization(renewed);
-  } catch (cause) {
-    if (!isExpiredAuthorization(cause) && !isRenewCommandUnavailable(cause)) return;
-    try {
-      const recovered = await recoverRunningApplicationAuthorization(application);
-      if (recovered && selected.value?.id === application.id) updateSelectedAuthorization(recovered);
-    } catch {
-      // Recovery is repeated when the user performs the next explicit action.
-    }
-  }
-}
-
 async function loadApplications() {
+  if (loadingApps.value || busy.value) return;
   loadingApps.value = true;
   error.value = "";
   try {
-    applications.value = await backend.runningApplications();
-  } catch (cause) {
-    failure(cause);
-  } finally {
-    loadingApps.value = false;
-  }
+    applications.value = props.reviewPreview ? [
+      { pid: 8420, applicationId: "review-code", processName: "Code.exe", displayName: "Visual Studio Code", executablePath: "C:\\Program Files\\Microsoft VS Code\\Code.exe", iconAvailable: false },
+    ] : await backend.runningApplications();
+  } catch (cause) { error.value = props.copy.appProxyLoadFailed.replace("{error}", String(cause)); }
+  finally { loadingApps.value = false; }
 }
-
+async function togglePicker() {
+  if (busy.value) return;
+  expanded.value = !expanded.value;
+  if (!expanded.value) return;
+  await loadApplications();
+  await nextTick();
+  searchInput.value?.focus();
+}
 async function browseApplication() {
+  if (busy.value || props.reviewPreview) return;
+  busy.value = true;
   error.value = "";
   try {
     const application = await backend.pickApplication();
-    if (application) await inspectApplication(application);
-  } catch (cause) {
-    failure(cause);
-  }
+    if (application) selectApplication(application);
+  } catch (cause) { error.value = props.copy.appProxyLoadFailed.replace("{error}", String(cause)); }
+  finally { busy.value = false; }
 }
 
-async function inspectApplication(application: ManagedApplication, pid?: number) {
-  retainedBackupId.value = result.value?.backupId ?? retainedBackupId.value;
-  selected.value = application;
-  selectedPid.value = pid;
+// Renew permission at the explicit launch action; opening this page does not enumerate or inspect apps.
+async function authorizeApplication(application: ManagedApplication): Promise<ManagedApplication> {
+  try { return await backend.renewApplicationAuthorization(application.id); }
+  catch (cause) {
+    const message = String(cause).toLocaleLowerCase("en-US");
+    const expired = message.includes("application authorization is missing or expired");
+    const unsupported = message.includes("command renew_application_authorization not found") || message.includes("unknown command") && message.includes("renew_application_authorization");
+    if (!expired && !unsupported) throw cause;
+    const refreshed = await backend.runningApplications();
+    applications.value = refreshed;
+    const normalize = (path: string) => withoutWindowsExtendedPathPrefix(path).replace(/\\/g, "/").toLocaleLowerCase("en-US");
+    const match = refreshed.find(app => app.applicationId && app.executablePath && normalize(app.executablePath) === normalize(application.executablePath));
+    if (match) return { ...application, id: match.applicationId!, executablePath: match.executablePath! };
+    if (unsupported) return application;
+    throw props.copy.assistantAuthorizationExpired;
+  }
+}
+async function launch() {
+  if (!selected.value || !available.value || busy.value) return;
+  const revision = props.activeProxyContext.revision;
+  const application = selected.value;
   busy.value = true;
   error.value = "";
-  result.value = undefined;
-  rulePreview.value = undefined;
+  launchedPid.value = undefined;
   try {
-    const authorized = await ensureSelectedAuthorization();
-    diagnosis.value = await backend.diagnoseApplication(authorized.id);
-    void focusCurrentStep();
+    const authorized = props.reviewPreview ? application : await authorizeApplication(application);
+    if (revision !== props.activeProxyContext.revision) throw props.copy.activeProxyChanged;
+    if (!available.value) throw props.copy.appProxyUnavailable;
+    selected.value = authorized;
+    const result = props.reviewPreview ? { pid: 12480 } : await backend.launchApplicationWithProxy(authorized.id, revision);
+    launchedPid.value = result.pid;
   } catch (cause) {
-    diagnosis.value = undefined;
-    failure(cause);
-  } finally {
-    busy.value = false;
-  }
+    const detail = String(cause);
+    error.value = props.copy.appProxyLaunchFailed.replace("{error}", detail.includes("the active proxy changed") ? props.copy.activeProxyChanged : detail.includes("the current active proxy is unavailable") ? props.copy.appProxyUnavailable : detail);
+  } finally { busy.value = false; }
 }
-
-async function prepareRuleFix() {
-  if (!selected.value || !diagnosisIsCurrent.value || !diagnosis.value) return;
-  const revision = diagnosis.value.activeProxyRevision;
-  busy.value = true;
-  error.value = "";
-  try {
-    const application = await ensureSelectedAuthorization();
-    rulePreview.value = await backend.previewApplicationRuleFix(application.id, revision);
-    if (rulePreview.value.state !== "ready" || !rulePreview.value.plan) {
-      throw new Error(`${props.copy.assistantRuleUnavailable} (${rulePreview.value.state})`);
-    }
-  } catch (cause) {
-    rulePreview.value = undefined;
-    failure(cause);
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function applyRuleFix() {
-  if (!selected.value || !rulePreview.value?.plan || !diagnosisIsCurrent.value || !diagnosis.value) return;
-  const revision = diagnosis.value.activeProxyRevision;
-  busy.value = true;
-  error.value = "";
-  try {
-    const application = await ensureSelectedAuthorization();
-    const applied = await backend.applyApplicationRuleFix(application.id, rulePreview.value.plan, revision);
-    if (applied.state !== "applied") throw new Error(`${props.copy.assistantRuleApplyFailed} (${applied.state})`);
-    result.value = {
-      success: true,
-      title: props.copy.assistantRuleApplied,
-      detail: applied.restartRequired ? props.copy.assistantRestartRequired : props.copy.assistantChangeVerified,
-      backupId: applied.backup?.id
-    };
-    retainedBackupId.value = applied.backup?.id;
-    rulePreview.value = undefined;
-    void focusCurrentStep();
-  } catch (cause) {
-    failure(cause);
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function launchSelectedApplication(mode: "proxy" | "direct", trackGlobalBusy = true) {
-  if (!selected.value) throw props.copy.assistantAuthorizationExpired;
-  const revision = diagnosis.value?.activeProxyRevision;
-  if (mode === "proxy" && (!diagnosisIsCurrent.value || revision === undefined)) throw props.copy.activeProxyChanged;
-  if (trackGlobalBusy) busy.value = true;
-  error.value = "";
-  try {
-    const application = await ensureSelectedAuthorization();
-    const launched = mode === "proxy"
-      ? await backend.launchApplicationWithProxy(application.id, revision!)
-      : await backend.launchApplicationWithoutProxy(application.id);
-    selectedPid.value = launched.pid;
-    return launched;
-  } finally {
-    if (trackGlobalBusy) busy.value = false;
-  }
-}
-
-async function launch(mode: "proxy" | "direct") {
-  try {
-    const backupId = result.value?.backupId ?? retainedBackupId.value;
-    const launched = await launchSelectedApplication(mode);
-    result.value = {
-      success: true,
-      title: mode === "proxy" ? props.copy.assistantLaunchedWithProxy : props.copy.assistantLaunchedDirect,
-      detail: props.copy.assistantLaunchResult.replace("{pid}", String(launched.pid)),
-      launched: true,
-      backupId
-    };
-    void focusCurrentStep();
-  } catch (cause) {
-    failure(cause);
-  }
-}
-
-async function launchManualProxyProcess(): Promise<string> {
-  if (props.reviewPreview) {
-    return props.copy.assistantLaunchResult.replace("{pid}", "12480");
-  }
-  try {
-    const launched = await launchSelectedApplication("direct", false);
-    return props.copy.assistantLaunchResult.replace("{pid}", String(launched.pid));
-  } catch (cause) {
-    throw `${props.copy.assistantErrorWhat}: ${failureDetail(cause)} ${props.copy.assistantErrorUnchanged} ${props.copy.assistantErrorNext}`;
-  }
-}
-
-async function restartManualProxyProcess(): Promise<string> {
-  if (props.reviewPreview) {
-    selectedPid.value = 12480;
-    return props.copy.assistantRestartResult.replace("{pid}", "12480");
-  }
-  const pid = selectedPid.value;
-  if (!pid) throw props.copy.assistantRestartProcessUnavailable;
-  try {
-    const application = await ensureSelectedAuthorization();
-    const launched = await backend.restartApplicationWithoutProxy(application.id, pid);
-    selectedPid.value = launched.pid;
-    return props.copy.assistantRestartResult.replace("{pid}", String(launched.pid));
-  } catch (cause) {
-    throw `${props.copy.assistantRestartProcessFailed} ${failureDetail(cause)}`;
-  }
-}
-
-function openProxyGuide() {
-  proxyGuide.value?.open();
-}
-
-async function restoreRule() {
-  const backupId = result.value?.backupId ?? retainedBackupId.value;
-  if (!backupId) return;
-  busy.value = true;
-  error.value = "";
-  try {
-    const restored = await backend.restoreApplicationRuleChange(backupId);
-    if (restored.state !== "restored") throw new Error(`${props.copy.assistantRestoreFailed} (${restored.state})`);
-    result.value = { success: true, title: props.copy.assistantRestored, detail: props.copy.assistantChangeVerified };
-    retainedBackupId.value = undefined;
-    restorePending.value = false;
-    void focusCurrentStep();
-  } catch (cause) {
-    failure(cause);
-  } finally {
-    busy.value = false;
-  }
-}
-
-function startOver() {
-  selected.value = undefined;
-  selectedPid.value = undefined;
-  diagnosis.value = undefined;
-  rulePreview.value = undefined;
-  result.value = undefined;
-  error.value = "";
-  restorePending.value = false;
-  showAdvanced.value = false;
-  retainedBackupId.value = undefined;
-  if (applications.value.length === 0) void loadApplications();
-  void focusCurrentStep();
-}
-
-function returnToStep(step: 1 | 2) {
-  if (busy.value || step >= currentStep.value) return;
-  if (step === 1) {
-    startOver();
-    return;
-  }
-  retainedBackupId.value = result.value?.backupId ?? retainedBackupId.value;
-  result.value = undefined;
-  rulePreview.value = undefined;
-  error.value = "";
-  restorePending.value = false;
-  void focusCurrentStep();
-}
-
-function returnToStepLabel(step: 1 | 2): string {
-  return step === 1 ? props.copy.assistantChooseApp : props.copy.assistantStepReview;
-}
-
-async function focusCurrentStep() {
-  await nextTick();
-  const heading = assistantPage.value?.querySelector<HTMLElement>(".assistant-section h2");
-  if (!heading) return;
-  heading.tabIndex = -1;
-  heading.focus({ preventScroll: true });
-}
-
-function configValue(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-onMounted(async () => {
-  if (props.reviewPreview) {
-    applications.value = [
-      { pid: 8420, applicationId: "review-code", processName: "Code.exe", displayName: "Visual Studio Code", executablePath: "C:\\Program Files\\Microsoft VS Code\\Code.exe", iconAvailable: false },
-      { pid: 9132, applicationId: "review-discord", processName: "Discord.exe", displayName: "Discord", executablePath: "C:\\Users\\demo\\AppData\\Local\\Discord\\Discord.exe", iconAvailable: false }
-    ];
-    loadingApps.value = false;
-    selected.value = managedFromRunning(applications.value[0]);
-    selectedPid.value = applications.value[0].pid;
-    diagnosis.value = {
-      activeProxyRevision: props.activeProxyContext.revision,
-      application: selected.value!, proxyAvailable: true, systemProxyEnabled: false,
-      proxyEnvironmentState: "enabled", tunObservation: "possible", knownRule: undefined,
-      proxyConnectivityState: "reachable", applicationNetworkState: "environmentConfigured",
-      recommendedAction: "none"
-    };
-    if (new URLSearchParams(window.location.search).get("impeccable-review") === "assistant-result") {
-      result.value = {
-        success: true,
-        title: props.copy.assistantLaunchedWithProxy,
-        detail: props.copy.assistantLaunchResult.replace("{pid}", "12480"),
-        launched: true
-      };
-    }
-    return;
-  }
-  await loadApplications();
-  authorizationRefreshTimer = setInterval(() => void keepSelectedAuthorizationAlive(), AUTHORIZATION_REFRESH_INTERVAL_MS);
-});
-
-onBeforeUnmount(() => {
-  if (authorizationRefreshTimer) clearInterval(authorizationRefreshTimer);
-});
-
-watch(() => props.activeProxyContext.revision, () => {
-  rulePreview.value = undefined;
-  if (selected.value && diagnosis.value && !busy.value && !result.value && !props.reviewPreview) {
-    void inspectApplication(selected.value, selectedPid.value);
-  }
-});
 </script>
 
 <template>
-  <main ref="assistantPage" class="page assistant-page">
-    <div class="assistant-intro">
-      <div><h1>{{ copy.assistantTitle }}</h1><p>{{ copy.assistantIntro }}</p></div>
-      <ol class="assistant-steps" :aria-label="copy.assistantProgress">
-        <li :class="{ active: currentStep === 1, completed: currentStep > 1 }"><button type="button" :tabindex="currentStep > 1 && !busy ? 0 : -1" :aria-disabled="currentStep <= 1 || busy" :aria-current="currentStep === 1 ? 'step' : undefined" :aria-label="returnToStepLabel(1)" :title="currentStep > 1 ? returnToStepLabel(1) : undefined" @click="returnToStep(1)">1 · {{ copy.assistantChooseApp }}</button></li>
-        <li :class="{ active: currentStep === 2, completed: currentStep > 2 }"><button type="button" :tabindex="currentStep > 2 && !busy ? 0 : -1" :aria-disabled="currentStep <= 2 || busy" :aria-current="currentStep === 2 ? 'step' : undefined" :aria-label="returnToStepLabel(2)" :title="currentStep > 2 ? returnToStepLabel(2) : undefined" @click="returnToStep(2)">2 · {{ copy.assistantStepReview }}</button></li>
-        <li :class="{ active: currentStep === 3 }"><span :aria-current="currentStep === 3 ? 'step' : undefined">3 · {{ copy.assistantStepVerify }}</span></li>
-      </ol>
-    </div>
-
-
-    <section v-if="!diagnosis && !busy" class="assistant-section application-picker">
-      <div class="assistant-section-heading"><div><h2>{{ copy.assistantChooseApp }}</h2><p>{{ copy.assistantChooseHint }}</p></div><span class="application-count" role="status" aria-live="polite">{{ applicationCount }}</span></div>
-      <div class="application-picker-actions">
-        <label class="application-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.2 12.2 4.3 4.3"/></svg><input v-model="search" type="search" :aria-label="copy.assistantSearch" :placeholder="copy.assistantSearch" :disabled="loadingApps" /></label>
-        <button class="secondary-action browse-action" type="button" :disabled="loadingApps" @click="loadApplications"><svg :class="{ spinning: loadingApps }" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 9.5a6.5 6.5 0 1 0-1.9 4.6M16.5 5v4.5H12" /></svg>{{ copy.assistantRefreshApps }}</button>
-        <button class="secondary-action browse-action" type="button" @click="browseApplication"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.5h5l1.4 1.7h6.6v7.3h-13zM3.5 6.5V4.7h4.2l1.2 1.8" /></svg>{{ copy.assistantBrowse }}</button>
-      </div>
-      <div v-if="loadingApps" class="assistant-loading" role="status">{{ copy.assistantLoadingApps }}</div>
-      <div v-else-if="filteredApplications.length" class="application-list">
-        <button v-for="application in filteredApplications" :key="application.pid" type="button" :disabled="!application.applicationId || !application.executablePath" @click="managedFromRunning(application) && inspectApplication(managedFromRunning(application)!, application.pid)">
-          <span class="application-glyph" aria-hidden="true">{{ application.displayName.slice(0, 1).toUpperCase() }}</span>
-          <span><strong>{{ application.displayName }}</strong><small>{{ application.executablePath ? withoutWindowsExtendedPathPrefix(application.executablePath) : copy.assistantPathUnavailable }}</small></span>
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 5 5 5-5 5" /></svg>
-        </button>
-      </div>
-      <div v-else class="assistant-empty" role="status"><p>{{ applications.length ? copy.assistantSearchEmpty : copy.assistantNoApps }}</p><button class="primary-action" type="button" @click="browseApplication">{{ copy.assistantBrowse }}</button></div>
-      <details v-if="applications.length" class="assistant-advanced application-list-notice"><summary>{{ copy.assistantListNoticeTitle }}</summary><p class="local-caption">{{ copy.assistantListHint }}</p></details>
-      <p class="privacy-note"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.5 4.5 5.7v4.1c0 3.3 2.2 5.7 5.5 6.8 3.3-1.1 5.5-3.5 5.5-6.8V5.7z" /></svg>{{ copy.assistantReadOnlyNote }}</p>
-    </section>
-
-    <section v-else-if="busy" class="assistant-section assistant-loading-panel" role="status"><span class="assistant-spinner"></span><h2>{{ copy.assistantChecking }}</h2><p>{{ copy.assistantCheckingHint }}</p></section>
-
-    <section v-else-if="result" class="assistant-section result-panel">
-      <span class="result-mark" :class="{ success: result.success }" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12.3 3.2 3.2L17.5 8M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span>
-      <h2>{{ result.title }}</h2><p>{{ result.detail }}</p>
-      <p v-if="result.launched">{{ copy.assistantVerifyHint }}</p>
-      <button v-if="selected" class="secondary-action" type="button" @click="inspectApplication(selected, selectedPid)">{{ copy.recheckApplication }}</button>
-      <div v-if="activeProxy" class="result-follow-up">
-        <span aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2.8a7.2 7.2 0 1 0 0 14.4 7.2 7.2 0 0 0 0-14.4Zm0 10.8v.1M10 6.2v4.6" /></svg></span>
-        <div><strong>{{ copy.assistantProxyStillOfflineTitle }}</strong><p>{{ copy.assistantProxyStillOffline }}</p></div>
-      </div>
-      <div v-if="result.backupId && !restorePending" class="result-actions"><button class="secondary-action" type="button" @click="restorePending = true">{{ copy.assistantRestore }}</button><button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button><button class="primary-action" type="button" @click="startOver">{{ copy.assistantCheckAnother }}</button></div>
-      <div v-else-if="restorePending" class="restore-confirm"><p>{{ copy.assistantRestoreConfirm }}</p><div><button class="secondary-action" type="button" @click="restorePending = false">{{ copy.cancel }}</button><button class="primary-action" type="button" @click="restoreRule">{{ copy.assistantConfirmRestore }}</button></div></div>
-      <div v-else class="result-actions"><button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button><button class="primary-action" type="button" @click="startOver">{{ copy.assistantCheckAnother }}</button></div>
-    </section>
-
-    <template v-else-if="diagnosis && selected">
-      <div v-if="!diagnosisIsCurrent" class="notice notice-warning" role="status">
-        <p>{{ copy.activeProxyChanged }}</p>
-        <button class="secondary-action" type="button" @click="inspectApplication(selected, selectedPid)">{{ copy.recheckApplication }}</button>
-      </div>
-      <p v-if="activeProxy" class="assistant-active-proxy">{{ copy.currentActiveProxy }} · {{ activeProxy.clientName || copy.localProxy }} <code>{{ candidateEndpoint(activeProxy) }} · {{ activeProxy.protocol }}</code></p>
-      <p v-else class="assistant-active-proxy">{{ copy.activeProxyUnavailable }} <button class="secondary-action" type="button" @click="emit('backLocal')">{{ copy.assistantBackLocal }}</button></p>
-      <section class="assistant-section diagnosis-hero">
-        <div class="selected-application"><span class="application-glyph" aria-hidden="true">{{ selected.displayName.slice(0, 1).toUpperCase() }}</span><div><span>{{ copy.assistantApplication }}</span><h2>{{ selected.displayName }}</h2><code>{{ withoutWindowsExtendedPathPrefix(selected.executablePath) }}</code></div></div>
-        <div class="recommendation"><span>{{ copy.assistantRecommendation }}</span><h2>{{ diagnosisTitle }}</h2><p>{{ diagnosisBody }}</p></div>
-      </section>
-
-      <NetworkObservationPanel :copy="copy" :system-proxy="systemProxy" :tun="tun" :proxy-available="proxyAvailable" :loading="networkLoading" show-local-proxy context="assistant" />
-
-      <section v-if="rulePreview?.plan" class="assistant-section rule-confirmation">
-        <h2>{{ copy.assistantRulePreview }}</h2><p>{{ copy.assistantRulePreviewHint }}</p>
-        <dl><div><dt>{{ copy.assistantConfigFile }}</dt><dd><code>{{ withoutWindowsExtendedPathPrefix(rulePreview.plan.targetFile) }}</code></dd></div><div><dt>{{ copy.assistantConfigField }}</dt><dd><code>{{ rulePreview.plan.fieldPath.join('.') }}</code></dd></div><div><dt>{{ copy.assistantBefore }}</dt><dd><code>{{ configValue(rulePreview.plan.oldValue) }}</code></dd></div><div><dt>{{ copy.assistantAfter }}</dt><dd><code>{{ configValue(rulePreview.plan.newValue) }}</code></dd></div></dl>
-        <p class="confirmation-consequence">{{ copy.assistantBackupHint }}</p>
-        <div class="assistant-actions"><button class="secondary-action" type="button" @click="rulePreview = undefined">{{ copy.backToEdit }}</button><button class="primary-action" type="button" :disabled="!diagnosisIsCurrent || !activeProxyContext.available" @click="applyRuleFix">{{ copy.assistantConfirmFix }}</button></div>
-      </section>
-
-      <section v-else class="assistant-section assistant-action-panel">
-        <div><h2>{{ actionTitle }}</h2><p>{{ actionHint }}</p></div>
-        <div class="assistant-actions">
-          <button v-if="recommendedActionKind === 'rule'" class="primary-action" type="button" @click="prepareRuleFix">{{ copy.assistantPreviewFix }}</button>
-          <button v-else-if="recommendedActionKind === 'proxy'" class="primary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
-          <button v-else class="secondary-action" type="button" @click="inspectApplication(selected, selectedPid)">{{ copy.recheckApplication }}</button>
-          <button class="secondary-action" type="button" @click="startOver">{{ copy.assistantChooseAgain }}</button>
+  <main class="page workspace-page application-proxy-page">
+    <section class="workspace-panel app-proxy-workspace">
+      <header class="app-proxy-heading"><div class="app-proxy-title-help"><h1>{{ copy.appProxyTitle }}</h1><HelpTooltip :label="copy.appProxyTitle" :text="copy.appProxyRoutingHelp" pinnable /></div></header>
+      <div class="app-proxy-content" tabindex="0" :aria-label="copy.appProxyTitle" role="region">
+        <div class="app-proxy-current">
+          <span>{{ copy.currentActiveProxy }}</span>
+          <strong>{{ candidate?.clientName || candidate?.processName || copy.localProxy }}</strong>
+          <code v-if="candidate">{{ candidateEndpoint(candidate) }}</code>
+          <StatusIndicator :state="available ? 'healthy' : 'warning'" :label="available ? copy.listening : copy.localUnavailable" />
         </div>
-      </section>
-
-      <details v-if="!rulePreview?.plan" class="assistant-advanced assistant-other-actions"><summary>{{ copy.assistantOtherActions }}</summary><p>{{ copy.assistantDirectEffect }}</p><div class="assistant-actions"><button v-if="canExplicitProxyLaunch && recommendedActionKind !== 'proxy'" class="secondary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button><button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button><button class="secondary-action" type="button" @click="launch('direct')">{{ copy.assistantLaunchDirect }}</button></div></details>
-      <div v-if="retainedBackupId && !rulePreview?.plan" class="assistant-restore"><button v-if="!restorePending" class="secondary-action" type="button" @click="restorePending = true">{{ copy.assistantRestore }}</button><template v-else><p>{{ copy.assistantRestoreConfirm }}</p><div class="assistant-actions"><button class="secondary-action" type="button" @click="restorePending = false">{{ copy.cancel }}</button><button class="primary-action" type="button" @click="restoreRule">{{ copy.assistantConfirmRestore }}</button></div></template></div>
-
-      <details class="assistant-advanced" :open="showAdvanced" @toggle="showAdvanced = ($event.currentTarget as HTMLDetailsElement).open"><summary>{{ copy.assistantAdvanced }}</summary><dl><div><dt>{{ copy.assistantDiagnosisState }}</dt><dd><code>{{ diagnosis.applicationNetworkState }}</code></dd></div><div><dt>{{ copy.assistantEnvironmentState }}</dt><dd><code>{{ diagnosis.proxyEnvironmentState }}</code></dd></div><div v-if="tun.interfaceName"><dt>{{ copy.assistantTunInterface }}</dt><dd><code>{{ tun.interfaceName }}</code></dd></div><div><dt>{{ copy.assistantTunEvidence }}</dt><dd>{{ tun.evidence.length }}</dd></div></dl></details>
-    </template>
-
-    <ApplicationProxyGuideDialog ref="proxyGuide" :copy="copy" :candidate="activeProxy" :busy="busy" :launch-process="launchManualProxyProcess" :restart-process="selectedPid ? restartManualProxyProcess : undefined" />
+        <p v-if="!available" class="app-proxy-unavailable" role="status">{{ copy.appProxyUnavailable }} <button class="secondary-action" type="button" @click="emit('backLocal')">{{ copy.assistantBackLocal }}</button></p>
+        <section v-else class="app-proxy-manual">
+          <header class="app-proxy-section-heading">
+            <div class="app-proxy-title-help"><h2>{{ copy.appProxyManualTitle }}</h2><HelpTooltip :label="copy.appProxyManualTitle" :text="copy.appProxyFieldsHelp" pinnable /></div>
+            <label class="app-proxy-protocol">{{ copy.localProtocol }}<select v-model="protocol" :disabled="protocols.length === 1"><option v-for="value in protocols" :key="value" :value="value">{{ value.toUpperCase() }}</option></select></label>
+          </header>
+          <dl class="app-proxy-fields"><div v-for="field in fields" :key="field.key"><dt>{{ field.label }}</dt><dd><code>{{ field.value }}</code><button class="app-proxy-copy" type="button" :aria-label="`${copy.copyEndpoint}: ${field.label}`" :title="copiedField === field.key ? copy.endpointCopied : copy.copyEndpoint" @click="copyField(field.key, field.value)"><svg v-if="copiedField !== field.key" viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg><svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8"/></svg></button></dd></div></dl>
+          <p class="app-proxy-note">{{ copy.appProxyManualHint }} <span class="app-proxy-copy-status" role="status">{{ copiedField ? copy.endpointCopied : '' }}</span></p>
+        </section>
+        <section class="app-proxy-launch">
+          <header class="app-proxy-section-heading"><div><h2>{{ copy.appProxyNoSettings }}</h2><p class="app-proxy-note">{{ copy.appProxyLaunchHint }}</p></div><button class="secondary-action" type="button" :disabled="busy" :aria-expanded="expanded" aria-controls="app-proxy-picker" @click="togglePicker">{{ expanded ? copy.appProxyHide : copy.appProxyChoose }}</button></header>
+          <div v-if="expanded" id="app-proxy-picker" class="application-picker">
+            <div class="application-picker-actions">
+              <label class="application-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.2 12.2 4.3 4.3"/></svg><input ref="searchInput" v-model="search" type="search" :aria-label="copy.assistantSearch" :placeholder="copy.assistantSearch" :disabled="loadingApps || busy" /></label>
+              <button class="secondary-action" type="button" :disabled="loadingApps || busy" @click="loadApplications">{{ copy.assistantRefreshApps }}</button>
+              <button class="secondary-action" type="button" :disabled="busy" @click="browseApplication">{{ copy.assistantBrowse }}</button>
+            </div>
+            <p v-if="loadingApps" class="app-proxy-note" role="status">{{ copy.assistantLoadingApps }}</p>
+            <div v-else-if="filteredApplications.length" class="application-list"><button v-for="app in filteredApplications" :key="app.pid" type="button" :disabled="busy || !app.applicationId || !app.executablePath" :aria-pressed="selected?.id === app.applicationId" @click="chooseRunning(app)"><span class="application-glyph" aria-hidden="true">{{ app.displayName.slice(0, 1).toUpperCase() }}</span><span><strong>{{ app.displayName }}</strong><small :title="app.executablePath || undefined">{{ app.executablePath ? withoutWindowsExtendedPathPrefix(app.executablePath) : copy.assistantPathUnavailable }}</small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path v-if="selected?.id === app.applicationId" d="m4.5 10.2 3.2 3.2 7.8-7.8"/><path v-else d="m7.5 5 5 5-5 5"/></svg></button></div>
+            <p v-else-if="!error" class="app-proxy-note">{{ applications.length ? copy.assistantSearchEmpty : copy.assistantNoApps }}</p>
+            <p class="app-proxy-note">{{ copy.assistantListHint }}</p>
+            <div v-if="selected" class="app-proxy-selected"><div><strong>{{ selected.displayName }}</strong><code>{{ withoutWindowsExtendedPathPrefix(selected.executablePath) }}</code></div><button class="primary-action" type="button" :disabled="busy || !available" :aria-busy="busy" @click="launch">{{ copy.appProxyLaunch }}</button></div>
+            <p v-if="selected" class="app-proxy-note">{{ copy.appProxyRunningHint }}</p>
+            <p v-if="launchedPid" class="app-proxy-result" role="status"><strong>{{ copy.appProxyLaunched }}</strong>{{ copy.appProxyVerify.replace('{pid}', String(launchedPid)) }}</p>
+          </div>
+        </section>
+      </div>
+    </section>
   </main>
 </template>
+
+<style src="../application-proxy.css"></style>

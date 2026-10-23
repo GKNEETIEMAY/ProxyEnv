@@ -3,10 +3,12 @@ import { remoteBridgeMessages } from "./remote-bridge";
 import { diagnosticReportMessages } from "./diagnostic-report";
 import { desktopMessages } from "./desktop";
 import { localProxyMessages } from "./local-proxy";
+import { applicationProxyMessages } from "./application-proxy";
 
 export type Locale = Exclude<AppLanguage, "system">;
 
 const en = {
+  ...applicationProxyMessages.en,
   ...desktopMessages.en,
   ...localProxyMessages.en,
   ...diagnosticReportMessages.en,
@@ -303,6 +305,7 @@ const en = {
 export type Copy = { [K in keyof typeof en]: K extends "rbStates" ? typeof en.rbStates : string };
 
 const zh: Copy = {
+  ...applicationProxyMessages["zh-CN"],
   ...desktopMessages["zh-CN"],
   ...localProxyMessages["zh-CN"],
   ...diagnosticReportMessages["zh-CN"],
@@ -371,6 +374,7 @@ const zh: Copy = {
 
 const ja: Copy = {
   ...en,
+  ...applicationProxyMessages.ja,
   ...desktopMessages.ja,
   ...localProxyMessages.ja,
   currentActiveProxy: "現在のアクティブプロキシ",
@@ -429,6 +433,7 @@ const ja: Copy = {
 
 const ko: Copy = {
   ...en,
+  ...applicationProxyMessages.ko,
   ...desktopMessages.ko,
   ...localProxyMessages.ko,
   currentActiveProxy: "현재 활성 프록시",

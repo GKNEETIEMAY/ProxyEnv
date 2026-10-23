@@ -38,7 +38,7 @@ defineEmits<{
       <button class="header-back-button" type="button" :aria-label="copy.back" @click="$emit('closeSettings')">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 5-5 5 5 5" /></svg>
       </button>
-      <strong>{{ view === 'assistant' ? copy.assistantTitle : copy.settingsTitle }}</strong>
+      <strong>{{ view === 'assistant' ? copy.appProxyTitle : copy.settingsTitle }}</strong>
     </div>
     <button v-else class="wordmark" type="button" @click="$emit('openLocal')">
       <BrandMark />

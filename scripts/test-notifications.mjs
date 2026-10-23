@@ -139,7 +139,7 @@ test("native delivery uses cached reconnect attention and invalidates stale acti
   assert.match(native,/emit\("bridge-notification-open", \(\)\)/);
 });
 test("all operation surfaces use shared notifications instead of bottom error paragraphs",()=>{
-  for(const path of ["application-assistant/components/ApplicationAssistantPage.vue","application-assistant/components/ApplicationProxyGuideDialog.vue","diagnostic-report/components/DiagnosticReportDialog.vue","remote-bridge/components/RemoteBridgePage.vue","remote-bridge/components/RemoteBridgeAdvancedView.vue","remote-bridge/components/RemoteToolDialog.vue","remote-bridge/components/RemoteToolInstallDialog.vue"]){
+  for(const path of ["application-assistant/components/ApplicationAssistantPage.vue","diagnostic-report/components/DiagnosticReportDialog.vue","remote-bridge/components/RemoteBridgePage.vue","remote-bridge/components/RemoteBridgeAdvancedView.vue","remote-bridge/components/RemoteToolDialog.vue","remote-bridge/components/RemoteToolInstallDialog.vue"]){
     const source=readFileSync(`src/features/${path}`,"utf8");
     assert.match(source,/useNotification\(/,path);
     assert.doesNotMatch(source,/<p v-if="(?:error|copyError|launchError|clearLogsError|modelSettingsError)"/,path);

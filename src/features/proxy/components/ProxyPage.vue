@@ -98,7 +98,7 @@ function showOverview() { localView.value = "overview"; if (content.value) conte
             <button class="primary-action local-sync-action" type="button" :disabled="!active.available || !scopeSupported || toggling" @click="emit('applyDetected')">{{ toggling ? copy.enabling : copy.syncActiveProxy }}</button>
             <button class="secondary-action danger-action" type="button" :disabled="toggling || managedCount === 0" @click="emit('disable')">{{ copy.disableProxyEnvironment }}</button>
             <button class="secondary-action" type="button" :disabled="toggling || !environment.snapshotAvailable" @click="emit('restore')">{{ copy.restorePrevious }}</button>
-            <button class="secondary-action local-assistant-action" type="button" :title="copy.assistantEntryHint" @click="emit('openAssistant')">{{ copy.assistantEntryTitle }}</button>
+            <button class="secondary-action local-assistant-action" type="button" :title="copy.appProxyEntryHint" @click="emit('openAssistant')">{{ copy.appProxyTitle }}</button>
           </div>
         </section>
         <LocalProxyManual v-show="localView === 'advanced'" :copy="copy" :toggling="toggling" :selected-variables="selectedVariables" :inspect-manual-endpoint="inspectManualEndpoint" @apply-manual="emit('applyManual', $event)" />
