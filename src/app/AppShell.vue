@@ -987,11 +987,8 @@ onBeforeUnmount(() => {
       :copy="copy"
       :review-preview="reviewPreview"
       :active-proxy-context="activeProxyContext"
-      :system-proxy="systemProxy"
-      :active-proxy="activeProxyContext.available ? detected : undefined"
-      :tun="tun"
-      :proxy-available="activeProxyContext.available"
-      :network-loading="loading"
+      :environment="environment"
+      :stale="localStale"
       @selection-change="reportApplicationId = $event"
       @back-local="openLocal"
     />

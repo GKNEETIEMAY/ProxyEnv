@@ -14,7 +14,7 @@ const apps = [
   { pid: 43, applicationId: "chat", displayName: "Chat", processName: "Chat.exe", executablePath: "C:\\Apps\\Chat.exe", iconAvailable: false }
 ];
 const candidate = { id: "proxy", clientName: "v2rayN", host: "::1", port: 10808, protocol: "mixed", listening: true };
-const state = reactive({ locale: "zh-CN", active: { selectedCandidateId: "proxy", candidate, available: true, selectionSource: "user", revision: 1 }, back: false, failList: false, failLaunch: false, expired: false, holdRenew: false, picked: false });
+const state = reactive({ locale: "zh-CN", active: { selectedCandidateId: "proxy", candidate, available: true, selectionSource: "user", revision: 1 }, environment: { state:"enabled", matchesActiveProxy:true, entries:[{name:"HTTP_PROXY",exists:true,value:"http://[::1]:10808"}] }, stale:false, back: false, failList: false, failLaunch: false, expired: false, holdRenew: false, picked: false });
 const calls = [];
 function managed(id) { const app = apps.find(app => app.applicationId === id); return { id, displayName: app.displayName, executablePath: app.executablePath, iconKey: null, ruleId: null, lastAction: null }; }
 window.fixture = { state, calls, clearNotices: clearNotifications, theme: (palette, mode) => applyTheme(document.documentElement, mode, palette, mode === "dark") };
@@ -37,7 +37,7 @@ window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
   throw Error("Unsupported synthetic IPC: " + command);
 } };
 createApp({ setup() { return () => h("div", { class: "app-frame" }, [h(ApplicationAssistantPage, {
-  copy: messages[state.locale], activeProxyContext: state.active, activeProxy: state.active.available ? state.active.candidate : undefined,
-  tun: { state: "notDetected", evidence: [] }, proxyAvailable: state.active.available, networkLoading: false, onBackLocal: () => { state.back = true; }
+  copy: messages[state.locale], activeProxyContext: state.active, environment:state.environment, stale:state.stale,
+  onBackLocal: () => { state.back = true; }
 }), h(NotificationCenter, { closeLabel: messages[state.locale].closeWindow })]); } }).mount("#app");
 </script></body></html>
