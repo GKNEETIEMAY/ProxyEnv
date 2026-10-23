@@ -115,6 +115,7 @@ defineExpose({ open });
       <p>{{ copy.assistantProxyGuideBody }}</p>
 
       <dl v-if="candidate" class="confirmation-endpoint proxy-guide-fields">
+        <div><dt>{{ copy.localProtocol }}</dt><dd><code>{{ candidate.protocol === 'mixed' ? 'HTTP / SOCKS5' : candidate.protocol.toUpperCase() }}</code></dd></div>
         <div>
           <dt>{{ copy.assistantHostAddress }}</dt>
           <dd><code>{{ candidate.host }}</code><button type="button" :class="{ 'is-copied': copiedField === 'host' }" :aria-label="`${copy.copyEndpoint}: ${copy.assistantHostAddress}`" :title="copiedField === 'host' ? copy.endpointCopied : copy.copyEndpoint" @click="copyField('host', candidate.host)"><svg v-if="copiedField !== 'host'" viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="9" height="9" rx="1.6"/><path d="M13.5 6.5V5A1.5 1.5 0 0 0 12 3.5H5A1.5 1.5 0 0 0 3.5 5v7A1.5 1.5 0 0 0 5 13.5h1.5"/></svg><svg v-else viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.2 3.2 3.2 7.8-7.8"/></svg></button></dd>
@@ -134,6 +135,7 @@ defineExpose({ open });
         <div v-if="confirmingRestart && !launchResult" class="proxy-guide-restart-confirm" role="alert"><strong>{{ copy.assistantRestartProcessConfirmTitle }}</strong><p>{{ copy.assistantRestartProcessConfirmBody }}</p></div>
         <p v-else class="proxy-guide-credentials">{{ copy.assistantProxyCredentials }}</p>
       </div>
+      <p>{{ copy.assistantDirectEffect }}</p>
       <div class="confirmation-actions">
         <button v-if="launchResult" class="primary-action" type="button" @click="close">{{ copy.assistantClose }}</button>
         <template v-else-if="confirmingRestart">

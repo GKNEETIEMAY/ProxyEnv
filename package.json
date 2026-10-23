@@ -26,7 +26,8 @@
     "release:build": "tauri build --ci -- --locked",
     "check": "pnpm build && pnpm test:brand && pnpm test:docs && pnpm test:release && pnpm test:updates && pnpm test:themes && pnpm test:tray && pnpm test:report && pnpm test:local && pnpm test:remote && pnpm test:extensions && cargo test --manifest-path src-tauri/Cargo.toml --locked",
     "test:local": "node --test scripts/test-local-proxy.mjs",
-    "test:local:ui": "node scripts/test-local-proxy-ui.mjs"
+    "test:local:ui": "node scripts/test-local-proxy-ui.mjs",
+    "test:assistant:ui": "node scripts/test-application-assistant-ui.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

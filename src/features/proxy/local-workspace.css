@@ -1,15 +1,14 @@
-.local-workspace-heading { display:flex; flex:none; align-items:center; justify-content:space-between; gap:12px; padding:0 4px 14px; }
-.local-workspace-heading h1 { margin:0; font-size:24px; letter-spacing:-.025em; }
+.local-workspace-heading { display:flex; flex:none; align-items:center; justify-content:space-between; gap:12px; padding:0 6px 14px; }
+.local-workspace-heading h1 { margin:0; font-family:"Newsreader","Noto Serif SC",serif; font-size:23px; font-weight:700; letter-spacing:-.028em; }
 .local-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .local-view-switch { display:flex; padding:2px; border:1px solid var(--line); border-radius:10px; background:var(--surface-strong); }
 .local-view-switch button { min-height:28px; padding:4px 10px; border:0; border-radius:8px; color:var(--muted); background:transparent; cursor:pointer; font-size:11px; font-weight:650; }
 .local-view-switch button[aria-pressed="true"] { color:var(--accent-strong); background:var(--accent-soft); }
 .local-view-switch button:hover,.local-text-button:hover { color:var(--ink); }
 .local-workspace :is(button,input,select):focus-visible { outline:2px solid var(--focus); outline-offset:3px; }
-.local-workspace .local-workspace-content { gap:0; padding-right:0; overflow-y:auto; scrollbar-gutter:auto; }
-/* Like the remote overview, keep the reading surface free of a visible rail. */
-.local-workspace .local-workspace-content.is-overview { scrollbar-width:none; }
-.local-workspace .local-workspace-content.is-overview::-webkit-scrollbar { display:none; width:0; }
+.local-workspace .local-workspace-content { gap:0; padding-right:0; overflow-y:auto; scrollbar-gutter:auto; scrollbar-width:none; }
+/* Keep both views the same width, like the remote workspace. */
+.local-workspace .local-workspace-content::-webkit-scrollbar { display:none; width:0; }
 .local-workspace-content:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
 .local-section { min-width:0; padding:16px 6px; border-bottom:1px solid var(--line); scroll-margin-top:8px; }
 .local-section h2 { margin:0; font-size:13px; font-weight:650; }
@@ -18,7 +17,11 @@
 .local-title-help { display:flex; align-items:center; gap:7px; }
 .local-text-button { padding:3px 0; border:0; background:transparent; color:var(--accent-strong); font-size:11px; cursor:pointer; text-underline-offset:3px; }
 .local-text-button:hover { text-decoration:underline; }
-.local-active { padding-top:8px; }
+.local-active { padding-top:0; }
+.local-active-tools,.local-environment-tools { display:flex; align-items:center; justify-content:flex-end; gap:16px; flex-wrap:wrap; }
+.local-connectivity-trigger { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:4px 0; border:0; background:transparent; color:var(--muted); font-size:11px; cursor:pointer; text-align:left; }
+.local-connectivity-trigger:hover { color:var(--accent-strong); }
+.local-connectivity-trigger .check-status { font-size:11px; }
 .local-active-identity { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 
 .local-active-name { flex:1; min-width:150px; }
@@ -31,17 +34,13 @@
 .local-copy-button:hover { color:var(--accent-strong); background:var(--accent-soft); }
 .local-copy-button svg { width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 /* Keep the original console's strong identity and native button affordances. */
-.local-environment .environment-summary { gap:40px; }
-.local-environment .environment-state.is-stale > span { color:var(--muted); }
-.local-sync-scope { display:flex; align-items:center; gap:16px; margin-top:20px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--surface); font-size:11px; color:var(--muted); }
-.local-scope-label { display:flex; flex:none; align-items:center; gap:6px; }
-.local-scope-values { display:flex; flex:1; flex-wrap:wrap; gap:8px 16px; min-width:0; }
-.local-scope-values code { color:var(--ink); font:12px/1.5 "Cascadia Mono", Consolas, monospace; }
+.local-environment-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; }
+.local-environment-tools > .check-status { font-size:12px; }
 .local-scope-adjust { display:inline-flex; align-items:center; gap:4px; min-height:28px; flex:none; }
 .local-scope-adjust svg { width:14px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
-.local-environment .environment-actions { gap:9px; margin-top:16px; }
+.local-environment .environment-actions { gap:9px; margin-top:10px; }
 .local-environment .environment-actions :is(.primary-action,.secondary-action) { min-height:36px; padding:8px 13px; font-size:11px; }
-.local-sync-note { margin:10px 0 0; color:var(--muted); font-size:11px; line-height:1.6; }
+.local-scope-warning { margin:8px 0 0; color:var(--warning); font-size:12px; line-height:1.6; }
 .local-connectivity .secondary-action { min-height:36px; padding:8px 13px; font-size:11px; }
 .local-candidate-list,.local-targets { padding:0; margin:0; list-style:none; }
 .local-candidate-list li + li { margin-top:5px; }
@@ -52,9 +51,31 @@
 .local-candidate-list img { width:30px; height:30px; object-fit:contain; flex:none; }
 .local-candidate-copy { display:grid; gap:4px; min-width:0; flex:1; font-size:12px; }
 .local-candidate-copy :is(code,small) { color:var(--muted); font-size:10px; overflow-wrap:anywhere; }
-.local-candidate-list .check-status { flex:none; max-width:30%; }
+.local-candidate-state { display:grid; gap:5px; justify-items:end; flex:none; max-width:30%; }
+.local-candidate-state > small { color:var(--accent-strong); font-size:11px; }
+.local-endpoint-details { margin:0 10px 10px 50px; font-size:11px; }
+.local-endpoint-details summary { padding:8px 0; color:var(--muted); cursor:pointer; }
+.local-candidate-list .local-endpoint-details button { justify-content:space-between; flex-wrap:wrap; font-size:11px; }
+.local-endpoint-details code { overflow-wrap:anywhere; }
+.local-endpoint-details button span { color:var(--muted); }
+.local-workspace summary:focus-visible { outline:2px solid var(--focus); outline-offset:3px; }
 .local-manual .manual-endpoint { margin-top:12px; }
-.local-workspace .variables-section { padding-block:16px; }
+.local-workspace .variables-section { padding-top:12px; border:0; scroll-margin-top:12px; }
+.local-variable-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; color:var(--muted); font-size:11px; }
+.local-workspace .variable-table { border:0; }
+.local-workspace .variable-row { min-height:38px; padding:8px 0; grid-template-columns:minmax(138px,.34fr) minmax(0,1fr) 24px; gap:12px; }
+.local-workspace .variable-row:last-child { border-bottom:0; }
+.local-workspace .variable-label { display:grid; grid-template-columns:88px 20px; }
+.local-workspace :is(.variable-name,.variable-value) { font-size:12px; }
+.local-workspace .variable-name { font-weight:500; }
+.local-workspace .is-readonly .variable-row { grid-template-columns:minmax(138px,.34fr) minmax(0,1fr); }
+.variable-value-details { min-width:0; overflow-wrap:anywhere; font-size:11px; }
+.variable-value-details summary { cursor:pointer; }
+.variable-value-details summary > code { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.variable-value-details summary > span { display:block; margin-top:4px; color:var(--accent-strong); }
+.variable-value-details[open] summary > code { display:none; }
+.variable-value-details:not([open]) .expanded-label,.variable-value-details[open] .collapsed-label { display:none; }
+.variable-value-details > code { display:block; padding-top:8px; }
 .local-workspace .variable-value { white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }
 .local-workspace .network-observation-panel { padding-bottom:10px; border-bottom:1px solid var(--line); }
 .local-workspace .network-observation-heading { padding-top:16px; }
@@ -68,6 +89,9 @@
 .local-workspace .network-observation-panel.is-compact .observation-symbol { width:26px; height:26px; }
 .local-workspace .network-observation-panel.is-compact .observation-copy code { display:none; }
 .local-connectivity-summary { display:flex; align-items:center; flex-wrap:wrap; gap:14px; }
+.local-connectivity-toolbar { display:flex; align-items:center; gap:12px; }
+.local-connectivity-readings { display:flex; flex:1; min-width:0; align-items:center; flex-wrap:wrap; gap:10px 18px; }
+.local-connectivity-toolbar > button { flex:none; }
 .local-connectivity-details { margin-top:14px; }
 .local-probe-stages { display:flex; flex-wrap:wrap; gap:12px 24px; color:var(--muted); font-size:11px; }
 .local-probe-stages > span { display:flex; align-items:center; gap:8px; }
@@ -77,11 +101,9 @@
 .local-stale { margin:0; padding:8px 6px; color:var(--warning); font-size:11px; line-height:1.5; }
 .local-workspace .assistant-entry { padding-block:14px; margin:0; border:0; }
 @media (max-width:700px) {
-  .local-environment .environment-summary { gap:16px; }
-  .local-sync-scope { flex-wrap:wrap; gap:8px 12px; }
-  .local-scope-label { flex-basis:100%; }
-  .local-workspace-heading { align-items:flex-start; flex-direction:column; gap:10px; }
-  .local-toolbar { width:100%; justify-content:space-between; }
+  .local-active-tools { margin-left:auto; }
+  .local-workspace-heading { flex-wrap:wrap; gap:10px; }
+  .local-toolbar { margin-left:auto; }
   .local-workspace-heading h1 { font-size:21px; }
   .local-active-address { max-width:100%; margin-left:68px; }
   .local-targets li { grid-template-columns:80px minmax(0,1fr); }

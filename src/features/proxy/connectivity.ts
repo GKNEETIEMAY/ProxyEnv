@@ -1,6 +1,6 @@
 import type { ActiveProxyContext, CheckState, ProxyConnectivityResult } from "../../shared/types";
 
-export const connectivityTtlMs = 300_000;
+export const connectivityTtlMs = 30 * 60_000;
 export function connectivityExpired(result: ProxyConnectivityResult, now = Date.now()): boolean {
   const testedAt = Date.parse(result.testedAt);
   return !Number.isFinite(testedAt) || now < testedAt || now - testedAt >= connectivityTtlMs;
@@ -23,6 +23,7 @@ export interface ConnectivityView {
 /** A single view generation guards both cache reads and tests, including A → B → A. */
 export class ConnectivitySession {
   private generation = 0;
+  private nextAutomaticTestAt = 0;
   constructor(
     readonly state: ConnectivityView,
     private readonly context: () => ActiveProxyContext,
@@ -30,11 +31,13 @@ export class ConnectivitySession {
       testCurrentProxyConnectivity: (revision: number) => Promise<ProxyConnectivityResult>;
       lastProxyConnectivity: () => Promise<ProxyConnectivityResult | null>;
     },
-    private readonly onError: (cause: unknown) => void
+    private readonly onError: (cause: unknown) => void,
+    private readonly now: () => number = Date.now
   ) {}
 
   invalidate() {
     this.generation++;
+    this.nextAutomaticTestAt = 0;
     Object.assign(this.state, { result: null, testing: false, cached: false, failed: false });
   }
 
@@ -61,8 +64,16 @@ export class ConnectivitySession {
     }
   }
 
-  async test() {
+  async testIfDue() {
+    const now = this.now();
+    if (now < this.nextAutomaticTestAt || this.state.testing || !this.context().available) return;
+    if (this.state.result && !connectivityExpired(this.state.result, now)) return;
+    await this.test(true);
+  }
+
+  async test(silent = false) {
     if (this.state.testing || !this.context().available) return;
+    this.nextAutomaticTestAt = this.now() + connectivityTtlMs;
     const generation = ++this.generation;
     const context = { ...this.context() };
     Object.assign(this.state, { result: null, testing: true, cached: false, failed: false });
@@ -72,7 +83,7 @@ export class ConnectivitySession {
     } catch (cause) {
       if (this.accepts(generation, context)) {
         this.state.failed = true;
-        this.onError(cause);
+        if (!silent) this.onError(cause);
       }
     } finally {
       if (generation === this.generation) this.state.testing = false;

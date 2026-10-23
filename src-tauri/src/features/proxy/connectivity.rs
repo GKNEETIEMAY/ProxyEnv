@@ -14,7 +14,7 @@ use super::{plan, probe, protocol_matches, ProxyCandidate, ProxyEndpoint, ProxyP
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
-const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
+const CACHE_TTL: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -359,7 +359,7 @@ fn cache_is_valid(
     now: Instant,
 ) -> bool {
     cached.revision == revision
-        && now.saturating_duration_since(cached.stored_at) <= CACHE_TTL
+        && now.saturating_duration_since(cached.stored_at) < CACHE_TTL
         && plan::validate_and_normalize_endpoint(&endpoint_from_candidate(candidate))
             .is_ok_and(|endpoint| cached.result.endpoint == endpoint)
         && cached.candidate_fingerprint == candidate_fingerprint(candidate)
@@ -509,7 +509,10 @@ mod tests {
 
         // Same endpoint and process after A -> B -> A is a different selection generation.
         assert!(!cache_is_valid(&fresh, &active, 9, now));
-        let stale = cached(&active, now - Duration::from_secs(301));
+        assert_eq!(CACHE_TTL, Duration::from_secs(30 * 60));
+        let before_expiry = cached(&active, now - (CACHE_TTL - Duration::from_secs(1)));
+        assert!(cache_is_valid(&before_expiry, &active, 7, now));
+        let stale = cached(&active, now - CACHE_TTL);
         assert!(!cache_is_valid(&stale, &active, 7, now));
 
         let mut changed_endpoint = active.clone();

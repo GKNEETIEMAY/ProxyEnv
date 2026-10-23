@@ -5,15 +5,21 @@ import { backend } from "../../../shared/api/backend";
 import type { Copy } from "../../../shared/i18n";
 import type { ActiveProxyContext, ApplicationDiagnosis, ManagedApplication, ProxyCandidate, RuleChangePreview, RunningApplication, TunObservation } from "../../../shared/types";
 import { withoutWindowsExtendedPathPrefix } from "../../../shared/utils/path";
+import { candidateEndpoint } from "../../proxy/client-presentation";
 import NetworkObservationPanel from "../../network-observation/components/NetworkObservationPanel.vue";
 import ApplicationProxyGuideDialog from "./ApplicationProxyGuideDialog.vue";
 
 const props = defineProps<{ copy: Copy; reviewPreview?: boolean; activeProxyContext: ActiveProxyContext; systemProxy?: ProxyCandidate; activeProxy?: ProxyCandidate; tun: TunObservation; proxyAvailable: boolean; networkLoading: boolean }>();
 
-type ResultState = { success: boolean; title: string; detail: string; backupId?: string };
-const emit = defineEmits<{ selectionChange: [applicationId: string | undefined] }>();
+type ResultState = { success: boolean; title: string; detail: string; backupId?: string; launched?: boolean };
+const emit = defineEmits<{ selectionChange: [applicationId: string | undefined]; backLocal: [] }>();
 
 const applications = ref<RunningApplication[]>([]);
+const search = ref("");
+const filteredApplications = computed(() => {
+  const query = search.value.trim().toLocaleLowerCase();
+  return applications.value.filter(application => !query || `${application.displayName} ${application.executablePath ?? ""}`.toLocaleLowerCase().includes(query));
+});
 const selected = ref<ManagedApplication>();
 watch(() => selected.value?.id, id => emit("selectionChange", id));
 onBeforeUnmount(() => emit("selectionChange", undefined));
@@ -216,6 +222,7 @@ async function browseApplication() {
 }
 
 async function inspectApplication(application: ManagedApplication, pid?: number) {
+  retainedBackupId.value = result.value?.backupId ?? retainedBackupId.value;
   selected.value = application;
   selectedPid.value = pid;
   busy.value = true;
@@ -304,6 +311,7 @@ async function launch(mode: "proxy" | "direct") {
       success: true,
       title: mode === "proxy" ? props.copy.assistantLaunchedWithProxy : props.copy.assistantLaunchedDirect,
       detail: props.copy.assistantLaunchResult.replace("{pid}", String(launched.pid)),
+      launched: true,
       backupId
     };
     void focusCurrentStep();
@@ -393,7 +401,7 @@ function returnToStep(step: 1 | 2) {
 }
 
 function returnToStepLabel(step: 1 | 2): string {
-  return `${props.copy.back} · ${step}`;
+  return step === 1 ? props.copy.assistantChooseApp : props.copy.assistantStepReview;
 }
 
 async function focusCurrentStep() {
@@ -428,7 +436,8 @@ onMounted(async () => {
       result.value = {
         success: true,
         title: props.copy.assistantLaunchedWithProxy,
-        detail: props.copy.assistantLaunchResult.replace("{pid}", "12480")
+        detail: props.copy.assistantLaunchResult.replace("{pid}", "12480"),
+        launched: true
       };
     }
     return;
@@ -452,30 +461,32 @@ watch(() => props.activeProxyContext.revision, () => {
 <template>
   <main ref="assistantPage" class="page assistant-page">
     <div class="assistant-intro">
-      <div><span class="eyebrow">{{ copy.assistantEyebrow }}</span><h1>{{ copy.assistantTitle }}</h1><p>{{ copy.assistantIntro }}</p></div>
+      <div><h1>{{ copy.assistantTitle }}</h1><p>{{ copy.assistantIntro }}</p></div>
       <ol class="assistant-steps" :aria-label="copy.assistantProgress">
-        <li :class="{ active: currentStep === 1, completed: currentStep > 1 }"><button type="button" :tabindex="currentStep > 1 && !busy ? 0 : -1" :aria-disabled="currentStep <= 1 || busy" :aria-current="currentStep === 1 ? 'step' : undefined" :aria-label="returnToStepLabel(1)" :title="currentStep > 1 ? returnToStepLabel(1) : undefined" @click="returnToStep(1)">1</button></li>
-        <li :class="{ active: currentStep === 2, completed: currentStep > 2 }"><button type="button" :tabindex="currentStep > 2 && !busy ? 0 : -1" :aria-disabled="currentStep <= 2 || busy" :aria-current="currentStep === 2 ? 'step' : undefined" :aria-label="returnToStepLabel(2)" :title="currentStep > 2 ? returnToStepLabel(2) : undefined" @click="returnToStep(2)">2</button></li>
-        <li :class="{ active: currentStep === 3 }"><span :aria-current="currentStep === 3 ? 'step' : undefined">3</span></li>
+        <li :class="{ active: currentStep === 1, completed: currentStep > 1 }"><button type="button" :tabindex="currentStep > 1 && !busy ? 0 : -1" :aria-disabled="currentStep <= 1 || busy" :aria-current="currentStep === 1 ? 'step' : undefined" :aria-label="returnToStepLabel(1)" :title="currentStep > 1 ? returnToStepLabel(1) : undefined" @click="returnToStep(1)">1 · {{ copy.assistantChooseApp }}</button></li>
+        <li :class="{ active: currentStep === 2, completed: currentStep > 2 }"><button type="button" :tabindex="currentStep > 2 && !busy ? 0 : -1" :aria-disabled="currentStep <= 2 || busy" :aria-current="currentStep === 2 ? 'step' : undefined" :aria-label="returnToStepLabel(2)" :title="currentStep > 2 ? returnToStepLabel(2) : undefined" @click="returnToStep(2)">2 · {{ copy.assistantStepReview }}</button></li>
+        <li :class="{ active: currentStep === 3 }"><span :aria-current="currentStep === 3 ? 'step' : undefined">3 · {{ copy.assistantStepVerify }}</span></li>
       </ol>
     </div>
 
 
     <section v-if="!diagnosis && !busy" class="assistant-section application-picker">
-      <div class="assistant-section-heading"><div><h2>{{ copy.assistantChooseApp }}</h2><p>{{ copy.assistantChooseHint }}</p></div><div class="application-picker-actions"><span role="status" aria-live="polite">{{ applicationCount }}</span><button class="secondary-action browse-action" type="button" :disabled="loadingApps" @click="loadApplications"><svg :class="{ spinning: loadingApps }" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 9.5a6.5 6.5 0 1 0-1.9 4.6M16.5 5v4.5H12" /></svg>{{ copy.assistantRefreshApps }}</button><button class="secondary-action browse-action" type="button" @click="browseApplication"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.5h5l1.4 1.7h6.6v7.3h-13zM3.5 6.5V4.7h4.2l1.2 1.8" /></svg>{{ copy.assistantBrowse }}</button></div></div>
+      <div class="assistant-section-heading"><div><h2>{{ copy.assistantChooseApp }}</h2><p>{{ copy.assistantChooseHint }}</p></div><span class="application-count" role="status" aria-live="polite">{{ applicationCount }}</span></div>
+      <div class="application-picker-actions">
+        <label class="application-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.2 12.2 4.3 4.3"/></svg><input v-model="search" type="search" :aria-label="copy.assistantSearch" :placeholder="copy.assistantSearch" :disabled="loadingApps" /></label>
+        <button class="secondary-action browse-action" type="button" :disabled="loadingApps" @click="loadApplications"><svg :class="{ spinning: loadingApps }" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 9.5a6.5 6.5 0 1 0-1.9 4.6M16.5 5v4.5H12" /></svg>{{ copy.assistantRefreshApps }}</button>
+        <button class="secondary-action browse-action" type="button" @click="browseApplication"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 6.5h5l1.4 1.7h6.6v7.3h-13zM3.5 6.5V4.7h4.2l1.2 1.8" /></svg>{{ copy.assistantBrowse }}</button>
+      </div>
       <div v-if="loadingApps" class="assistant-loading" role="status">{{ copy.assistantLoadingApps }}</div>
-      <div v-else-if="applications.length" class="application-list">
-        <button v-for="application in applications" :key="application.pid" type="button" :disabled="!application.applicationId || !application.executablePath" @click="managedFromRunning(application) && inspectApplication(managedFromRunning(application)!, application.pid)">
+      <div v-else-if="filteredApplications.length" class="application-list">
+        <button v-for="application in filteredApplications" :key="application.pid" type="button" :disabled="!application.applicationId || !application.executablePath" @click="managedFromRunning(application) && inspectApplication(managedFromRunning(application)!, application.pid)">
           <span class="application-glyph" aria-hidden="true">{{ application.displayName.slice(0, 1).toUpperCase() }}</span>
           <span><strong>{{ application.displayName }}</strong><small>{{ application.executablePath ? withoutWindowsExtendedPathPrefix(application.executablePath) : copy.assistantPathUnavailable }}</small></span>
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 5 5 5-5 5" /></svg>
         </button>
       </div>
-      <div v-else class="assistant-empty"><p>{{ copy.assistantNoApps }}</p><button class="primary-action" type="button" @click="browseApplication">{{ copy.assistantBrowse }}</button></div>
-      <div v-if="applications.length" class="notice notice-warning application-list-notice" role="note">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5v4.8m0 3.2v.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
-        <p><strong>{{ copy.assistantListNoticeTitle }}</strong><span>{{ copy.assistantListHint }}</span></p>
-      </div>
+      <div v-else class="assistant-empty" role="status"><p>{{ applications.length ? copy.assistantSearchEmpty : copy.assistantNoApps }}</p><button class="primary-action" type="button" @click="browseApplication">{{ copy.assistantBrowse }}</button></div>
+      <details v-if="applications.length" class="assistant-advanced application-list-notice"><summary>{{ copy.assistantListNoticeTitle }}</summary><p class="local-caption">{{ copy.assistantListHint }}</p></details>
       <p class="privacy-note"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3.5 4.5 5.7v4.1c0 3.3 2.2 5.7 5.5 6.8 3.3-1.1 5.5-3.5 5.5-6.8V5.7z" /></svg>{{ copy.assistantReadOnlyNote }}</p>
     </section>
 
@@ -484,6 +495,8 @@ watch(() => props.activeProxyContext.revision, () => {
     <section v-else-if="result" class="assistant-section result-panel">
       <span class="result-mark" :class="{ success: result.success }" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12.3 3.2 3.2L17.5 8M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span>
       <h2>{{ result.title }}</h2><p>{{ result.detail }}</p>
+      <p v-if="result.launched">{{ copy.assistantVerifyHint }}</p>
+      <button v-if="selected" class="secondary-action" type="button" @click="inspectApplication(selected, selectedPid)">{{ copy.recheckApplication }}</button>
       <div v-if="activeProxy" class="result-follow-up">
         <span aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M10 2.8a7.2 7.2 0 1 0 0 14.4 7.2 7.2 0 0 0 0-14.4Zm0 10.8v.1M10 6.2v4.6" /></svg></span>
         <div><strong>{{ copy.assistantProxyStillOfflineTitle }}</strong><p>{{ copy.assistantProxyStillOffline }}</p></div>
@@ -498,7 +511,8 @@ watch(() => props.activeProxyContext.revision, () => {
         <p>{{ copy.activeProxyChanged }}</p>
         <button class="secondary-action" type="button" @click="inspectApplication(selected, selectedPid)">{{ copy.recheckApplication }}</button>
       </div>
-      <p v-if="activeProxy" class="assistant-active-proxy">{{ copy.currentActiveProxy }} · {{ activeProxy.clientName || copy.localProxy }} <code>{{ activeProxy.host }}:{{ activeProxy.port }}</code></p>
+      <p v-if="activeProxy" class="assistant-active-proxy">{{ copy.currentActiveProxy }} · {{ activeProxy.clientName || copy.localProxy }} <code>{{ candidateEndpoint(activeProxy) }} · {{ activeProxy.protocol }}</code></p>
+      <p v-else class="assistant-active-proxy">{{ copy.activeProxyUnavailable }} <button class="secondary-action" type="button" @click="emit('backLocal')">{{ copy.assistantBackLocal }}</button></p>
       <section class="assistant-section diagnosis-hero">
         <div class="selected-application"><span class="application-glyph" aria-hidden="true">{{ selected.displayName.slice(0, 1).toUpperCase() }}</span><div><span>{{ copy.assistantApplication }}</span><h2>{{ selected.displayName }}</h2><code>{{ withoutWindowsExtendedPathPrefix(selected.executablePath) }}</code></div></div>
         <div class="recommendation"><span>{{ copy.assistantRecommendation }}</span><h2>{{ diagnosisTitle }}</h2><p>{{ diagnosisBody }}</p></div>
@@ -507,23 +521,24 @@ watch(() => props.activeProxyContext.revision, () => {
       <NetworkObservationPanel :copy="copy" :system-proxy="systemProxy" :tun="tun" :proxy-available="proxyAvailable" :loading="networkLoading" show-local-proxy context="assistant" />
 
       <section v-if="rulePreview?.plan" class="assistant-section rule-confirmation">
-        <span class="eyebrow">{{ copy.assistantConfirmChange }}</span><h2>{{ copy.assistantRulePreview }}</h2><p>{{ copy.assistantRulePreviewHint }}</p>
+        <h2>{{ copy.assistantRulePreview }}</h2><p>{{ copy.assistantRulePreviewHint }}</p>
         <dl><div><dt>{{ copy.assistantConfigFile }}</dt><dd><code>{{ withoutWindowsExtendedPathPrefix(rulePreview.plan.targetFile) }}</code></dd></div><div><dt>{{ copy.assistantConfigField }}</dt><dd><code>{{ rulePreview.plan.fieldPath.join('.') }}</code></dd></div><div><dt>{{ copy.assistantBefore }}</dt><dd><code>{{ configValue(rulePreview.plan.oldValue) }}</code></dd></div><div><dt>{{ copy.assistantAfter }}</dt><dd><code>{{ configValue(rulePreview.plan.newValue) }}</code></dd></div></dl>
         <p class="confirmation-consequence">{{ copy.assistantBackupHint }}</p>
         <div class="assistant-actions"><button class="secondary-action" type="button" @click="rulePreview = undefined">{{ copy.backToEdit }}</button><button class="primary-action" type="button" :disabled="!diagnosisIsCurrent || !activeProxyContext.available" @click="applyRuleFix">{{ copy.assistantConfirmFix }}</button></div>
       </section>
 
       <section v-else class="assistant-section assistant-action-panel">
-        <div><span class="eyebrow">{{ copy.assistantNextStep }}</span><h2>{{ actionTitle }}</h2><p>{{ actionHint }}</p></div>
+        <div><h2>{{ actionTitle }}</h2><p>{{ actionHint }}</p></div>
         <div class="assistant-actions">
           <button v-if="recommendedActionKind === 'rule'" class="primary-action" type="button" @click="prepareRuleFix">{{ copy.assistantPreviewFix }}</button>
           <button v-else-if="recommendedActionKind === 'proxy'" class="primary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
-          <button v-else-if="canExplicitProxyLaunch" class="primary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button>
-          <button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button>
-          <button class="secondary-action" type="button" @click="launch('direct')">{{ copy.assistantLaunchDirect }}</button>
+          <button v-else class="secondary-action" type="button" @click="inspectApplication(selected, selectedPid)">{{ copy.recheckApplication }}</button>
           <button class="secondary-action" type="button" @click="startOver">{{ copy.assistantChooseAgain }}</button>
         </div>
       </section>
+
+      <details v-if="!rulePreview?.plan" class="assistant-advanced assistant-other-actions"><summary>{{ copy.assistantOtherActions }}</summary><p>{{ copy.assistantDirectEffect }}</p><div class="assistant-actions"><button v-if="canExplicitProxyLaunch && recommendedActionKind !== 'proxy'" class="secondary-action" type="button" @click="launch('proxy')">{{ copy.assistantLaunchWithProxy }}</button><button v-if="activeProxy" class="secondary-action" type="button" @click="openProxyGuide">{{ copy.assistantConfigureProxy }}</button><button class="secondary-action" type="button" @click="launch('direct')">{{ copy.assistantLaunchDirect }}</button></div></details>
+      <div v-if="retainedBackupId && !rulePreview?.plan" class="assistant-restore"><button v-if="!restorePending" class="secondary-action" type="button" @click="restorePending = true">{{ copy.assistantRestore }}</button><template v-else><p>{{ copy.assistantRestoreConfirm }}</p><div class="assistant-actions"><button class="secondary-action" type="button" @click="restorePending = false">{{ copy.cancel }}</button><button class="primary-action" type="button" @click="restoreRule">{{ copy.assistantConfirmRestore }}</button></div></template></div>
 
       <details class="assistant-advanced" :open="showAdvanced" @toggle="showAdvanced = ($event.currentTarget as HTMLDetailsElement).open"><summary>{{ copy.assistantAdvanced }}</summary><dl><div><dt>{{ copy.assistantDiagnosisState }}</dt><dd><code>{{ diagnosis.applicationNetworkState }}</code></dd></div><div><dt>{{ copy.assistantEnvironmentState }}</dt><dd><code>{{ diagnosis.proxyEnvironmentState }}</code></dd></div><div v-if="tun.interfaceName"><dt>{{ copy.assistantTunInterface }}</dt><dd><code>{{ tun.interfaceName }}</code></dd></div><div><dt>{{ copy.assistantTunEvidence }}</dt><dd>{{ tun.evidence.length }}</dd></div></dl></details>
     </template>

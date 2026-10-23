@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>Application assistant — synthetic IPC only</title></head>
+<body><div id="app"></div><script type="module">
+import { createApp, reactive, h } from "vue";
+import ApplicationAssistantPage from "/src/features/application-assistant/components/ApplicationAssistantPage.vue";
+import { messages } from "/src/shared/i18n/index.ts";
+import { applyTheme } from "/src/shared/theme/palette.ts";
+import "/src/shared/styles/index.css";
+import "/src/shared/theme/palettes.css";
+const apps = [
+  { pid: 42, applicationId: "code", displayName: "Visual Studio Code", processName: "Code.exe", executablePath: "C:\\Apps\\Code.exe", iconAvailable: false },
+  { pid: 43, applicationId: "chat", displayName: "Chat", processName: "Chat.exe", executablePath: "C:\\Apps\\Chat.exe", iconAvailable: false }
+];
+const candidate = { id: "proxy", clientName: "v2rayN", host: "::1", port: 10808, protocol: "mixed", listening: true };
+const state = reactive({ locale: "zh-CN", active: { selectedCandidateId: "proxy", candidate, available: true, selectionSource: "user", revision: 1 }, diagnosisState: "proxyLaunchRecommended", action: "launchWithProxy", back: false, failDiagnosis: false });
+const calls = [];
+function managed(id) { const app = apps.find(app => app.applicationId === id); return { id, displayName: app.displayName, executablePath: app.executablePath, iconKey: null, ruleId: null, lastAction: null }; }
+window.fixture = { state, calls, theme: (palette, mode) => applyTheme(document.documentElement, mode, palette, mode === "dark") };
+window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
+  calls.push([command, args]);
+  if (command === "list_running_applications") return apps;
+  if (command === "renew_application_authorization") return managed(args.applicationId);
+  if (command === "diagnose_application") {
+    if (state.failDiagnosis) throw Error("Synthetic diagnosis failure");
+    return { application: managed(args.applicationId), activeProxyRevision: state.active.revision, proxyAvailable: state.active.available, systemProxyEnabled: false, proxyEnvironmentState: "enabled", tunObservation: "notDetected", knownRule: null, proxyConnectivityState: "notTested", applicationNetworkState: state.diagnosisState, recommendedAction: state.action };
+  }
+  if (command === "launch_application_with_current_proxy" || command === "launch_application_without_proxy") return { pid: 99 };
+  if (command === "preview_application_rule_fix") return { state: "ready", plan: { targetFile: "C:\\Apps\\settings.json", fieldPath: ["proxy"], oldValue: "", newValue: "http://[::1]:10808" } };
+  if (command === "apply_application_rule_fix") return { state: "applied", restartRequired: true, backup: { id: "backup" } };
+  if (command === "restore_application_rule_change") return { state: "restored" };
+  if (command === "pick_application") return null;
+  throw Error("Unsupported synthetic IPC: " + command);
+} };
+createApp({ setup() { return () => h("div", { class: "app-frame" }, h(ApplicationAssistantPage, {
+  copy: messages[state.locale], activeProxyContext: state.active, activeProxy: state.active.available ? state.active.candidate : undefined,
+  tun: { state: "notDetected", evidence: [] }, proxyAvailable: state.active.available, networkLoading: false, onBackLocal: () => { state.back = true; }
+})); } }).mount("#app");
+</script></body></html>

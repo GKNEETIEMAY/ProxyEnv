@@ -150,7 +150,13 @@ watch(() => connectivity.result, result => {
     if (Number.isFinite(remaining) && remaining > 0) connectivityExpiryTimer = window.setTimeout(() => { localNow.value = Date.now(); }, remaining);
   }
 });
-function refreshLocalClock() { localNow.value = Date.now(); }
+function refreshLocalClock() {
+  localNow.value = Date.now();
+  checkAutomaticConnectivity();
+}
+function checkAutomaticConnectivity() {
+  if (!reviewPreview && !toggling.value && !refreshPending && !localStale.value) void connectivitySession.testIfDue();
+}
 window.addEventListener("focus", refreshLocalClock);
 const systemProxy = computed(() => candidates.value.find((candidate) => candidate.source.includes("windowsSystemProxy")));
 const endpoint = computed(() => detected.value ? `${detected.value.host}:${detected.value.port}` : "");
@@ -883,7 +889,10 @@ onMounted(async () => {
     listen<unknown>("tray-navigation", ({ payload }) => { void handleTrayNavigation(payload); })
   ]);
   await refresh();
-  refreshTimer = window.setInterval(() => void refresh(true), 5000);
+  checkAutomaticConnectivity();
+  refreshTimer = window.setInterval(() => {
+    void refresh(true).then(checkAutomaticConnectivity);
+  }, 5000);
 });
 
 onBeforeUnmount(() => {
@@ -984,6 +993,7 @@ onBeforeUnmount(() => {
       :proxy-available="activeProxyContext.available"
       :network-loading="loading"
       @selection-change="reportApplicationId = $event"
+      @back-local="openLocal"
     />
 
     <SettingsPage
