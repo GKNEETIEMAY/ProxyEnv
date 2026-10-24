@@ -118,3 +118,10 @@
 - 为 `application-proxy` 补充原有测试模块映射，并检查所有当前相对运行时导入均在映射内；保留品牌、Logo 哈希、历史说明和兼容身份断言。
 - `pnpm test:brand`：7 passed；`pnpm build`：passed（既有 >500 kB chunk 提示）；`pnpm test:docs`：13 passed；`pnpm test:release`：12 passed。生产多语言模块未改动。
 - 本地 Corepack 普通沙箱无法访问运行时缓存；使用正常权限的固定 `pnpm 10.15.1` 完成验证，未更换包管理器版本或降低检查。
+
+### M3 历史规则备份审计
+
+- 从 v0.2.1 Tag `2e31bb95` 读取旧 `backup.rs`、`apply.rs`、规则目录与 `build.rs`。标准 Tag 仅有 schema，构建排除 schema 后无内置应用规则，生产接口无规则可匹配；不能由“旧接口存在”推断标准用户曾被自动写入。
+- 实际备份位置为 `%LOCALAPPDATA%\ProxyEnv\app-rule-backups\<id>.json`，内容为单字段旧值/应用值及整文件 hash，不是配置全量副本；存在备份也不能证明仍未恢复。
+- 新增[历史规则备份说明](LEGACY_APPLICATION_RULE_BACKUPS.zh-CN.md)，包含来源证据、A/B/C 判定、路径/格式/字段与并发冲突边界、人工备份与恢复步骤。当前启动流程不使用旧目录，不新增恢复 IPC 或扫描行为。
+- 真实/脱敏备份的存在、缺失、损坏、外部改写、路径变化和权限拒绝样本均未提供，故样本恢复、原生安装升级目录保留仍为“未验证 / 风险待维护者确认”；不把源码审计写作迁移已通过。
