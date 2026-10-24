@@ -10,12 +10,22 @@ const moduleUrl = (path, replacements = {}) => {
   for (const [from, to] of Object.entries(replacements)) source = source.replace(from, to);
   return `data:text/javascript;base64,${Buffer.from(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText).toString("base64")}`;
 };
-const { messages } = await import(moduleUrl("src/shared/i18n/index.ts", {
+const localeModules = {
   '"./remote-bridge"': JSON.stringify(moduleUrl("src/shared/i18n/remote-bridge.ts")),
   '"./diagnostic-report"': JSON.stringify(moduleUrl("src/shared/i18n/diagnostic-report.ts")),
   '"./desktop"': JSON.stringify(moduleUrl("src/shared/i18n/desktop.ts")),
   '"./local-proxy"': JSON.stringify(moduleUrl("src/shared/i18n/local-proxy.ts")),
-}));
+  '"./application-proxy"': JSON.stringify(moduleUrl("src/shared/i18n/application-proxy.ts")),
+};
+const localeSource = ts.createSourceFile("index.ts", read("src/shared/i18n/index.ts"), ts.ScriptTarget.Latest, true);
+test("the locale test loader covers every relative runtime import", () => {
+  for (const statement of localeSource.statements) {
+    if (ts.isImportDeclaration(statement) && !statement.importClause?.isTypeOnly && statement.moduleSpecifier.text.startsWith(".")) {
+      assert.ok(Object.hasOwn(localeModules, JSON.stringify(statement.moduleSpecifier.text)), `Missing locale mapping: ${statement.moduleSpecifier.text}`);
+    }
+  }
+});
+const { messages } = await import(moduleUrl("src/shared/i18n/index.ts", localeModules));
 const config = JSON.parse(read("src-tauri/tauri.conf.json"));
 
 test("four locales show RouteSpan name, slogan and report labels without renaming copy keys", () => {

@@ -112,3 +112,9 @@
 - `scripts/test-branding.mjs` 未映射新增 `application-proxy` 相对模块，缺陷仍存在；生产多语言代码无需因此改动。
 - 任务书范围合理：先修复测试入口并重跑完整质量门槛；随后核对 v0.2.1 规则备份的真实格式、只读兼容说明、UI 自动化和自动检测文档冲突。保持现有产品简化、标识和签名规则。
 - 不使用浏览器 fixtures 作为原生网络/变量写入证据；真实 Windows、SSH、旧用户备份和升级样本未提供，相关验收保持“未验证”。本轮不创建 Tag、Draft 或 Release。
+
+### M1 品牌测试入口
+
+- 为 `application-proxy` 补充原有测试模块映射，并检查所有当前相对运行时导入均在映射内；保留品牌、Logo 哈希、历史说明和兼容身份断言。
+- `pnpm test:brand`：7 passed；`pnpm build`：passed（既有 >500 kB chunk 提示）；`pnpm test:docs`：13 passed；`pnpm test:release`：12 passed。生产多语言模块未改动。
+- 本地 Corepack 普通沙箱无法访问运行时缓存；使用正常权限的固定 `pnpm 10.15.1` 完成验证，未更换包管理器版本或降低检查。
