@@ -189,10 +189,20 @@ try {
   if (shots) await page.screenshot({ path: resolve(output, 'compact.png') });
   await page.setViewportSize({ width: 560, height: 420 });
   const scroller = page.locator('.local-workspace-content');
+  await page.waitForFunction(() => {
+    const node = document.querySelector('.local-workspace-content');
+    return innerHeight === 420 && node.scrollHeight > node.clientHeight;
+  });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await scroller.evaluate(node => { node.scrollTop = 0; });
   await scroller.focus();
-  await page.keyboard.press('End');
-  await page.waitForFunction(() => document.querySelector('.local-workspace-content').scrollTop > 0);
-  assert.ok(await scroller.evaluate(node => node.scrollTop > 0), 'Overview remains keyboard-scrollable without a visible rail');
+  assert.equal(await scroller.evaluate(node => document.activeElement === node), true);
+  await scroller.press('End');
+  await page.waitForFunction(() => {
+    const node = document.querySelector('.local-workspace-content');
+    return node.scrollTop > 0 && node.scrollTop + node.clientHeight >= node.scrollHeight - 1;
+  });
+  assert.ok(await scroller.evaluate(node => node.scrollTop > 0), 'End reaches the bottom of the focused overview without a visible rail');
   await page.locator('.local-sync-action').click();
   await page.locator('.local-environment .environment-actions button').nth(1).click();
   await page.locator('.local-environment .environment-actions button').nth(2).click();

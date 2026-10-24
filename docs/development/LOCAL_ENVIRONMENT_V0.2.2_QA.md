@@ -141,7 +141,12 @@
 - `pnpm audit --audit-level high`：无已知漏洞。固定 `cargo-audit 0.22.2` 实时扫描退出码 0，保留 13 项默认维护/unsound 警告，包括 `glib` RUSTSEC-2024-0429 和 `tokio` RUSTSEC-2026-0386；未添加 ignore、关闭 yanked 或降低门槛。此次 Cargo.lock 未变，不能把警告写作已修复。
 - M5 修正“不做定时外网检测”与现有调度的冲突、旧应用向导/直连/规则恢复的过期描述，以及开发期提前升版的错误要求。四语言帮助均说明首次/30 分钟目标请求、会访问外网及有限目标结果的解释边界。
 - 全部生产兼容标识、版本 0.2.1、品牌资源、既定配色和 updater 信任保留；没有 Tag、Draft、Publish 或真实用户配置改写。
-- 本地 `pnpm check` 的 Git Bash 远端脚本组合耗时较长，结果以本地 `artifacts/v0.2.2-review-check.log` 和最终执行结果为准；不因首轮 CI 成功而虚构该本地命令完成。
+- 本地 `pnpm check` 已完成，退出码 0：Node 共 302 项，296 passed、6 skipped（平台相关项）；Rust 306 passed、3 ignored。Git Bash 远端夹具组合耗时较长，完整结果保存在本地忽略目录 `artifacts/v0.2.2-review-check.log`。最终四语言帮助文案另跑生产构建和 38 项受影响测试通过。
+
+### 最终候选 CI 的键盘滚动回归
+
+- [Run 40081182841](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/40081182841) 的新增 UI job 在 `432366e` 首次失败：完整布局矩阵之后，窄窗口键盘滚动断言超时。失败 artifact 已保留，不把本地通过等同于 CI 通过。
+- 测试此前在调整视口后立即发送 End，缺少“已形成滚动区域”和焦点的前置断言。修正为等待真实 overflow、两帧布局和明确焦点，再向该区域发送 End，并要求到达底部；不扩大超时、不删除键盘验收，也不改变产品滚动实现。以修正后的 CI 结果为最终依据。
 
 | Milestone | 基线 → 提交 | 交付与边界 |
 |---|---|---|
