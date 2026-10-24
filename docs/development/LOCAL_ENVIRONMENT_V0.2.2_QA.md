@@ -133,3 +133,22 @@
 - 补验 0/1/2/3 目标通过、检测中、操作失败、监听失败/协议未执行；应用授权恢复、revision 竞态、复制和显式启动流程均通过。浏览器请求限于 127.0.0.1，IPC 与系统状态为合成数据。
 - 最初开发服务器扫描本地 Rust 构建目录，启动等待失败；缩小扫描仍受开发优化影响。最终改为预编译静态 fixtures 后通过，未放宽测试超时、删除断言或忽略失败。保留初次失败截图与最终通过日志，避免把准备阶段失败改写成首次通过。
 - [可重复命令与原生人工验收表](LOCAL_ENVIRONMENT_V0.2.2_UI_QA.zh-CN.md)区分模拟证据与真实 Windows/SSH/安装升级。后者全部未验证，不提前宣称 Gate A/B/C 完成。
+
+### M2 质量门槛与 M5 一致性收尾
+
+- 首次修复后正式 [CI Run 40079706430](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/40079706430) 在 `edf51a0` 全部成功：Windows build and test（含 fmt、严格 Clippy、Rust 单测、Release executable）、Linux 扩展文件系统测试、RustSec 和 Security audit。这是 M1 修复提交的证据，新增 UI job 仍需最终提交的独立 CI 结果。
+- 本地 `pnpm install --frozen-lockfile`、Rust fmt、`cargo clippy --all-targets --locked --offline -- -D warnings` 通过。`cargo test --manifest-path src-tauri/Cargo.toml --locked`：306 passed、3 ignored；其中子进程探针由父测试主动执行，真实运行代理集成测试仍按原约定 ignored。没有把 ignored 算作真实代理验收。
+- `pnpm audit --audit-level high`：无已知漏洞。固定 `cargo-audit 0.22.2` 实时扫描退出码 0，保留 13 项默认维护/unsound 警告，包括 `glib` RUSTSEC-2024-0429 和 `tokio` RUSTSEC-2026-0386；未添加 ignore、关闭 yanked 或降低门槛。此次 Cargo.lock 未变，不能把警告写作已修复。
+- M5 修正“不做定时外网检测”与现有调度的冲突、旧应用向导/直连/规则恢复的过期描述，以及开发期提前升版的错误要求。四语言帮助均说明首次/30 分钟目标请求、会访问外网及有限目标结果的解释边界。
+- 全部生产兼容标识、版本 0.2.1、品牌资源、既定配色和 updater 信任保留；没有 Tag、Draft、Publish 或真实用户配置改写。
+- 本地 `pnpm check` 的 Git Bash 远端脚本组合耗时较长，结果以本地 `artifacts/v0.2.2-review-check.log` 和最终执行结果为准；不因首轮 CI 成功而虚构该本地命令完成。
+
+| Milestone | 基线 → 提交 | 交付与边界 |
+|---|---|---|
+| M0 | `31bbe85` → `c276f1d` | 干净基线、官方失败 Run、整改范围 |
+| M1 | `c276f1d` → `edf51a0` | 品牌 loader 与导入覆盖断言；7/13/12 项相关验收和构建通过 |
+| M3 | `edf51a0` → `7c196af` | Tag 源码审计与恢复说明；真实备份样本未验证 |
+| M4 | `7c196af` → `d81f3b1` | 固定 Playwright、384 组合、独立 CI 与原生验收表；模拟证据 |
+| M2 / M5 | 上述基线 → 本次文案/QA 收尾提交 | 完整质量门槛和一致性记录；最终 HEAD 的 CI 以交付报告链接为准 |
+
+当前交付判定：**开发完成待真机验收**，最终提交自动化 Gate 仍需核对；尚不可据此申请正式 Tag。原生 Windows 10/11、DPI、真实系统代理/TUN、测试账户变量写入、非生产 SSH、历史样本与签名升级仍未验证，详见人工验收表。
