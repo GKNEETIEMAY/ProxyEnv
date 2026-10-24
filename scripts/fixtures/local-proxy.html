@@ -22,7 +22,7 @@ const state = reactive({
   ], selectedVariables: ["http", "https"], activeProxy: { selectedCandidateId: "a", candidate: candidates[0], available: true, selectionSource: "user", revision: 1 }, candidates, matchesActiveProxy: true, snapshotAvailable: true }
 });
 const calls = [];
-window.fixture = { state, calls, theme: (palette, mode) => applyTheme(document.documentElement, mode, palette, mode === "dark") };
+window.fixture = { state, calls, observationHint: locale => messages[locale].assistantObservationHint, theme: (palette, mode) => applyTheme(document.documentElement, mode, palette, mode === "dark") };
 createApp({ components: { ProxyPage }, setup() {
   const copy = computed(() => { document.documentElement.lang = state.locale; return messages[state.locale]; });
   function select(id) { calls.push(["select", id]); state.environment.activeProxy = { selectedCandidateId: id, candidate: candidates.find(c => c.id === id), available: true, selectionSource: "user", revision: state.environment.activeProxy.revision + 1 }; state.environment.state = "mismatch"; state.environment.matchesActiveProxy = false; state.connectivity.result = null; }

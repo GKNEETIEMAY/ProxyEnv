@@ -27,6 +27,7 @@
     "check": "pnpm build && pnpm test:brand && pnpm test:docs && pnpm test:release && pnpm test:updates && pnpm test:themes && pnpm test:tray && pnpm test:report && pnpm test:local && pnpm test:remote && pnpm test:extensions && cargo test --manifest-path src-tauri/Cargo.toml --locked",
     "test:local": "node --test scripts/test-local-proxy.mjs",
     "test:local:ui": "node scripts/test-local-proxy-ui.mjs",
+    "test:ui": "node scripts/test-local-ui.mjs",
     "test:assistant:ui": "node scripts/test-application-assistant-ui.mjs"
   },
   "dependencies": {
@@ -42,6 +43,7 @@
     "@vitejs/plugin-vue": "^6.0.1",
     "esbuild": "^0.28.2",
     "jsonc-parser": "^3.3.1",
+    "playwright": "1.64.1",
     "toml-eslint-parser": "^1.0.3",
     "typescript": "~5.9.2",
     "vite": "^7.3.7",

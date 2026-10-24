@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
+import { chromium } from "./ui-browser.mjs";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-const require = createRequire(process.env.PROXYENV_LAYOUT_PLAYWRIGHT || import.meta.url);
-const { chromium } = require("playwright");
 const browser = await chromium.launch({ headless: true, ...(process.env.PROXYENV_LAYOUT_BROWSER ? { executablePath: process.env.PROXYENV_LAYOUT_BROWSER } : {}) });
 const output = resolve('.impeccable/review/local-v0.2.2');
 mkdirSync(output, { recursive: true });
@@ -11,6 +9,7 @@ const shots = process.argv.includes('--screenshots');
 try {
   const page = await browser.newPage({ viewport: { width: 880, height: 760 }, reducedMotion: 'reduce' });
   await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copiedText = text; } }, configurable: true }));
+  await page.route("**/*", route => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort());
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${process.env.PROXYENV_LAYOUT_URL || 'http://127.0.0.1:1422'}/scripts/fixtures/application-assistant.html`, { waitUntil: 'domcontentloaded' });
   await page.locator('.app-proxy-address-row').waitFor();
@@ -53,12 +52,13 @@ try {
   assert.equal(await page.locator('.app-proxy-copy').count(), 0);
   await page.evaluate(() => { fixture.state.active.candidate.protocol='mixed'; fixture.state.active.revision=1; });
   await page.getByRole('button', { name:'HTTP', exact:true }).click();
-  for (const locale of ['zh-CN','en','ja','ko']) for (const width of [560,880]) for (const mode of ['light','dark']) {
+  for (const locale of ['zh-CN','en','ja','ko']) for (const palette of ['warm','blue','teal','neutral']) for (const width of [560,880,1280]) for (const mode of ['light','dark']) {
     await page.setViewportSize({ width, height: 760 });
-    await page.evaluate(({ locale, mode }) => { fixture.state.locale=locale; fixture.theme('blue',mode); }, { locale,mode });
+    await page.evaluate(({ locale, palette, mode }) => { fixture.state.locale=locale; fixture.theme(palette,mode); }, { locale,palette,mode });
+    assert.equal(await page.locator("html").getAttribute("data-palette"), palette);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
     assert.equal(await page.locator('.app-proxy-content').evaluate(node => node.scrollWidth > node.clientWidth + 1), false, `${locale}/${width}/${mode}: manual overflow`);
-    if (shots && mode === 'light' && width === 560) await page.screenshot({ path: resolve(output, `app-setup-${locale}.png`) });
+    if (shots && palette === 'blue' && mode === 'light' && width === 560) await page.screenshot({ path: resolve(output, `app-setup-${locale}.png`) });
   }
   await page.evaluate(() => { fixture.state.locale='zh-CN'; fixture.theme('blue','light'); });
   await page.setViewportSize({ width:880,height:760 });
@@ -104,9 +104,10 @@ try {
   await page.locator('.app-proxy-selected .app-proxy-text-action').click();
   await page.locator('.application-picker-actions > button').last().click();
   assert.match(await page.locator('.app-proxy-selected').innerText(), /Chat/);
-  for (const locale of ['zh-CN','en','ja','ko']) for (const width of [560,880]) for (const mode of ['light','dark']) {
+  for (const locale of ['zh-CN','en','ja','ko']) for (const palette of ['warm','blue','teal','neutral']) for (const width of [560,880,1280]) for (const mode of ['light','dark']) {
     await page.setViewportSize({ width, height:760 });
-    await page.evaluate(({locale,mode}) => { fixture.state.locale=locale; fixture.theme('blue',mode); }, {locale,mode});
+    await page.evaluate(({locale,palette,mode}) => { fixture.state.locale=locale; fixture.theme(palette,mode); }, {locale,palette,mode});
+    assert.equal(await page.locator("html").getAttribute("data-palette"), palette);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
     const geometry = await page.evaluate(() => ({
       page: document.documentElement.scrollWidth > innerWidth,
@@ -123,5 +124,9 @@ try {
   const allowed = ['list_running_applications','renew_application_authorization','launch_application_with_current_proxy','pick_application'];
   assert.deepEqual(await page.evaluate(allowed => fixture.calls.filter(([c]) => !allowed.includes(c)), allowed), [], 'No diagnosis, rule editing, automatic health checks, proxy clearing or process termination');
   assert.deepEqual(errors,[]);
-  console.log('Application proxy setup passed: lazy selection, protocol/IPv6 copying, search/browse, explicit launch, renewal recovery, revision race, failures/unavailable state, 32 four-language/width/theme layouts. Synthetic IPC only.');
+  console.log('Application proxy setup passed: lazy selection, protocol/IPv6 copying, search/browse, explicit launch, renewal recovery, revision race, failures/unavailable state, 192 four-language/palette/width/theme layouts. Synthetic IPC only.');
+} catch (error) {
+  const page = browser.contexts().flatMap(context => context.pages())[0];
+  if (page) await page.screenshot({ path: resolve(output, 'failure-application-assistant.png') }).catch(() => {});
+  throw error;
 } finally { await browser.close(); }

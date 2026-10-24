@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
+import { chromium } from "./ui-browser.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-const require = createRequire(process.env.PROXYENV_LAYOUT_PLAYWRIGHT || import.meta.url);
-const { chromium } = require("playwright");
 const browser = await chromium.launch({ headless: true, ...(process.env.PROXYENV_LAYOUT_BROWSER ? { executablePath: process.env.PROXYENV_LAYOUT_BROWSER } : {}) });
 const output = resolve(".impeccable/review/local-v0.2.2"); mkdirSync(output, { recursive: true });
 const shots = process.argv.includes("--screenshots");
 try {
   const page = await browser.newPage({ viewport: { width: 880, height: 760 }, reducedMotion: "reduce" });
+  await page.route("**/*", route => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort());
   const errors = []; page.on("pageerror", error => { errors.push(error.message); console.error(error.message); });
   page.on("console", message => { if (message.type() === "error") console.error(message.text()); });
   await page.goto(`${process.env.PROXYENV_LAYOUT_URL || "http://127.0.0.1:1422"}/scripts/fixtures/local-proxy.html`, { waitUntil: "domcontentloaded" });
@@ -90,6 +89,23 @@ try {
   }; fixture.state.now = Date.now(); });
   assert.match(await page.locator('.local-connectivity-summary').innerText(), /2\/3/);
   assert.equal(await page.locator('.local-connectivity-summary .check-status').getAttribute('data-state'), 'warning');
+  for (const passed of [0,1,2,3]) {
+    await page.evaluate(passed => fixture.state.connectivity.result.targets.forEach((target,index) => { target.success=index < passed; }), passed);
+    assert.match(await page.locator('.local-connectivity-summary').innerText(), new RegExp(`${passed}/3`));
+    assert.equal(await page.locator('.local-connectivity-summary .check-status').getAttribute('data-state'), passed === 3 ? 'healthy' : passed ? 'warning' : 'failed');
+  }
+  await page.evaluate(() => { fixture.state.connectivity.testing=true; });
+  assert.equal(await page.locator('.local-connectivity .secondary-action').isDisabled(), true);
+  assert.match(await page.locator('.local-connectivity-summary').innerText(), /检测中/);
+  await page.evaluate(() => { fixture.state.connectivity.testing=false; fixture.state.connectivity.failed=true; });
+  assert.match(await page.locator('.local-connectivity-summary').innerText(), /检测未完成/);
+  await page.evaluate(() => { fixture.state.connectivity.failed=false; fixture.state.connectivity.result.localListenerOk=false; });
+  assert.match(await page.locator('.local-connectivity-summary').innerText(), /未监听/);
+  assert.match(await page.locator('.local-probe-stages').innerText(), /未执行/);
+  await page.evaluate(() => {
+    fixture.state.connectivity.result.localListenerOk=true;
+    fixture.state.connectivity.result.targets.forEach((target,index) => { target.success=index !== 1; });
+  });
   await overview.click();
   assert.match(await page.locator('.local-connectivity-trigger').innerText(), /2\/3/);
   assert.equal(await page.locator('time').count(), 0, 'Overview does not show the check time');
@@ -118,11 +134,10 @@ try {
   assert.match(await page.locator('.variable-value-details > code').innerText(), /long-path-segment/);
   await page.locator('.variable-value-details summary').click();
   const checks = [];
-  let index = 0;
-  for (const locale of ['zh-CN','en','ja','ko']) for (const palette of ['warm','blue','teal','white']) for (const mode of ['light','dark']) {
-    const width = [560,880,1280][index++ % 3];
+  for (const locale of ['zh-CN','en','ja','ko']) for (const palette of ['warm','blue','teal','neutral']) for (const mode of ['light','dark']) for (const width of [560,880,1280]) {
     await page.setViewportSize({ width, height: 760 });
     await page.evaluate(({ locale,palette,mode }) => { fixture.state.locale=locale; fixture.theme(palette,mode); }, { locale,palette,mode });
+    assert.equal(await page.locator("html").getAttribute("data-palette"), palette);
     for (const view of [overview,advanced]) {
       await view.click();
       const geometry = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth,
@@ -137,7 +152,7 @@ try {
   for (const locale of ['zh-CN','en','ja','ko']) {
     await page.setViewportSize({ width: 560, height: 760 });
     await page.evaluate(locale => { fixture.state.locale=locale; fixture.theme('blue','light'); }, locale);
-    const expected = await page.evaluate(async locale => (await import('/src/shared/i18n/index.ts')).messages[locale].assistantObservationHint, locale);
+    const expected = await page.evaluate(locale => fixture.observationHint(locale), locale);
     for (const [name, view] of [['overview',overview],['advanced',advanced]]) {
       await view.click();
       const heading = page.locator('.network-observation-heading');
@@ -197,5 +212,9 @@ try {
   assert.equal(await page.evaluate(() => fixture.calls.filter(c => c[0] === 'test').length), 1, 'Expiry, view changes and unavailable state never start another test');
   assert.deepEqual(errors, []);
   writeFileSync(resolve(output,'results.json'), JSON.stringify({ checks, passed: true, evidence: 'Vue component fixture with synthetic data; no real environment writes or external tests' },null,2));
-  console.log('Local UI passed: 64 locale/theme/width/view combinations; inline connectivity, advanced timing, integrated sync scope, endpoint selection, manual validation, expiry and unavailable state. Automatic scheduling is tested separately; synthetic component data only.');
+  console.log('Local UI passed: 192 locale/theme/width/view combinations; inline connectivity, advanced timing, integrated sync scope, endpoint selection, manual validation, expiry and unavailable state. Automatic scheduling is tested separately; synthetic component data only.');
+} catch (error) {
+  const page = browser.contexts().flatMap(context => context.pages())[0];
+  if (page) await page.screenshot({ path: resolve(output, 'failure-local-proxy.png') }).catch(() => {});
+  throw error;
 } finally { await browser.close(); }

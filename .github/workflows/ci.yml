@@ -23,6 +23,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  local-ui-windows:
+    name: Windows local UI fixtures
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.1 --activate
+      - run: pnpm install --frozen-lockfile
+      - name: Install pinned Playwright Chromium
+        run: pnpm exec playwright install chromium
+      - name: Test synthetic local and application proxy layouts
+        run: pnpm test:ui
+      - name: Upload synthetic screenshots and test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-ui-fixtures
+          path: .impeccable/review/local-v0.2.2/
+          include-hidden-files: true
+          if-no-files-found: warn
+
   remote-extension-linux:
     name: Remote extension Linux filesystem tests
     runs-on: ubuntu-latest
