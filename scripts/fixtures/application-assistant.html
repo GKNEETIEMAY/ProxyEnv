@@ -16,7 +16,7 @@ const apps = [
 const candidate = { id: "proxy", clientName: "v2rayN", host: "::1", port: 10808, protocol: "mixed", listening: true };
 const state = reactive({ locale: "zh-CN", active: { selectedCandidateId: "proxy", candidate, available: true, selectionSource: "user", revision: 1 }, environment: { state:"enabled", matchesActiveProxy:true, entries:[{name:"HTTP_PROXY",exists:true,value:"http://[::1]:10808"}] }, stale:false, back: false, failList: false, failLaunch: false, expired: false, holdRenew: false, picked: false });
 const calls = [];
-function managed(id) { const app = apps.find(app => app.applicationId === id); return { id, displayName: app.displayName, executablePath: app.executablePath, iconKey: null, ruleId: null, lastAction: null }; }
+function managed(id) { const app = apps.find(app => app.applicationId === id); return { id, displayName: app.displayName, executablePath: app.executablePath }; }
 window.fixture = { state, calls, clearNotices: clearNotifications, theme: (palette, mode) => applyTheme(document.documentElement, mode, palette, mode === "dark") };
 window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
   calls.push([command, args]);

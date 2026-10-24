@@ -1,27 +1,15 @@
-use crate::{
-    error::Result,
-    features::{
-        network_observation::{self, TunObservationState},
-        proxy::{
-            self,
-            connectivity::{self, ProxyConnectivityState},
-            ProxyEnvironmentService, ProxyEnvironmentState, ProxyProtocol,
-        },
+use crate::features::{
+    network_observation::{self, TunObservationState},
+    proxy::{
+        self,
+        connectivity::{self, ProxyConnectivityState},
+        ProxyEnvironmentState, ProxyProtocol,
     },
-    services::settings,
 };
 
 use super::{
     rules, ApplicationDiagnosis, ApplicationNetworkState, ManagedApplication, RecommendedAction,
 };
-
-pub fn diagnose(application: ManagedApplication) -> Result<ApplicationDiagnosis> {
-    let settings = settings::load()?;
-    let context = proxy::active::context()?;
-    let environment =
-        ProxyEnvironmentService::status(&settings.proxy_variables, context.candidate.clone())?;
-    Ok(diagnose_snapshot(application, context, environment.state))
-}
 
 /// Reuse the same decision engine without refreshing/probing a proxy for report collection.
 pub(super) fn diagnose_snapshot(
@@ -43,13 +31,13 @@ pub(super) fn diagnose_snapshot(
             port: candidate.port,
             protocol: candidate.protocol,
         });
-    let rule_preview =
-        rules::preview_application(&application.executable_path, active_endpoint.as_ref());
-    let rule_inspection = match rule_preview.state {
-        rules::RulePreviewState::NoMatchingRule => RuleInspectionState::None,
-        rules::RulePreviewState::AmbiguousRule => RuleInspectionState::Ambiguous,
-        rules::RulePreviewState::Ready => RuleInspectionState::Ready,
-        rules::RulePreviewState::AlreadyCurrent => RuleInspectionState::AlreadyCurrent,
+    let rule_inspection_result =
+        rules::inspect_application(&application.executable_path, active_endpoint.as_ref());
+    let rule_inspection = match rule_inspection_result.state {
+        rules::RuleInspectionState::NoMatchingRule => RuleInspectionState::None,
+        rules::RuleInspectionState::AmbiguousRule => RuleInspectionState::Ambiguous,
+        rules::RuleInspectionState::Ready => RuleInspectionState::Ready,
+        rules::RuleInspectionState::AlreadyCurrent => RuleInspectionState::AlreadyCurrent,
         _ => RuleInspectionState::Unavailable,
     };
     let input = DiagnosisInput {
@@ -57,7 +45,7 @@ pub(super) fn diagnose_snapshot(
         system_proxy_enabled: proxy::system_proxy_enabled(),
         proxy_environment_state: environment_state,
         tun_observation: network_observation::observe().state,
-        known_rule: rule_preview.rule_id,
+        known_rule: rule_inspection_result.rule_id,
         rule_inspection,
         proxy_connectivity_state,
     };
@@ -165,9 +153,6 @@ mod tests {
             id: "example".into(),
             display_name: "Example".into(),
             executable_path: PathBuf::from(r"C:\Apps\Example.exe"),
-            icon_key: None,
-            rule_id: None,
-            last_action: None,
         }
     }
 

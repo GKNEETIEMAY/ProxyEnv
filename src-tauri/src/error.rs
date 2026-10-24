@@ -22,7 +22,6 @@ pub enum ProxyEnvError {
     InvalidApplication(String),
     ApplicationAuthorization(String),
     ApplicationLaunch(String),
-    ApplicationRestart(String),
     SettingsRead(String),
     SettingsWrite(String),
     Autostart(String),
@@ -71,7 +70,6 @@ impl ProxyEnvError {
                 ("application authorization failed", Some(detail))
             }
             Self::ApplicationLaunch(detail) => ("failed to launch application", Some(detail)),
-            Self::ApplicationRestart(detail) => ("failed to restart application", Some(detail)),
             Self::SettingsRead(detail) => ("failed to read application settings", Some(detail)),
             Self::SettingsWrite(detail) => ("failed to save application settings", Some(detail)),
             Self::Autostart(detail) => ("failed to update launch-at-startup", Some(detail)),

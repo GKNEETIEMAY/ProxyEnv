@@ -19,14 +19,14 @@ export interface DiagnosticReportData {
   environment: EnvironmentStatus["state"];
   managedVariables: ManagedProxyVariable[];
   tun: TunObservationState;
-  connectivity: NonNullable<ApplicationDiagnosis["proxyConnectivityState"]>;
+  connectivity: ProxyConnectivityResult["state"];
   successfulTargets: number;
   totalTargets: number;
   errorCategories: Array<"proxyUnavailable" | "proxyHandshakeFailed" | "connectTimeout" | "tlsFailed" | "remoteRejected" | "httpStatus" | "networkError" | "unknown">;
   assistant: {
     category: "notSelected" | "knownRule" | "unrecognized" | "unavailable";
     state: ApplicationNetworkState;
-    action: "none" | "launchWithProxy" | "launchWithoutProxy" | "applyKnownRule";
+    action: "none" | "launchWithProxy" | "applyKnownRule";
   };
 }
 export type DetectionSource =
@@ -150,77 +150,14 @@ export interface RunningApplication {
   iconAvailable: boolean;
 }
 
-export type ApplicationActionKind = "launchWithProxy" | "launchWithoutProxy";
-
 export interface ManagedApplication {
   id: string;
   displayName: string;
   executablePath: string;
-  iconKey: string | null;
-  ruleId: string | null;
-  lastAction: ApplicationActionKind | null;
 }
 
 export type ApplicationNetworkState = "confirmedReady" | "environmentConfigured" | "proxyLaunchRecommended" | "ruleSyncRecommended" | "conflict" | "unsupported" | "unknown";
-export type RecommendedAction = "none" | "launchWithProxy" | "launchWithoutProxy" | { applyKnownRule: { ruleId: string } };
-
-export interface ApplicationDiagnosis {
-  activeProxyRevision: number;
-  application: ManagedApplication;
-  proxyAvailable: boolean;
-  systemProxyEnabled: boolean;
-  proxyEnvironmentState: EnvironmentStatus["state"];
-  tunObservation: TunObservationState;
-  knownRule?: string;
-  proxyConnectivityState?: "notTested" | "testing" | "reachable" | "partial" | "unreachable" | "localProxyUnavailable" | "unknown";
-  applicationNetworkState: ApplicationNetworkState;
-  recommendedAction: RecommendedAction;
-}
-
-export type ConfigValue = string | number | boolean | null;
-
-export interface RuleChangePlan {
-  ruleId: string;
-  targetFile: string;
-  fieldPath: string[];
-  oldValue: ConfigValue;
-  newValue: ConfigValue;
-  restartRequired: boolean;
-}
-
-export interface RuleChangePreview {
-  state: "ready" | "alreadyCurrent" | "noMatchingRule" | "ambiguousRule" | "activeProxyMissing" | "unsupportedProxyProtocol" | "fileMissing" | "readFailed" | "parseFailed" | "fieldMissing" | "unsupportedFieldValue";
-  ruleId?: string;
-  targetFile?: string;
-  plan?: RuleChangePlan;
-}
-
-export interface RuleBackup {
-  id: string;
-  ruleId: string;
-  targetFile: string;
-  fieldPath: string[];
-  oldValue: ConfigValue;
-  appliedValue: ConfigValue;
-  beforeHash: string;
-  afterHash: string;
-  createdAt: string;
-}
-
-export interface RuleApplyResult {
-  state: "applied" | "confirmationRequired" | "conflict" | "previewUnavailable" | "backupFailed" | "writeFailed" | "verificationFailed";
-  backup?: RuleBackup;
-  restartRequired: boolean;
-}
-
-export interface RuleRestoreResult {
-  state: "restored" | "confirmationRequired" | "backupMissing" | "conflict" | "writeFailed" | "verificationFailed";
-  backupId?: string;
-  restartRequired: boolean;
-}
-
 export interface LaunchApplicationResult {
   pid: number;
   executablePath: string;
-  environmentMode: "inherit" | "useCurrentProxy" | "clearProxyVariables";
 }

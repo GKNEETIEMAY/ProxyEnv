@@ -1,7 +1,5 @@
 use std::{fs, path::PathBuf};
 
-use serde::{Deserialize, Serialize};
-
 use crate::features::proxy::{ProxyEndpoint, ProxyProtocol};
 
 use super::{
@@ -12,8 +10,7 @@ use super::{
 
 const MAX_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ConfigValue {
     String(String),
     Number(serde_json::Number),
@@ -21,20 +18,8 @@ pub enum ConfigValue {
     Null,
 }
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuleChangePlan {
-    pub rule_id: String,
-    pub target_file: PathBuf,
-    pub field_path: Vec<String>,
-    pub old_value: ConfigValue,
-    pub new_value: ConfigValue,
-    pub restart_required: bool,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RulePreviewState {
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum RuleInspectionState {
     Ready,
     AlreadyCurrent,
     NoMatchingRule,
@@ -48,94 +33,68 @@ pub enum RulePreviewState {
     UnsupportedFieldValue,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuleChangePreview {
-    pub state: RulePreviewState,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RuleInspection {
+    pub state: RuleInspectionState,
     pub rule_id: Option<String>,
-    pub target_file: Option<PathBuf>,
-    pub plan: Option<RuleChangePlan>,
 }
 
-pub fn preview_application(
+pub fn inspect_application(
     executable_path: &std::path::Path,
     endpoint: Option<&ProxyEndpoint>,
-) -> RuleChangePreview {
+) -> RuleInspection {
     let catalog = load_bundled();
     match match_executable(executable_path, &catalog.rules) {
-        RuleMatchResult::None => preview_state(RulePreviewState::NoMatchingRule, None, None),
-        RuleMatchResult::Ambiguous(_) => preview_state(RulePreviewState::AmbiguousRule, None, None),
+        RuleMatchResult::None => inspection_state(RuleInspectionState::NoMatchingRule, None),
+        RuleMatchResult::Ambiguous(_) => inspection_state(RuleInspectionState::AmbiguousRule, None),
         RuleMatchResult::Exact(rule) => {
             let Some(endpoint) = endpoint else {
-                return preview_state(
-                    RulePreviewState::ActiveProxyMissing,
+                return inspection_state(
+                    RuleInspectionState::ActiveProxyMissing,
                     Some(rule.id.clone()),
-                    None,
                 );
             };
-            preview_rule(rule, endpoint, &EnvironmentRoots::from_process())
+            inspect_rule(rule, endpoint, &EnvironmentRoots::from_process())
         }
     }
 }
 
-pub(super) fn preview_rule(
+pub(super) fn inspect_rule(
     rule: &ApplicationRule,
     endpoint: &ProxyEndpoint,
     roots: &EnvironmentRoots,
-) -> RuleChangePreview {
+) -> RuleInspection {
     let new_value = match value_for_endpoint(rule.config.value_kind, endpoint) {
         Ok(value) => value,
-        Err(state) => return preview_state(state, Some(rule.id.clone()), None),
+        Err(state) => return inspection_state(state, Some(rule.id.clone())),
     };
     let target_file = match locate_config(rule, roots) {
         Ok(path) => path,
-        Err(state) => return preview_state(state, Some(rule.id.clone()), None),
+        Err(state) => return inspection_state(state, Some(rule.id.clone())),
     };
     let content = match read_config(&target_file) {
         Ok(content) => content,
         Err(state) => {
-            return preview_state(state, Some(rule.id.clone()), Some(target_file));
+            return inspection_state(state, Some(rule.id.clone()));
         }
     };
     let old_value = match inspect_field(rule, &content) {
         Ok(value) => value,
         Err(state) => {
-            return preview_state(state, Some(rule.id.clone()), Some(target_file));
+            return inspection_state(state, Some(rule.id.clone()));
         }
     };
     if old_value == new_value {
-        return preview_state(
-            RulePreviewState::AlreadyCurrent,
-            Some(rule.id.clone()),
-            Some(target_file),
-        );
+        return inspection_state(RuleInspectionState::AlreadyCurrent, Some(rule.id.clone()));
     }
-    RuleChangePreview {
-        state: RulePreviewState::Ready,
+    RuleInspection {
+        state: RuleInspectionState::Ready,
         rule_id: Some(rule.id.clone()),
-        target_file: Some(target_file.clone()),
-        plan: Some(RuleChangePlan {
-            rule_id: rule.id.clone(),
-            target_file,
-            field_path: rule.config.field.clone(),
-            old_value,
-            new_value,
-            restart_required: rule.restart_required,
-        }),
     }
 }
 
-fn preview_state(
-    state: RulePreviewState,
-    rule_id: Option<String>,
-    target_file: Option<PathBuf>,
-) -> RuleChangePreview {
-    RuleChangePreview {
-        state,
-        rule_id,
-        target_file,
-        plan: None,
-    }
+fn inspection_state(state: RuleInspectionState, rule_id: Option<String>) -> RuleInspection {
+    RuleInspection { state, rule_id }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -174,33 +133,24 @@ impl EnvironmentRoots {
         }
         None
     }
-
-    #[cfg(test)]
-    pub(super) fn with_app_data(path: PathBuf) -> Self {
-        Self {
-            app_data: Some(path),
-            local_app_data: None,
-            user_profile: None,
-        }
-    }
 }
 
 fn locate_config(
     rule: &ApplicationRule,
     roots: &EnvironmentRoots,
-) -> Result<PathBuf, RulePreviewState> {
+) -> Result<PathBuf, RuleInspectionState> {
     for declared_path in &rule.config.paths {
         let Some(path) = roots.expand(declared_path) else {
             continue;
         };
         match fs::symlink_metadata(&path) {
             Ok(metadata) if is_safe_regular_file(&metadata) => return Ok(path),
-            Ok(_) => return Err(RulePreviewState::ReadFailed),
+            Ok(_) => return Err(RuleInspectionState::ReadFailed),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(_) => return Err(RulePreviewState::ReadFailed),
+            Err(_) => return Err(RuleInspectionState::ReadFailed),
         }
     }
-    Err(RulePreviewState::FileMissing)
+    Err(RuleInspectionState::FileMissing)
 }
 
 pub(super) fn is_safe_regular_file(metadata: &fs::Metadata) -> bool {
@@ -218,89 +168,42 @@ pub(super) fn is_safe_regular_file(metadata: &fs::Metadata) -> bool {
     true
 }
 
-pub(super) fn validate_target_for_rule(
-    rule: &ApplicationRule,
-    target: &std::path::Path,
-    roots: &EnvironmentRoots,
-) -> bool {
-    let Ok(metadata) = fs::symlink_metadata(target) else {
-        return false;
-    };
-    if !is_safe_regular_file(&metadata) {
-        return false;
-    }
-    let Ok(canonical_target) = fs::canonicalize(target) else {
-        return false;
-    };
-    rule.config.paths.iter().any(|declared_path| {
-        let Some(expanded) = roots.expand(declared_path) else {
-            return false;
-        };
-        let Some(root) = root_for_declared_path(declared_path, roots) else {
-            return false;
-        };
-        let (Ok(canonical_expanded), Ok(canonical_root)) =
-            (fs::canonicalize(expanded), fs::canonicalize(root))
-        else {
-            return false;
-        };
-        canonical_expanded == canonical_target && canonical_target.starts_with(canonical_root)
-    })
-}
-
-fn root_for_declared_path<'a>(
-    declared_path: &str,
-    roots: &'a EnvironmentRoots,
-) -> Option<&'a std::path::Path> {
-    for (token, root) in [
-        ("%APPDATA%", roots.app_data.as_deref()),
-        ("%LOCALAPPDATA%", roots.local_app_data.as_deref()),
-        ("%USERPROFILE%", roots.user_profile.as_deref()),
-    ] {
-        if declared_path
-            .get(..token.len())
-            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(token))
-        {
-            return root;
-        }
-    }
-    None
-}
-
-pub(super) fn read_config(path: &std::path::Path) -> Result<String, RulePreviewState> {
-    let metadata = fs::metadata(path).map_err(|_| RulePreviewState::ReadFailed)?;
+pub(super) fn read_config(path: &std::path::Path) -> Result<String, RuleInspectionState> {
+    let metadata = fs::metadata(path).map_err(|_| RuleInspectionState::ReadFailed)?;
     if metadata.len() > MAX_CONFIG_BYTES {
-        return Err(RulePreviewState::ReadFailed);
+        return Err(RuleInspectionState::ReadFailed);
     }
-    fs::read_to_string(path).map_err(|_| RulePreviewState::ReadFailed)
+    fs::read_to_string(path).map_err(|_| RuleInspectionState::ReadFailed)
 }
 
 pub(super) fn inspect_field(
     rule: &ApplicationRule,
     content: &str,
-) -> Result<ConfigValue, RulePreviewState> {
+) -> Result<ConfigValue, RuleInspectionState> {
     match rule.config.format {
         RuleConfigFormat::Json => {
             let value: serde_json::Value =
-                serde_json::from_str(content).map_err(|_| RulePreviewState::ParseFailed)?;
+                serde_json::from_str(content).map_err(|_| RuleInspectionState::ParseFailed)?;
             let value = inspect_json_path(&value, &rule.config.field)
-                .ok_or(RulePreviewState::FieldMissing)?;
+                .ok_or(RuleInspectionState::FieldMissing)?;
             config_value_from_json(value)
         }
         RuleConfigFormat::Yaml => {
             let value: serde_yaml::Value =
-                serde_yaml::from_str(content).map_err(|_| RulePreviewState::ParseFailed)?;
+                serde_yaml::from_str(content).map_err(|_| RuleInspectionState::ParseFailed)?;
             let value = inspect_yaml_path(&value, &rule.config.field)
-                .ok_or(RulePreviewState::FieldMissing)?;
-            let value = serde_json::to_value(value).map_err(|_| RulePreviewState::ParseFailed)?;
+                .ok_or(RuleInspectionState::FieldMissing)?;
+            let value =
+                serde_json::to_value(value).map_err(|_| RuleInspectionState::ParseFailed)?;
             config_value_from_json(&value)
         }
         RuleConfigFormat::Toml => {
             let value: toml::Value =
-                toml::from_str(content).map_err(|_| RulePreviewState::ParseFailed)?;
+                toml::from_str(content).map_err(|_| RuleInspectionState::ParseFailed)?;
             let value = inspect_toml_path(&value, &rule.config.field)
-                .ok_or(RulePreviewState::FieldMissing)?;
-            let value = serde_json::to_value(value).map_err(|_| RulePreviewState::ParseFailed)?;
+                .ok_or(RuleInspectionState::FieldMissing)?;
+            let value =
+                serde_json::to_value(value).map_err(|_| RuleInspectionState::ParseFailed)?;
             config_value_from_json(&value)
         }
         RuleConfigFormat::Ini => inspect_ini_field(content, &rule.config.field),
@@ -331,9 +234,9 @@ fn inspect_toml_path<'a>(root: &'a toml::Value, field: &[String]) -> Option<&'a 
         .try_fold(root, |value, segment| value.get(segment))
 }
 
-fn inspect_ini_field(content: &str, field: &[String]) -> Result<ConfigValue, RulePreviewState> {
+fn inspect_ini_field(content: &str, field: &[String]) -> Result<ConfigValue, RuleInspectionState> {
     if field.len() != 2 {
-        return Err(RulePreviewState::ParseFailed);
+        return Err(RuleInspectionState::ParseFailed);
     }
     let expected_section = &field[0];
     let expected_key = &field[1];
@@ -347,27 +250,27 @@ fn inspect_ini_field(content: &str, field: &[String]) -> Result<ConfigValue, Rul
         }
         if line.starts_with('[') {
             if !line.ends_with(']') || line.len() < 3 {
-                return Err(RulePreviewState::ParseFailed);
+                return Err(RuleInspectionState::ParseFailed);
             }
             current_section = Some(line[1..line.len() - 1].trim().to_owned());
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
-            return Err(RulePreviewState::ParseFailed);
+            return Err(RuleInspectionState::ParseFailed);
         };
         let in_section = current_section
             .as_deref()
             .is_some_and(|section| section.eq_ignore_ascii_case(expected_section));
         if in_section && key.trim().eq_ignore_ascii_case(expected_key) {
             if matched_value.is_some() {
-                return Err(RulePreviewState::ParseFailed);
+                return Err(RuleInspectionState::ParseFailed);
             }
             matched_value = Some(normalize_ini_string(value.trim()));
         }
     }
     matched_value
         .map(ConfigValue::String)
-        .ok_or(RulePreviewState::FieldMissing)
+        .ok_or(RuleInspectionState::FieldMissing)
 }
 
 fn normalize_ini_string(value: &str) -> String {
@@ -381,14 +284,14 @@ fn normalize_ini_string(value: &str) -> String {
     value.to_owned()
 }
 
-fn config_value_from_json(value: &serde_json::Value) -> Result<ConfigValue, RulePreviewState> {
+fn config_value_from_json(value: &serde_json::Value) -> Result<ConfigValue, RuleInspectionState> {
     match value {
         serde_json::Value::String(value) => Ok(ConfigValue::String(value.clone())),
         serde_json::Value::Number(value) => Ok(ConfigValue::Number(value.clone())),
         serde_json::Value::Bool(value) => Ok(ConfigValue::Boolean(*value)),
         serde_json::Value::Null => Ok(ConfigValue::Null),
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-            Err(RulePreviewState::UnsupportedFieldValue)
+            Err(RuleInspectionState::UnsupportedFieldValue)
         }
     }
 }
@@ -396,11 +299,11 @@ fn config_value_from_json(value: &serde_json::Value) -> Result<ConfigValue, Rule
 fn value_for_endpoint(
     kind: RuleValueKind,
     endpoint: &ProxyEndpoint,
-) -> Result<ConfigValue, RulePreviewState> {
+) -> Result<ConfigValue, RuleInspectionState> {
     let host = format_host(endpoint.host.trim());
     if host.is_empty() || endpoint.port == 0 || matches!(endpoint.protocol, ProxyProtocol::Unknown)
     {
-        return Err(RulePreviewState::UnsupportedProxyProtocol);
+        return Err(RuleInspectionState::UnsupportedProxyProtocol);
     }
     match kind {
         RuleValueKind::HttpProxyUrl
@@ -428,7 +331,7 @@ fn value_for_endpoint(
         RuleValueKind::Host => Ok(ConfigValue::String(endpoint.host.trim().to_owned())),
         RuleValueKind::Port => Ok(ConfigValue::Number(serde_json::Number::from(endpoint.port))),
         RuleValueKind::HttpProxyUrl | RuleValueKind::Socks5ProxyUrl => {
-            Err(RulePreviewState::UnsupportedProxyProtocol)
+            Err(RuleInspectionState::UnsupportedProxyProtocol)
         }
     }
 }
@@ -521,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn builds_a_plan_when_the_field_exists_and_differs() {
+    fn detects_a_different_value_without_writing_the_config() {
         let directory = TestDirectory::new();
         let target = directory.write(
             "settings.json",
@@ -534,20 +437,14 @@ mod tests {
             RuleValueKind::HttpProxyUrl,
         );
 
-        let preview = preview_rule(&rule, &endpoint(ProxyProtocol::Mixed), &directory.roots());
+        let preview = inspect_rule(&rule, &endpoint(ProxyProtocol::Mixed), &directory.roots());
 
-        assert_eq!(preview.state, RulePreviewState::Ready);
-        let plan = preview.plan.unwrap();
-        assert_eq!(plan.target_file, target);
+        assert_eq!(preview.state, RuleInspectionState::Ready);
+        assert_eq!(preview.rule_id.as_deref(), Some(rule.id.as_str()));
         assert_eq!(
-            plan.old_value,
-            ConfigValue::String("http://127.0.0.1:7890".into())
+            fs::read_to_string(target).unwrap(),
+            r#"{"network":{"proxy":"http://127.0.0.1:7890"}}"#
         );
-        assert_eq!(
-            plan.new_value,
-            ConfigValue::String("http://127.0.0.1:7897".into())
-        );
-        assert!(plan.restart_required);
     }
 
     #[test]
@@ -560,11 +457,9 @@ mod tests {
             RuleValueKind::HttpProxyUrl,
         );
 
-        let preview = preview_rule(&rule, &endpoint(ProxyProtocol::Http), &directory.roots());
+        let preview = inspect_rule(&rule, &endpoint(ProxyProtocol::Http), &directory.roots());
 
-        assert_eq!(preview.state, RulePreviewState::FileMissing);
-        assert!(preview.target_file.is_none());
-        assert!(preview.plan.is_none());
+        assert_eq!(preview.state, RuleInspectionState::FileMissing);
     }
 
     #[test]
@@ -578,10 +473,9 @@ mod tests {
             RuleValueKind::HttpProxyUrl,
         );
 
-        let preview = preview_rule(&rule, &endpoint(ProxyProtocol::Http), &directory.roots());
+        let preview = inspect_rule(&rule, &endpoint(ProxyProtocol::Http), &directory.roots());
 
-        assert_eq!(preview.state, RulePreviewState::FieldMissing);
-        assert!(preview.plan.is_none());
+        assert_eq!(preview.state, RuleInspectionState::FieldMissing);
     }
 
     #[test]
@@ -595,10 +489,9 @@ mod tests {
             RuleValueKind::HttpProxyUrl,
         );
 
-        let preview = preview_rule(&rule, &endpoint(ProxyProtocol::Http), &directory.roots());
+        let preview = inspect_rule(&rule, &endpoint(ProxyProtocol::Http), &directory.roots());
 
-        assert_eq!(preview.state, RulePreviewState::ParseFailed);
-        assert!(preview.plan.is_none());
+        assert_eq!(preview.state, RuleInspectionState::ParseFailed);
     }
 
     #[test]
@@ -612,10 +505,9 @@ mod tests {
             RuleValueKind::HttpProxyUrl,
         );
 
-        let preview = preview_rule(&rule, &endpoint(ProxyProtocol::Mixed), &directory.roots());
+        let preview = inspect_rule(&rule, &endpoint(ProxyProtocol::Mixed), &directory.roots());
 
-        assert_eq!(preview.state, RulePreviewState::AlreadyCurrent);
-        assert!(preview.plan.is_none());
+        assert_eq!(preview.state, RuleInspectionState::AlreadyCurrent);
     }
 
     #[test]
@@ -645,10 +537,10 @@ mod tests {
         for (format, file_name, content, field) in cases {
             directory.write(file_name, content);
             let rule = rule(format, file_name, &field, RuleValueKind::HttpProxyUrl);
-            let preview = preview_rule(&rule, &endpoint(ProxyProtocol::Http), &directory.roots());
-            assert_eq!(preview.state, RulePreviewState::Ready, "{file_name}");
+            let preview = inspect_rule(&rule, &endpoint(ProxyProtocol::Http), &directory.roots());
+            assert_eq!(preview.state, RuleInspectionState::Ready, "{file_name}");
             assert_eq!(
-                preview.plan.unwrap().old_value,
+                inspect_field(&rule, content).unwrap(),
                 ConfigValue::String("http://127.0.0.1:7890".into()),
                 "{file_name}"
             );
@@ -675,7 +567,7 @@ mod tests {
                 RuleValueKind::HttpProxyUrl,
                 &endpoint(ProxyProtocol::Socks5)
             ),
-            Err(RulePreviewState::UnsupportedProxyProtocol)
+            Err(RuleInspectionState::UnsupportedProxyProtocol)
         );
     }
 

@@ -2,9 +2,7 @@ use crate::{
     error::{ProxyEnvError, Result},
     features::{
         application_assistant::{
-            self, launcher, relauncher, ApplicationDiagnosis, LaunchApplicationResult,
-            LaunchEnvironmentMode, ManagedApplication, RuleApplyResult, RuleChangePlan,
-            RuleChangePreview, RuleRestoreResult, RunningApplication,
+            self, launcher, LaunchApplicationResult, ManagedApplication, RunningApplication,
         },
         proxy::active,
     },
@@ -46,61 +44,6 @@ pub async fn renew_application_authorization(application_id: String) -> Result<M
 }
 
 #[tauri::command]
-pub async fn preview_application_rule_fix(
-    application_id: String,
-    expected_revision: u64,
-) -> Result<RuleChangePreview> {
-    let application = application_assistant::resolve_application(&application_id)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        application_assistant::preview_application_rule_fix(&application, expected_revision)
-    })
-    .await
-    .map_err(|error| ProxyEnvError::Detection(error.to_string()))?
-}
-
-#[tauri::command]
-pub async fn apply_application_rule_fix(
-    application_id: String,
-    expected_plan: RuleChangePlan,
-    confirmed: bool,
-    expected_revision: u64,
-) -> Result<RuleApplyResult> {
-    let application = application_assistant::resolve_application(&application_id)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        application_assistant::apply_application_rule_fix(
-            &application,
-            &expected_plan,
-            confirmed,
-            expected_revision,
-        )
-    })
-    .await
-    .map_err(|error| ProxyEnvError::Detection(error.to_string()))?
-}
-
-#[tauri::command]
-pub async fn restore_application_rule_change(
-    backup_id: String,
-    confirmed: bool,
-) -> Result<RuleRestoreResult> {
-    tauri::async_runtime::spawn_blocking(move || {
-        application_assistant::restore_application_rule_change(&backup_id, confirmed)
-    })
-    .await
-    .map_err(|error| ProxyEnvError::Detection(error.to_string()))
-}
-
-#[tauri::command]
-pub async fn diagnose_application(application_id: String) -> Result<ApplicationDiagnosis> {
-    let application = application_assistant::resolve_application(&application_id)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        application_assistant::diagnose_application(application)
-    })
-    .await
-    .map_err(|error| ProxyEnvError::Detection(error.to_string()))?
-}
-
-#[tauri::command]
 pub async fn launch_application_with_current_proxy(
     application_id: String,
     expected_revision: u64,
@@ -108,44 +51,10 @@ pub async fn launch_application_with_current_proxy(
     let application = application_assistant::resolve_application(&application_id)?;
     let launched = tauri::async_runtime::spawn_blocking(move || {
         active::with_current(Some(expected_revision), |candidate| {
-            launcher::launch(
-                &application,
-                LaunchEnvironmentMode::UseCurrentProxy,
-                Some(&active::endpoint(candidate)),
-            )
+            launcher::launch(&application, &active::endpoint(candidate))
         })
     })
     .await
     .map_err(|error| ProxyEnvError::ApplicationLaunch(error.to_string()))??;
     Ok(launched)
-}
-
-#[tauri::command]
-pub async fn launch_application_without_proxy(
-    application_id: String,
-) -> Result<LaunchApplicationResult> {
-    let application = application_assistant::resolve_application(&application_id)?;
-    let launched = tauri::async_runtime::spawn_blocking(move || {
-        launcher::launch(
-            &application,
-            LaunchEnvironmentMode::ClearProxyVariables,
-            None,
-        )
-    })
-    .await
-    .map_err(|error| ProxyEnvError::ApplicationLaunch(error.to_string()))??;
-    Ok(launched)
-}
-
-#[tauri::command]
-pub async fn restart_application_without_proxy(
-    application_id: String,
-    pid: u32,
-) -> Result<LaunchApplicationResult> {
-    let application = application_assistant::resolve_application(&application_id)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        relauncher::restart_without_proxy(&application, pid)
-    })
-    .await
-    .map_err(|error| ProxyEnvError::ApplicationRestart(error.to_string()))?
 }

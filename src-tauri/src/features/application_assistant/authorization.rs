@@ -131,9 +131,6 @@ fn authorize(path: &Path, display_name: &str) -> Result<ManagedApplication> {
         id,
         display_name: display_name.trim().to_owned(),
         executable_path,
-        icon_key: None,
-        rule_id: None,
-        last_action: None,
     };
     registry.insert(application.clone(), identity, Instant::now());
     Ok(application)
@@ -244,9 +241,6 @@ mod tests {
             id: id.into(),
             display_name: "Example".into(),
             executable_path: PathBuf::from("example.exe"),
-            icon_key: None,
-            rule_id: None,
-            last_action: None,
         }
     }
 

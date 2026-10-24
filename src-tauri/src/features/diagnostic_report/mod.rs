@@ -34,7 +34,6 @@ pub enum AppCategory {
 pub enum ReportAction {
     None,
     LaunchWithProxy,
-    LaunchWithoutProxy,
     ApplyKnownRule,
 }
 
@@ -69,7 +68,6 @@ impl AssistantSummary {
             action: match diagnosis.recommended_action {
                 RecommendedAction::None => ReportAction::None,
                 RecommendedAction::LaunchWithProxy => ReportAction::LaunchWithProxy,
-                RecommendedAction::LaunchWithoutProxy => ReportAction::LaunchWithoutProxy,
                 RecommendedAction::ApplyKnownRule { .. } => ReportAction::ApplyKnownRule,
             },
         }
@@ -323,9 +321,6 @@ mod tests {
                 id: "secret-id".into(),
                 display_name: "Alice".into(),
                 executable_path: r"C:\Users\Alice\App.exe".into(),
-                icon_key: None,
-                rule_id: Some("secret-rule".into()),
-                last_action: None,
             },
             proxy_available: true,
             system_proxy_enabled: false,

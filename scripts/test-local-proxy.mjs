@@ -14,6 +14,16 @@ const { RefreshEpoch } = module("src/features/proxy/refresh-epoch.ts");
 const { localProxyMessages } = module("src/shared/i18n/local-proxy.ts");
 const { groupProxyCandidates, supportsProxyVariable } = module("src/features/proxy/client-presentation.ts");
 
+test("application IPC exposes only selection, authorization and revision-checked proxy launch", () => {
+  const commands = readFileSync("src-tauri/src/commands/application_assistant.rs", "utf8");
+  const registered = readFileSync("src-tauri/src/lib.rs", "utf8");
+  const expected = ["list_running_applications", "pick_application", "renew_application_authorization", "launch_application_with_current_proxy"];
+  assert.deepEqual([...commands.matchAll(/#\[tauri::command\]\s+pub async fn (\w+)/g)].map(match => match[1]), expected);
+  assert.deepEqual([...registered.matchAll(/commands::application_assistant::(\w+)/g)].map(match => match[1]), expected);
+  assert.match(commands, /resolve_application\(&application_id\)/);
+  assert.match(commands, /active::with_current\(Some\(expected_revision\)/);
+});
+
 test("sync scope reflects the supported environment schemes", () => {
   for (const protocol of ["http", "socks5", "mixed", "unknown"]) {
     const actual = ["http", "https", "all"].filter(variable => supportsProxyVariable(protocol, variable));

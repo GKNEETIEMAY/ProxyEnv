@@ -9,7 +9,7 @@ use crate::{
     features::proxy::{plan::build_proxy_environment_plan, ProxyEndpoint, ProxyVariable},
 };
 
-use super::{LaunchApplicationResult, LaunchEnvironmentMode, ManagedApplication};
+use super::{LaunchApplicationResult, ManagedApplication};
 
 const PROXY_VARIABLES_ALL_CASES: &[&str] = &[
     "HTTP_PROXY",
@@ -28,39 +28,26 @@ const ALL_PROXY_VARIABLES: &[ProxyVariable] = &[
 
 pub fn launch(
     application: &ManagedApplication,
-    environment_mode: LaunchEnvironmentMode,
-    endpoint: Option<&ProxyEndpoint>,
+    endpoint: &ProxyEndpoint,
 ) -> Result<LaunchApplicationResult> {
     let executable_path = validate_executable(&application.executable_path)?;
     let mut command = Command::new(&executable_path);
-    configure_environment(&mut command, environment_mode, endpoint)?;
+    configure_environment(&mut command, endpoint)?;
     let child = command
         .spawn()
         .map_err(|error| ProxyEnvError::ApplicationLaunch(error.to_string()))?;
     Ok(LaunchApplicationResult {
         pid: child.id(),
         executable_path,
-        environment_mode,
     })
 }
 
-fn configure_environment(
-    command: &mut Command,
-    environment_mode: LaunchEnvironmentMode,
-    endpoint: Option<&ProxyEndpoint>,
-) -> Result<()> {
-    match environment_mode {
-        LaunchEnvironmentMode::Inherit => {}
-        LaunchEnvironmentMode::ClearProxyVariables => clear_proxy_variables(command),
-        LaunchEnvironmentMode::UseCurrentProxy => {
-            let endpoint = endpoint.ok_or(ProxyEnvError::ActiveProxyMissing)?;
-            let plan = build_proxy_environment_plan(endpoint, ALL_PROXY_VARIABLES)?;
-            clear_proxy_variables(command);
-            for variable in plan.variables {
-                if let Some(value) = variable.value {
-                    command.env(variable.name, value);
-                }
-            }
+fn configure_environment(command: &mut Command, endpoint: &ProxyEndpoint) -> Result<()> {
+    let plan = build_proxy_environment_plan(endpoint, ALL_PROXY_VARIABLES)?;
+    clear_proxy_variables(command);
+    for variable in plan.variables {
+        if let Some(value) = variable.value {
+            command.env(variable.name, value);
         }
     }
     Ok(())
@@ -191,18 +178,6 @@ mod tests {
     }
 
     #[test]
-    fn inherit_keeps_the_command_environment_unchanged() {
-        let mut command = Command::new("example");
-        command.env("HTTP_PROXY", "parent-value");
-        command.env("PROXYENV_KEEP", "keep-me");
-        let before = configured_environment(&command);
-
-        configure_environment(&mut command, LaunchEnvironmentMode::Inherit, None).unwrap();
-
-        assert_eq!(configured_environment(&command), before);
-    }
-
-    #[test]
     fn current_proxy_overrides_stale_values_and_preserves_other_environment() {
         let mut command = Command::new("example");
         for name in PROXY_VARIABLES_ALL_CASES {
@@ -210,12 +185,7 @@ mod tests {
         }
         command.env("PROXYENV_KEEP", "keep-me");
 
-        configure_environment(
-            &mut command,
-            LaunchEnvironmentMode::UseCurrentProxy,
-            Some(&endpoint(ProxyProtocol::Mixed)),
-        )
-        .unwrap();
+        configure_environment(&mut command, &endpoint(ProxyProtocol::Mixed)).unwrap();
         let environment = configured_environment(&command);
 
         #[cfg(windows)]
@@ -258,43 +228,9 @@ mod tests {
     }
 
     #[test]
-    fn clear_proxy_variables_removes_both_cases_only() {
-        let mut command = Command::new("example");
-        for name in PROXY_VARIABLES_ALL_CASES {
-            command.env(name, "stale");
-        }
-        command.env("PROXYENV_KEEP", "keep-me");
-
-        configure_environment(
-            &mut command,
-            LaunchEnvironmentMode::ClearProxyVariables,
-            None,
-        )
-        .unwrap();
-        let environment = configured_environment(&command);
-
-        for name in PROXY_VARIABLES_ALL_CASES {
-            assert!(environment_entry(&environment, name).is_some_and(Option::is_none));
-        }
-        assert_eq!(
-            environment_value(&environment, "PROXYENV_KEEP"),
-            Some(OsStr::new("keep-me"))
-        );
-    }
-
-    #[test]
     fn use_current_proxy_requires_a_known_endpoint() {
         let mut command = Command::new("example");
-        assert!(
-            configure_environment(&mut command, LaunchEnvironmentMode::UseCurrentProxy, None)
-                .is_err()
-        );
-        assert!(configure_environment(
-            &mut command,
-            LaunchEnvironmentMode::UseCurrentProxy,
-            Some(&endpoint(ProxyProtocol::Unknown))
-        )
-        .is_err());
+        assert!(configure_environment(&mut command, &endpoint(ProxyProtocol::Unknown)).is_err());
     }
 
     #[test]
@@ -325,26 +261,17 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn child_process_receives_each_launch_environment_mode() {
+    fn child_process_receives_current_proxy_environment() {
         run_child_probe(
-            LaunchEnvironmentMode::Inherit,
-            None,
-            Some("stale-http"),
-            Some("stale-all"),
-        );
-        run_child_probe(
-            LaunchEnvironmentMode::UseCurrentProxy,
-            Some(&endpoint(ProxyProtocol::Mixed)),
+            &endpoint(ProxyProtocol::Mixed),
             Some("http://127.0.0.1:7897"),
             Some("socks5://127.0.0.1:7897"),
         );
-        run_child_probe(LaunchEnvironmentMode::ClearProxyVariables, None, None, None);
     }
 
     #[cfg(windows)]
     fn run_child_probe(
-        mode: LaunchEnvironmentMode,
-        endpoint: Option<&ProxyEndpoint>,
+        endpoint: &ProxyEndpoint,
         expected_http: Option<&str>,
         expected_all: Option<&str>,
     ) {
@@ -360,7 +287,7 @@ mod tests {
         command.env("PROXYENV_KEEP", "keep-me");
         command.env("PROXYENV_EXPECT_HTTP", expected_http.unwrap_or("<absent>"));
         command.env("PROXYENV_EXPECT_ALL", expected_all.unwrap_or("<absent>"));
-        configure_environment(&mut command, mode, endpoint).unwrap();
+        configure_environment(&mut command, endpoint).unwrap();
 
         let status = command.status().unwrap();
         assert!(status.success());
@@ -368,7 +295,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    #[ignore = "executed as a child by child_process_receives_each_launch_environment_mode"]
+    #[ignore = "executed as a child by child_process_receives_current_proxy_environment"]
     fn child_environment_probe() {
         assert_eq!(std::env::var("PROXYENV_KEEP").as_deref(), Ok("keep-me"));
         assert_expected_environment("HTTP_PROXY", "PROXYENV_EXPECT_HTTP");

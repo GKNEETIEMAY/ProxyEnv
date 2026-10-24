@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DiagnosticReportData, ProxyConnectivityResult } from "../types";
-import type { ActiveProxyContext, AppSettings, ApplicationDiagnosis, EnvironmentStatus, LaunchApplicationResult, ManagedApplication, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, RuleApplyResult, RuleChangePlan, RuleChangePreview, RuleRestoreResult, RunningApplication, TunObservation } from "../types";
+import type { ActiveProxyContext, AppSettings, EnvironmentStatus, LaunchApplicationResult, ManagedApplication, ProxyCandidate, ProxyEndpoint, ProxyEndpointInspection, RunningApplication, TunObservation } from "../types";
 
 export const backend = {
   diagnosticReport: (applicationId?: string) => invoke<DiagnosticReportData>("generate_diagnostic_report", { applicationId: applicationId ?? null }),
@@ -20,13 +20,7 @@ export const backend = {
   runningApplications: () => invoke<RunningApplication[]>("list_running_applications"),
   pickApplication: () => invoke<ManagedApplication | null>("pick_application"),
   renewApplicationAuthorization: (applicationId: string) => invoke<ManagedApplication>("renew_application_authorization", { applicationId }),
-  diagnoseApplication: (applicationId: string) => invoke<ApplicationDiagnosis>("diagnose_application", { applicationId }),
-  previewApplicationRuleFix: (applicationId: string, expectedRevision: number) => invoke<RuleChangePreview>("preview_application_rule_fix", { applicationId, expectedRevision }),
-  applyApplicationRuleFix: (applicationId: string, expectedPlan: RuleChangePlan, expectedRevision: number) => invoke<RuleApplyResult>("apply_application_rule_fix", { applicationId, expectedPlan, expectedRevision, confirmed: true }),
-  restoreApplicationRuleChange: (backupId: string) => invoke<RuleRestoreResult>("restore_application_rule_change", { backupId, confirmed: true }),
   launchApplicationWithProxy: (applicationId: string, expectedRevision: number) => invoke<LaunchApplicationResult>("launch_application_with_current_proxy", { applicationId, expectedRevision }),
-  launchApplicationWithoutProxy: (applicationId: string) => invoke<LaunchApplicationResult>("launch_application_without_proxy", { applicationId }),
-  restartApplicationWithoutProxy: (applicationId: string, pid: number) => invoke<LaunchApplicationResult>("restart_application_without_proxy", { applicationId, pid }),
   appSettings: () => invoke<AppSettings>("get_app_settings"),
   saveAppSettings: (settings: AppSettings) => invoke<AppSettings>("save_app_settings", { settings }),
   desktopAlerts: () => invoke<boolean>("get_desktop_alerts"),

@@ -23,7 +23,7 @@ export function formatDiagnosticReport(data: DiagnosticReportData, copy: Copy): 
     proxyLaunchRecommended: copy.assistantProxyLaunchRecommendedTitle, ruleSyncRecommended: copy.assistantRuleSyncRecommendedTitle,
     conflict: copy.assistantConflictTitle, unsupported: copy.assistantUnsupportedStateTitle, unknown: copy.assistantUnknownTitle
   };
-  const action = { none: copy.reportNone, launchWithProxy: copy.assistantLaunchWithProxy, launchWithoutProxy: copy.assistantLaunchDirect, applyKnownRule: copy.assistantRuleSyncRecommendedTitle };
+  const action = { none: copy.reportNone, launchWithProxy: copy.assistantLaunchWithProxy, applyKnownRule: copy.assistantRuleSyncRecommendedTitle };
   const category = { notSelected: copy.reportNotSelected, knownRule: copy.reportKnownRule, unrecognized: copy.reportUnrecognized, unavailable: copy.assistantUnavailable };
   const protocol = { http: "HTTP", socks5: "SOCKS5", mixed: "Mixed", unknown };
   const confidence = { veryHigh: copy.reportVeryHigh, high: copy.reportHigh, medium: copy.reportMedium, low: copy.reportLow };

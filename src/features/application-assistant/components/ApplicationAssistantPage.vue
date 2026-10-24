@@ -83,7 +83,7 @@ function selectApplication(application: ManagedApplication) {
 }
 function chooseRunning(app: RunningApplication) {
   if (busy.value || !app.applicationId || !app.executablePath) return;
-  selectApplication({ id: app.applicationId, displayName: app.displayName, executablePath: app.executablePath, iconKey: null, ruleId: null, lastAction: null });
+  selectApplication({ id: app.applicationId, displayName: app.displayName, executablePath: app.executablePath });
 }
 async function loadApplications() {
   if (loadingApps.value || busy.value) return;
