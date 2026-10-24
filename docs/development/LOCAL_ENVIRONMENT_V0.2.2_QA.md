@@ -104,3 +104,11 @@
 
 开发阶段版本文件维持 0.2.1；不改兼容身份、系统代理/TUN 设置或 SSH 契约。
 不将既往 v0.2.1 的维护者验收认作 v0.2.2 验收，不复用其发布授权。
+
+## 2026-10-24 Review 整改：M0 基线
+
+- 基线分支 `v0.2.2dev`，HEAD `31bbe85162dd0b68f132c4293ffc1bdc1052fb6c`；工作区干净，与交付任务书一致。当前稳定版和开发版本文件仍为 `0.2.1`。
+- 已核对官方 [CI Run 40074006090](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/40074006090)：Windows 品牌测试失败；其后的远端测试、Rust fmt/Clippy/单测和 Release executable 构建被跳过。Linux 扩展测试与 RustSec 成功，不代表整个 Gate 通过。
+- `scripts/test-branding.mjs` 未映射新增 `application-proxy` 相对模块，缺陷仍存在；生产多语言代码无需因此改动。
+- 任务书范围合理：先修复测试入口并重跑完整质量门槛；随后核对 v0.2.1 规则备份的真实格式、只读兼容说明、UI 自动化和自动检测文档冲突。保持现有产品简化、标识和签名规则。
+- 不使用浏览器 fixtures 作为原生网络/变量写入证据；真实 Windows、SSH、旧用户备份和升级样本未提供，相关验收保持“未验证”。本轮不创建 Tag、Draft 或 Release。
