@@ -16,10 +16,10 @@ const workflow = read(".github/workflows/release.yml");
 const repository = "GKNEETIEMAY/ProxyEnv";
 const packageSection = cargo.split("[package]\n")[1]?.split(/^\[/m)[0];
 // Explicit development target: equality alone must not let all manifests stay stale.
-const targetVersion = "0.2.1";
+const targetVersion = "0.2.2";
 const notesPath = `.github/release-notes/v${targetVersion}.md`;
 
-test("v0.2.1 preserves the v0.2.0 installed updater trust and NSIS identity", () => {
+test("v0.2.2 preserves the v0.2.0 installed updater trust and NSIS identity", () => {
   // Frozen from v0.2.0 (0a731b47d17bd5d2f8a4885cbf926a1bac68d35f).
   // Keep this independent of current config so a coordinated key/identity change fails CI.
   assert.equal(config.productName, "RouteSpan");

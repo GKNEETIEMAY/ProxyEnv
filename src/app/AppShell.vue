@@ -66,7 +66,7 @@ const desktopAlertsBusy = ref(false);
 const desktopAlertsError = ref(false);
 const copiedEndpoint = ref(false);
 function openBridgeNotice() { openRemote(); void refreshRemoteBridge(); }
-const appVersion = ref("0.2.1");
+const appVersion = ref("0.2.2");
 const starDismissed = ref(false);
 const updateSnapshot = shallowRef<Availability<NonNullable<Awaited<ReturnType<typeof check>>>> | null>(null);
 const latestVersion = computed(() => updateSnapshot.value?.version ?? "");
@@ -747,7 +747,7 @@ onMounted(async () => {
     appVersion.value = await getVersion();
     versionVerified = true;
   } catch {
-    appVersion.value = "0.2.1";
+    appVersion.value = "0.2.2";
   }
   if (reviewPreview) {
     const preview = new URLSearchParams(window.location.search).get("impeccable-review");

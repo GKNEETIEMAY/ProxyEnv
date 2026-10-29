@@ -1,6 +1,6 @@
 [package]
 name = "proxyenv"
-version = "0.2.1"
+version = "0.2.2"
 description = "A local-first bridge for remote AI development"
 authors = ["ProxyEnv contributors"]
 edition = "2021"
