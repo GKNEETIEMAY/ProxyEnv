@@ -17,7 +17,8 @@ import {
   type ReleaseNoteLine,
   type UpdateState
 } from "../features/settings/update";
-import { checkUpdateMetadata, fetchInstalledRelease, fetchLatestRelease, resolveUpdate, updateFailure, type Availability, type UpdateFailure } from "../features/settings/update-availability";
+import { UpdateMetadataClient, verifiedInstallHandle, resolveUpdate, updateFailure, type Availability, type UpdateFailure, type UpdateMetadata } from "../features/settings/update-availability";
+import { installedReleaseNotes, installedReleaseVersion } from "../features/settings/installed-notes";
 import { UpdateInstaller } from "../features/settings/update-installer";
 import UpdateInstallDialog from "../features/settings/components/UpdateInstallDialog.vue";
 import { backend } from "../shared/api/backend";
@@ -68,7 +69,11 @@ const copiedEndpoint = ref(false);
 function openBridgeNotice() { openRemote(); void refreshRemoteBridge(); }
 const appVersion = ref("0.2.2");
 const starDismissed = ref(false);
-const updateSnapshot = shallowRef<Availability<NonNullable<Awaited<ReturnType<typeof check>>>> | null>(null);
+const updateSnapshot = shallowRef<Availability | null>(null);
+const metadataClient = new UpdateMetadataClient(() => invoke<UpdateMetadata | null>("fetch_update_metadata"), {
+  getItem: key => window.localStorage.getItem(key),
+  setItem: (key, value) => window.localStorage.setItem(key, value),
+});
 const latestVersion = computed(() => updateSnapshot.value?.version ?? "");
 const updateState = ref<UpdateState>("idle");
 const releaseUrl = computed(() => updateSnapshot.value?.url ?? "");
@@ -164,6 +169,7 @@ const updateMessage = computed(() => {
   if (updateAbandoned.value && updateState.value === "downloading") return copy.value.updateCancelling;
   if (updateState.value === "checking") return copy.value.checkingUpdates;
   if (updateState.value === "latest") return copy.value.latestVersion;
+  if (updateState.value === "ahead") return copy.value.updateAhead.replace("{version}", latestVersion.value);
   if (updateState.value === "available") return copy.value.updateAvailable.replace("{version}", latestVersion.value);
   if (updateState.value === "manual" && updateSnapshot.value?.failure) return `${copy.value.updateAvailable.replace("{version}", latestVersion.value)} ${updateFailureMessage(updateSnapshot.value.failure)}`;
   if (updateState.value === "manual") return (manualUpdateReason.value === "bundle"
@@ -215,15 +221,8 @@ async function loadInstalledNotes() {
   if (installedNotesState.value === "loading") return;
   if (reviewPreview) { installedNotesState.value = "ready"; return; }
   if (!versionVerified) return;
-  installedNotesState.value = "loading";
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 10_000);
-  try {
-    const release = await fetchInstalledRelease(fetch, controller.signal, appVersion.value);
-    installedNotesBody.value = release?.body ?? "";
-    installedNotesState.value = "ready";
-  } catch { installedNotesState.value = "error"; }
-  finally { window.clearTimeout(timer); }
+  installedNotesBody.value = appVersion.value === installedReleaseVersion ? installedReleaseNotes : "";
+  installedNotesState.value = installedNotesBody.value ? "ready" : "error";
 }
 
 function applyPresentation() {
@@ -472,11 +471,11 @@ async function copyEndpoint(candidate?: ProxyCandidate) {
   }
 }
 
-async function checkForUpdates() {
-  if (installer.busy || ["checking", "downloading", "installing"].includes(updateState.value)) return;
+async function checkForUpdates(manual = true) {
+  if (installPreparing.value || installer.busy || ["checking", "downloading", "installing"].includes(updateState.value)) return;
   if (reviewPreview) {
     // Explicit browser fixture only: no fetch, updater IPC, downloads or installs.
-    updateSnapshot.value = { state: "manual", version: "0.2.2", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2", body: "", date: "", handle: null, source: "release" };
+    updateSnapshot.value = { state: "manual", version: "0.2.2", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2", body: "", date: "" };
     updateState.value = "manual";
     return;
   }
@@ -488,48 +487,63 @@ async function checkForUpdates() {
   updateState.value = "checking";
   releaseActionError.value = "";
   updateProgress.value = null;
-  const previousHandle = updateSnapshot.value?.handle;
   updateSnapshot.value = null;
   updateAbandoned.value = false;
   installStatusError.value = null;
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 10_000);
   try {
-    await previousHandle?.close();
-    const releaseRequest = fetchLatestRelease(fetch, controller.signal);
-    const [releaseResult, updaterResult] = await Promise.allSettled([
-      releaseRequest,
-      checkUpdateMetadata(versionVerified ? appVersion.value : "", releaseRequest, () => check({ timeout: 10_000 }))
-    ]);
-
-    const snapshot = resolveUpdate(versionVerified ? appVersion.value : "", releaseResult, updaterResult, automaticUpdateSupported.value);
-    recordUpdateDiagnostic("release", releaseResult.status === "fulfilled" ? releaseResult.value ? "success" : "unpublished" : updateFailure(releaseResult.reason));
-    recordUpdateDiagnostic("metadata", updaterResult.status === "rejected" ? updateFailure(updaterResult.reason) : snapshot.failure ?? snapshot.state);
-    const metadata = updaterResult.status === "fulfilled" ? updaterResult.value : null;
-    if (metadata && snapshot.handle !== metadata) await metadata.close();
-    updateSnapshot.value = snapshot;
+    const result = await metadataClient.get(manual ? "manual" : "automatic");
+    const snapshot = resolveUpdate(versionVerified ? appVersion.value : "", result.metadata, automaticUpdateSupported.value);
+    recordUpdateDiagnostic("metadata", snapshot.failure ?? snapshot.state);
+    updateSnapshot.value = { ...snapshot, cached: result.cached };
     manualUpdateReason.value = automaticUpdateSupported.value ? "missing" : "bundle";
     checkFailure.value = snapshot.failure ?? "service";
     updateState.value = snapshot.state;
   } catch (cause) {
     checkFailure.value = updateFailure(cause);
     updateState.value = "error";
-  } finally {
-    window.clearTimeout(timeout);
+    recordUpdateDiagnostic("metadata", checkFailure.value);
   }
 }
 
 async function installPendingUpdate() {
-  if (installer.busy) return;
+  if (installPreparing.value || installer.busy) return;
   if (reviewPreview) { await updateDialog.value?.open(); return; }
-  const handle = updateSnapshot.value?.handle;
-  if (!handle || updateState.value !== "available") {
+  const expectedVersion = updateSnapshot.value?.version;
+  if (!expectedVersion || updateState.value !== "available" || !automaticUpdateSupported.value || !versionVerified) {
     releaseActionError.value = copy.value.updateInstallUnavailable;
     return;
   }
   releaseActionError.value = "";
   updateProgress.value = null;
   installPreparing.value = true;
+  let handle: Awaited<ReturnType<typeof check>>;
+  try {
+    const fresh = await metadataClient.get("install");
+    const snapshot = resolveUpdate(appVersion.value, fresh.metadata, automaticUpdateSupported.value);
+    if (snapshot.state !== "available" || snapshot.version !== expectedVersion) {
+      const state = snapshot.state === "available" ? "conflict" : snapshot.state;
+      updateSnapshot.value = { ...snapshot, state };
+      updateState.value = state;
+      installPreparing.value = false;
+      return;
+    }
+    handle = await verifiedInstallHandle(appVersion.value, expectedVersion, () => check({ timeout: 10_000 }));
+    if (!handle) {
+      updateSnapshot.value = { ...snapshot, state: "manual" };
+      updateState.value = "manual";
+      manualUpdateReason.value = "missing";
+      installPreparing.value = false;
+      return;
+    }
+  } catch (cause) {
+    metadataClient.rememberFailure(cause);
+    checkFailure.value = updateFailure(cause);
+    updateState.value = "error";
+    releaseActionError.value = updateFailureMessage(checkFailure.value);
+    installPreparing.value = false;
+    recordUpdateDiagnostic("metadata", checkFailure.value);
+    return;
+  }
   let downloaded = 0;
   let contentLength = 0;
   try {
@@ -575,7 +589,6 @@ async function installPendingUpdate() {
   } finally {
     installPreparing.value = false;
     if (installer.guardReleased) updateExclusive.value = false;
-    if (installer.phase !== "prepare" && updateSnapshot.value) updateSnapshot.value = { ...updateSnapshot.value, handle: null };
   }
 }
 
@@ -732,7 +745,7 @@ watch(draftSettings, () => {
 watch([view, settingsTab], ([nextView, nextTab]) => {
   if (nextView === "settings" && nextTab === "about" && installedNotesState.value === "idle") void loadInstalledNotes();
   if (reviewPreview || updateState.value !== "idle") return;
-  if (nextView === "settings" && nextTab === "about") void checkForUpdates();
+  if (nextView === "settings" && nextTab === "about") void checkForUpdates(false);
 });
 
 onMounted(async () => {
@@ -832,7 +845,7 @@ onMounted(async () => {
       view.value = "settings";
       settingsTab.value = preview === "settings" ? "general" : "about";
       if (preview === "update") {
-        updateSnapshot.value = { state: "available", version: "0.2.2", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2", body: "", date: "", handle: null, source: "release" };
+        updateSnapshot.value = { state: "available", version: "0.2.2", url: "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2", body: "", date: "" };
         updateState.value = "available";
       }
     } else if (preview === "assistant" || preview === "assistant-result") {
@@ -874,7 +887,7 @@ onMounted(async () => {
   void loadDesktopAlerts();
   if (view.value === "settings" && settingsTab.value === "about") void loadInstalledNotes();
   // One non-blocking check per launch; window visibility and tab switches do not restart it.
-  if (!import.meta.env.DEV) void checkForUpdates();
+  if (!import.meta.env.DEV) void checkForUpdates(false);
   maximized.value = await appWindow!.isMaximized();
   document.documentElement.classList.toggle("window-maximized", maximized.value);
   unlistenResize = await appWindow!.onResized(async () => {
@@ -1008,7 +1021,7 @@ onBeforeUnmount(() => {
       :app-version="appVersion"
       :update-state="updateState"
       :update-message="updateMessage"
-      :update-source="updateSnapshot?.source === 'metadata' ? copy.updateMetadataSource : 'GitHub Releases'"
+      :update-source="updateSnapshot?.cached ? copy.updateCachedSource : copy.updateMetadataSource"
       :release-version="releaseVersion"
       :release-published-label="releasePublishedLabel"
       :release-notes="displayReleaseNotes"

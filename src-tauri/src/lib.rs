@@ -56,6 +56,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            desktop::update_metadata::fetch_update_metadata,
             desktop::updates::prepare_update_install,
             desktop::updates::validate_update_install,
             desktop::updates::release_update_install,

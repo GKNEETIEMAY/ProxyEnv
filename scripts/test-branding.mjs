@@ -99,9 +99,9 @@ test("package, storage, session, repository and updater identities stay compatib
   assert.match(read("src/features/remote-bridge/components/RemoteBridgePage.vue"), /proxyenv\.remoteBridge\.lastTargetId/);
   assert.match(read("src-tauri/src/features/remote_bridge/authenticated_relay.rs"), /x-proxyenv-session/i);
   assert.match(read("src-tauri/src/features/remote_bridge/remote.sh"), /\.proxyenv/);
-  assert.match(read("src/features/settings/update-availability.ts"), /repos\/GKNEETIEMAY\/ProxyEnv\/releases\/\$\{path\}/);
-  assert.match(read("src/features/settings/update-availability.ts"), /fetchRelease\(fetcher, signal, "latest"\)/);
-  assert.match(read("src/app/AppShell.vue"), /fetchLatestRelease\(fetch, controller.signal\)/);
+  assert.ok(read("src-tauri/src/desktop/update_metadata.rs").includes(config.plugins.updater.endpoints[0]));
+  assert.match(read("src/app/AppShell.vue"), /invoke<UpdateMetadata \| null>\("fetch_update_metadata"\)/);
+  assert.doesNotMatch(read("src/features/settings/update-availability.ts"), /api\.github\.com/);
   assert.match(read("src/features/settings/update.ts"), /proxyenv-release:end/);
   const workflow = read(".github/workflows/release.yml");
   assert.match(workflow, /target\/release\/proxyenv\.exe/);

@@ -1,137 +1,122 @@
-import { compareVersions, isOfficialReleaseUrl, stableVersion, type GitHubRelease } from "./update";
+import { compareVersions, stableVersion } from "./update";
 
 export type UpdateFailure = "rateLimit" | "timeout" | "network" | "tls" | "proxy" | "signature" | "invalidResponse" | "service" | "development";
-export type UpdatePhase = "release" | "metadata" | "download" | "install";
+const failures: UpdateFailure[] = ["rateLimit", "timeout", "network", "tls", "proxy", "signature", "invalidResponse", "service", "development"];
 export class UpdateRequestError extends Error {
-  constructor(readonly category: UpdateFailure) { super(category); }
+  constructor(readonly category: UpdateFailure, readonly retryAt?: number) { super(category); }
 }
-
-export async function fetchLatestRelease(fetcher: typeof fetch, signal: AbortSignal): Promise<GitHubRelease | null> {
-  return fetchRelease(fetcher, signal, "latest");
-}
-
-export async function fetchInstalledRelease(fetcher: typeof fetch, signal: AbortSignal, version: string): Promise<GitHubRelease | null> {
-  const normalized = stableVersion(version);
-  if (!normalized) throw new UpdateRequestError("invalidResponse");
-  const release = await fetchRelease(fetcher, signal, `tags/v${normalized}`);
-  if (!release) return null;
-  const resolved = resolveUpdate(normalized, { status: "fulfilled", value: release }, { status: "fulfilled", value: null }, false);
-  if (resolved.state !== "latest" || resolved.version !== normalized) throw new UpdateRequestError("invalidResponse");
-  return release;
-}
-
-async function fetchRelease(fetcher: typeof fetch, signal: AbortSignal, path: string): Promise<GitHubRelease | null> {
-  const response = await fetcher(`https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/${path}`, {
-    cache: "no-store", headers: { Accept: "application/vnd.github+json" }, signal,
-  });
-  if (response.status === 404) return null;
-  if (response.status === 429 || (response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0")) throw new UpdateRequestError("rateLimit");
-  if (!response.ok) throw new UpdateRequestError("service");
-  try {
-    const value: unknown = await response.json();
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new UpdateRequestError("invalidResponse");
-    return value as GitHubRelease;
-  }
-  catch { throw new UpdateRequestError("invalidResponse"); }
-}
-
-// Never return exception text: transport errors can contain URLs, tokens or local paths.
+// Never display raw exception text: it can contain URLs, tokens or local paths.
 export function updateFailure(error: unknown): UpdateFailure {
-  if (error instanceof UpdateRequestError) return error.category;
+  if (error && typeof error === "object" && "category" in error && failures.includes(error.category as UpdateFailure)) return error.category as UpdateFailure;
   const text = String(error instanceof Error ? `${error.name} ${error.message}` : error).toLowerCase();
   if (/signature|pubkey|public key|verification|verify.*sign/.test(text)) return "signature";
   if (/abort|timeout|timed out/.test(text)) return "timeout";
   if (/certificate|tls|ssl/.test(text)) return "tls";
-  if (/proxy|407/.test(text)) return "proxy";
+  if (/proxy|407|429|rate.?limit/.test(text)) return /429|rate.?limit/.test(text) ? "rateLimit" : "proxy";
   if (/network|fetch|connect|dns|resolve|request/.test(text)) return "network";
   return "service";
 }
-
-export interface UpdateMetadata {
-  version: string;
-  body?: string;
-  date?: string;
+export interface UpdateMetadata { version: string; body: string; date: string }
+export type Availability = {
+  state: "latest" | "ahead" | "available" | "manual" | "unpublished" | "conflict" | "error";
+  version: string; url: string; body: string; date: string;
+  failure?: UpdateFailure;
+  cached?: boolean;
+};
+export function validMetadata(value: unknown): value is UpdateMetadata {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as UpdateMetadata;
+  return Boolean(stableVersion(entry.version)) && typeof entry.body === "string" && entry.body.length <= 80_000
+    && typeof entry.date === "string" && entry.date.length <= 64 && Number.isFinite(Date.parse(entry.date));
+}
+export function resolveUpdate(current: string, metadata: UpdateMetadata | null, installSupported: boolean): Availability {
+  const empty: Availability = { state: "error", version: "", url: "", body: "", date: "" };
+  if (!stableVersion(current) || (metadata !== null && !validMetadata(metadata))) return { ...empty, failure: "invalidResponse" };
+  if (!metadata) return { ...empty, state: "unpublished" };
+  const version = stableVersion(metadata.version)!;
+  const comparison = compareVersions(version, current);
+  return {
+    ...metadata, version, url: `https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v${version}`,
+    state: comparison < 0 ? "ahead" : comparison === 0 ? "latest" : installSupported && metadata.body.trim() ? "available" : "manual",
+  };
 }
 
-// A cold connection or briefly stale release asset must not require a second click.
-// Each attempt uses the caller's timeout; never retry trust or validation failures.
-export async function checkUpdateMetadata<T extends UpdateMetadata>(
-  current: string,
-  releaseRequest: Promise<GitHubRelease | null>,
-  checker: () => Promise<T | null>,
-): Promise<T | null> {
-  let metadata: T | null;
-  try { metadata = await checker(); }
+const CACHE_KEY = "proxyenv.updateMetadata.v1";
+const TTL = 6 * 60 * 60 * 1000;
+const MANUAL_INTERVAL = 30_000;
+const MAX_COOLDOWN = 7 * 24 * 60 * 60 * 1000;
+type Cache = { checkedAt: number; metadata: UpdateMetadata | null; retryAt: number };
+type Result = { metadata: UpdateMetadata | null; cached: boolean };
+type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
+
+// Cache is display evidence only. No installer handles, URLs or signatures persist.
+export class UpdateMetadataClient {
+  private cache: Cache | null = null;
+  private pending: Promise<Result> | null = null;
+  constructor(private readonly fetcher: () => Promise<UpdateMetadata | null>, private readonly storage?: Storage, private readonly now = Date.now) {
+    try {
+      const raw = storage?.getItem(CACHE_KEY);
+      if (!raw || raw.length > 100_000) return;
+      const value = JSON.parse(raw) as Cache;
+      const now = this.now();
+      if (Number.isFinite(value.checkedAt) && value.checkedAt >= 0 && value.checkedAt <= now
+        && Number.isFinite(value.retryAt) && value.retryAt >= 0 && value.retryAt <= now + MAX_COOLDOWN
+        && (value.metadata === null || validMetadata(value.metadata))) this.cache = value;
+    } catch { /* Cache/storage failure must not prevent a live check. */ }
+  }
+  get(mode: "automatic" | "manual" | "install" = "automatic"): Promise<Result> {
+    if (this.pending) return this.pending;
+    const now = this.now();
+    if (this.cache && this.cache.retryAt > now) return Promise.reject(new UpdateRequestError("rateLimit", this.cache.retryAt));
+    const ttl = mode === "automatic" && this.cache?.metadata ? TTL : MANUAL_INTERVAL;
+    if (mode !== "install" && this.cache?.checkedAt && now - this.cache.checkedAt < ttl) {
+      return Promise.resolve({ metadata: this.cache.metadata, cached: true });
+    }
+    this.pending = this.fetch().finally(() => { this.pending = null; });
+    return this.pending;
+  }
+  private persist() {
+    try { this.storage?.setItem(CACHE_KEY, JSON.stringify(this.cache)); } catch { /* In-memory cache still works. */ }
+  }
+  rememberFailure(cause: unknown): unknown {
+    if (updateFailure(cause) !== "rateLimit") return cause;
+    const now = this.now();
+    const supplied = cause && typeof cause === "object" && "retryAt" in cause ? cause.retryAt : null;
+    const retryAt = typeof supplied === "number" && Number.isFinite(supplied) ? Math.max(now + 60_000, Math.min(now + MAX_COOLDOWN, supplied)) : now + 60_000;
+    this.cache = { checkedAt: 0, metadata: null, retryAt };
+    this.persist();
+    return new UpdateRequestError("rateLimit", retryAt);
+  }
+  private async fetch(): Promise<Result> {
+    try {
+      const metadata = await retryTransport(this.fetcher);
+      if (metadata !== null && !validMetadata(metadata)) throw new UpdateRequestError("invalidResponse");
+      this.cache = { checkedAt: this.now(), retryAt: 0, metadata: metadata && { version: metadata.version, body: metadata.body, date: metadata.date } };
+      this.persist();
+      return { metadata: this.cache.metadata, cached: false };
+    } catch (cause) {
+      throw this.rememberFailure(cause);
+    }
+  }
+}
+
+export async function retryTransport<T>(checker: () => Promise<T>): Promise<T> {
+  try { return await checker(); }
   catch (cause) {
     if (!["network", "timeout"].includes(updateFailure(cause))) throw cause;
     return checker();
   }
-  if (metadata) return metadata;
-  const announcement = await releaseRequest.then(
-    value => ({ status: "fulfilled" as const, value }),
-    reason => ({ status: "rejected" as const, reason }),
-  );
-  const result = resolveUpdate(current, announcement, { status: "fulfilled", value: null }, true);
-  return result.state === "manual" ? checker() : null;
 }
-
-export type Availability<T extends UpdateMetadata> = {
-  state: "latest" | "available" | "manual" | "unpublished" | "conflict" | "error";
-  version: string;
-  url: string;
-  body: string;
-  date: string;
-  handle: T | null;
-  failure?: UpdateFailure;
-  source?: "release" | "metadata";
-};
-
-export function resolveUpdate<T extends UpdateMetadata>(
-  current: string,
-  releaseResult: PromiseSettledResult<GitHubRelease | null>,
-  metadataResult: PromiseSettledResult<T | null>,
-  installSupported: boolean,
-): Availability<T> {
-  const empty: Availability<T> = { state: "error", version: "", url: "", body: "", date: "", handle: null };
-  if (!stableVersion(current)) return { ...empty, failure: "invalidResponse" };
-  const release = releaseResult.status === "fulfilled" ? releaseResult.value : null;
-  const metadata = metadataResult.status === "fulfilled" ? metadataResult.value : null;
-  const apiVersion = release?.tag_name ? stableVersion(release.tag_name) : null;
-  const metadataVersion = metadata ? stableVersion(metadata.version) : null;
-  if (release && (!apiVersion || release.draft || release.prerelease || !release.html_url
-    || (release.body != null && typeof release.body !== "string")
-    || (release.published_at != null && typeof release.published_at !== "string")
-    || !isOfficialReleaseUrl(release.html_url)
-    || new URL(release.html_url).pathname !== `/GKNEETIEMAY/ProxyEnv/releases/tag/${release.tag_name}`
-    || Boolean(new URL(release.html_url).search || new URL(release.html_url).hash))) {
-    return { ...empty, failure: "invalidResponse" };
+// Default Tauri comparison stays upgrade-only. A cached announcement never authorizes installation.
+export async function verifiedInstallHandle<T extends { version: string; close(): Promise<void> }>(
+  current: string, expected: string, checker: () => Promise<T | null>,
+): Promise<T | null> {
+  if (!stableVersion(current) || !stableVersion(expected) || compareVersions(expected, current) <= 0) throw new UpdateRequestError("invalidResponse");
+  let handle = await retryTransport(checker);
+  if (!handle) handle = await checker();
+  if (handle && stableVersion(handle.version) !== stableVersion(expected)) {
+    await handle.close();
+    throw new UpdateRequestError("invalidResponse");
   }
-  if (metadata && !metadataVersion) return { ...empty, failure: "invalidResponse" };
-  if (apiVersion && metadataVersion && apiVersion !== metadataVersion) return { ...empty, state: "conflict" };
-  if (apiVersion && release) {
-    const newer = compareVersions(apiVersion, current) > 0;
-    return {
-      state: !newer ? "latest" : metadata && installSupported ? "available" : "manual",
-      version: apiVersion, url: release.html_url!, body: release.body ?? "", date: release.published_at ?? "",
-      handle: newer && metadata && installSupported ? metadata : null, source: "release",
-      ...(newer && installSupported && metadataResult.status === "rejected"
-        ? { failure: updateFailure(metadataResult.reason) } : {}),
-    };
-  }
-  // The official updater metadata can be used when the announcement service fails.
-  // This does NOT mean the download has been cryptographically verified yet.
-  if (metadata && metadataVersion && compareVersions(metadataVersion, current) > 0) {
-    const complete = typeof metadata.body === "string" && Boolean(metadata.body.trim());
-    return {
-      state: installSupported && complete ? "available" : "manual", version: metadataVersion,
-      url: `https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v${metadataVersion}`,
-      body: typeof metadata.body === "string" ? metadata.body : "", date: metadata.date ?? "", handle: installSupported && complete ? metadata : null, source: "metadata",
-    };
-  }
-  if (releaseResult.status === "fulfilled" && releaseResult.value === null && metadataResult.status === "fulfilled") {
-    return { ...empty, state: "unpublished" };
-  }
-  const failure = releaseResult.status === "rejected" ? updateFailure(releaseResult.reason)
-    : metadataResult.status === "rejected" ? updateFailure(metadataResult.reason) : "invalidResponse";
-  return { ...empty, failure };
+  return handle;
 }

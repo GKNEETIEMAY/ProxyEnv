@@ -4,6 +4,7 @@ export type UpdateState =
   | "idle"
   | "checking"
   | "latest"
+  | "ahead"
   | "available"
   | "manual"
   | "conflict"
@@ -15,15 +16,6 @@ export type UpdateState =
 export type ReleaseNoteLine = {
   kind: "heading" | "item" | "paragraph";
   text: string;
-};
-
-export type GitHubRelease = {
-  tag_name?: string;
-  html_url?: string;
-  body?: string | null;
-  published_at?: string | null;
-  draft?: boolean;
-  prerelease?: boolean;
 };
 
 export function stableVersion(value: string): string | null {

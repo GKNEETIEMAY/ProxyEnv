@@ -18,6 +18,7 @@ pub(crate) enum UpdatePhase {
 pub(crate) enum UpdateOutcome {
     Available,
     Latest,
+    Ahead,
     Manual,
     Unpublished,
     Conflict,

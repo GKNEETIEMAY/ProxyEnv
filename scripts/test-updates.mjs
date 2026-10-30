@@ -20,13 +20,13 @@ function load(path) {
   return exports;
 }
 const { stableVersion, compareVersions, isOfficialReleaseUrl } = load("src/features/settings/update.ts");
-const { checkUpdateMetadata, fetchInstalledRelease, fetchLatestRelease, resolveUpdate, updateFailure, UpdateRequestError } = load("src/features/settings/update-availability.ts");
+const { UpdateMetadataClient, verifiedInstallHandle, retryTransport, validMetadata, resolveUpdate, updateFailure, UpdateRequestError } = load("src/features/settings/update-availability.ts");
 const { UpdateInstaller } = load("src/features/settings/update-installer.ts");
-const ok = value => ({ status: "fulfilled", value });
-const fail = reason => ({ status: "rejected", reason });
-const release = (version = "0.2.2") => ({ tag_name: `v${version}`, html_url: `https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v${version}`,
-  body: `notes-${version}`, published_at: "2026-10-16T00:00:00Z", draft: false, prerelease: false });
-const metadata = (version = "0.2.2") => ({ version, body: `metadata-${version}`, date: "2026-10-16T00:00:00Z" });
+const metadata = (version = "0.2.2") => ({ version, body: `notes-${version}`, date: "2026-10-30T00:00:00Z" });
+function storage(initial = null) {
+  let value = initial;
+  return { getItem() { return value; }, setItem(_, next) { value = next; } };
+}
 
 test("stable version parsing rejects previews, garbage, shorthand and unsafe numbers", () => {
   for (const version of ["v0.2.1", "0.2.1", "12.30.100"]) assert.ok(stableVersion(version));
@@ -36,154 +36,162 @@ test("stable version parsing rejects previews, garbage, shorthand and unsafe num
   assert.equal(compareVersions("0.2.10", "0.2.9"), 1);
   assert.equal(compareVersions("v0.2.1", "0.2.1"), 0);
   assert.throws(() => compareVersions("0.2.1-rc.1", "0.2.0"));
-});
-
-test("installed changelog fetches the exact running tag independently of latest", async () => {
-  let requested;
-  const current = release("0.2.1");
-  const result = await fetchInstalledRelease(async url => {
-    requested = url;
-    return { status: 200, ok: true, json: async () => current };
-  }, {}, "0.2.1");
-  assert.equal(requested, "https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/tags/v0.2.1");
-  assert.equal(result.body, "notes-0.2.1");
-  await fetchLatestRelease(async url => {
-    assert.equal(url, "https://api.github.com/repos/GKNEETIEMAY/ProxyEnv/releases/latest");
-    return { status: 404 };
-  }, {});
-  assert.equal(resolveUpdate("0.2.1", ok(release()), ok(metadata()), true).body, "notes-0.2.2");
-});
-
-test("installed changelog never substitutes a different, malformed or unpublished release", async () => {
-  for (const value of [release("0.2.2"), release("0.2.0"), { ...release("0.2.1"), draft: true }, { ...release("0.2.1"), body: {} }]) {
-    await assert.rejects(fetchInstalledRelease(async () => ({ status: 200, ok: true, json: async () => value }), {}, "0.2.1"), error => error.category === "invalidResponse");
-  }
-  assert.equal(await fetchInstalledRelease(async () => ({ status: 404 }), {}, "0.2.1"), null);
-  await assert.rejects(fetchInstalledRelease(async () => { throw Error("must not fetch"); }, {}, "bad"), error => error.category === "invalidResponse");
-  await assert.rejects(fetchInstalledRelease(async () => { throw Error("network"); }, {}, "0.2.1"), /network/);
-});
-test("v0.2.0 to v0.2.1 is an upgrade and v0.2.1 never offers the same or older release", () => {
-  const handle = metadata("0.2.1");
-  const result = resolveUpdate("0.2.0", ok(release("0.2.1")), ok(handle), true);
-  assert.equal(result.state, "available");
-  assert.equal(result.version, "0.2.1");
-  assert.equal(result.handle, handle);
-  for (const version of ["0.2.0", "0.2.1"]) {
-    const current = resolveUpdate("0.2.1", ok(release(version)), ok(metadata(version)), true);
-    assert.equal(current.state, "latest");
-    assert.equal(current.handle, null);
-  }
-});
-
-test("announcement, version, notes, URL and install handle come from one resolved version", () => {
-  const handle = metadata();
-  const result = resolveUpdate("0.2.1", ok(release()), ok(handle), true);
-  assert.equal(result.state, "available");
-  assert.equal(result.version, "0.2.2");
-  assert.equal(result.body, "notes-0.2.2");
-  assert.equal(result.handle, handle);
-  assert.equal(result.url, release().html_url);
-});
-test("disagreeing sources disable installation and do not expose mismatched notes or URL", () => {
-  const result = resolveUpdate("0.2.1", ok(release("0.2.3")), ok(metadata()), true);
-  assert.equal(result.state, "conflict");
-  for (const key of ["version", "url", "body", "date"]) assert.equal(result[key], "");
-  assert.equal(result.handle, null);
-});
-test("API limit can fall back to official metadata, not a fake latest result", () => {
-  const result = resolveUpdate("0.2.1", fail(new UpdateRequestError("rateLimit")), ok(metadata()), true);
-  assert.equal(result.state, "available");
-  assert.equal(result.source, "metadata");
-  assert.equal(result.body, "metadata-0.2.2");
-  assert.equal(resolveUpdate("0.2.1", fail(new Error("fetch failed")), ok(null), true).state, "error");
-});
-test("missing metadata and unsupported bundles only offer manual official downloads", () => {
-  for (const result of [resolveUpdate("0.2.1", ok(release()), ok(null), true),
-    resolveUpdate("0.2.1", ok(release()), ok(metadata()), false)]) {
-    assert.equal(result.state, "manual");
-    assert.equal(result.handle, null);
-  }
-});
-test("first metadata connection failure recovers within the same check", async () => {
-  for (const message of ["network request failed", "request timed out"]) {
-    let calls = 0;
-    const handle = metadata("0.2.1"), announcement = release("0.2.1");
-    const result = await checkUpdateMetadata("0.2.0", Promise.resolve(announcement), async () => {
-      if (++calls === 1) throw new Error(message);
-      return handle;
-    });
-    const snapshot = resolveUpdate("0.2.0", ok(announcement), ok(result), true);
-    assert.equal(calls, 2);
-    assert.equal(snapshot.state, "available");
-    assert.equal(snapshot.handle, handle);
-  }
-});
-test("empty metadata retries only when the announcement proves a newer stable release", async () => {
-  for (const [announcement, expected] of [[release(), 2], [release("0.2.1"), 1], [null, 1], [release("0.2.2-rc.1"), 1]]) {
-    let calls = 0;
-    const result = await checkUpdateMetadata("0.2.1", Promise.resolve(announcement), async () => ++calls === 1 ? null : metadata());
-    assert.equal(calls, expected);
-    assert.equal(result?.version ?? null, expected === 2 ? "0.2.2" : null);
-  }
-});
-test("persistent transport failure is bounded and never described as missing signed metadata", async () => {
-  let calls = 0;
-  const [result] = await Promise.allSettled([checkUpdateMetadata("0.2.1", Promise.resolve(release()), async () => {
-    calls++; throw new Error("network private path");
-  })]);
-  assert.equal(calls, 2);
-  const snapshot = resolveUpdate("0.2.1", ok(release()), result, true);
-  assert.equal(snapshot.state, "manual");
-  assert.equal(snapshot.failure, "network");
-  assert.equal(snapshot.handle, null);
-  assert.equal(snapshot.version, "0.2.2");
-});
-test("trust and validation errors never retry or enable installation", async () => {
-  for (const category of ["tls", "signature", "invalidResponse", "proxy", "rateLimit", "service"]) {
-    let calls = 0;
-    const [result] = await Promise.allSettled([checkUpdateMetadata("0.2.1", Promise.resolve(release()), async () => {
-      calls++; throw new UpdateRequestError(category);
-    })]);
-    assert.equal(calls, 1, category);
-    const snapshot = resolveUpdate("0.2.1", ok(release()), result, true);
-    assert.equal(snapshot.failure, category);
-    assert.equal(snapshot.handle, null);
-  }
-});
-test("latest needs valid announcement evidence; 404 is unpublished, not latest", () => {
-  assert.equal(resolveUpdate("0.2.1", ok(release("0.2.1")), ok(null), true).state, "latest");
-  assert.equal(resolveUpdate("0.2.1", ok(null), ok(null), true).state, "unpublished");
-  assert.equal(resolveUpdate("0.2.1", ok(null), fail(new Error("timeout")), true).state, "error");
-  assert.equal(resolveUpdate("bad", ok(release()), ok(metadata()), true).failure, "invalidResponse");
-});
-test("malformed or nonstable source data cannot be installed", () => {
-  for (const entry of [{ ...release(), draft: true }, { ...release(), prerelease: true }, release("0.2.2-rc.1"),
-    { ...release(), html_url: release("0.2.3").html_url }, { ...release(), body: {} },
-    { ...release(), html_url: `${release().html_url}?token=secret` },
-    { ...release(), html_url: `https://user:secret@github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2` }]) {
-    assert.equal(resolveUpdate("0.2.1", ok(entry), ok(metadata()), true).failure, "invalidResponse");
-  }
-  assert.equal(resolveUpdate("0.2.1", ok(release()), ok(metadata("0.2.2junk")), true).failure, "invalidResponse");
   assert.equal(isOfficialReleaseUrl("https://github.com.evil.test/GKNEETIEMAY/ProxyEnv/releases/"), false);
 });
-test("failures become allowlisted categories, never raw transport messages", () => {
-  for (const [message, category] of [["AbortError", "timeout"], ["TLS certificate", "tls"], ["proxy authentication 407 secret", "proxy"],
-    ["signature failed secret", "signature"], ["fetch failed http://secret@private", "network"], ["unknown private path", "service"]])
-    assert.equal(updateFailure(new Error(message)), category);
-});
-test("HTTP errors distinguish evidenced limits from other 403 and service failures", async () => {
-  for (const [status, remaining, category] of [[429, null, "rateLimit"], [403, "0", "rateLimit"], [403, "12", "service"], [403, null, "service"], [500, null, "service"], [502, null, "service"]]) {
-    await assert.rejects(fetchLatestRelease(async () => ({ status, ok: false, headers: { get: () => remaining } }), {}), error => error.category === category);
+
+test("official manifest distinguishes equal, ahead, available, manual and missing releases without REST", () => {
+  assert.equal(resolveUpdate("0.2.2", metadata(), true).state, "latest");
+  const ahead = resolveUpdate("0.2.2", metadata("0.2.1"), true);
+  assert.equal(ahead.state, "ahead");
+  assert.equal(ahead.version, "0.2.1");
+  const newer = resolveUpdate("0.2.1", metadata(), true);
+  assert.equal(newer.state, "available");
+  assert.equal(newer.url, "https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2");
+  assert.equal(newer.body, "notes-0.2.2");
+  assert.equal(resolveUpdate("0.2.1", metadata(), false).state, "manual");
+  assert.equal(resolveUpdate("0.2.1", { ...metadata(), body: "" }, true).state, "manual");
+  assert.equal(resolveUpdate("0.2.1", null, true).state, "unpublished");
+  assert.equal(resolveUpdate("bad", metadata(), true).failure, "invalidResponse");
+  for (const invalid of [metadata("0.2.2-rc.1"), { ...metadata(), body: {} }, { ...metadata(), date: "bad" }, { ...metadata(), body: "x".repeat(80_001) }]) {
+    assert.equal(validMetadata(invalid), false);
+    assert.equal(resolveUpdate("0.2.1", invalid, true).failure, "invalidResponse");
   }
-  assert.equal(await fetchLatestRelease(async () => ({ status: 404 }), {}), null);
-  await assert.rejects(fetchLatestRelease(async () => ({ status: 200, ok: true, json() { throw new Error("bad json private content"); } }), {}), error => error.category === "invalidResponse");
-  for (const value of [null, "0.2.2", 2, []])
-    await assert.rejects(fetchLatestRelease(async () => ({ status: 200, ok: true, json: async () => value }), {}), error => error.category === "invalidResponse");
 });
-test("metadata without notes cannot enable fallback installation", () => {
-  const result = resolveUpdate("0.2.1", fail(new Error("network")), ok({ version: "0.2.2" }), true);
-  assert.equal(result.state, "manual");
-  assert.equal(result.handle, null);
+
+test("automatic checks cache six hours across restart; manual checks bypass TTL after 30 seconds", async () => {
+  let now = 100_000, calls = 0;
+  const disk = storage();
+  const fetcher = async () => { calls++; return metadata(); };
+  const client = new UpdateMetadataClient(fetcher, disk, () => now);
+  assert.equal((await client.get()).cached, false);
+  assert.equal((await client.get("manual")).cached, true);
+  assert.equal(calls, 1);
+  now += 31_000;
+  const restarted = new UpdateMetadataClient(fetcher, disk, () => now);
+  assert.equal((await restarted.get()).cached, true);
+  assert.equal(calls, 1);
+  assert.equal((await restarted.get("manual")).cached, false);
+  assert.equal(calls, 2);
+  now += 6 * 3600_000;
+  assert.equal((await restarted.get()).cached, false);
+  assert.equal(calls, 3);
+  assert.equal((await restarted.get("install")).cached, false);
+  assert.equal(calls, 4);
+  assert.doesNotMatch(disk.getItem(), /signature|https:|handle|rid/);
+});
+
+test("concurrent and repeated clicks share a single bounded request", async () => {
+  let calls = 0, finish;
+  const client = new UpdateMetadataClient(() => { calls++; return new Promise(done => { finish = done; }); }, storage(), () => 100_000);
+  const first = client.get(), second = client.get("manual");
+  assert.equal(first, second);
+  finish(metadata());
+  await Promise.all([first, second]);
+  await client.get("manual");
+  assert.equal(calls, 1);
+});
+
+test("rate-limit cooldown survives restart and cannot be bypassed by manual or install requests", async () => {
+  let now = 100_000, calls = 0;
+  const disk = storage();
+  const first = new UpdateMetadataClient(async () => { calls++; throw { category: "rateLimit", retryAt: 400_000 }; }, disk, () => now);
+  await assert.rejects(first.get(), e => e.category === "rateLimit" && e.retryAt === 400_000);
+  const restarted = new UpdateMetadataClient(async () => { calls++; return metadata(); }, disk, () => now);
+  for (const mode of ["automatic", "manual", "install"]) await assert.rejects(restarted.get(mode), e => e.category === "rateLimit");
+  assert.equal(calls, 1);
+  now = 400_000;
+  assert.equal((await restarted.get("manual")).cached, false);
+  assert.equal(calls, 2);
+});
+
+test("malformed cooldown gets a minimum wait, storage failures do not block live checks", async () => {
+  const disk = storage();
+  const client = new UpdateMetadataClient(async () => { throw { category: "rateLimit", retryAt: "private" }; }, disk, () => 100_000);
+  await assert.rejects(client.get(), e => e.retryAt === 160_000);
+  const broken = { getItem() { throw Error("denied"); }, setItem() { throw Error("full"); } };
+  const live = new UpdateMetadataClient(async () => metadata(), broken, () => 100_000);
+  assert.equal((await live.get()).metadata.version, "0.2.2");
+  assert.equal((await live.get()).cached, true);
+});
+
+test("a Tauri rate-limit error during install preflight also persists a cooldown", async () => {
+  const disk = storage();
+  const client = new UpdateMetadataClient(async () => metadata(), disk, () => 100_000);
+  await client.get();
+  client.rememberFailure(new Error("HTTP 429"));
+  const restarted = new UpdateMetadataClient(async () => { throw Error("must not request"); }, disk, () => 100_000);
+  await assert.rejects(restarted.get("install"), e => e.category === "rateLimit" && e.retryAt === 160_000);
+});
+
+test("corrupt or future caches cannot provide version evidence; network failures stay errors", async () => {
+  for (const raw of ["{bad", "x".repeat(100_001), JSON.stringify({ checkedAt: 200_000, retryAt: 0, metadata: metadata() }), JSON.stringify({ checkedAt: 10, retryAt: 0, metadata: metadata("bad") })]) {
+    let calls = 0;
+    const client = new UpdateMetadataClient(async () => { calls++; return metadata(); }, storage(raw), () => 100_000);
+    assert.equal((await client.get()).cached, false);
+    assert.equal(calls, 1);
+  }
+  let calls = 0;
+  const failed = new UpdateMetadataClient(async () => { calls++; throw { category: "network" }; }, storage(), () => 100_000);
+  await assert.rejects(failed.get(), e => e.category === "network");
+  assert.equal(calls, 2);
+});
+
+test("transient metadata failures retry once; trust failures and limits never retry", async () => {
+  for (const category of ["network", "timeout", "tls", "signature", "invalidResponse", "rateLimit", "service", "proxy"]) {
+    let calls = 0;
+    await assert.rejects(retryTransport(async () => { calls++; throw new UpdateRequestError(category); }), e => e.category === category);
+    assert.equal(calls, ["network", "timeout"].includes(category) ? 2 : 1);
+  }
+});
+
+test("install gets a fresh matching official handle and rejects downgrades and changed versions", async () => {
+  let calls = 0, closed = 0;
+  const handle = { version: "0.2.2", async close() { closed++; } };
+  const checked = async () => { calls++; return handle; };
+  assert.equal(await verifiedInstallHandle("0.2.1", "0.2.2", checked), handle);
+  assert.equal(calls, 1);
+  for (const current of ["0.2.2", "0.2.3", "bad"]) await assert.rejects(verifiedInstallHandle(current, "0.2.2", checked));
+  assert.equal(calls, 1);
+  await assert.rejects(verifiedInstallHandle("0.2.1", "0.2.3", checked), e => e.category === "invalidResponse");
+  assert.equal(closed, 1);
+});
+
+test("first empty official handle retries once but never installs a null or failed handle", async () => {
+  let calls = 0;
+  const handle = { version: "0.2.2", async close() {} };
+  assert.equal(await verifiedInstallHandle("0.2.1", "0.2.2", async () => ++calls === 1 ? null : handle), handle);
+  assert.equal(calls, 2);
+  calls = 0;
+  assert.equal(await verifiedInstallHandle("0.2.1", "0.2.2", async () => { calls++; return null; }), null);
+  assert.equal(calls, 2);
+  for (const category of ["tls", "signature", "invalidResponse", "rateLimit"]) {
+    calls = 0;
+    await assert.rejects(verifiedInstallHandle("0.2.1", "0.2.2", async () => { calls++; throw new UpdateRequestError(category); }));
+    assert.equal(calls, 1);
+  }
+});
+
+test("failures are allowlisted and never expose raw transport messages", () => {
+  for (const [message, category] of [["AbortError", "timeout"], ["TLS certificate", "tls"], ["proxy authentication 407 secret", "proxy"], ["signature failed secret", "signature"], ["fetch failed http://secret@private", "network"], ["unknown private path", "service"]])
+    assert.equal(updateFailure(new Error(message)), category);
+  assert.equal(updateFailure({ category: "private-token" }), "service");
+});
+
+test("current notes are bundled, REST is absent and check/install trust boundaries remain fixed", () => {
+  const shell = readFileSync("src/app/AppShell.vue", "utf8");
+  const notes = readFileSync("src/features/settings/installed-notes.ts", "utf8");
+  const version = JSON.parse(readFileSync("package.json", "utf8")).version;
+  assert.ok(notes.includes(`v${version}.md?raw`));
+  assert.ok(notes.includes(`installedReleaseVersion = "${version}"`));
+  assert.doesNotMatch(shell, /fetchLatestRelease|fetchInstalledRelease|api\.github\.com|allowDowngrades/);
+  assert.match(shell, /appVersion.value === installedReleaseVersion \? installedReleaseNotes/);
+  assert.match(shell, /metadataClient.get\("install"\)/);
+  assert.match(shell, /verifiedInstallHandle\(appVersion.value, expectedVersion/);
+  assert.match(shell, /check\(\{ timeout: 10_000 \}\)/);
+  const native = readFileSync("src-tauri/src/desktop/update_metadata.rs", "utf8");
+  const config = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
+  assert.ok(native.includes(config.plugins.updater.endpoints[0]));
+  assert.doesNotMatch(native, /danger_accept_invalid|api\.github\.com/);
 });
 
 test("all desktop update locales survive the English fallback", () => {
@@ -293,7 +301,7 @@ test("backend entry points and monitors share the gate; Windows has no post-inst
   assert.match(read("src-tauri/src/features/remote_bridge/mod.rs"), /ssh_auth::update_busy\(\)/);
   const shell = read("src/app/AppShell.vue");
   assert.doesNotMatch(shell, /downloadAndInstall\(|relaunch\(/);
-  assert.match(shell, /settingsReady = true;[\s\S]*?void checkForUpdates\(\)/);
+  assert.match(shell, /settingsReady = true;[\s\S]*?void checkForUpdates\(false\)/);
   assert.match(shell, /:inert="updateExclusive"/);
   assert.match(shell, /if \(installer\.guardReleased\) updateExclusive\.value = false/);
   assert.match(read("src/features/settings/components/UpdateInstallDialog.vue"), /type="button" autofocus/);
