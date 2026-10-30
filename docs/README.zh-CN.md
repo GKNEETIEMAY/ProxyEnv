@@ -2,7 +2,7 @@
 
 [English](README.md) · 简体中文
 
-当前文档说明 2026-10-20 发布的 RouteSpan v0.2.1 稳定版，早期公开安装包不具有远程桥接功能。
+当前文档说明 2026-10-30 发布的 RouteSpan v0.2.2 稳定版，早期公开安装包不具有远程桥接功能。
 旧品牌为 ProxyEnv，v0.1.4 已于 2026-10-13 公开发布，为历史版本。
 产品入口：[中文 README](../README.zh-CN.md) / [English README](../README.md)。
 

@@ -15,12 +15,12 @@
 
 ## Release status
 
-**RouteSpan v0.2.1 is the latest public stable release**, published on 2026-10-20.
+**RouteSpan v0.2.2 is the latest public stable release**, published on 2026-10-30.
 Download the Windows x64 NSIS, MSI or portable package from the
-[v0.2.1 release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1).
+[v0.2.2 release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2).
 
 The legacy brand was ProxyEnv: v0.1.3 and v0.1.4 are public historical releases;
-v0.1.4 was published on 2026-10-13. The previous RouteSpan stable release is v0.2.0. Existing NSIS
+v0.1.4 was published on 2026-10-13. Previous RouteSpan stable releases include v0.2.0 and v0.2.1. Existing NSIS
 users can use **About → Check for updates**; MSI and portable users update manually.
 Manual previews are not stable updates. Earlier public packages do not include Remote Bridge.
 
@@ -33,7 +33,7 @@ local capabilities to a remote Linux development account over SSH.
 remotely. Linux/macOS desktop editions are not currently supported.
 
 Select one active proxy, distinguish System Proxy/TUN/environment variables,
-and launch new applications with proxy or direct access. The remote workspace
+and copy proxy settings or launch new applications with proxy variables. The remote workspace
 reuses the selection, extends CC Switch AI routes and prepares tools/Skills.
 
 RouteSpan is not a proxy core, VPN, subscription manager or AI provider service.
@@ -72,7 +72,7 @@ to server networking or CC Switch provider routing.
 - Discover supported local proxy clients and select one active endpoint.
 - See System Proxy, TUN observations and proxy environment state separately.
 - Apply, clear or restore selected current-user proxy environment variables.
-- Diagnose a selected application and launch a new process with proxy or direct access.
+- Copy a proxy URL or separate host/port values; explicitly launch a selected application with proxy variables.
 
 Changing environment variables affects newly launched processes. Running terminals
 and applications may need to be reopened; RouteSpan does not inject new settings
@@ -80,8 +80,9 @@ into them or toggle Windows System Proxy or TUN for you.
 
 <p align="center"><a href="docs/assets/routespan-app-launch.png"><img src="docs/assets/routespan-app-launch.png" width="880" alt="Application launch choice: create a new process with the active proxy or a direct environment"></a></p>
 
-Choose a launch environment for a **new process**. Running applications stay
-unchanged; launching is not proof that the application can reach its destination.
+This illustration predates v0.2.2. Now copy proxy settings or launch a **new process**;
+direct launch and automatic configuration edits were removed. Running applications stay
+unchanged; launching does not prove connectivity.
 
 ### Remote Bridge
 
@@ -110,7 +111,7 @@ CLI or extension may need a restart or reload to consume updated model settings.
 
 ## Quick start
 
-1. Install the official v0.2.1 Windows x64 package.
+1. Install the official v0.2.2 Windows x64 package.
 2. Start your local proxy client; confirm the selected endpoint in **Local Environment**.
 3. For AI access, start CC Switch and enable the corresponding local route first.
 4. In **Remote Bridge**, select or add an SSH connection and choose its capabilities.
@@ -126,7 +127,7 @@ See [Getting started](docs/GETTING_STARTED.md) for prerequisites and
 
 ## Supported remote development tools
 
-| Tool or entry | v0.2.1 behavior |
+| Tool or entry | v0.2.2 behavior |
 | --- | --- |
 | Codex CLI | Supported `0.x` versions from `0.134`; standard remote user configuration |
 | Claude Code CLI | Supported `2.x`; session-header access requires `2.1.227` or newer |
@@ -168,11 +169,11 @@ Read [Security](SECURITY.md) before using a shared host, and
 
 ## Current v0.2 status
 
-v0.2.1 ships Local Environment, Remote Bridge, CC Switch route extension,
+v0.2.2 ships Local Environment, Remote Bridge, CC Switch route extension,
 tool readiness, managed Skills and Overview/Advanced, preserving the legacy
 installation and updater identity. Source CI and the signed release workflow passed;
-the frozen artifacts were independently verified, and the maintainer confirmed
-upgrade and remote-function acceptance. Tauri update signatures are not Windows Authenticode signatures.
+the frozen artifacts were independently verified. Native checks without new evidence
+remain unverified. Tauri update signatures are not Windows Authenticode signatures.
 
 See [v0.2 release QA](docs/RELEASE_QA_V0.2.md) for release status and historical
 checkpoints, and [Roadmap](docs/ROADMAP.md) for future work. Detailed acceptance

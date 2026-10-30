@@ -41,13 +41,23 @@ remain private. The maintainer confirmed upgrade and remote-function acceptance.
 CI, signed packaging and independent artifact verification passed. Future tag/signed
 Draft and public Publish steps continue to require separate authorization.
 
+## Released: RouteSpan v0.2.2
+
+Published on 2026-10-30 from `v0.2.2dev`: local Overview/Advanced views, saved proxy
+variables, bounded scheduled connectivity checks, simpler application proxy setup,
+proxy recovery and update/changelog fixes. Update checks now use the fixed official
+manifest, a local cache, persistent rate-limit cooldown and bundled version notes.
+See the [public release](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2)
+and [four-language notes](../.github/release-notes/v0.2.2.md). Full CI and independent
+signed-artifact verification passed; publication was explicitly authorized. Native
+Windows/DPI, live proxy/SSH, historical backup samples and upgrade checks without
+new evidence remain unverified; see [release QA](RELEASE_QA_V0.2.md).
+
 ## Gates retained for future releases
 
-Development is underway on `v0.2.2dev` for the local overview/advanced workspace,
-explicit connectivity checks and stale-response protection. The current stable
-release remains v0.2.1. See the [scoped development plan](development/LOCAL_ENVIRONMENT_V0.2.2.zh-CN.md)
-and [implementation evidence and open acceptance items](development/LOCAL_ENVIRONMENT_V0.2.2_QA.md).
-These development records do not replace the release gates below.
+The [scoped development plan](development/LOCAL_ENVIRONMENT_V0.2.2.zh-CN.md) and
+[implementation evidence](development/LOCAL_ENVIRONMENT_V0.2.2_QA.md) preserve the
+v0.2.2 development history. They do not replace the release gates below.
 
 - Preserve the high-severity frontend audit gate and rerun full CI for release-preflight changes.
 - Verify predecessor → RouteSpan upgrade, retained installer identity/data and uninstall.

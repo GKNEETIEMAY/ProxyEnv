@@ -2,8 +2,8 @@
 
 English · [简体中文](GETTING_STARTED.zh-CN.md)
 
-This guide describes the RouteSpan v0.2.1 stable UI. Install an
-[official v0.2.1 package](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.1).
+This guide describes the RouteSpan v0.2.2 stable UI. Install an
+[official v0.2.2 package](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2).
 Existing RouteSpan and legacy ProxyEnv NSIS users can use About → Check for updates.
 v0.1.4 is a public historical release. A preview is not a signed update release.
 
@@ -37,8 +37,13 @@ your saved preference.
 3. Review System Proxy, TUN and environment-variable observations independently.
 4. Apply proxy variables only if wanted; clear/restore using explicit actions.
    Existing applications do not inherit later changes.
-5. Open Application Assistant for a selected application's diagnosis or a new
-   proxy/direct launch. It does not automatically reconfigure arbitrary applications.
+5. Open application proxy setup to copy the proxy URL or separate host/port values.
+   Select an application and explicitly launch a new process with proxy variables if needed.
+   It does not edit application configuration or prove that the application reads those variables.
+
+Local connectivity checks access Google, GitHub and Cloudflare through the selected proxy
+when it becomes available and every 30 minutes while running; manual checks reset the timer.
+These limited targets do not establish availability for every application.
 
 Automatic refresh does not silently replace an unavailable selection. Re-select
 a valid endpoint rather than relying on stale variables.

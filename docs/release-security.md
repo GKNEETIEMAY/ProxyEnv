@@ -2,8 +2,10 @@
 
 English · [简体中文](release-security.zh-CN.md)
 
-This defines the formal release trust model. RouteSpan v0.2.1 is the latest public
-stable release, published on 2026-10-20. The legacy brand was ProxyEnv; v0.1.4
+This defines the formal release trust model. RouteSpan v0.2.2 is the latest public
+stable release, published on 2026-10-30. Its updater signatures, checksums and provenance
+were independently verified. Native checks without new evidence remain unverified;
+publication authorization does not imply device acceptance. The legacy brand was ProxyEnv; v0.1.4
 is a public historical release. v0.2.1's updater signatures, checksums and provenance
 were independently verified. The maintainer confirmed upgrade and remote-function acceptance.
 Publication and evidence remain separate from local preview packaging.
@@ -38,8 +40,12 @@ https://github.com/GKNEETIEMAY/ProxyEnv/releases/latest/download/latest.json
 These do not migrate with a logo/display-name change.
 [Internal contracts](INTERNAL_CONTRACTS.md) lists the protected identities.
 
-About → Check for updates reads the fixed GitHub API/manifest. Only an explicit
-Download and install action fetches the signed artifact. Official Tauri Updater
+Update checks read the fixed official `latest.json`; they do not call GitHub REST API.
+Current-version notes are bundled locally. Automatic checks reuse a six-hour display
+cache; manual checks bypass that TTL after a 30-second interval. Rate-limit cooldown
+survives restart and cannot be bypassed manually. Cached data never authorizes installation.
+Only an explicit Download and install action rechecks the live version, obtains an
+official Tauri handle and fetches the signed artifact. Official Tauri Updater
 verifies against the embedded key and uses the unchanged upgrade-only comparison.
 Registered NSIS installations can be passively replaced and restarted; MSI and
 portable variants use manual updates. No arbitrary URL, custom downloader or
@@ -47,9 +53,17 @@ execution of an unverified installer is authorized.
 
 ## Formal release workflow
 
-### v0.2.1 upgrade acceptance baseline
+### v0.2.2 upgrade evidence
 
-This release targets **published v0.2.0 → v0.2.1 (Windows x64 NSIS)**.
+The current transition is **v0.2.1 → v0.2.2 (Windows x64 NSIS)**. Downloaded
+installer signatures were checked against the v0.2.1 public key, with matching
+checksums, manifest and provenance. These checks do not execute the installer.
+Native installation, restart and settings/SSH retention remain unverified without
+new device evidence. See the current release QA entry; prior acceptance is historical.
+
+### Historical v0.2.1 upgrade acceptance baseline
+
+That release targeted **published v0.2.0 → v0.2.1 (Windows x64 NSIS)**.
 The historical v0.1.4 upgrade failure is no longer in scope. Preserve v0.2.0's
 embedded public key, update endpoint, application identity and per-user installation
 mode; sign with the original matching private key. Paid Windows Authenticode is not required.

@@ -34,11 +34,19 @@ RouteSpan 的 Windows 依赖图中启用。后续发行构建必须在打包前�
 维护者已确认升级和远端功能验收；CI、签名打包与独立产物验证均通过。
 后续 tag/签名 Draft 与公开 Publish 仍分别需要授权。
 
+## 已发布：RouteSpan v0.2.2
+
+2026-10-30 从 `v0.2.2dev` 发布：本机概述/高级、已保存的代理变量、有限目标定时连通性检测、
+简化应用代理设置，以及代理恢复和更新日志修复。更新检查改用固定官方 manifest，提供本地缓存、跨重启限流冷却和随包版本日志。
+见[公开发行](https://github.com/GKNEETIEMAY/ProxyEnv/releases/tag/v0.2.2)
+及[四语发行说明](../.github/release-notes/v0.2.2.md)。完整 CI 与签名产物独立核验通过，维护者明确授权发布。
+没有新证据的原生 Windows/DPI、真实代理/SSH、历史备份样本及安装升级仍为未验证，
+详见[发行验收](RELEASE_QA_V0.2.zh-CN.md)。
+
 ## 后续发行继续保留的门槛
 
-`v0.2.2dev` 正在实现本机概述/高级工作区、显式连通性检测和过期回包保护；
-当前稳定版仍为 v0.2.1。见[开发方案](development/LOCAL_ENVIRONMENT_V0.2.2.zh-CN.md)
-及[实施证据与待验收项](development/LOCAL_ENVIRONMENT_V0.2.2_QA.md)。开发记录不替代以下发行门槛。
+[开发方案](development/LOCAL_ENVIRONMENT_V0.2.2.zh-CN.md)及
+[实施证据](development/LOCAL_ENVIRONMENT_V0.2.2_QA.md)保留 v0.2.2 的开发历史，不能替代以下发行门槛。
 
 - 保持前端高危审计门槛，发行预检变更重新运行完整 CI。
 - 验证前版升级到 RouteSpan，保留安装身份/数据并验证卸载。

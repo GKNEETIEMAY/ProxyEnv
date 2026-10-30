@@ -55,11 +55,11 @@ selected values in `HKCU\\Environment`: read/snapshot → apply → broadcast/re
 with rollback on failure. Restore refuses a conflicting value instead of replacing
 a later user edit. Running-process environments are never rewritten.
 
-The assistant authorizes a canonical executable via short-lived backend identity,
-then starts a new child with proxy/direct variables. The exceptional manual-guide
-restart requires explicit confirmation and fresh process identity checks.
-Bundled configuration rules are bounded data, not executable plugins or a guarantee
-of arbitrary application configuration support.
+Application proxy setup authorizes a canonical executable via short-lived backend
+identity and a current selection revision, then starts a new child with proxy variables.
+It also exposes copyable URL/host/port values. Automatic configuration writes/restores,
+direct launches and forced restarts were removed in v0.2.2. Existing historical backups
+remain untouched; upgrade does not automatically restore application configuration.
 
 ## Remote Bridge
 
