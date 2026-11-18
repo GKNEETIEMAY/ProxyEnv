@@ -91,16 +91,28 @@ PyYAML 6.0.3 BaseLoader 解析新旧结构并比较：除该分支外结构相�
 本地结构校验不是 GitHub 执行结果，也不替代远端 Actions 验证。
 
 本机虽有 `wsl.exe` 入口，`--list --quiet` 正确解码后退出 1，提示“系统找不到指定的文件”，
-未取得可用 Linux 发行版；没有安装/初始化 WSL。原生 Linux 扩展验证因此仍等待 Linux CI，
+未取得可用 Linux 发行版；没有安装/初始化 WSL。原生 Linux 扩展验证由下述 Linux CI 完成，
 不把 Git Bash 的权限 mock 或 Windows 上的通过项冒充该项验收。
 
-维护者已在审阅四文件变更摘要后明确授权推送。本次提交/推送正在执行；在取得真实 run 前，
-修复 SHA 对应的 CI run / 链接仍为 PENDING。
-旧 `7b5cee4` 的远端存在性不能算修复提交 CI；picomatch 未修复时，预期 Windows Job 会在
-原 pnpm audit 门槛失败，仍需按真实远端结果记录，不能跳过审计来运行后续步骤。
+维护者已在审阅四文件变更摘要后明确授权推送。整改源码与首次报告已推送至
+`origin/v0.3.0dev`，冻结 SHA 为 `725aa02f179d14b46866f8ce75de63b87a549694`。
+[实际 CI 44264475814](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/44264475814)
+已结束，head_sha 与该提交一致，整体为 failure。各 Job 结果：
+
+| Job | 结果与证据范围 |
+| --- | --- |
+| Remote extension Linux filesystem tests | PASS，45 通过 / 0 失败 / 0 跳过，原生 Linux 文件系统事务 |
+| RustSec audit / Security audit | PASS，云端保留的审计检查通过 |
+| Windows local UI fixtures | PASS，仅模拟 UI，不等于原生 DPI/设备验收 |
+| Windows build and test | BLOCKED，Audit frontend dependencies 因 picomatch 2 high 退出 1；其后构建、远端回归、Rust fmt/Clippy/测试和 release EXE 均跳过 |
+
+失败日志明确给出同一 `GHSA-fc5q-39xc-vjpf` 及原两条依赖路径，没有降低审计门槛或改为 warning。
+后续仅同步报告，不改变上述已验证的源码；报告提交自身的后续运行不能自动继承该 CI 结论。
 
 只读查询开发分支旧 run 的两次 CLI 请求均遇到 API EOF，未取得可核对的运行结果；
 此网络失败不算 CI 失败或成功。证据为 `ci-before-push.json`（实际为错误文本，不按 JSON 成功结果使用）。
+推送后经只读重试成功取得实际 run 与 Job 日志；watch 曾因 EOF 结束，未将其当作 Job 状态。
+本次最终结论来自重新查询的 completed 状态及完成后的 Job 日志。
 
 ## 本轮验证清单
 
@@ -120,10 +132,11 @@ PyYAML 6.0.3 BaseLoader 解析新旧结构并比较：除该分支外结构相�
 | 隔离回归旧 helper | 预期 FAIL，确认测试可发现污染 | isolation-before.log |
 | 隔离回归新 helper | PASS | fixture-after-1.log |
 | workflow YAML 与结构比较 | PASS | workflow-validation.log |
-| Linux 原生扩展事务 | PENDING，等待获准推送后的 Linux CI | 未提供本次 CI run |
+| Linux 原生扩展事务 | PASS，45 通过 / 0 失败 / 0 跳过 | CI 44264475814，linux-ci-44264475814.log |
 | Windows 上扩展检查 | PASS（执行范围），两轮均 41 通过 / 0 失败 / 4 跳过 | check-1.log / check-2.log |
 | 原生 UI / DPI / 真 SSH / 模型请求 | PENDING，本轮未执行 | 不以静态或 fixture 代替 |
-| CI release EXE / Linux runner / workflow 执行 | PENDING，本轮尚未推送 | 不用本地 dev 构建替代 |
+| CI Windows release EXE 与审计后步骤 | BLOCKED，前端 audit 失败后跳过 | ci-44264475814-failed.log |
+| CI workflow / Linux runner / UI fixtures / RustSec | 独立 Job 通过；整体 CI 仍失败 | CI 44264475814 |
 
 ## 变更、回滚与 M0 结论
 
@@ -132,11 +145,11 @@ PyYAML 6.0.3 BaseLoader 解析新旧结构并比较：除该分支外结构相�
 - `.github/workflows/ci.yml`：增加开发分支监听。
 - 本报告：公告、兼容性、测试证据、剩余阻断与授权状态。
 
-本次分类提交摘要（结果由后续推送记录补齐）：
+已推送的分类提交摘要：
 
-1. `fix(deps): patch QUIC security advisories in lockfile`：仅 Cargo.lock。
-2. `test(remote): isolate shell fixtures and enable dev branch CI`：fixture 与 ci.yml。
-3. `docs(v0.3): record M0 fix evidence and remaining blockers`：本报告。
+1. `9a334cf` — `fix(deps): patch QUIC security advisories in lockfile`：仅 Cargo.lock。
+2. `338c04f` — `test(remote): isolate shell fixtures and enable dev branch CI`：fixture 与 ci.yml。
+3. `725aa02` — `docs(v0.3): record M0 fix evidence and remaining blockers`：首次报告。
 
 上一轮本地提交命令未能启动：自动权限审查超时，按工具允许重试一次后再次超时。
 工具明确说明超时不表示动作不安全；当时没有形成新提交，HEAD 仍为基线 `7b5cee4`。
@@ -145,6 +158,7 @@ PyYAML 6.0.3 BaseLoader 解析新旧结构并比较：除该分支外结构相�
 无需用户数据迁移，撤回 QUIC 补丁会重新引入全锁文件告警。
 
 **M0 仍不满足进入 M1 的条件。** picomatch 无正式补丁、pnpm 高危门槛仍失败；
-本次开发分支 CI 待推送后验证。完整本地重复检查已通过；原超时根因仍有证据限制。
+开发分支 CI 已实际验证并被保留的高危审计门槛阻断。完整本地重复检查及原生 Linux 扩展 CI 已通过；
+原超时根因仍有证据限制。
 真实 Linux/Windows SSH 验收继续保留 PENDING，
 不能将 Linux Node 文件系统 CI 当作实机 SSH 或 WindowsTarget 功能验收。
