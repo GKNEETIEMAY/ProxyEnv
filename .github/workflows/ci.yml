@@ -67,6 +67,31 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:extensions
 
+  frontend-security-audit:
+    name: Frontend security audit
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+
+      - name: Enable pinned pnpm
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.1 --activate
+
+      - name: Install frontend dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit frontend dependencies
+        run: pnpm audit --audit-level high
+
   build-and-test:
     name: Windows build and test
     runs-on: windows-latest
@@ -88,9 +113,6 @@ jobs:
 
       - name: Install frontend dependencies from lockfile
         run: pnpm install --frozen-lockfile
-
-      - name: Audit frontend dependencies
-        run: pnpm audit --audit-level high
 
       - name: Test local proxy state and concurrency
         run: pnpm test:local
