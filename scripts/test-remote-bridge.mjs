@@ -289,8 +289,17 @@ const legacyCatalogJson = script.match(/codex_catalog_json\(\) \{\s+printf '%s\\
 const posix = p => p.replaceAll("\\", "/").replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
 function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path",codexBody,versionBody,privateGroup=false,sharedGroup=false}={}) {
   const directory=mkdtempSync(join(root,"bridge-test-"));
-  const home=join(directory,"home"), bin=join(directory,"bin");
-  mkdirSync(home);mkdirSync(bin);
+  const home=join(directory,"home"), bin=join(directory,"bin"), temp=join(directory,"tmp");
+  mkdirSync(home);mkdirSync(bin);mkdirSync(temp,{mode:0o700});
+  // A fixture must not source a developer's shell startup file, Python hooks,
+  // temporary directory or TEST_* overrides before its own script takes control.
+  const environment=(overrides={})=>{
+    const isolated={...process.env};
+    for(const key of Object.keys(isolated)) {
+      if (/^(?:TEST_|BASH_FUNC_|MSYS)/i.test(key) || ["BASH_ENV","ENV","BASHOPTS","SHELLOPTS","CDPATH","GLOBIGNORE","PYTHONHOME","PYTHONPATH","PROXYENV_SESSION_TOKEN","extension_version"].includes(key)) delete isolated[key];
+    }
+    return {...isolated,CODEX_HOME:"",CLAUDE_CONFIG_DIR:"",HOME:posix(home),PATH:`${posix(bin)}:/usr/bin:/bin`,TMPDIR:posix(temp),...overrides};
+  };
   const mock=(name,body)=>writeFileSync(join(bin,name),`#!/bin/sh\n${body}\n`,{mode:0o755});
   mock("uname","printf Linux");
   mock("ss",'printf "%s" "${TEST_LISTENERS:-}"');
@@ -300,8 +309,8 @@ function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path
   if(privateGroup) mock("id",'[ "$1" != -gn ] || { /usr/bin/id -un; exit; }; /usr/bin/id "$@"');
   if(sharedGroup) mock("id",'[ "$1" != -gn ] || { printf lab-users; exit; }; /usr/bin/id "$@"');
   if (python) mock(jsonEngine,`exec '${posix(python).replaceAll("'", "'\\''")}' "$@"`);
-  if(process.platform==="win32") mock("stat",'[ "$2" != %a ] || { printf 700; exit; }; /usr/bin/stat "$@"');
-  mock("mv",'for target do :; done; if [ "${TEST_FAIL_REPLACE:-}" = 1 ] && [ ! -e "$HOME/.replace-failed" ]; then case "$target" in *config.toml|*settings.json) touch "$HOME/.replace-failed"; exit 1;; esac; fi; /usr/bin/mv "$@"');
+  if(process.platform==="win32") mock("stat",'[ "$2" != %a ] || { printf 700; exit; }; exec /usr/bin/stat "$@"');
+  mock("mv",'for target do :; done; if [ "${TEST_FAIL_REPLACE:-}" = 1 ] && [ ! -e "$HOME/.replace-failed" ]; then case "$target" in *config.toml|*settings.json) touch "$HOME/.replace-failed"; exit 1;; esac; fi; exec /usr/bin/mv "$@"');
   const codexVersionBody=codexBody ?? 'printf "%s\\n" "${TEST_CODEX_VERSION:-codex-cli 0.134.0}"';
   if(codexLocation==="path") mock("codex",codexVersionBody);
   else if(codexLocation!=="missing") {
@@ -327,8 +336,9 @@ function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path
     const needsClaudeProfile=tool==="claude" && ["preview","apply"].includes(operation);
     const sessionToken=env.TEST_SESSION_TOKEN || "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nport=${port}\nports='${env.TEST_REMOTE_PORT ?? 17897}'\nexpected='${expected}'\nexpected_backup='${backupHash}'\nrepair_permissions='${env.TEST_REPAIR_PERMISSIONS === "1" ? "true" : "false"}'\nprotocol='http'\nscheme='http'\nsession_id='0123456789abcdef0123456789abcdef'\nsession_token='${sessionToken}'\nPROXYENV_SESSION_TOKEN="$session_token"\nexport PROXYENV_SESSION_TOKEN\nprofile_model_b64='${needsProfile ? Buffer.from(profileModel).toString("base64") : ""}'\nprofile_catalog_b64='${needsProfile ? Buffer.from(profileCatalog).toString("base64") : ""}'\nprofile_settings_b64='${needsClaudeProfile ? Buffer.from(claudeProfile).toString("base64") : ""}'\nprofile_hash='${needsProfile ? profileHash : needsClaudeProfile ? claudeProfileHash : ""}'\n${env.TEST_COMPACT_PROBE === "1" ? probeScript : script}`;
-    const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:{...process.env,CODEX_HOME:"",CLAUDE_CONFIG_DIR:"",HOME:posix(home),PATH:`${posix(bin)}:/usr/bin:/bin`,...env}});
-    assert.equal(result.status,0,result.stderr || result.error?.message);
+    const started=performance.now();
+    const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:environment(env)});
+    assert.equal(result.status,0,`${tool}/${operation}: ${Math.round(performance.now()-started)}ms; ${result.error?.code ?? result.signal ?? "exit"}; ${result.stderr || ""}`);
     return JSON.parse(result.stdout.trim());
   };
   const runSkill=(operation,tool,content)=>{
@@ -342,12 +352,31 @@ function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path
     const skillHash=createHash("sha256").update(content).digest("hex");
     const manifest=`${skillHash}  SKILL.md\n`;
     const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nskill_name='fixture-skill'\nskill_hash='${skillHash}'\nfile_count=1\ntotal_size=${Buffer.byteLength(content)}\nmanifest_b64='${Buffer.from(manifest).toString("base64")}'\ndirectories_b64=''\n${readFileSync("src-tauri/src/features/remote_bridge/skill-remote.sh","utf8")}`;
-    const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:{...process.env,HOME:posix(home),PATH:`${posix(bin)}:/usr/bin:/bin`}});
+    const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:environment()});
     assert.equal(result.status,0,result.stderr || result.error?.message);
     return JSON.parse(result.stdout.trim());
   };
   return {home,run,runSkill,cleanup:()=>{ assert.ok(resolve(directory).startsWith(root + (process.platform==="win32"?"\\":"/"))); rmSync(directory,{recursive:true,force:true}); }};
 }
+test("shell fixtures isolate inherited startup hooks and test overrides",{skip:!available},()=>{
+  const f=fixture();
+  const keys=["BASH_ENV","ENV","TEST_LISTENERS"];
+  const previous=keys.map(key=>process.env[key]);
+  const marker=join(f.home,"foreign-startup");
+  const startup=join(f.home,"startup.sh");
+  writeFileSync(startup,`printf 'unexpected-startup\\n'\ntouch '${posix(marker)}'\n`);
+  try {
+    process.env.BASH_ENV=posix(startup);process.env.ENV=posix(startup);
+    process.env.TEST_LISTENERS="LISTEN 0 128 0.0.0.0:17897 0.0.0.0:*";
+    assert.equal(f.run("check").verified,true);
+    assert.equal(existsSync(marker),false,"Ambient startup code cannot execute in a fixture");
+    assert.equal(f.run("check","codex",25721,"absent",{TEST_LISTENERS:process.env.TEST_LISTENERS}).error,"portInUse","Explicit test overrides still reach the script");
+  } finally {
+    keys.forEach((key,index)=>{ if(previous[index]===undefined) delete process.env[key]; else process.env[key]=previous[index]; });
+    f.cleanup();
+  }
+});
+
 test("compact read-only SSH probes retain port and network checks without configuration writes",{skip:!available},()=>{
   assert.ok(Buffer.byteLength(probeScript)<4096);
   assert.doesNotMatch(probeScript,/claude_json|umask 077/);
