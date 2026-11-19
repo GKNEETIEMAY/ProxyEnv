@@ -1393,13 +1393,15 @@ test("Skills snapshots are read-only and transient recovery uses verified remote
   const source=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
   const views=source.split("pub fn views()",2)[1].split("pub fn enable(",1)[0];
   assert.doesNotMatch(views,/remember\(|states\.insert|stamps\.insert/,"Polling must not overwrite the verified synchronization cache");
-  assert.match(views,/snapshot_state\(target\.as_deref\(\)/);
+  assert.match(views,/snapshot_state\(fingerprint\.as_deref\(\)/);
   const remember=source.split("fn remember(",2)[1].split("fn forget_stamp(",1)[0];
-  assert.match(remember,/runtime\.target_id\.as_deref\(\) != Some\(target\)[\s\S]*return;/,"Late tasks must not write another server's cached status");
+  assert.match(remember,/runtime\.target_fingerprint\.as_deref\(\) != Some\(fingerprint\)[\s\S]*return;/,"Late tasks must not write another target binding's cached status");
   const project=source.split("fn project(",2)[1].split("pub fn views()",1)[0];
   assert.ok(project.indexOf('request(skill, "status")')<project.indexOf('request(skill, "prepare")'));
   assert.match(project,/SkillProjectionState::Synced => return Ok\(\(\)\)/);
   assert.match(project,/SkillProjectionState::Conflict => return Err\("skillConflict"\.into\(\)\)/);
+  assert.match(project,/finish_skill_upload\(&stage, ssh::SkillStageFinish::Apply\)/);
+  assert.match(project,/finish_skill_upload\(&stage, ssh::SkillStageFinish::Cleanup\)/);
 });
 
 test("Skills projection is CC Switch-link based, staged, owned and metadata-triggered",()=>{
@@ -1417,7 +1419,7 @@ test("Skills projection is CC Switch-link based, staged, owned and metadata-trig
   assert.match(skills,/cc_switch_skill_target/);
   assert.match(skills,/is_direct_cc_switch_target/);
   assert.match(skills,/disabled: Vec<String>/);
-  assert.match(skills,/remove_projection\(id\.clone\(\), false\)/);
+  assert.match(skills,/remove_projection\(id\.clone\(\), false, &target, &fingerprint\)/);
   assert.match(skills,/value == "\.system"/);
   assert.match(skills,/metadata_stamp_id/);
   assert.match(skills,/sleep\(Duration::from_secs\(2\)\)/);

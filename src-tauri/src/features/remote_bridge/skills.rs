@@ -80,15 +80,15 @@ struct StoredProjection {
 
 #[derive(Clone, Default)]
 struct RuntimeState {
-    target_id: Option<String>,
+    target_fingerprint: Option<String>,
     stamps: BTreeMap<String, String>,
     states: BTreeMap<String, SkillProjectionState>,
 }
 
 impl RuntimeState {
-    fn select_target(&mut self, target: &str) {
-        if self.target_id.as_deref() != Some(target) {
-            self.target_id = Some(target.to_owned());
+    fn select_target(&mut self, fingerprint: &str) {
+        if self.target_fingerprint.as_deref() != Some(fingerprint) {
+            self.target_fingerprint = Some(fingerprint.to_owned());
             self.stamps.clear();
             self.states.clear();
         }
@@ -98,17 +98,17 @@ impl RuntimeState {
     // when SSH is temporarily unavailable, or reuse it for another server.
     fn snapshot_state(
         &self,
-        target: Option<&str>,
+        fingerprint: Option<&str>,
         id: &str,
         enabled: bool,
     ) -> SkillProjectionState {
         if !enabled {
             return SkillProjectionState::NotSynced;
         }
-        let Some(target) = target else {
+        let Some(fingerprint) = fingerprint else {
             return SkillProjectionState::Unavailable;
         };
-        if self.target_id.as_deref() != Some(target) {
+        if self.target_fingerprint.as_deref() != Some(fingerprint) {
             return SkillProjectionState::NotSynced;
         }
         self.states
@@ -210,19 +210,21 @@ fn parse_id(id: &str) -> BridgeResult<(RemoteToolId, &str)> {
     Ok((tool, name))
 }
 
-fn connected_target() -> BridgeResult<String> {
+fn connected_target() -> BridgeResult<(String, String)> {
     let mut state = super::lock()?;
     super::refresh(&mut state);
     // Skill transport needs SSH, not either optional forwarding capability.
     if state.child.is_none() {
         return Err("bridgeUnavailable".into());
     }
-    state
+    let id = state
         .summary
         .target
         .as_ref()
         .map(|target| target.id.clone())
-        .ok_or_else(|| "bridgeUnavailable".into())
+        .ok_or("bridgeUnavailable")?;
+    let fingerprint = state.target_fingerprint.clone().ok_or("sshConfigChanged")?;
+    Ok((id, fingerprint))
 }
 
 fn safe_component(value: &str) -> bool {
@@ -564,9 +566,9 @@ fn state_from(value: &serde_json::Value) -> BridgeResult<SkillProjectionState> {
     }
 }
 
-fn remember(target: &str, id: &str, stamp: Option<String>, state: SkillProjectionState) {
+fn remember(fingerprint: &str, id: &str, stamp: Option<String>, state: SkillProjectionState) {
     if let Ok(mut runtime) = runtime().lock() {
-        if runtime.target_id.as_deref() != Some(target) {
+        if runtime.target_fingerprint.as_deref() != Some(fingerprint) {
             return;
         }
         if let Some(stamp) = stamp {
@@ -576,9 +578,9 @@ fn remember(target: &str, id: &str, stamp: Option<String>, state: SkillProjectio
     }
 }
 
-fn forget_stamp(target: &str, id: &str, state: SkillProjectionState) {
+fn forget_stamp(fingerprint: &str, id: &str, state: SkillProjectionState) {
     if let Ok(mut runtime) = runtime().lock() {
-        if runtime.target_id.as_deref() != Some(target) {
+        if runtime.target_fingerprint.as_deref() != Some(fingerprint) {
             return;
         }
         runtime.stamps.remove(id);
@@ -586,7 +588,7 @@ fn forget_stamp(target: &str, id: &str, state: SkillProjectionState) {
     }
 }
 
-fn project(target: &str, skill: &LocalSkill) -> BridgeResult<()> {
+fn project(target: &ssh::BoundTarget, skill: &LocalSkill) -> BridgeResult<()> {
     let _operation = operations().lock().map_err(|_| "stateUnavailable")?;
     // Recover an existing verified copy after a transient SSH error without
     // uploading it again. A foreign or modified copy still fails closed.
@@ -600,14 +602,14 @@ fn project(target: &str, skill: &LocalSkill) -> BridgeResult<()> {
         for file in &skill.files {
             ssh::skill_upload(&stage, &file.local_path, &file.relative_path)?;
         }
-        let value = ssh::skill_remote(target, &request(skill, "apply"))?;
+        let value = ssh::finish_skill_upload(&stage, ssh::SkillStageFinish::Apply)?;
         if state_from(&value)? != SkillProjectionState::Synced {
             return Err("skillVerifyFailed".into());
         }
         Ok(())
     })();
     if upload.is_err() {
-        let _ = ssh::skill_remote(target, &request(skill, "cleanup"));
+        let _ = ssh::finish_skill_upload(&stage, ssh::SkillStageFinish::Cleanup);
     }
     upload
 }
@@ -616,7 +618,7 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
     let store = load_store()?;
     let enabled = store.enabled.iter().cloned().collect::<BTreeSet<_>>();
     let disabled = store.disabled.iter().cloned().collect::<BTreeSet<_>>();
-    let target = connected_target().ok();
+    let fingerprint = connected_target().ok().map(|(_, fingerprint)| fingerprint);
     let remembered = runtime().lock().map_err(|_| "stateUnavailable")?.clone();
     let mut views = Vec::new();
     for mut skill in local_skills()? {
@@ -624,7 +626,7 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
         // only an explicit per-agent remote opt-out.
         skill.view.enabled = !disabled.contains(&skill.view.id);
         skill.view.state =
-            remembered.snapshot_state(target.as_deref(), &skill.view.id, skill.view.enabled);
+            remembered.snapshot_state(fingerprint.as_deref(), &skill.view.id, skill.view.enabled);
         views.push(skill.view);
     }
     let visible = views
@@ -636,7 +638,7 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
         .into_iter()
         .filter(|projection| enabled.contains(&projection.id) && !visible.contains(&projection.id))
     {
-        let state = remembered.snapshot_state(target.as_deref(), &projection.id, true);
+        let state = remembered.snapshot_state(fingerprint.as_deref(), &projection.id, true);
         views.push(SkillView {
             id: projection.id,
             tool: projection.tool,
@@ -652,13 +654,18 @@ pub fn views() -> BridgeResult<Vec<SkillView>> {
 }
 
 pub fn enable(id: String) -> BridgeResult<SkillView> {
+    let (target, fingerprint) = connected_target()?;
+    enable_on_target(id, &target, &fingerprint)
+}
+
+fn enable_on_target(id: String, target: &str, fingerprint: &str) -> BridgeResult<SkillView> {
     let skill = by_id(&id)?;
-    let target = connected_target()?;
+    let binding = ssh::BoundTarget::capture_connected(target, fingerprint)?;
     runtime()
         .lock()
         .map_err(|_| "stateUnavailable")?
-        .select_target(&target);
-    project(&target, &skill)?;
+        .select_target(fingerprint);
+    project(&binding, &skill)?;
     let mut store = load_store()?;
     if !store.enabled.contains(&id) {
         store.enabled.push(id.clone());
@@ -671,11 +678,11 @@ pub fn enable(id: String) -> BridgeResult<SkillView> {
         .projections
         .sort_by(|left, right| left.id.cmp(&right.id));
     if let Err(code) = persist_store(&store) {
-        let _ = ssh::skill_remote(&target, &request(&skill, "remove"));
+        let _ = ssh::skill_remote(&binding, &request(&skill, "remove"));
         return Err(code);
     }
     remember(
-        &target,
+        fingerprint,
         &id,
         metadata_stamp(&skill).ok(),
         SkillProjectionState::Synced,
@@ -687,10 +694,16 @@ pub fn enable(id: String) -> BridgeResult<SkillView> {
 }
 
 pub fn disable(id: String) -> BridgeResult<SkillView> {
-    remove_projection(id, true)
+    let (target, fingerprint) = connected_target()?;
+    remove_projection(id, true, &target, &fingerprint)
 }
 
-fn remove_projection(id: String, remember_disabled: bool) -> BridgeResult<SkillView> {
+fn remove_projection(
+    id: String,
+    remember_disabled: bool,
+    target: &str,
+    fingerprint: &str,
+) -> BridgeResult<SkillView> {
     let mut store = load_store()?;
     let local = by_id(&id).ok();
     let projection = store
@@ -700,9 +713,9 @@ fn remove_projection(id: String, remember_disabled: bool) -> BridgeResult<SkillV
         .cloned()
         .or_else(|| local.as_ref().map(stored))
         .ok_or("localSkillMissing")?;
-    let target = connected_target()?;
     let _operation = operations().lock().map_err(|_| "stateUnavailable")?;
-    let value = ssh::skill_remote(&target, &stored_request(&projection, "remove"))?;
+    let binding = ssh::BoundTarget::capture_connected(target, fingerprint)?;
+    let value = ssh::skill_remote(&binding, &stored_request(&projection, "remove"))?;
     if state_from(&value)? != SkillProjectionState::NotSynced {
         return Err("remoteFailed".into());
     }
@@ -714,7 +727,7 @@ fn remove_projection(id: String, remember_disabled: bool) -> BridgeResult<SkillV
         store.disabled.sort();
     }
     persist_store(&store)?;
-    forget_stamp(&target, &id, SkillProjectionState::NotSynced);
+    forget_stamp(fingerprint, &id, SkillProjectionState::NotSynced);
     let mut view = local.map(|skill| skill.view).unwrap_or(SkillView {
         id: projection.id,
         tool: projection.tool,
@@ -844,11 +857,11 @@ fn metadata_stamp_id(id: &str) -> BridgeResult<String> {
 }
 
 fn monitor_once() -> BridgeResult<()> {
-    let target = connected_target()?;
+    let (target, fingerprint) = connected_target()?;
     runtime()
         .lock()
         .map_err(|_| "stateUnavailable")?
-        .select_target(&target);
+        .select_target(&fingerprint);
     let local = local_skills()?;
     let local_ids = local
         .iter()
@@ -876,10 +889,10 @@ fn monitor_once() -> BridgeResult<()> {
             .map(|skill| skill.view.id)
             .collect::<BTreeSet<_>>();
         for id in missing.into_iter().filter(|id| !current_ids.contains(id)) {
-            match remove_projection(id.clone(), false) {
+            match remove_projection(id.clone(), false, &target, &fingerprint) {
                 Ok(_) => {}
                 Err(code) => remember(
-                    &target,
+                    &fingerprint,
                     &id,
                     None,
                     if code == "skillConflict" {
@@ -917,13 +930,13 @@ fn monitor_once() -> BridgeResult<()> {
         if !needs_sync {
             continue;
         }
-        match enable(id.clone()) {
+        match enable_on_target(id.clone(), &target, &fingerprint) {
             Ok(_) => {
                 enabled.insert(id.clone());
                 just_projected.insert(id.clone());
             }
             Err(code) => remember(
-                &target,
+                &fingerprint,
                 id,
                 Some(stamp),
                 if code == "skillConflict" {
@@ -942,7 +955,7 @@ fn monitor_once() -> BridgeResult<()> {
         let stamp = match metadata_stamp_id(&id) {
             Ok(stamp) => stamp,
             Err(_) => {
-                remember(&target, &id, None, SkillProjectionState::Unavailable);
+                remember(&fingerprint, &id, None, SkillProjectionState::Unavailable);
                 continue;
             }
         };
@@ -962,32 +975,34 @@ fn monitor_once() -> BridgeResult<()> {
         let current_stamp = match metadata_stamp_id(&id) {
             Ok(stamp) => stamp,
             Err(_) => {
-                remember(&target, &id, None, SkillProjectionState::Unavailable);
+                remember(&fingerprint, &id, None, SkillProjectionState::Unavailable);
                 continue;
             }
         };
         if current_stamp != old_stamp {
-            remember(&target, &id, None, SkillProjectionState::LocalChanged);
+            remember(&fingerprint, &id, None, SkillProjectionState::LocalChanged);
         }
         let skill = match by_id(&id) {
             Ok(skill) => skill,
             Err(_) => {
-                remember(&target, &id, None, SkillProjectionState::Unavailable);
+                remember(&fingerprint, &id, None, SkillProjectionState::Unavailable);
                 continue;
             }
         };
-        match project(&target, &skill) {
+        let result = ssh::BoundTarget::capture_connected(&target, &fingerprint)
+            .and_then(|binding| project(&binding, &skill));
+        match result {
             Ok(()) => {
                 let _ = update_stored_projection(&skill);
                 remember(
-                    &target,
+                    &fingerprint,
                     &id,
                     Some(current_stamp),
                     SkillProjectionState::Synced,
                 );
             }
             Err(code) => remember(
-                &target,
+                &fingerprint,
                 &id,
                 None,
                 if code == "skillConflict" {
@@ -1012,7 +1027,7 @@ pub fn start_monitor() {
         };
         if monitor_once().is_err() {
             if let Ok(mut runtime) = runtime().lock() {
-                runtime.target_id = None;
+                runtime.target_fingerprint = None;
                 runtime.stamps.clear();
             }
         }

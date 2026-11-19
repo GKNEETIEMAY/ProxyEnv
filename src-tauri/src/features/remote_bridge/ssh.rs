@@ -686,22 +686,29 @@ fn resolve(id: &str) -> BridgeResult<ResolvedTarget> {
 }
 
 fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Command, String)> {
-    let target = resolve(id)?;
+    resolved_target_command(&resolve(id)?, mode)
+}
+
+fn resolved_target_command(
+    target: &ResolvedTarget,
+    mode: CommandMode,
+) -> BridgeResult<(Command, String)> {
     if !target.public.available
         || target.public.compatibility != RemoteTargetCompatibility::Compatible
     {
         return Err(target
             .public
             .unavailable_reason
+            .clone()
             .unwrap_or_else(|| "targetUnsupported".into()));
     }
     let mut cmd = command_with_mode(mode);
-    let destination = match target.connection {
+    let destination = match &target.connection {
         Connection::Config { alias, config } => {
             if let Some(path) = config {
                 cmd.arg("-F").arg(path);
             }
-            alias
+            alias.clone()
         }
         Connection::Direct {
             host,
@@ -710,9 +717,9 @@ fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Comman
             authentication,
             identity_file,
         } => {
-            if !safe_host(&host)
+            if !safe_host(host)
                 || user.as_deref().is_some_and(|user| !safe_name(user))
-                || port == 0
+                || *port == 0
             {
                 return Err("mobaSessionUnsupported".into());
             }
@@ -720,7 +727,7 @@ fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Comman
             if let Some(user) = user {
                 cmd.arg("-l").arg(user);
             }
-            if authentication == ManualAuthentication::Password {
+            if *authentication == ManualAuthentication::Password {
                 cmd.args([
                     "-oPubkeyAuthentication=no",
                     "-oPreferredAuthentications=keyboard-interactive,password",
@@ -728,7 +735,7 @@ fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Comman
             }
             if let Some(identity_file) = identity_file {
                 let metadata =
-                    std::fs::symlink_metadata(&identity_file).map_err(|_| "identityFileInvalid")?;
+                    std::fs::symlink_metadata(identity_file).map_err(|_| "identityFileInvalid")?;
                 if !identity_file.is_absolute()
                     || !metadata.is_file()
                     || metadata.file_type().is_symlink()
@@ -737,7 +744,7 @@ fn target_command_with_mode(id: &str, mode: CommandMode) -> BridgeResult<(Comman
                 }
                 cmd.arg("-oIdentitiesOnly=yes").arg("-i").arg(identity_file);
             }
-            host
+            host.clone()
         }
     };
     Ok((cmd, destination))
@@ -768,17 +775,21 @@ fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(C
     )
 }
 
-fn target_command(id: &str) -> BridgeResult<(Command, String)> {
-    target_command_with_batch_mode(id, true)
-}
-
 #[cfg(windows)]
 fn remote_target_command(id: &str) -> BridgeResult<(Command, String)> {
     let fingerprint = fingerprint(id)?;
-    let Some((password, entropy)) = super::credential_cache::terminal_payload(&fingerprint)? else {
-        return target_command(id);
+    remote_resolved_target_command(&resolve(id)?, &fingerprint)
+}
+
+#[cfg(windows)]
+fn remote_resolved_target_command(
+    target: &ResolvedTarget,
+    fingerprint: &str,
+) -> BridgeResult<(Command, String)> {
+    let Some((password, entropy)) = super::credential_cache::terminal_payload(fingerprint)? else {
+        return resolved_target_command(target, CommandMode::Batch);
     };
-    let (mut command, destination) = target_command_with_mode(id, CommandMode::CachedPassword)?;
+    let (mut command, destination) = resolved_target_command(target, CommandMode::CachedPassword)?;
     let askpass = std::env::current_exe().map_err(|_| "processFailed")?;
     command
         .env("PROXYENV_SSH_ASKPASS", "1")
@@ -792,7 +803,15 @@ fn remote_target_command(id: &str) -> BridgeResult<(Command, String)> {
 
 #[cfg(not(windows))]
 fn remote_target_command(id: &str) -> BridgeResult<(Command, String)> {
-    target_command(id)
+    target_command_with_mode(id, CommandMode::Batch)
+}
+
+#[cfg(not(windows))]
+fn remote_resolved_target_command(
+    target: &ResolvedTarget,
+    _fingerprint: &str,
+) -> BridgeResult<(Command, String)> {
+    resolved_target_command(target, CommandMode::Batch)
 }
 
 pub(super) fn interactive_target_command(id: &str) -> BridgeResult<(Command, String)> {
@@ -1014,11 +1033,12 @@ pub fn validate_target(target_id: &str) -> BridgeResult<()> {
     effective_target(target_id).map(|_| ())
 }
 pub fn fingerprint(target_id: &str) -> BridgeResult<String> {
+    Ok(config_fingerprint(target_id, &effective_target(target_id)?))
+}
+
+fn config_fingerprint(target_id: &str, effective: &str) -> String {
     use sha2::{Digest, Sha256};
-    Ok(hex::encode(Sha256::digest(format!(
-        "{target_id}\n{}",
-        effective_target(target_id)?
-    ))))
+    hex::encode(Sha256::digest(format!("{target_id}\n{effective}")))
 }
 
 pub fn non_interactive_auth_method(target_id: &str) -> SshAuthMethod {
@@ -1030,11 +1050,91 @@ pub fn non_interactive_auth_method(target_id: &str) -> SshAuthMethod {
         .unwrap_or_default()
 }
 fn effective_target(target_id: &str) -> BridgeResult<String> {
-    let (mut cmd, destination) = target_command(target_id)?;
+    effective_resolved_target(&resolve(target_id)?)
+}
+
+fn effective_resolved_target(target: &ResolvedTarget) -> BridgeResult<String> {
+    let (mut cmd, destination) = resolved_target_command(target, CommandMode::Batch)?;
     cmd.args(["-G", &destination]);
     let text = output(cmd, None, 12)?;
     effective_target_metadata(&text)?;
     Ok(text)
+}
+
+pub(super) struct BoundTarget {
+    target: ResolvedTarget,
+    fingerprint: String,
+    host: String,
+    user: String,
+    port: u16,
+}
+
+impl BoundTarget {
+    pub(super) fn capture_connected(id: &str, fingerprint: &str) -> BridgeResult<Self> {
+        let target = Self::from_resolved(resolve(id)?)?;
+        target.check_fingerprint(fingerprint)?;
+        Ok(target)
+    }
+
+    fn from_resolved(target: ResolvedTarget) -> BridgeResult<Self> {
+        let effective = effective_resolved_target(&target)?;
+        let metadata = effective_target_metadata(&effective)?;
+        Ok(Self {
+            fingerprint: config_fingerprint(&target.public.id, &effective),
+            target,
+            host: metadata.host.ok_or("sshConfigUnsafe")?,
+            user: metadata.user.ok_or("sshConfigUnsafe")?,
+            port: metadata.port.ok_or("sshConfigUnsafe")?,
+        })
+    }
+
+    fn check_resolved(&self, current: &ResolvedTarget) -> BridgeResult<()> {
+        if current.public.id != self.target.public.id {
+            return Err("sshConfigChanged".into());
+        }
+        self.check_fingerprint(&config_fingerprint(
+            &current.public.id,
+            &effective_resolved_target(current)?,
+        ))
+    }
+
+    fn check_fingerprint(&self, fingerprint: &str) -> BridgeResult<()> {
+        if self.fingerprint != fingerprint {
+            return Err("sshConfigChanged".into());
+        }
+        Ok(())
+    }
+
+    fn check_current(&self) -> BridgeResult<()> {
+        let current = resolve(&self.target.public.id).map_err(|code| {
+            if code == "invalidTarget" {
+                "sshConfigChanged".into()
+            } else {
+                code
+            }
+        })?;
+        self.check_resolved(&current)
+    }
+
+    fn pin_endpoint(&self, command: &mut Command) {
+        if matches!(&self.target.connection, Connection::Config { .. }) {
+            // Keep the alias for its SSH options, but do not let a late edit
+            // of HostName, User, or Port redirect a command after verification.
+            command.args([
+                format!("-oHostName={}", self.host),
+                format!("-oUser={}", self.user),
+                format!("-oPort={}", self.port),
+            ]);
+        }
+    }
+
+    fn remote_command(&self) -> BridgeResult<(Command, String)> {
+        self.check_current()?;
+        let (mut command, destination) =
+            remote_resolved_target_command(&self.target, &self.fingerprint)?;
+        self.pin_endpoint(&mut command);
+        Ok((command, destination))
+    }
 }
 
 pub struct OwnedChild {
@@ -1221,7 +1321,14 @@ fn remote_execute(alias: &str, request: &serde_json::Value) -> BridgeResult<serd
 }
 
 fn run_linux_script(alias: &str, source: Zeroizing<String>, seconds: u64) -> BridgeResult<String> {
-    let (mut cmd, destination) = remote_target_command(alias)?;
+    execute_linux_script(remote_target_command(alias)?, source, seconds)
+}
+
+fn execute_linux_script(
+    (mut cmd, destination): (Command, String),
+    source: Zeroizing<String>,
+    seconds: u64,
+) -> BridgeResult<String> {
     cmd.arg("-oClearAllForwardings=yes")
         .arg(destination)
         .arg(linux::SCRIPT_COMMAND);
@@ -1229,24 +1336,25 @@ fn run_linux_script(alias: &str, source: Zeroizing<String>, seconds: u64) -> Bri
 }
 
 pub(super) fn skill_remote(
-    alias: &str,
+    target: &BoundTarget,
+    request: &serde_json::Value,
+) -> BridgeResult<serde_json::Value> {
+    if !matches!(request["operation"].as_str(), Some("status" | "remove")) {
+        return Err("invalidRequest".into());
+    }
+    execute_bound_skill(target, request)
+}
+
+fn execute_bound_skill(
+    target: &BoundTarget,
     request: &serde_json::Value,
 ) -> BridgeResult<serde_json::Value> {
     let source = linux::skill_payload(request)?;
-    linux::parse_skill_output(&run_linux_script(alias, source, 30)?)
+    linux::parse_skill_output(&execute_linux_script(target.remote_command()?, source, 30)?)
 }
 
-fn scp_target_command(id: &str, expected_fingerprint: &str) -> BridgeResult<(Command, String)> {
-    let fingerprint = fingerprint(id)?;
-    if fingerprint != expected_fingerprint {
-        return Err("sshConfigChanged".into());
-    }
-    let target = resolve(id)?;
-    if !target.public.available
-        || target.public.compatibility != RemoteTargetCompatibility::Compatible
-    {
-        return Err("targetUnsupported".into());
-    }
+fn scp_target_command(target: &BoundTarget) -> BridgeResult<(Command, String)> {
+    target.check_current()?;
     #[cfg(windows)]
     let mut command = Command::new(
         PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()))
@@ -1271,12 +1379,13 @@ fn scp_target_command(id: &str, expected_fingerprint: &str) -> BridgeResult<(Com
         "-oControlPath=none",
         "-oClearAllForwardings=yes",
     ]);
-    let destination = match target.connection {
+    target.pin_endpoint(&mut command);
+    let destination = match &target.target.connection {
         Connection::Config { alias, config } => {
             if let Some(path) = config {
                 command.arg("-F").arg(path);
             }
-            alias
+            alias.clone()
         }
         Connection::Direct {
             host,
@@ -1285,14 +1394,14 @@ fn scp_target_command(id: &str, expected_fingerprint: &str) -> BridgeResult<(Com
             authentication,
             identity_file,
         } => {
-            if !safe_host(&host)
+            if !safe_host(host)
                 || user.as_deref().is_some_and(|user| !safe_name(user))
-                || port == 0
+                || *port == 0
             {
                 return Err("targetUnsupported".into());
             }
             command.arg("-P").arg(port.to_string());
-            if authentication == ManualAuthentication::Password {
+            if *authentication == ManualAuthentication::Password {
                 command.args([
                     "-oPubkeyAuthentication=no",
                     "-oPreferredAuthentications=keyboard-interactive,password",
@@ -1300,7 +1409,7 @@ fn scp_target_command(id: &str, expected_fingerprint: &str) -> BridgeResult<(Com
             }
             if let Some(identity_file) = identity_file {
                 let metadata =
-                    fs::symlink_metadata(&identity_file).map_err(|_| "identityFileInvalid")?;
+                    fs::symlink_metadata(identity_file).map_err(|_| "identityFileInvalid")?;
                 if !identity_file.is_absolute()
                     || !metadata.is_file()
                     || metadata.file_type().is_symlink()
@@ -1315,14 +1424,16 @@ fn scp_target_command(id: &str, expected_fingerprint: &str) -> BridgeResult<(Com
             let host = if host.contains(':') {
                 format!("[{host}]")
             } else {
-                host
+                host.clone()
             };
-            user.map_or(host.clone(), |user| format!("{user}@{host}"))
+            user.as_ref()
+                .map_or(host.clone(), |user| format!("{user}@{host}"))
         }
     };
     #[cfg(windows)]
     {
-        if let Some((password, entropy)) = super::credential_cache::terminal_payload(&fingerprint)?
+        if let Some((password, entropy)) =
+            super::credential_cache::terminal_payload(&target.fingerprint)?
         {
             let askpass = std::env::current_exe().map_err(|_| "processFailed")?;
             command
@@ -1349,39 +1460,49 @@ fn scp_target_command(id: &str, expected_fingerprint: &str) -> BridgeResult<(Com
 }
 
 pub(super) struct LinuxSkillStage<'a> {
-    target: &'a str,
-    fingerprint: String,
+    target: &'a BoundTarget,
     request: serde_json::Value,
 }
 
 pub(super) fn prepare_skill_upload(
-    target: &str,
+    target: &BoundTarget,
     request: serde_json::Value,
 ) -> BridgeResult<LinuxSkillStage<'_>> {
     if request["operation"] != "prepare" {
         return Err("invalidRequest".into());
     }
     let source = linux::skill_payload(&request)?;
-    let fingerprint = fingerprint(target)?;
-    let (mut command, destination) = remote_target_command(target)?;
+    let (mut command, destination) = target.remote_command()?;
     command
         .arg("-oClearAllForwardings=yes")
         .arg(destination)
         .arg(TargetOs::PROBE_COMMAND);
     let evidence = output(command, None, 25)?;
     TargetOs::from_uname(&evidence).require_linux()?;
-    if self::fingerprint(target)? != fingerprint {
-        return Err("sshConfigChanged".into());
-    }
-    let prepared = linux::parse_skill_output(&run_linux_script(target, source, 30)?)?;
+    let prepared =
+        linux::parse_skill_output(&execute_linux_script(target.remote_command()?, source, 30)?)?;
     if prepared["prepared"] != true {
         return Err("skillVerifyFailed".into());
     }
-    Ok(LinuxSkillStage {
-        target,
-        fingerprint,
-        request,
-    })
+    Ok(LinuxSkillStage { target, request })
+}
+
+pub(super) enum SkillStageFinish {
+    Apply,
+    Cleanup,
+}
+
+pub(super) fn finish_skill_upload(
+    stage: &LinuxSkillStage<'_>,
+    finish: SkillStageFinish,
+) -> BridgeResult<serde_json::Value> {
+    let mut request = stage.request.clone();
+    request["operation"] = match finish {
+        SkillStageFinish::Apply => "apply",
+        SkillStageFinish::Cleanup => "cleanup",
+    }
+    .into();
+    execute_bound_skill(stage.target, &request)
 }
 
 pub(super) fn skill_upload(
@@ -1403,7 +1524,7 @@ pub(super) fn skill_upload(
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err("localSkillUnsafe".into());
     }
-    let (mut command, destination) = scp_target_command(stage.target, &stage.fingerprint)?;
+    let (mut command, destination) = scp_target_command(stage.target)?;
     let remote = format!("{destination}:{path}");
     command
         .arg("--")
@@ -1527,6 +1648,83 @@ mod tests {
         );
         assert!(scp_local_path(Path::new(r"\\?\GLOBALROOT\Device\example")).is_err());
     }
+
+    #[test]
+    fn skills_stage_rejects_alias_retargeting_and_requires_a_fresh_binding_for_the_new_host() {
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).unwrap();
+        let alias = format!("routespan-stage-{}", hex::encode(nonce));
+        let path = std::env::temp_dir().join(&alias);
+        let fixture = |host: &str, user: &str, port: u16| {
+            fs::write(
+                &path,
+                format!("Host {alias}\n  HostName {host}\n  User {user}\n  Port {port}\n"),
+            )
+            .unwrap();
+            let mut target =
+                config_targets(&path, RemoteTargetSource::Vscode, "test", false, false)
+                    .unwrap()
+                    .pop()
+                    .unwrap();
+            target.connection = Connection::Config {
+                alias: alias.clone(),
+                config: Some(path.clone()),
+            };
+            target
+        };
+
+        let first = fixture("first.example", "alice", 2201);
+        let binding = BoundTarget::from_resolved(first.clone()).unwrap();
+        let stage = LinuxSkillStage {
+            target: &binding,
+            request: serde_json::json!({
+                "operation":"prepare", "tool":"codex", "skillName":"valid-skill",
+                "skillHash":"a".repeat(64), "fileCount":1, "totalSize":8,
+                "manifestBase64":"YWJjCg==", "directoriesBase64":""
+            }),
+        };
+        stage.target.check_resolved(&first).unwrap();
+        let second = fixture("second.example", "bob", 2202);
+        assert_eq!(first.public.id, second.public.id);
+        assert_eq!(
+            stage.target.check_resolved(&second).unwrap_err(),
+            "sshConfigChanged"
+        );
+
+        // With the alias already retargeted, read back the launch options of
+        // the original command. Host, login and port must still point to A.
+        let (mut command, destination) =
+            resolved_target_command(&stage.target.target, CommandMode::Batch).unwrap();
+        stage.target.pin_endpoint(&mut command);
+        command.args(["-G", &destination]);
+        let effective = effective_target_metadata(&output(command, None, 8).unwrap()).unwrap();
+        assert_eq!(effective.host.as_deref(), Some("first.example"));
+        assert_eq!(effective.user.as_deref(), Some("alice"));
+        assert_eq!(effective.port, Some(2201));
+
+        // The temporary alias is absent from application discovery. Apply and
+        // error-path cleanup both fail without launching a remote command.
+        for finish in [SkillStageFinish::Apply, SkillStageFinish::Cleanup] {
+            assert_eq!(
+                finish_skill_upload(&stage, finish).unwrap_err(),
+                "sshConfigChanged"
+            );
+        }
+        let retry = BoundTarget::from_resolved(second.clone()).unwrap();
+        assert_eq!(
+            retry.check_fingerprint(&binding.fingerprint).unwrap_err(),
+            "sshConfigChanged"
+        );
+        retry.check_resolved(&second).unwrap();
+        let restored = fixture("first.example", "alice", 2201);
+        stage.target.check_resolved(&restored).unwrap();
+        assert_eq!(
+            retry.check_resolved(&restored).unwrap_err(),
+            "sshConfigChanged"
+        );
+        fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn aliases_reject_patterns_options_and_shell_syntax() {
         assert_eq!(
