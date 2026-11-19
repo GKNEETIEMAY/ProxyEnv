@@ -8,6 +8,8 @@ use std::{
     ops::RangeInclusive,
 };
 
+mod safety;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum GatewayPorts {
     No,
@@ -26,6 +28,7 @@ struct ManagedHostPolicy {
     remote_ports: RangeInclusive<u16>,
     valid_from: u64,
     expires_at: u64,
+    issuer: Option<safety::PolicyIssuer>,
 }
 
 // Only independently reviewed, repository-controlled evidence may go here.
@@ -223,13 +226,13 @@ mod tests {
         remote_bridge::target_os::windows::WindowsProbeReason,
     };
 
-    const CONFIG: &str =
+    pub(super) const CONFIG: &str =
         "hostname a.example\nuser alice\nport 2222\ncheckhostip no\ntunnel false\n";
     const KEY: [u8; 32] = [0x91; 32];
     const CONFIRMED: WindowsTargetProbe = WindowsTargetProbe::Confirmed {
         shell: WindowsShell::Cmd,
     };
-    const REVIEW: ManagedHostPolicy = ManagedHostPolicy {
+    pub(super) const REVIEW: ManagedHostPolicy = ManagedHostPolicy {
         review_id: "review-a",
         host: "a.example",
         account: "alice",
@@ -239,10 +242,11 @@ mod tests {
         remote_ports: 20500..=20502,
         valid_from: 100,
         expires_at: 200,
+        issuer: None,
     };
-    const INGRESS: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 49152);
+    pub(super) const INGRESS: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 49152);
 
-    fn active() -> active::ActiveProxyContext {
+    pub(super) fn active() -> active::ActiveProxyContext {
         active::ActiveProxyContext {
             available: true,
             revision: 9,
@@ -263,7 +267,7 @@ mod tests {
         }
     }
 
-    fn input<'a>(
+    pub(super) fn input<'a>(
         target: &'a ssh::BoundTarget,
         proxy: &'a active::ActiveProxyContext,
     ) -> WindowsBridgeInput<'a> {
