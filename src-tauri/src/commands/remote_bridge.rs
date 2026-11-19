@@ -234,6 +234,16 @@ pub async fn remote_bridge_check(target_id: String) -> CommandResult<PortAllocat
     .await
 }
 #[tauri::command]
+pub async fn remote_bridge_probe_target_os(
+    target_id: String,
+) -> CommandResult<bridge::WindowsTargetProbe> {
+    run("targetOsProbe", Some("ssh"), move || {
+        bridge::probe_target_os(target_id)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn remote_bridge_check_network(
     target_id: String,
 ) -> CommandResult<RemoteNetworkObservation> {

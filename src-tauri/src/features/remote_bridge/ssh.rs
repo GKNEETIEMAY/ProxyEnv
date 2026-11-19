@@ -1054,9 +1054,16 @@ fn effective_target(target_id: &str) -> BridgeResult<String> {
 }
 
 fn effective_resolved_target(target: &ResolvedTarget) -> BridgeResult<String> {
+    effective_resolved_target_before(target, Instant::now() + Duration::from_secs(12))
+}
+
+fn effective_resolved_target_before(
+    target: &ResolvedTarget,
+    deadline: Instant,
+) -> BridgeResult<String> {
     let (mut cmd, destination) = resolved_target_command(target, CommandMode::Batch)?;
     cmd.args(["-G", &destination]);
-    let text = output(cmd, None, 12)?;
+    let text = output_before(cmd, None, deadline)?;
     effective_target_metadata(&text)?;
     Ok(text)
 }
@@ -1078,9 +1085,13 @@ impl BoundTarget {
 
     fn from_resolved(target: ResolvedTarget) -> BridgeResult<Self> {
         let effective = effective_resolved_target(&target)?;
-        let metadata = effective_target_metadata(&effective)?;
+        Self::from_effective(target, &effective)
+    }
+
+    fn from_effective(target: ResolvedTarget, effective: &str) -> BridgeResult<Self> {
+        let metadata = effective_target_metadata(effective)?;
         Ok(Self {
-            fingerprint: config_fingerprint(&target.public.id, &effective),
+            fingerprint: config_fingerprint(&target.public.id, effective),
             target,
             host: metadata.host.ok_or("sshConfigUnsafe")?,
             user: metadata.user.ok_or("sshConfigUnsafe")?,
@@ -1088,13 +1099,13 @@ impl BoundTarget {
         })
     }
 
-    fn check_resolved(&self, current: &ResolvedTarget) -> BridgeResult<()> {
+    fn check_resolved(&self, current: &ResolvedTarget, deadline: Instant) -> BridgeResult<()> {
         if current.public.id != self.target.public.id {
             return Err("sshConfigChanged".into());
         }
         self.check_fingerprint(&config_fingerprint(
             &current.public.id,
-            &effective_resolved_target(current)?,
+            &effective_resolved_target_before(current, deadline)?,
         ))
     }
 
@@ -1106,6 +1117,10 @@ impl BoundTarget {
     }
 
     fn check_current(&self) -> BridgeResult<()> {
+        self.check_current_before(Instant::now() + Duration::from_secs(12))
+    }
+
+    fn check_current_before(&self, deadline: Instant) -> BridgeResult<()> {
         let current = resolve(&self.target.public.id).map_err(|code| {
             if code == "invalidTarget" {
                 "sshConfigChanged".into()
@@ -1113,7 +1128,7 @@ impl BoundTarget {
                 code
             }
         })?;
-        self.check_resolved(&current)
+        self.check_resolved(&current, deadline)
     }
 
     fn pin_endpoint(&self, command: &mut Command) {
@@ -1130,11 +1145,57 @@ impl BoundTarget {
 
     fn remote_command(&self) -> BridgeResult<(Command, String)> {
         self.check_current()?;
+        self.build_remote_command()
+    }
+
+    fn build_remote_command(&self) -> BridgeResult<(Command, String)> {
         let (mut command, destination) =
             remote_resolved_target_command(&self.target, &self.fingerprint)?;
         self.pin_endpoint(&mut command);
         Ok((command, destination))
     }
+}
+
+#[cfg(windows)]
+pub(super) fn probe_windows_target(id: &str) -> BridgeResult<super::WindowsTargetProbe> {
+    use super::target_os::windows::{self, WindowsProbeReason, WindowsTargetProbe};
+
+    let deadline = Instant::now() + windows::PROBE_BUDGET;
+    let detect = || -> BridgeResult<WindowsTargetProbe> {
+        let target = resolve(id)?;
+        let effective = effective_resolved_target_before(&target, deadline)?;
+        if !windows::allows_direct_probe(&effective) {
+            return Ok(WindowsTargetProbe::Unknown {
+                reason: WindowsProbeReason::SshConfigUnsupported,
+            });
+        }
+        let target = BoundTarget::from_effective(target, &effective)?;
+        let result = windows::probe(|remote_command| {
+            target.check_current_before(deadline)?;
+            let (mut command, destination) = target.build_remote_command()?;
+            command
+                .args(windows::SSH_READ_ONLY_OPTIONS)
+                .arg(destination)
+                .arg(remote_command);
+            windows::capture(command, deadline)
+        })?;
+        if matches!(result, WindowsTargetProbe::Confirmed { .. }) {
+            target.check_current_before(deadline)?;
+        }
+        if Instant::now() >= deadline {
+            return Err("sshTimeout".into());
+        }
+        Ok(result)
+    };
+    detect().or_else(|code| match code.as_str() {
+        "sshTimeout" => Ok(WindowsTargetProbe::Unknown {
+            reason: WindowsProbeReason::Timeout,
+        }),
+        "targetProbeOutputLimit" => Ok(WindowsTargetProbe::Unknown {
+            reason: WindowsProbeReason::OutputLimit,
+        }),
+        _ => Err(code),
+    })
 }
 
 pub struct OwnedChild {
@@ -1211,10 +1272,21 @@ impl Drop for OwnedChild {
 }
 
 pub fn output(
-    mut cmd: Command,
+    cmd: Command,
     input: Option<Zeroizing<String>>,
     seconds: u64,
 ) -> BridgeResult<String> {
+    output_before(cmd, input, Instant::now() + Duration::from_secs(seconds))
+}
+
+fn output_before(
+    mut cmd: Command,
+    input: Option<Zeroizing<String>>,
+    deadline: Instant,
+) -> BridgeResult<String> {
+    if Instant::now() >= deadline {
+        return Err("sshTimeout".into());
+    }
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1242,7 +1314,6 @@ pub fn output(
             let _ = stdin.write_all(input.as_bytes());
         }
     });
-    let deadline = Instant::now() + Duration::from_secs(seconds);
     let status = loop {
         if let Some(status) = process.child.try_wait().map_err(|_| "processFailed")? {
             break status;
@@ -1683,11 +1754,15 @@ mod tests {
                 "manifestBase64":"YWJjCg==", "directoriesBase64":""
             }),
         };
-        stage.target.check_resolved(&first).unwrap();
+        let deadline = || Instant::now() + Duration::from_secs(12);
+        stage.target.check_resolved(&first, deadline()).unwrap();
         let second = fixture("second.example", "bob", 2202);
         assert_eq!(first.public.id, second.public.id);
         assert_eq!(
-            stage.target.check_resolved(&second).unwrap_err(),
+            stage
+                .target
+                .check_resolved(&second, deadline())
+                .unwrap_err(),
             "sshConfigChanged"
         );
 
@@ -1715,11 +1790,11 @@ mod tests {
             retry.check_fingerprint(&binding.fingerprint).unwrap_err(),
             "sshConfigChanged"
         );
-        retry.check_resolved(&second).unwrap();
+        retry.check_resolved(&second, deadline()).unwrap();
         let restored = fixture("first.example", "alice", 2201);
-        stage.target.check_resolved(&restored).unwrap();
+        stage.target.check_resolved(&restored, deadline()).unwrap();
         assert_eq!(
-            retry.check_resolved(&restored).unwrap_err(),
+            retry.check_resolved(&restored, deadline()).unwrap_err(),
             "sshConfigChanged"
         );
         fs::remove_file(path).unwrap();
@@ -1855,6 +1930,32 @@ mod tests {
             "-oControlPath=none",
         ] {
             assert!(args.iter().any(|arg| arg == required));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_probe_preserves_strict_host_keys_without_ssh_writes_or_forwarding() {
+        let mut command = command_with_mode(CommandMode::Batch);
+        command
+            .args(super::super::target_os::windows::SSH_READ_ONLY_OPTIONS)
+            .args(["-F", "none", "-G", "localhost"]);
+        let effective = output(command, None, 8).unwrap();
+        for (key, values) in [
+            ("stricthostkeychecking", ["true", "yes"]),
+            ("updatehostkeys", ["false", "no"]),
+            ("checkhostip", ["false", "no"]),
+            ("addkeystoagent", ["false", "no"]),
+            ("clearallforwardings", ["true", "yes"]),
+            ("tunnel", ["false", "no"]),
+        ] {
+            assert!(
+                effective.lines().any(|line| {
+                    let (option, value) = line.split_once(' ').unwrap_or((line, ""));
+                    option == key && values.contains(&value)
+                }),
+                "{key}"
+            );
         }
     }
     #[test]

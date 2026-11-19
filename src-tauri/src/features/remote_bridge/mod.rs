@@ -21,6 +21,7 @@ mod skills;
 mod ssh;
 pub mod ssh_auth;
 mod target_os;
+pub use target_os::windows::WindowsTargetProbe;
 pub mod tool_adapter;
 pub mod tool_discovery;
 pub(crate) mod tray_state;
@@ -1735,6 +1736,18 @@ pub fn check(target_id: String) -> BridgeResult<PortAllocation> {
     state.summary.ssh_auth = state.ssh_auth;
     drop(state);
     allocate_ports(target_id, true)
+}
+
+pub fn probe_target_os(target_id: String) -> BridgeResult<WindowsTargetProbe> {
+    #[cfg(windows)]
+    {
+        ssh::probe_windows_target(&target_id)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = target_id;
+        Err("targetUnsupported".into())
+    }
 }
 pub fn check_remote_network(target_id: String) -> BridgeResult<RemoteNetworkObservation> {
     check_remote_network_for_generation(target_id, None)

@@ -79,6 +79,7 @@ pub fn run() {
             commands::remote_bridge::remote_bridge_model_settings,
             commands::remote_bridge::remote_bridge_save_model_settings,
             commands::remote_bridge::remote_bridge_check,
+            commands::remote_bridge::remote_bridge_probe_target_os,
             commands::remote_bridge::remote_bridge_check_network,
             commands::remote_bridge::ssh_auth_begin,
             commands::remote_bridge::ssh_auth_state,
