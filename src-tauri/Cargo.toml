@@ -62,6 +62,9 @@ windows = { version = "0.61", features = [
   "Win32_UI_Shell"
 ] }
 
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.61", features = ["Win32_System_Pipes"] }
+
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-dialog = "2"
