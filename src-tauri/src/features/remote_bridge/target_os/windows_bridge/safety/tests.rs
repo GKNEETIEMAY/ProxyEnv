@@ -12,6 +12,8 @@ use sha2::{Digest, Sha256};
 use std::{cell::Cell, rc::Rc};
 
 #[cfg(windows)]
+mod ntfs;
+#[cfg(windows)]
 mod process;
 
 const DIR: &str = "C:/RouteSpan fixture";

@@ -2,7 +2,8 @@ use super::*;
 use std::{
     io::{self, PipeReader, PipeWriter, Read, Write},
     mem::{size_of, size_of_val},
-    os::windows::{ffi::OsStrExt, io::AsRawHandle},
+    os::windows::{ffi::OsStrExt, io::AsRawHandle, process::CommandExt},
+    process::Command,
     thread,
 };
 use windows::{
@@ -19,6 +20,11 @@ use windows::{
 const PROCESS_WAIT_MS: u32 = 5000;
 const STDOUT_MARKER: &[u8] = b"routespan fixture stdout\n";
 const STDERR_MARKER: &[u8] = b"routespan fixture stderr\n";
+const WORKER_MODE: &str = "ROUTESPAN_LOCAL_PIPE_FIXTURE";
+
+fn test_name(name: &str) -> String {
+    format!("{}::{name}", module_path!().split_once("::").unwrap().1)
+}
 
 struct Handle(HANDLE);
 
@@ -109,8 +115,7 @@ fn local_job(resume: bool) -> LocalProcess {
     let mut command = vec![u16::from(b'"')];
     command.extend(exe.as_os_str().encode_wide());
     command.extend("\" --exact ".encode_utf16());
-    command.extend(module_path!().split_once("::").unwrap().1.encode_utf16());
-    command.extend("::job_pipe_child".encode_utf16());
+    command.extend(test_name("job_pipe_child").encode_utf16());
     command.extend(" --ignored --nocapture\0".encode_utf16());
     let (child_input, input) = io::pipe().unwrap();
     let (output, child_output) = io::pipe().unwrap();
@@ -268,8 +273,7 @@ fn job_pipe_child() {
     io::stdin().read_exact(&mut signal).unwrap();
 }
 
-#[test]
-fn safety_local_process_and_pipes_are_reaped_on_cancel_error_or_timeout() {
+fn check_shutdown_paths() {
     let f = Fixture::new();
     enum Shutdown {
         Cancel,
@@ -308,10 +312,48 @@ fn safety_local_process_and_pipes_are_reaped_on_cancel_error_or_timeout() {
     }
 }
 
-#[test]
-fn safety_local_startup_abort_reaps_suspended_child_without_running_it() {
+fn check_startup_abort() {
     let mut process = local_job(false);
     assert_reaped(&process.witness, &mut process.input);
     assert!(read_pipe(&mut process.output, None).is_empty());
     assert!(read_pipe(&mut process.error, None).is_empty());
+}
+
+#[test]
+#[ignore = "run as a dedicated handle-inheritance fixture process"]
+fn isolated_job_worker() {
+    match std::env::var(WORKER_MODE).as_deref() {
+        Ok("shutdown") => check_shutdown_paths(),
+        Ok("startup-abort") => check_startup_abort(),
+        _ => panic!("missing fixture case"),
+    }
+}
+
+fn run_isolated(mode: &str) {
+    // The child ends must briefly be inheritable for CreateProcessW. Keeping
+    // them in this worker's handle table prevents unrelated test launches
+    // in the parent test runner from inheriting them.
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &test_name("isolated_job_worker"), "--ignored"])
+        .env(WORKER_MODE, mode)
+        .creation_flags(CREATE_NO_WINDOW.0)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("test result: ok. 1 passed;"),
+        "worker {mode} exited {}\n{stdout}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn safety_local_process_and_pipes_are_reaped_on_cancel_error_or_timeout() {
+    run_isolated("shutdown");
+}
+
+#[test]
+fn safety_local_startup_abort_reaps_suspended_child_without_running_it() {
+    run_isolated("startup-abort");
 }
