@@ -173,15 +173,32 @@ jobs:
     name: RustSec audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: read
-      checks: write
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install pinned cargo-audit
+        run: cargo install cargo-audit --version '=0.23.0' --locked
+
       - name: Audit Rust dependencies
-        uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: src-tauri
+        shell: bash
+        run: |
+          cargo audit --color never --file src-tauri/Cargo.lock 2>&1 | tee "$RUNNER_TEMP/rustsec-audit.log"
+          if grep -Eq "^(error:|warning: couldn't (open|update) crates[.]io index:)" "$RUNNER_TEMP/rustsec-audit.log"; then
+            exit 1
+          fi
+
+  security-audit-status:
+    name: Security audit
+    needs: rust-security-audit
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful RustSec scan
+        env:
+          RUSTSEC_RESULT: ${{ needs.rust-security-audit.result }}
+        run: test "$RUSTSEC_RESULT" = success
