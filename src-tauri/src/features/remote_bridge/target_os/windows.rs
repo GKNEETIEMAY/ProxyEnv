@@ -24,6 +24,20 @@ pub enum WindowsTargetProbe {
     Unknown { reason: WindowsProbeReason },
 }
 
+pub(in crate::features::remote_bridge) fn allows_direct_probe(effective: &str) -> bool {
+    // A nested SSH client or external host-key helper does not inherit our
+    // read-only flags. CheckHostIP can append to known_hosts on its own.
+    !effective.lines().any(|line| {
+        let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+        let value = value.trim();
+        match key {
+            "checkhostip" => !matches!(value, "no" | "false"),
+            "proxyjump" | "proxycommand" | "knownhostscommand" => !matches!(value, "" | "none"),
+            _ => false,
+        }
+    })
+}
+
 #[cfg(windows)]
 pub(in crate::features::remote_bridge) use implementation::*;
 
@@ -51,20 +65,6 @@ mod implementation {
         "-oProxyCommand=none",
         "-oTunnel=no",
     ];
-
-    pub(in crate::features::remote_bridge) fn allows_direct_probe(effective: &str) -> bool {
-        // A nested SSH client or external host-key helper does not inherit our
-        // read-only flags. CheckHostIP can append to known_hosts on its own.
-        !effective.lines().any(|line| {
-            let (key, value) = line.split_once(' ').unwrap_or((line, ""));
-            let value = value.trim();
-            match key {
-                "checkhostip" => !matches!(value, "no" | "false"),
-                "proxyjump" | "proxycommand" | "knownhostscommand" => !matches!(value, "" | "none"),
-                _ => false,
-            }
-        })
-    }
 
     struct Candidate {
         shell: WindowsShell,
@@ -204,6 +204,7 @@ mod implementation {
 
     #[cfg(test)]
     mod tests {
+        use super::super::allows_direct_probe;
         use super::*;
         use std::os::windows::process::CommandExt;
 

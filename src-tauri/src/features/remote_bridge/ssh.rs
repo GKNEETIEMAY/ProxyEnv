@@ -1076,11 +1076,70 @@ pub(super) struct BoundTarget {
     port: u16,
 }
 
+// The production constructor belongs to the SSH host-verification boundary.
+// M3.1 does not yet have an authenticated transport that can issue this value.
+pub(super) struct VerifiedHostIdentity<'a> {
+    binding: &'a BoundTarget,
+    generation: u64,
+    key_sha256: [u8; 32],
+}
+
+impl<'a> VerifiedHostIdentity<'a> {
+    pub(super) fn key_for(&self, target: &BoundTarget, generation: u64) -> BridgeResult<[u8; 32]> {
+        if self.binding.fingerprint != target.fingerprint || self.generation != generation {
+            return Err("hostKey".into());
+        }
+        Ok(self.key_sha256)
+    }
+
+    #[cfg(test)]
+    pub(super) fn fixture(binding: &'a BoundTarget, generation: u64, key_sha256: [u8; 32]) -> Self {
+        Self {
+            binding,
+            generation,
+            key_sha256,
+        }
+    }
+}
+
 impl BoundTarget {
     pub(super) fn capture_connected(id: &str, fingerprint: &str) -> BridgeResult<Self> {
         let target = Self::from_resolved(resolve(id)?)?;
         target.check_fingerprint(fingerprint)?;
         Ok(target)
+    }
+
+    pub(super) fn checked_config_fingerprint(&self, effective: &str) -> BridgeResult<&str> {
+        self.check_fingerprint(&config_fingerprint(&self.target.public.id, effective))?;
+        Ok(&self.fingerprint)
+    }
+
+    pub(super) fn endpoint_identity(&self) -> (&str, &str, u16) {
+        (&self.host, &self.user, self.port)
+    }
+
+    #[cfg(test)]
+    pub(super) fn fixture(id: &str, effective: &str) -> BridgeResult<Self> {
+        let test_connection = connections::ManualConnection {
+            id: id.to_owned(),
+            display_name: "Windows plan fixture".into(),
+            host: "fixture.example".into(),
+            user: None,
+            port: 22,
+            authentication: ManualAuthentication::Automatic,
+            identity_file: None,
+        };
+        Self::from_effective(
+            ResolvedTarget {
+                public: connections::target(&test_connection),
+                connection: Connection::Config {
+                    alias: id.to_owned(),
+                    config: None,
+                },
+                config_path: PathBuf::new(),
+            },
+            effective,
+        )
     }
 
     fn from_resolved(target: ResolvedTarget) -> BridgeResult<Self> {
@@ -1103,10 +1162,8 @@ impl BoundTarget {
         if current.public.id != self.target.public.id {
             return Err("sshConfigChanged".into());
         }
-        self.check_fingerprint(&config_fingerprint(
-            &current.public.id,
-            &effective_resolved_target_before(current, deadline)?,
-        ))
+        self.checked_config_fingerprint(&effective_resolved_target_before(current, deadline)?)
+            .map(|_| ())
     }
 
     fn check_fingerprint(&self, fingerprint: &str) -> BridgeResult<()> {
@@ -1135,10 +1192,11 @@ impl BoundTarget {
         if matches!(&self.target.connection, Connection::Config { .. }) {
             // Keep the alias for its SSH options, but do not let a late edit
             // of HostName, User, or Port redirect a command after verification.
+            let (host, user, port) = self.endpoint_identity();
             command.args([
-                format!("-oHostName={}", self.host),
-                format!("-oUser={}", self.user),
-                format!("-oPort={}", self.port),
+                format!("-oHostName={host}"),
+                format!("-oUser={user}"),
+                format!("-oPort={port}"),
             ]);
         }
     }
@@ -1658,7 +1716,7 @@ pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResu
     OwnedChild::spawn(&mut cmd)
 }
 
-fn reverse_forward_spec(remote: u16, host: &str, local: u16) -> String {
+pub(super) fn reverse_forward_spec(remote: u16, host: &str, local: u16) -> String {
     format!("127.0.0.1:{remote}:{host}:{local}")
 }
 
