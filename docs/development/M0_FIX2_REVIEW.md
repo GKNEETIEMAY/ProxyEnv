@@ -5,7 +5,7 @@
 
 ## 改动摘要
 
-本轮待提交文件仅为：
+`9679c7d` 包含以下两个文件：
 
 - `.github/workflows/ci.yml`：抽出独立前端安全审计 Job。
 - `docs/development/M0_FIX2_REVIEW.md`：本报告。
@@ -29,7 +29,13 @@ Node 20.19.0、pnpm 10.15.1、冻结安装及原命令 `pnpm audit --audit-level
 
 ## picomatch 官方修复状态复核
 
-本轮重新查询，不沿用历史状态作为最新事实：
+2026-11-19 复核时，[GitHub 安全公告](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)
+已标记为 Withdrawn，撤回日期为 2026-11-18。npm registry 仍返回 `4.0.7`，公告未列出修复版本。
+云端独立审计已通过，本地用原命令复核也退出 0。审核结果变化与公告撤回时间一致，锁定依赖和审计阈值相同。
+下面保留拆分前的 High 评级、失败记录和有界性能评估。构建工具处理不可信 glob 时，
+仍需考虑已观察到的匹配耗时风险。相关修补提议已关闭。见 [上游讨论](https://github.com/micromatch/picomatch/pull/235)。
+
+2026-11-18 本地验证时记录如下：
 
 - [官方发布页](https://github.com/micromatch/picomatch/releases)与 npm registry 的最高正式版本均为 `4.0.7`。
 - [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)仍列受影响 `<=4.0.7`、无已发布补丁。
@@ -38,8 +44,7 @@ Node 20.19.0、pnpm 10.15.1、冻结安装及原命令 `pnpm audit --audit-level
 - 本轮 `pnpm audit --audit-level high` 退出 1，仍为同一公告的两个 high 路径：
   Vite → picomatch、vue-tsc → @vue/language-core → picomatch。原版本分别为 4.0.7 / 4.0.5。
 
-正式修复版本尚不存在，不能猜测新版本、降级到同样受影响版本，或以 audit ignore 宣称已修复。
-构建/开发工具的暴露条件及隔离建议继续见 M0-Fix Review；本轮没有扩大其信任边界。
+构建和开发工具的暴露条件及隔离建议见 [M0-Fix Review](M0_FIX_REVIEW.md)。
 
 ## 安全补丁与替代方案实测评估
 
@@ -96,26 +101,34 @@ Vite/tinyglobby/扫描逻辑和 Vue 的调用不能通过包名 override 无缝�
 | 官方 npm 发布复核 | PASS（查询执行），最新 4.0.7 | picomatch-registry.json |
 | picomatch 缓解实验 | 有界实验完成，含四个预期超时；不是测试套件 PASS | picomatch-evaluation.json |
 | minimatch 候选实验与候选依赖审计 | 有界四样例结束，候选项目 audit 退出 0；非应用验收 | minimatch-evaluation.json / minimatch-audit.log |
-| GitHub Actions 实际执行 | PENDING，等待本轮变更摘要获准推送 | 尚无本轮 run 链接 |
-| Windows 完整回归 / Rust / release EXE | 本轮未重跑；原所有命令保留，实际 CI 结果等待推送 | 不沿用旧 CI 为本轮 PASS |
-| Linux 扩展与 UI Job | 配置原样保留，本轮实际 CI 等待推送 | 不把上轮 45 项通过写成本轮通过 |
+| 2026-11-19 本地高危审计复核 | 退出 0，报告无已知漏洞 | pnpm-audit-2026-11-19.log |
 
-最初 sandbox 内 Corepack 请求被本机代理访问权限拒绝；正常权限下冻结安装、构建及契约检查通过。
-本轮没有运行时/测试源码变化，因此没有无条件重复上轮两次完整回归；重点验证工作流结构、
-安全退出码和受影响契约。云端完整 Windows 与 Linux 运行仍必须按实际结果记账。
+最初 sandbox 内 Corepack 请求被本机代理访问权限拒绝。正常权限下冻结安装、构建及契约检查通过。
+本地验证覆盖工作流结构、原审计命令和相关契约。完整平台回归结果见下方云端记录。
 
-## 提交、推送与阶段判断
+## 推送与实际 CI
 
-本轮本地提交范围为上述两个文件；本次请求明确要求摘要获准后推送，因此当前未推送。
-提交说明：`ci: separate frontend security audit from Windows regression`。
-回滚只需撤回本轮 workflow 与报告提交；不涉及配置、身份或数据迁移。
+2026-11-19 获授权后执行 `git fetch origin`。本地在 `v0.3.0dev`，工作区干净，远端基线
+`6a352ba9233829d2f6b311c836bf96da72ddd1b2` 是授权提交的直接父提交。提交差异仅含上述两个文件，
+提交范围和工作区的 `git diff --check` 均通过。
 
-推送后的核对清单：
+按授权执行 `git push origin 9679c7d:refs/heads/v0.3.0dev`。推送后 `git ls-remote` 返回
+`9679c7dfac936daf10d8949fed9d6b8749086e62`，与 [CI 44459357514](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/44459357514)
+的 `head_sha` 一致。触发事件为 `push`，最终结论为 `success`，运行于北京时间 13:01 完成。
 
-1. run 的 head_sha 与本次提交一致。
-2. Frontend security audit 因当前漏洞失败，workflow 整体仍为 failure。
-3. Windows build and test 已独立启动，实际执行全部原构建/测试步骤；任一失败需单独定位。
-4. Linux 扩展、UI、RustSec 与原版本/发行契约按各自结果记录；未运行/跳过不得写 PASS。
+| Job | 实际结果 | 范围 |
+| --- | --- | --- |
+| [Frontend security audit](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/44459357514/job/135342079006) | PASS | 日志记录了 `pnpm audit --audit-level high` 和 `No known vulnerabilities found` |
+| [Windows build and test](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/44459357514/job/135342079356) | PASS | 所有配置步骤均成功，包括前端构建、远程桥接与扩展事务回归、Rust fmt、Clippy、Rust 测试和 release EXE 构建 |
+| [Remote extension Linux filesystem tests](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/44459357514/job/135342079317) | PASS | 45 通过，0 失败，0 跳过 |
+| [RustSec audit](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/44459357514/job/135342079428) | PASS | RustSec Job 通过，保留 16 条 warning |
+| [Security audit](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/44459357514/job/135343214439) | PASS | RustSec 工作流生成的同次安全检查 |
+| [Windows local UI fixtures](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/44459357514/job/135342079427) | PASS | 模拟 UI 夹具 |
 
-**结论：本地已完成 CI 解耦与方案评估；真实云端解耦效果待推送验证。**
-picomatch 高危漏洞仍未修复，M0 不满足安全放行条件，本轮不进入 M1。
+## 阶段判断
+
+前端审计与 Windows 构建于北京时间 12:35:24 同时启动，Windows Job 的回归及构建步骤全部执行。
+本次六项检查均通过，未发现新增 CI 回归。拆分前的审计仍留有失败记录，见
+[M0-Fix CI 44264475814](https://github.com/GKNEETIEMAY/ProxyEnv/actions/runs/44264475814)。
+本次审计结果随公告撤回而变化。已观察到的 glob 匹配性能风险和设备验收缺口继续跟踪。
+本轮范围止于 M0-Fix2。
