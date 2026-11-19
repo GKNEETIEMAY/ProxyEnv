@@ -20,6 +20,7 @@ pub(crate) mod settings;
 mod skills;
 mod ssh;
 pub mod ssh_auth;
+mod target_os;
 pub mod tool_adapter;
 pub mod tool_discovery;
 pub(crate) mod tray_state;
@@ -1092,10 +1093,6 @@ fn exposed_summary(summary: &Summary) -> Summary {
     snapshot
 }
 
-fn session_environment_source_command(session_id: &str) -> String {
-    format!(". \"$HOME/.proxyenv/sessions/{session_id}/env.sh\"")
-}
-
 fn projected_session_command(
     summary: &Summary,
     ssh_running: bool,
@@ -1107,7 +1104,7 @@ fn projected_session_command(
     {
         return None;
     }
-    session_id.map(session_environment_source_command)
+    session_id.map(target_os::linux::session_environment_source_command)
 }
 
 fn observe_user_proxy_setting(snapshot: &mut Summary) {
@@ -3185,7 +3182,9 @@ fn capability_ready(ssh_running: bool, status: Option<Status>) -> bool {
 
 pub fn session_environment_command() -> BridgeResult<String> {
     let (_, session_id, _) = proxy_terminal_context()?;
-    Ok(session_environment_source_command(&session_id))
+    Ok(target_os::linux::session_environment_source_command(
+        &session_id,
+    ))
 }
 pub fn launch_manual_terminal() -> BridgeResult<()> {
     // AI-only bridges also need a plain remote terminal, not proxy exports.

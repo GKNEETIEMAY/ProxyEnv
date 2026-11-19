@@ -595,17 +595,10 @@ fn project(target: &str, skill: &LocalSkill) -> BridgeResult<()> {
         SkillProjectionState::Conflict => return Err("skillConflict".into()),
         _ => {}
     }
-    ssh::skill_remote(target, &request(skill, "prepare"))?;
+    let stage = ssh::prepare_skill_upload(target, request(skill, "prepare"))?;
     let upload = (|| {
         for file in &skill.files {
-            ssh::skill_upload(
-                target,
-                &file.local_path,
-                skill.view.tool.as_str(),
-                &skill.view.name,
-                &skill.view.hash,
-                &file.relative_path,
-            )?;
+            ssh::skill_upload(&stage, &file.local_path, &file.relative_path)?;
         }
         let value = ssh::skill_remote(target, &request(skill, "apply"))?;
         if state_from(&value)? != SkillProjectionState::Synced {

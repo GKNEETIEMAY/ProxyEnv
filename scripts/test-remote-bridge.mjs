@@ -301,7 +301,7 @@ function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path
     return {...isolated,CODEX_HOME:"",CLAUDE_CONFIG_DIR:"",HOME:posix(home),PATH:`${posix(bin)}:/usr/bin:/bin`,TMPDIR:posix(temp),...overrides};
   };
   const mock=(name,body)=>writeFileSync(join(bin,name),`#!/bin/sh\n${body}\n`,{mode:0o755});
-  mock("uname","printf Linux");
+  mock("uname",'printf "%s" "${TEST_TARGET_OS-Linux}"');
   mock("ss",'printf "%s" "${TEST_LISTENERS:-}"');
   // MSYS has no flock or Unix permission model. Only these platform adapters
   // are mocked; file content, hashing, writes, readback and restore are real.
@@ -341,7 +341,7 @@ function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path
     assert.equal(result.status,0,`${tool}/${operation}: ${Math.round(performance.now()-started)}ms; ${result.error?.code ?? result.signal ?? "exit"}; ${result.stderr || ""}`);
     return JSON.parse(result.stdout.trim());
   };
-  const runSkill=(operation,tool,content)=>{
+  const runSkill=(operation,tool,content,env={})=>{
     if(process.platform==="win32") {
       // MSYS cannot apply POSIX modes to Windows ACLs. Ownership and hashing
       // remain real; Linux CI exercises the actual mode checks.
@@ -352,7 +352,7 @@ function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path
     const skillHash=createHash("sha256").update(content).digest("hex");
     const manifest=`${skillHash}  SKILL.md\n`;
     const input=`export HOME='${posix(home)}'\nexport PATH='${posix(bin)}:/usr/bin:/bin'\noperation='${operation}'\ntool='${tool}'\nskill_name='fixture-skill'\nskill_hash='${skillHash}'\nfile_count=1\ntotal_size=${Buffer.byteLength(content)}\nmanifest_b64='${Buffer.from(manifest).toString("base64")}'\ndirectories_b64=''\n${readFileSync("src-tauri/src/features/remote_bridge/skill-remote.sh","utf8")}`;
-    const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:environment()});
+    const result=spawnSync(shell,["-s"],{input,encoding:"utf8",timeout:60000,env:environment(env)});
     assert.equal(result.status,0,result.stderr || result.error?.message);
     return JSON.parse(result.stdout.trim());
   };
@@ -374,6 +374,18 @@ test("shell fixtures isolate inherited startup hooks and test overrides",{skip:!
   } finally {
     keys.forEach((key,index)=>{ if(previous[index]===undefined) delete process.env[key]; else process.env[key]=previous[index]; });
     f.cleanup();
+  }
+});
+
+test("Linux writers reject an unknown or non-Linux platform before touching the fixture",{skip:!available},()=>{
+  for(const os of ["","Windows_NT","FreeBSD"]) {
+    const f=fixture();
+    try {
+      const env={TEST_TARGET_OS:os};
+      assert.equal(f.run("session-env-apply","codex",17897,"absent",env).error,"remoteUnsupported");
+      assert.equal(f.runSkill("prepare","codex","fixture",env).error,"remoteUnsupported");
+      assert.equal(existsSync(join(f.home,".proxyenv")),false);
+    } finally { f.cleanup(); }
   }
 });
 
@@ -831,6 +843,7 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
 });
 test("managed proxy terminal loads a private authenticated session environment",()=>{
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux.rs","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
@@ -844,8 +857,9 @@ test("managed proxy terminal loads a private authenticated session environment",
   assert.match(ssh,/-NoExit/);
   assert.match(ssh,/PROXYENV_SSH_LAUNCH/);
   assert.match(ssh,/SSH_ASKPASS_REQUIRE/);
-  assert.match(ssh,/exec \\\"\$\{\{SHELL:-\/bin\/sh\}\}\\\" -i/);
-  assert.match(ssh,/\.proxyenv\/sessions\/\{session_id\}\/env\.sh/);
+  assert.match(ssh,/linux::managed_terminal_remote_command/);
+  assert.match(linux,/exec \\\"\$\{\{SHELL:-\/bin\/sh\}\}\\\" -i/);
+  assert.match(linux,/\.proxyenv\/sessions\/\{session_id\}\/env\.sh/);
   assert.match(bridge,/fn apply_session_environment/);
   assert.match(bridge,/fn remove_session_environment/);
   assert.match(commands,/fn remote_bridge_launch_proxy_terminal/);
@@ -1255,14 +1269,14 @@ test("enabled AI capability configures discovered tools through the existing gua
 test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debounced before parsing",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const profile=readFileSync("src-tauri/src/features/remote_bridge/local_model.rs","utf8");
-  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(bridge,/sleep\(Duration::from_secs\(2\)\)/);
   assert.match(bridge,/sleep\(Duration::from_millis\(500\)\)/);
   assert.match(bridge,/sync_changed_profile\(candidate\)/);
   assert.match(bridge,/local_model::profile_stamp_changed\(profile\)/);
   assert.match(bridge,/local_model::claude_profile_stamp_changed\(profile\)/);
-  assert.match(ssh,/"localClaudeProfileInvalid"/);
+  assert.match(linux,/"localClaudeProfileInvalid"/);
   assert.match(bridge,/claude_profile_state =\s*settings::ProfileSyncState::InvalidLocalProfile/);
   const advanced=readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8");
   assert.doesNotMatch(advanced,/overviewToolLabel\(/,"Advanced does not duplicate Overview tool summaries");
@@ -1802,9 +1816,11 @@ test("terminal handoff prepares pending environment and allows AI-only plain ter
 test("VS Code network error categories cross the helper and SSH boundary without configuration values",()=>{
   const helper=readFileSync('scripts/remote-extension/main.mjs','utf8');
   const ssh=readFileSync('src-tauri/src/features/remote_bridge/ssh.rs','utf8');
+  const linux=readFileSync('src-tauri/src/features/remote_bridge/target_os/linux.rs','utf8');
+  assert.match(ssh,/linux::parse_extension_output/);
   for (const code of ['vscodeNetworkBusy','vscodeNetworkConflict','vscodeNetworkUnsafe']) {
     assert.ok(helper.includes(code));
-    assert.ok(ssh.includes(`"${code}"`));
+    assert.ok(linux.includes(`"${code}"`));
   }
   assert.match(helper,/error\.message === 'unsafePath'[\s\S]*fail\('vscodeNetworkUnsafe'\)/);
   assert.match(helper,/error\.message === 'configConflict'[\s\S]*fail\('vscodeNetworkConflict'\)/);

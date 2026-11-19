@@ -1,6 +1,8 @@
 use super::{
     connections::{self, ManualAuthentication},
-    mobaxterm, BridgeResult, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request,
+    mobaxterm,
+    target_os::{linux, TargetOs},
+    BridgeResult, RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request,
     SshAuthMethod,
 };
 use std::{
@@ -797,15 +799,6 @@ pub(super) fn interactive_target_command(id: &str) -> BridgeResult<(Command, Str
     target_command_with_batch_mode(id, false)
 }
 
-fn managed_terminal_remote_command(session_id: &str) -> BridgeResult<String> {
-    if session_id.len() != 32 || !session_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("invalidRequest".into());
-    }
-    Ok(format!(
-        "proxyenv_session=\"$HOME/.proxyenv/sessions/{session_id}/env.sh\"; [ -f \"$proxyenv_session\" ] || exit 1; . \"$proxyenv_session\"; unset proxyenv_session; exec \"${{SHELL:-/bin/sh}}\" -i"
-    ))
-}
-
 #[cfg(windows)]
 fn powershell_terminal_command(
     ssh_command: &Command,
@@ -983,7 +976,7 @@ pub fn launch_managed_terminal(
     launch_terminal(
         target_id,
         fingerprint,
-        Some(managed_terminal_remote_command(session_id)?),
+        Some(linux::managed_terminal_remote_command(session_id)?),
     )
 }
 
@@ -1195,245 +1188,6 @@ pub(super) fn classify_ssh_error(transcript: &str) -> String {
     .into()
 }
 
-pub(super) fn remote_payload(
-    request: &serde_json::Value,
-) -> BridgeResult<(Zeroizing<String>, &'static str)> {
-    let operation = request["operation"].as_str().ok_or("invalidRequest")?;
-    if ![
-        "check",
-        "verify",
-        "internet",
-        "test",
-        "preview",
-        "status",
-        "apply",
-        "restore",
-        "restore-preview",
-        "tool-verify",
-        "tool-discover",
-        "session-env-apply",
-        "session-env-remove",
-    ]
-    .contains(&operation)
-    {
-        return Err("invalidRequest".into());
-    }
-    let tool = request["tool"].as_str().unwrap_or("codex");
-    if !["codex", "claude"].contains(&tool) {
-        return Err("invalidRequest".into());
-    }
-    let port = request["port"].as_u64().unwrap_or(25721);
-    if !(1024..=65535).contains(&port) {
-        return Err("invalidPort".into());
-    }
-    let mut ports = Vec::new();
-    if let Some(values) = request["ports"].as_array() {
-        for value in values {
-            let value = value.as_u64().ok_or("invalidPort")?;
-            if !(1024..=65535).contains(&value) {
-                return Err("invalidPort".into());
-            }
-            ports.push(value.to_string());
-        }
-    }
-    if operation == "test" {
-        ports = vec![port.to_string()];
-    }
-    let expected = request["expectedHash"].as_str().unwrap_or("absent");
-    let expected_backup = request["backupHash"].as_str().unwrap_or("absent");
-    let repair_permissions = request["repairPermissions"].as_bool().unwrap_or(false);
-    for hash in [expected, expected_backup] {
-        if hash != "absent" && !(hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())) {
-            return Err("invalidRequest".into());
-        }
-    }
-    let protocol = request["protocol"].as_str().unwrap_or("http");
-    if !["http", "socks5", "mixed"].contains(&protocol) {
-        return Err("invalidRequest".into());
-    }
-    let scheme = if protocol == "socks5" {
-        "socks5h"
-    } else {
-        "http"
-    };
-    let profile_model = request["profileModelBase64"].as_str().unwrap_or("");
-    let profile_catalog = request["profileCatalogBase64"].as_str().unwrap_or("");
-    let profile_settings = request["profileSettingsBase64"].as_str().unwrap_or("");
-    let profile_hash = request["profileHash"].as_str().unwrap_or("");
-    let session_token = request["sessionToken"].as_str().unwrap_or("");
-    let session_id = request["sessionId"].as_str().unwrap_or("");
-    let valid_base64 = |value: &str, limit: usize| {
-        value.len() <= limit
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
-    };
-    if !valid_base64(profile_model, 512)
-        || !valid_base64(profile_catalog, 11 * 1024 * 1024)
-        || !valid_base64(profile_settings, 256 * 1024)
-        || (!profile_hash.is_empty()
-            && !(profile_hash.len() == 64
-                && profile_hash.bytes().all(|byte| byte.is_ascii_hexdigit())))
-        || (!session_token.is_empty()
-            && !(session_token.len() == 64
-                && session_token.bytes().all(|byte| byte.is_ascii_hexdigit())))
-        || (!session_id.is_empty()
-            && !(session_id.len() == 32 && session_id.bytes().all(|byte| byte.is_ascii_hexdigit())))
-        || (matches!(operation, "preview" | "status" | "apply" | "tool-verify")
-            && session_token.is_empty())
-        || (matches!(operation, "session-env-apply" | "session-env-remove")
-            && session_id.is_empty())
-        || (tool == "codex"
-            && matches!(operation, "preview" | "apply")
-            && (profile_model.is_empty() || profile_catalog.is_empty() || profile_hash.is_empty()))
-        || (tool == "claude"
-            && matches!(operation, "preview" | "apply")
-            && (profile_settings.is_empty() || profile_hash.is_empty()))
-    {
-        return Err("invalidRequest".into());
-    }
-    let extension_version = request["extensionVersion"].as_str().unwrap_or("");
-    if !extension_version.is_empty()
-        && (!super::tool_adapter::valid_version(extension_version)
-            || super::tool_adapter::by_name(tool)?.compatibility(extension_version)
-                != super::tool_adapter::RemoteToolCompatibility::Compatible
-            || !matches!(operation, "preview" | "apply"))
-    {
-        return Err("invalidRequest".into());
-    }
-    let bundled = include_str!("remote.sh");
-    // Read-only transport probes return before any configuration code runs.
-    // Do not keep writing the entire configuration helper after the remote
-    // shell has already emitted its result and closed its stdin.
-    let script = if matches!(operation, "check" | "verify" | "internet" | "test") {
-        bundled
-            .split_once("\numask 077\n")
-            .ok_or("stateUnavailable")?
-            .0
-    } else if operation == "tool-discover" {
-        bundled
-            .split_once("\n# PROXYENV_CONFIG_DEPENDENCIES\n")
-            .ok_or("stateUnavailable")?
-            .0
-    } else {
-        bundled
-    };
-    let script = format!("extension_version='{extension_version}'\n{script}");
-    let source = Zeroizing::new(format!("operation='{operation}'\ntool='{tool}'\nport={port}\nports='{}'\nexpected='{expected}'\nexpected_backup='{expected_backup}'\nrepair_permissions={repair_permissions}\nprotocol='{protocol}'\nscheme='{scheme}'\nprofile_model_b64='{profile_model}'\nprofile_catalog_b64='{profile_catalog}'\nprofile_settings_b64='{profile_settings}'\nprofile_hash='{profile_hash}'\nsession_id='{session_id}'\nsession_token='{session_token}'\nPROXYENV_SESSION_TOKEN=\"$session_token\"\nexport PROXYENV_SESSION_TOKEN\n{script}", ports.join(" ")));
-    let operation = match operation {
-        "check" => "check",
-        "verify" => "verify",
-        "internet" => "internet",
-        "test" => "test",
-        "preview" => "preview",
-        "status" => "status",
-        "apply" => "apply",
-        "restore" => "restore",
-        "restore-preview" => "restore-preview",
-        "tool-verify" => "tool-verify",
-        "tool-discover" => "tool-discover",
-        "session-env-apply" => "session-env-apply",
-        "session-env-remove" => "session-env-remove",
-        _ => return Err("invalidRequest".into()),
-    };
-    Ok((source, operation))
-}
-
-pub(super) fn parse_remote_output(operation: &str, text: &str) -> BridgeResult<serde_json::Value> {
-    if operation == "tool-discover" && text.len() > 4096 {
-        return Err("remoteUnsupported".into());
-    }
-    let value: serde_json::Value =
-        serde_json::from_str(text.trim()).map_err(|_| "remoteUnsupported")?;
-    if let Some(code) = value.get("error").and_then(|v| v.as_str()) {
-        // This allowlist also prevents a malicious SSH server leaking arbitrary text.
-        const CODES: &[&str] = &[
-            "invalidPort",
-            "remoteUnsupported",
-            "unsafeBinding",
-            "portInUse",
-            "unsafePath",
-            "configConflict",
-            "legacyModelSelectionRequired",
-            "localCodexProfileInvalid",
-            "localClaudeProfileInvalid",
-            "localCatalogMissing",
-            "localCatalogUnsafe",
-            "remoteProfileConflict",
-            "remoteProfileOutOfSync",
-            "remoteCatalogWriteFailed",
-            "remoteConfigWriteFailed",
-            "profileVerifyFailed",
-            "codexRestartRequired",
-            "routeOutdated",
-            "cliMissing",
-            "cliUnsupported",
-            "customHome",
-            "invalidRequest",
-            "noBackup",
-            "verifyFailed",
-            "rollbackConflict",
-            "rollbackFailed",
-            "writeRolledBack",
-            "networkFailed",
-            "dependencyMissing",
-            "jsonEditorMissing",
-            "remoteFailed",
-            "rootForbidden",
-        ];
-        return Err(if CODES.contains(&code) {
-            code
-        } else {
-            "remoteFailed"
-        }
-        .into());
-    }
-    let valid = match operation {
-        "check" | "verify" => value["verified"] == true,
-        "test" => value["tested"] == true,
-        "apply" => value["configured"] == true,
-        "status" => {
-            value["configured"].is_boolean()
-                && (value["previousPort"].is_null()
-                    || value["previousPort"]
-                        .as_u64()
-                        .is_some_and(|port| (1024..=65535).contains(&port)))
-                && (value["remoteModel"].is_null()
-                    || value["remoteModel"].as_str().is_some_and(|model| {
-                        !model.is_empty()
-                            && model.len() <= 256
-                            && !model.chars().any(char::is_control)
-                    }))
-                && value["profileHash"].as_str().is_some_and(|hash| {
-                    hash.is_empty()
-                        || (hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
-                })
-        }
-        "restore" => value["configured"] == false,
-        "session-env-apply" => value["sessionEnvironment"] == "applied",
-        "session-env-remove" => value["sessionEnvironment"] == "removed",
-        "tool-verify" => matches!(
-            value["verification"].as_str(),
-            Some(
-                "verified" | "authenticationRequired" | "routeUnavailable" | "timedOut" | "failed"
-            )
-        ),
-        _ => value.is_object(),
-    };
-    if !valid {
-        return Err("remoteFailed".into());
-    }
-    if operation == "tool-verify" {
-        return Ok(serde_json::json!({
-            "verification": value["verification"].as_str().ok_or("remoteFailed")?
-        }));
-    }
-    if operation == "tool-discover" {
-        super::tool_discovery::parse(value.clone())?;
-    }
-    Ok(value)
-}
-
 pub fn remote(alias: &str, mut request: serde_json::Value) -> BridgeResult<serde_json::Value> {
     // Runtime evidence can only come from our checked SSH extension probe.
     // Preview, apply and each background profile update re-probe independently.
@@ -1458,93 +1212,35 @@ pub fn remote(alias: &str, mut request: serde_json::Value) -> BridgeResult<serde
 }
 
 fn remote_execute(alias: &str, request: &serde_json::Value) -> BridgeResult<serde_json::Value> {
-    let (source, operation) = remote_payload(request)?;
+    let (source, operation) = linux::remote_payload(request)?;
+    let timeout_seconds = if operation == "tool-verify" { 90 } else { 25 };
+    linux::parse_remote_output(
+        operation,
+        &run_linux_script(alias, source, timeout_seconds)?,
+    )
+}
+
+fn run_linux_script(alias: &str, source: Zeroizing<String>, seconds: u64) -> BridgeResult<String> {
     let (mut cmd, destination) = remote_target_command(alias)?;
     cmd.arg("-oClearAllForwardings=yes")
         .arg(destination)
-        .arg("sh -s");
-    let timeout_seconds = if operation == "tool-verify" { 90 } else { 25 };
-    let text = output(cmd, Some(source), timeout_seconds)?;
-    parse_remote_output(operation, &text)
-}
-
-fn skill_value<'a>(request: &'a serde_json::Value, name: &str) -> BridgeResult<&'a str> {
-    request[name]
-        .as_str()
-        .ok_or_else(|| "invalidRequest".into())
-}
-
-fn skill_component(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 96
-        && value != "."
-        && value != ".."
-        && !value.starts_with(".proxyenv-")
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-}
-
-fn skill_payload(request: &serde_json::Value) -> BridgeResult<Zeroizing<String>> {
-    let operation = skill_value(request, "operation")?;
-    let tool = skill_value(request, "tool")?;
-    let name = skill_value(request, "skillName")?;
-    let hash = skill_value(request, "skillHash")?;
-    let manifest = request["manifestBase64"].as_str().unwrap_or("");
-    let directories = request["directoriesBase64"].as_str().unwrap_or("");
-    let file_count = request["fileCount"].as_u64().unwrap_or(0);
-    let total_size = request["totalSize"].as_u64().unwrap_or(0);
-    let valid_base64 = |value: &str, limit: usize| {
-        value.len() <= limit
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
-    };
-    if !["status", "prepare", "apply", "remove", "cleanup"].contains(&operation)
-        || !["codex", "claude"].contains(&tool)
-        || !skill_component(name)
-        || hash.len() != 64
-        || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-        || file_count > 256
-        || total_size > 8 * 1024 * 1024
-        || !valid_base64(manifest, 512 * 1024)
-        || !valid_base64(directories, 256 * 1024)
-        || (operation == "prepare" && (manifest.is_empty() || file_count == 0))
-    {
-        return Err("invalidRequest".into());
-    }
-    Ok(Zeroizing::new(format!(
-        "operation='{operation}'\ntool='{tool}'\nskill_name='{name}'\nskill_hash='{hash}'\nfile_count={file_count}\ntotal_size={total_size}\nmanifest_b64='{manifest}'\ndirectories_b64='{directories}'\n{}",
-        // Also protect builds from existing Windows checkouts or editor CRLF saves.
-        include_str!("skill-remote.sh").replace("\r\n", "\n")
-    )))
+        .arg(linux::SCRIPT_COMMAND);
+    output(cmd, Some(source), seconds)
 }
 
 pub(super) fn skill_remote(
     alias: &str,
     request: &serde_json::Value,
 ) -> BridgeResult<serde_json::Value> {
-    let source = skill_payload(request)?;
-    let (mut cmd, destination) = remote_target_command(alias)?;
-    cmd.arg("-oClearAllForwardings=yes")
-        .arg(destination)
-        .arg("sh -s");
-    let text = output(cmd, Some(source), 30)?;
-    let value: serde_json::Value =
-        serde_json::from_str(text.trim()).map_err(|_| "remoteUnsupported")?;
-    if let Some(error) = value["error"].as_str() {
-        return Err(match error {
-            "invalidRequest" | "remoteUnsupported" | "rootForbidden" | "dependencyMissing"
-            | "unsafePath" | "skillConflict" | "skillBusy" | "skillVerifyFailed"
-            | "remoteFailed" | "rollbackFailed" | "writeRolledBack" => error,
-            _ => "remoteFailed",
-        }
-        .into());
-    }
-    Ok(value)
+    let source = linux::skill_payload(request)?;
+    linux::parse_skill_output(&run_linux_script(alias, source, 30)?)
 }
 
-fn scp_target_command(id: &str) -> BridgeResult<(Command, String)> {
+fn scp_target_command(id: &str, expected_fingerprint: &str) -> BridgeResult<(Command, String)> {
+    let fingerprint = fingerprint(id)?;
+    if fingerprint != expected_fingerprint {
+        return Err("sshConfigChanged".into());
+    }
     let target = resolve(id)?;
     if !target.public.available
         || target.public.compatibility != RemoteTargetCompatibility::Compatible
@@ -1626,7 +1322,6 @@ fn scp_target_command(id: &str) -> BridgeResult<(Command, String)> {
     };
     #[cfg(windows)]
     {
-        let fingerprint = fingerprint(id)?;
         if let Some((password, entropy)) = super::credential_cache::terminal_payload(&fingerprint)?
         {
             let askpass = std::env::current_exe().map_err(|_| "processFailed")?;
@@ -1653,30 +1348,63 @@ fn scp_target_command(id: &str) -> BridgeResult<(Command, String)> {
     Ok((command, destination))
 }
 
-pub(super) fn skill_upload(
-    alias: &str,
-    local_path: &Path,
-    tool: &str,
-    name: &str,
-    hash: &str,
-    relative_path: &str,
-) -> BridgeResult<()> {
-    if !local_path.is_absolute()
-        || !["codex", "claude"].contains(&tool)
-        || !skill_component(name)
-        || hash.len() != 64
-        || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-        || relative_path.split('/').any(|part| !skill_component(part))
-    {
+pub(super) struct LinuxSkillStage<'a> {
+    target: &'a str,
+    fingerprint: String,
+    request: serde_json::Value,
+}
+
+pub(super) fn prepare_skill_upload(
+    target: &str,
+    request: serde_json::Value,
+) -> BridgeResult<LinuxSkillStage<'_>> {
+    if request["operation"] != "prepare" {
         return Err("invalidRequest".into());
     }
+    let source = linux::skill_payload(&request)?;
+    let fingerprint = fingerprint(target)?;
+    let (mut command, destination) = remote_target_command(target)?;
+    command
+        .arg("-oClearAllForwardings=yes")
+        .arg(destination)
+        .arg(TargetOs::PROBE_COMMAND);
+    let evidence = output(command, None, 25)?;
+    TargetOs::from_uname(&evidence).require_linux()?;
+    if self::fingerprint(target)? != fingerprint {
+        return Err("sshConfigChanged".into());
+    }
+    let prepared = linux::parse_skill_output(&run_linux_script(target, source, 30)?)?;
+    if prepared["prepared"] != true {
+        return Err("skillVerifyFailed".into());
+    }
+    Ok(LinuxSkillStage {
+        target,
+        fingerprint,
+        request,
+    })
+}
+
+pub(super) fn skill_upload(
+    stage: &LinuxSkillStage<'_>,
+    local_path: &Path,
+    relative_path: &str,
+) -> BridgeResult<()> {
+    if !local_path.is_absolute() {
+        return Err("invalidRequest".into());
+    }
+    let field = |name: &str| stage.request[name].as_str().ok_or("invalidRequest");
+    let path = linux::skill_upload_path(
+        field("tool")?,
+        field("skillName")?,
+        field("skillHash")?,
+        relative_path,
+    )?;
     let metadata = fs::symlink_metadata(local_path).map_err(|_| "localSkillChanged")?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err("localSkillUnsafe".into());
     }
-    let (mut command, destination) = scp_target_command(alias)?;
-    let remote =
-        format!("{destination}:~/.proxyenv/staging/skills/{tool}/{name}/{hash}/{relative_path}");
+    let (mut command, destination) = scp_target_command(stage.target, &stage.fingerprint)?;
+    let remote = format!("{destination}:{path}");
     command
         .arg("--")
         .arg(scp_local_path(local_path)?)
@@ -1746,47 +1474,16 @@ pub(super) fn extension_remote(
     alias: &str,
     request: &serde_json::Value,
 ) -> BridgeResult<serde_json::Value> {
-    // JSON is data inside a quoted heredoc. No user-provided command or path is executed.
-    let source = format!("{}\n\"$bridge_node\" - <<'PROXYENV_EXTENSION_JS'\nglobalThis.bridgeExtensionRequest = {};\n{}\nPROXYENV_EXTENSION_JS\n",
-        include_str!("extension-launch.sh"), request, include_str!("extension-helper.cjs"));
-    let (mut cmd, destination) = remote_target_command(alias)?;
-    cmd.arg("-oClearAllForwardings=yes")
-        .arg(destination)
-        .arg("sh -s");
-    let raw = output(cmd, Some(Zeroizing::new(source)), 30)?;
-    let value: serde_json::Value = serde_json::from_str(raw.trim()).map_err(|_| "remoteFailed")?;
-    if let Some(error) = value["error"].as_str() {
-        return Err(match error {
-            "configConflict"
-            | "unsafePath"
-            | "noBackup"
-            | "verifyFailed"
-            | "rollbackConflict"
-            | "rollbackFailed"
-            | "writeRolledBack"
-            | "extensionMissing"
-            | "extensionUnsupported"
-            | "remoteNodeMissing"
-            | "remoteNodeUnsafe"
-            | "remoteNodeUnsupported"
-            | "vscodeServerMissing"
-            | "vscodeServerAmbiguous"
-            | "vscodeNetworkBusy"
-            | "vscodeNetworkConflict"
-            | "vscodeNetworkUnsafe"
-            | "extensionContextChanged"
-            | "customHome"
-            | "remoteUnsupported" => error,
-            _ => "remoteFailed",
-        }
-        .into());
-    }
-    Ok(value)
+    let source = linux::extension_payload(request);
+    linux::parse_extension_output(&run_linux_script(alias, source, 30)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use linux::{
+        managed_terminal_remote_command, parse_remote_output, remote_payload, skill_payload,
+    };
 
     #[test]
     fn new_host_key_can_request_confirmation_but_changed_keys_remain_blocked() {
@@ -2240,7 +1937,7 @@ mod tests {
     }
     #[test]
     fn skill_projection_script_uses_staging_ownership_and_atomic_activation() {
-        let script = include_str!("skill-remote.sh");
+        let script = linux::SKILL_SCRIPT;
         for required in [
             "skills_staging=\"$staging_root/skills\"",
             ".proxyenv-owner",

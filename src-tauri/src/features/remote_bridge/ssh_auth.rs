@@ -1,6 +1,6 @@
 use super::{
-    credential_cache, ssh, BridgeResult, PortAllocation, Request, SshAuthMethod, SshAuthMode,
-    SshAuthState, Summary,
+    credential_cache, ssh, target_os::linux, BridgeResult, PortAllocation, Request, SshAuthMethod,
+    SshAuthMode, SshAuthState, Summary,
 };
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
@@ -642,34 +642,7 @@ fn parse_json_result(output: &SharedTerminalOutput, operation: &str) -> BridgeRe
         .rev()
         .find(|line| line.trim_start().starts_with('{'))
         .ok_or("remoteUnsupported")?;
-    ssh::parse_remote_output(operation, json_line).map(|_| ())
-}
-
-fn tunnel_remote_command(ports: &[u16], marker: &str) -> String {
-    let checks = ports
-        .iter()
-        .map(|port| {
-            format!(
-                "lines=\"$(ss -H -ltn 2>/dev/null)\"; printf \"%s\\n\" \"$lines\" | grep -Eq \"127\\.0\\.0\\.1:{port}([[:space:]]|$)\" || ready=0; printf \"%s\\n\" \"$lines\" | grep -Eq \"(^|[[:space:]])(\\*|0\\.0\\.0\\.0|\\[::\\]):{port}([[:space:]]|$)\" && exit 74 || :;"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!(
-        "sh -c 'set -u; i=0; while [ \"$i\" -lt 12 ]; do ready=1; {checks} if [ \"$ready\" -eq 1 ]; then printf \"\\n{}\\n\"; exec sh -c \"while :; do sleep 3600; done\"; fi; i=$((i+1)); sleep 1; done; exit 73'",
-        marker
-    )
-}
-
-fn interactive_check_remote_command(ports: &[u16], marker: &str) -> String {
-    let ports = ports
-        .iter()
-        .map(u16::to_string)
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!(
-        "sh -c 'set -eu; printf \"\\n{marker}\\n\"; fail() {{ printf \"{{\\\"error\\\":\\\"%s\\\"}}\\n\" \"$1\"; exit 0; }}; [ \"$(uname -s)\" = Linux ] || fail remoteUnsupported; [ \"$(id -u)\" != 0 ] || fail rootForbidden; for utility in ss awk sha256sum mktemp flock sync stat grep cut cp mv cat unlink; do command -v \"$utility\" >/dev/null 2>&1 || fail dependencyMissing; done; for number in {ports}; do entries=\"$(ss -H -ltn \"sport = :$number\")\" || fail remoteUnsupported; [ -z \"$entries\" ] || fail portInUse; done; printf \"{{\\\"verified\\\":true}}\\n\"'"
-    )
+    linux::parse_remote_output(operation, json_line).map(|_| ())
 }
 
 pub fn begin(
@@ -687,7 +660,7 @@ pub fn begin(
         Operation::Check => {
             command.arg("-oClearAllForwardings=yes");
             (
-                interactive_check_remote_command(&[], &marker),
+                linux::interactive_check_remote_command(&[], &marker),
                 Completion::Check,
             )
         }
@@ -714,7 +687,7 @@ pub fn begin(
                 .map(|endpoint| endpoint.0)
                 .collect::<Vec<_>>();
             (
-                tunnel_remote_command(&ports, &marker),
+                linux::tunnel_remote_command(&ports, &marker),
                 Completion::Connect {
                     request,
                     summary: Box::new(plan.summary),
@@ -1312,7 +1285,7 @@ mod tests {
 
     #[test]
     fn tunnel_command_only_contains_validated_numeric_ports() {
-        let command = tunnel_remote_command(&[23841, 31472], "marker");
+        let command = linux::tunnel_remote_command(&[23841, 31472], "marker");
         assert!(command.contains("127\\.0\\.0\\.1:23841"));
         assert!(command.contains("127\\.0\\.0\\.1:31472"));
         assert!(command.contains("while :; do sleep 3600"));
@@ -1320,7 +1293,7 @@ mod tests {
 
     #[test]
     fn interactive_check_is_a_bounded_fixed_command_without_stdin_payload() {
-        let command = interactive_check_remote_command(&[23841, 31472], "safe-marker");
+        let command = linux::interactive_check_remote_command(&[23841, 31472], "safe-marker");
         assert!(command.contains("safe-marker"));
         assert!(command.contains("for number in 23841 31472"));
         assert!(command.contains("dependencyMissing"));
