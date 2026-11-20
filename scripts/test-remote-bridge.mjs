@@ -500,7 +500,7 @@ test("managed remote environment refuses foreign same-name files",{skip:!availab
 test("general proxy exposes no credential command while AI verification remains session-authenticated",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
+  const config=readFileSync("src-tauri/src/features/remote_bridge/configuration/config_transaction.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   assert.doesNotMatch(page,/copyProxyPassword|rbCopyProxyPassword|rbProxyAuthUsername/);
@@ -1254,7 +1254,7 @@ test("remote bridge resolves consumer and AI ports independently and restores en
 test("enabled AI capability configures discovered tools through the existing guarded transaction",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const capabilities=readFileSync("src-tauri/src/features/remote_bridge/capabilities.rs","utf8");
-  const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
+  const config=readFileSync("src-tauri/src/features/remote_bridge/configuration/config_transaction.rs","utf8");
   const setup=bridge.slice(bridge.indexOf("fn configure_discovered_tools"),bridge.indexOf("pub fn discover_tools"));
   assert.match(setup,/discovery_context_current\(&state, target_id, fingerprint, generation, ticket\)/);
   assert.match(setup,/state\.pending\.is_some\(\) \|\| state\.extension_pending\.is_some\(\) \|\| state\.profile_syncing/);
@@ -1271,7 +1271,7 @@ test("enabled AI capability configures discovered tools through the existing gua
 
 test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debounced before parsing",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const profile=readFileSync("src-tauri/src/features/remote_bridge/local_model.rs","utf8");
+  const profile=readFileSync("src-tauri/src/features/remote_bridge/configuration/local_model.rs","utf8");
   const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux/mod.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(bridge,/sleep\(Duration::from_secs\(2\)\)/);
@@ -1331,7 +1331,7 @@ test("Claude model profile is shared, synced, and restored without copying crede
 test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary",()=>{
   const backend=readFileSync("src-tauri/src/features/remote_bridge/tooling/tool_adapter.rs","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
+  const config=readFileSync("src-tauri/src/features/remote_bridge/configuration/config_transaction.rs","utf8");
   const frontend=readFileSync("src/features/remote-bridge/tool-adapters.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolDialog.vue","utf8");

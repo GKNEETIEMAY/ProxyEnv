@@ -5,6 +5,7 @@ pub use capabilities::{set_capability, CapabilityChange};
 #[allow(dead_code)]
 #[path = "relay/codex_relay.rs"]
 mod codex_relay;
+#[path = "configuration/config_transaction.rs"]
 mod config_transaction;
 use config_transaction::{config_apply_locked, config_preview_locked, verify_tool_for_generation};
 pub use config_transaction::{config_restore, config_restore_preview};
@@ -20,6 +21,7 @@ pub mod observations;
 pub mod security;
 use events::{Action as EventAction, Component as EventComponent, Outcome as EventOutcome};
 use observations::{DiagnosticSnapshot, DiagnosticState, ErrorCategory};
+#[path = "configuration/local_model.rs"]
 mod local_model;
 #[path = "integrations/mobaxterm.rs"]
 pub(crate) mod mobaxterm;
@@ -33,6 +35,7 @@ use port_allocation::{derived_port, first_available_port, resolve_port_pair};
 mod projection;
 use projection::{project_report, projected_session_command, sync_tool_states};
 mod reconnect;
+#[path = "configuration/settings.rs"]
 pub(crate) mod settings;
 #[path = "tooling/skills.rs"]
 mod skills;
