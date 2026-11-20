@@ -1,0 +1,190 @@
+{
+  "ipv4InputValid": {
+    "valid": [
+      "0.0.0.0",
+      "127.0.0.1",
+      "255.255.255.255",
+      "192.0.2.1"
+    ],
+    "invalid": [
+      "01.2.3.4",
+      "1.2.3.04",
+      "256.0.0.1",
+      "1.2.3",
+      "1.2.3.4.5",
+      "1.2..4",
+      "1.2.3.-1",
+      "1.2.3.+1",
+      "1.2.3.4 ",
+      " 1.2.3.4",
+      "0x7f.0.0.1",
+      "",
+      "\uff11\uff12\uff17.0.0.1"
+    ]
+  },
+  "ipv6InputValid": {
+    "valid": [
+      "::",
+      "::1",
+      "2001:db8::1",
+      "2001:0DB8:0:0:0:0:0:1",
+      "::ffff:192.0.2.1",
+      "::192.0.2.1",
+      "1:2:3:4:5:6:7:8"
+    ],
+    "invalid": [
+      "1:2:3:4:5:6:7:8:9",
+      "1:2:3:4:5:6:7",
+      "2001::db8::1",
+      ":::1",
+      "1:::",
+      "2001:db8::g",
+      "2001:db8::12345",
+      "fe80::1%eth0",
+      "fe80::1%25eth0",
+      "[::1]",
+      "::ffff:999.0.0.1",
+      " ::1",
+      "127.0.0.1",
+      ""
+    ]
+  },
+  "hostInputValid": {
+    "valid": [
+      "lab",
+      "lab.example.test",
+      "Lab_1.example.test.",
+      "a-b",
+      "a_b",
+      "a",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "192.0.2.1",
+      "2001:db8::1"
+    ],
+    "invalid": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "1",
+      "1.2",
+      "1.2.3.256",
+      "01.2.3.4",
+      "[::1]",
+      "-lab",
+      "lab-",
+      "_lab",
+      "lab_",
+      "a..b",
+      ".",
+      "a..",
+      "lab:22",
+      "例.test",
+      "lab example",
+      "lab\t.example",
+      "lab\u0000",
+      ""
+    ]
+  },
+  "destinationInputValid": {
+    "valid": [
+      "lab.example.test",
+      "dev@lab.example.test",
+      "a._-@lab",
+      " dev@192.0.2.1 ",
+      "dev@[2001:db8::1]",
+      "dev@2001:db8::1",
+      "[::]",
+      "::",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@lab",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "                                                                                                                                                                                                                                                                                                                                                                                                                lab"
+    ],
+    "invalid": [
+      "[192.0.2.1]",
+      "dev@[::1",
+      "dev@::1]",
+      "dev@[[::1]]",
+      "dev@[::1]:22",
+      "dev@[fe80::1%eth0]",
+      "dev@\nlab",
+      "dev @lab",
+      "@lab",
+      "dev@",
+      "dev@@lab",
+      "_dev@lab",
+      "-dev@lab",
+      ".dev@lab",
+      "中@lab",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@lab",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lab:22",
+      "ssh://lab",
+      "   ",
+      "",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]
+  },
+  "identityPathInputValid": {
+    "valid": [
+      "C:\\Users\\fixture\\.ssh\\id_ed25519",
+      "C:/fixture key",
+      " /home/fixture/id_ed25519 ",
+      "~/.ssh/id_rsa",
+      "\\\\server\\share\\id",
+      "//server/share/id",
+      "f:relative",
+      "1:relative",
+      "相对路径/密钥",
+      "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+    ],
+    "invalid": [
+      null,
+      "",
+      "   ",
+      "\\\\?\\C:\\keys\\id",
+      "\\\\.\\C:\\keys\\id",
+      "//?/C:/keys/id",
+      "//./C:/keys/id",
+      ":relative",
+      "id:key",
+      "C:\\key:stream",
+      "/home/fixture/a?b",
+      "a<b",
+      "a>b",
+      "a\"b",
+      "a|b",
+      "a*b",
+      "a\u0000b",
+      "a\nb"
+    ]
+  },
+  "displayNameInputValid": {
+    "valid": [
+      "Lab",
+      " Lab ",
+      "\tLab\n",
+      "中文环境",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中",
+      "🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪",
+      "éééééééééééééééé",
+      "a\u2028b",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  "
+    ],
+    "invalid": [
+      "",
+      " ",
+      "\u00a0",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中",
+      "🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪",
+      "ééééééééééééééééé",
+      "a\u0000b",
+      "a\u001fb",
+      "a\u007fb",
+      "a\u0085b",
+      "a\u009fb"
+    ]
+  }
+}

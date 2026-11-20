@@ -1936,7 +1936,8 @@ test("SSH connection manager keeps credentials out and promotes edited imports t
   const setupActions=page.slice(page.indexOf('<div class="remote-setup-actions">'),page.indexOf('</div>',page.indexOf('<div class="remote-setup-actions">')));
   assert.doesNotMatch(setupActions,/copy\.rbAddConnection/);
   assert.match(page,/newConnection\.authentication === 'identityFile'/);
-  assert.match(page,/function destinationInputValid\(value: string\)/);
+  const validation=readFileSync("src/features/remote-bridge/connection-validation.ts","utf8");
+  assert.match(validation,/function destinationInputValid\(value: string\)/);
   assert.match(page,/copy\.rbConnectionDestinationInvalid/);
   const authenticationChoices=page.slice(page.indexOf('<fieldset class="remote-auth-choice">'),page.indexOf('</fieldset>',page.indexOf('<fieldset class="remote-auth-choice">')));
   assert.ok(authenticationChoices.indexOf('value="password"') < authenticationChoices.indexOf('value="automatic"'));
@@ -2008,9 +2009,10 @@ test("SSH identity selection uses a native picker and validates without copying 
 
 test("SSH form uses Unicode name limits and actionable localized errors",async()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  const functionSource=page.match(/function displayNameInputValid\(value: string\): boolean \{[\s\S]*?\n\}/)?.[0];
+  const validation=readFileSync("src/features/remote-bridge/connection-validation.ts","utf8");
+  const functionSource=validation.match(/function displayNameInputValid\(value: string\): boolean \{[\s\S]*?\n\}/)?.[0];
   assert.ok(functionSource);
-  const limit=Number(page.match(/const connectionNameLimit = (\d+);/)?.[1]);
+  const limit=Number(validation.match(/const connectionNameLimit = (\d+);/)?.[1]);
   assert.equal(limit,32);
   const source=`const connectionNameLimit=${limit};\n${functionSource}\nexport {displayNameInputValid};`;
   const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
