@@ -781,9 +781,9 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   }
 });
 test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge passwords",()=>{
-  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
-  const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh_auth.rs","utf8");
-  const credentials=readFileSync("src-tauri/src/features/remote_bridge/credential_cache.rs","utf8");
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
+  const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh/ssh_auth.rs","utf8");
+  const credentials=readFileSync("src-tauri/src/features/remote_bridge/ssh/credential_cache.rs","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
@@ -842,7 +842,7 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
   assert.doesNotMatch(page,/Authentication response|认证响应/);
 });
 test("managed proxy terminal loads a private authenticated session environment",()=>{
-  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux.rs","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
@@ -1234,7 +1234,7 @@ test("CLI launch commands are hidden until their remote configuration is applied
 
 test("remote bridge resolves consumer and AI ports independently and restores enabled tool state",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh_auth.rs","utf8");
+  const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh/ssh_auth.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(bridge,/runtime_expected_port\(\s*&target,/);
@@ -1406,7 +1406,7 @@ test("Skills snapshots are read-only and transient recovery uses verified remote
 
 test("Skills projection is CC Switch-link based, staged, owned and metadata-triggered",()=>{
   const skills=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
-  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   const remote=readFileSync("src-tauri/src/features/remote_bridge/skill-remote.sh","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
@@ -1572,7 +1572,7 @@ test("overview preserves independent statuses, public port mappings, and existin
 test("Claude verification is a fixed isolated request and never returns model output",()=>{
   const shell=readFileSync("src-tauri/src/features/remote_bridge/remote.sh","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
@@ -1625,7 +1625,7 @@ test("actual egress runs automatically on network connect, enable and recovery w
 });
 
 test("M7 keeps VS Code Server context and extension location conservative",()=>{
-  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   const vscode=readFileSync("src-tauri/src/features/remote_bridge/vscode.rs","utf8");
   const helper=readFileSync("scripts/remote-extension/main.mjs","utf8");
   const backend=readFileSync("src-tauri/src/features/remote_bridge/extension.rs","utf8");
@@ -1757,7 +1757,7 @@ test("MobaXterm launch is available only from the connected overview",()=>{
   const groups=readFileSync("src/features/remote-bridge/components/RemoteTargetGroups.vue","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh.rs","utf8");
+  const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   assert.match(state,/canOpenMobaxterm: boolean/);
   assert.match(bridge,/pub can_open_mobaxterm: bool/);
   assert.match(ssh,/let can_open_mobaxterm = mobaxterm::available\(\)/);
@@ -1817,7 +1817,7 @@ test("terminal handoff prepares pending environment and allows AI-only plain ter
 
 test("VS Code network error categories cross the helper and SSH boundary without configuration values",()=>{
   const helper=readFileSync('scripts/remote-extension/main.mjs','utf8');
-  const ssh=readFileSync('src-tauri/src/features/remote_bridge/ssh.rs','utf8');
+  const ssh=readFileSync('src-tauri/src/features/remote_bridge/ssh/mod.rs','utf8');
   const linux=readFileSync('src-tauri/src/features/remote_bridge/target_os/linux.rs','utf8');
   assert.match(ssh,/linux::parse_extension_output/);
   for (const code of ['vscodeNetworkBusy','vscodeNetworkConflict','vscodeNetworkUnsafe']) {

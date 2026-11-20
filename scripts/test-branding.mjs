@@ -85,7 +85,7 @@ test("native window, tray, notifications and terminal use display branding only"
   assert.match(tray, /include_image!\("icons\/tray\.png"\)/);
   assert.match(read("src-tauri/src/desktop/notifications.rs"), /RouteSpan · \{title\}/);
   assert.match(read("src-tauri/src/desktop/notifications.rs"), /app\.config\(\)\.identifier/);
-  assert.match(read("src-tauri/src/features/remote_bridge/ssh.rs"), /WindowTitle='RouteSpan Proxy Terminal'/);
+  assert.match(read("src-tauri/src/features/remote_bridge/ssh/mod.rs"), /WindowTitle='RouteSpan Proxy Terminal'/);
 });
 
 test("package, storage, session, repository and updater identities stay compatible", () => {

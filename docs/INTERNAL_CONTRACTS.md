@@ -121,7 +121,7 @@ not evidence that every real device has passed acceptance.
 | Primary/context navigation and preload | `src/app/AppShell.vue`; `scripts/test-app-navigation.mjs` |
 | Display/native branding and compatibility | `scripts/test-branding.mjs`; `src-tauri/tauri.conf.json` |
 | Core/post-connect separation, disconnect, automatic egress | `src-tauri/src/features/remote_bridge/mod.rs` |
-| SSH PTY and host trust | `src-tauri/src/features/remote_bridge/ssh.rs` |
+| SSH PTY and host trust | `src-tauri/src/features/remote_bridge/ssh/mod.rs` |
 | Shared profile/version/installation behavior | `tool_adapter.rs`, `tool_discovery.rs`, `remote.sh` in the remote backend |
 | Fixed-upstream AI session authentication | `authenticated_relay.rs` in the remote backend |
 | CC Switch-linked Skills / owned removal | `skills.rs` in the remote backend |

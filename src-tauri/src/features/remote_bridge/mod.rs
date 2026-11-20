@@ -4,6 +4,7 @@ pub use capabilities::{set_capability, CapabilityChange};
 #[allow(dead_code)]
 mod codex_relay;
 pub(crate) mod connections;
+#[path = "ssh/credential_cache.rs"]
 pub(crate) mod credential_cache;
 pub mod diagnostics;
 pub mod events;
@@ -19,6 +20,7 @@ mod reconnect;
 pub(crate) mod settings;
 mod skills;
 mod ssh;
+#[path = "ssh/ssh_auth.rs"]
 pub mod ssh_auth;
 mod target_os;
 pub use target_os::windows::WindowsTargetProbe;

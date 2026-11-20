@@ -101,7 +101,7 @@ v0.1.3 与 v0.1.4 均为历史公开发行。中英文 README、索引、路线�
 | 主/上下文导航与预加载 | `src/app/AppShell.vue`；`scripts/test-app-navigation.mjs` |
 | 展示/原生品牌与兼容性 | `scripts/test-branding.mjs`；`src-tauri/tauri.conf.json` |
 | 核心/连接后准备分离、断开、自动出口检查 | `src-tauri/src/features/remote_bridge/mod.rs` |
-| SSH PTY 与主机信任 | `src-tauri/src/features/remote_bridge/ssh.rs` |
+| SSH PTY 与主机信任 | `src-tauri/src/features/remote_bridge/ssh/mod.rs` |
 | 共享配置/版本/安装行为 | 远端后端的 `tool_adapter.rs`、`tool_discovery.rs`、`remote.sh` |
 | 固定上游 AI 会话鉴权 | 远端后端的 `authenticated_relay.rs` |
 | CC Switch 链接 Skill / 仅移除管理内容 | 远端后端的 `skills.rs` |
