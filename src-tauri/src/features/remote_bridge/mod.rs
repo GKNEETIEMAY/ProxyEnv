@@ -21,6 +21,7 @@ pub mod security;
 use events::{Action as EventAction, Component as EventComponent, Outcome as EventOutcome};
 use observations::{DiagnosticSnapshot, DiagnosticState, ErrorCategory};
 mod local_model;
+#[path = "integrations/mobaxterm.rs"]
 pub(crate) mod mobaxterm;
 mod models;
 pub use models::{
@@ -49,8 +50,11 @@ mod tool_state;
 use tool_state::{
     automatic_tool_setup_allowed, discovery_context_current, invalidate_tool_discovery,
 };
+#[path = "integrations/tray_state.rs"]
 pub(crate) mod tray_state;
+#[path = "integrations/vscode.rs"]
 pub(crate) mod vscode;
+#[path = "integrations/vscode_network.rs"]
 mod vscode_network;
 #[cfg(test)]
 use super::proxy::ProxyVariable;

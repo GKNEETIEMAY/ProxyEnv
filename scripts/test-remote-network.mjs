@@ -356,6 +356,6 @@ test('general proxy credentials are absent and VS Code uses managed setup', () =
   assert.match(bridge, /vscode_network::apply\(/);
   assert.match(bridge, /ai_relay[\s\S]*\.or\(state\.proxy_relay\.as_ref\(\)\)/);
   assert.match(bridge, /state\.proxy_relay = None;\s*state\.ai_relay = None;\s*let vscode_restore_error = restore_vscode_network/);
-  const network = fs.readFileSync('src-tauri/src/features/remote_bridge/vscode_network.rs', 'utf8');
+  const network = fs.readFileSync('src-tauri/src/features/remote_bridge/integrations/vscode_network.rs', 'utf8');
   assert.doesNotMatch(network, /sessionToken|proxyAuthorization|relay\.token/);
 });

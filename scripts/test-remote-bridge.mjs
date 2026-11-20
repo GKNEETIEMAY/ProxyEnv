@@ -1630,7 +1630,7 @@ test("actual egress runs automatically on network connect, enable and recovery w
 
 test("M7 keeps VS Code Server context and extension location conservative",()=>{
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
-  const vscode=readFileSync("src-tauri/src/features/remote_bridge/vscode.rs","utf8");
+  const vscode=readFileSync("src-tauri/src/features/remote_bridge/integrations/vscode.rs","utf8");
   const helper=readFileSync("scripts/remote-extension/main.mjs","utf8");
   const backend=readFileSync("src-tauri/src/features/remote_bridge/tooling/extension.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
@@ -1914,7 +1914,7 @@ test("remote SSH empty state finishes actions before random scenes and duets wit
 
 test("SSH connection manager keeps credentials out and promotes edited imports to full ProxyEnv copies",()=>{
   const store=readFileSync("src-tauri/src/features/remote_bridge/connections.rs","utf8");
-  const moba=readFileSync("src-tauri/src/features/remote_bridge/mobaxterm.rs","utf8");
+  const moba=readFileSync("src-tauri/src/features/remote_bridge/integrations/mobaxterm.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(store,/pub struct ManualConnectionInput/);
