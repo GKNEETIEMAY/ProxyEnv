@@ -1,0 +1,1185 @@
+{
+  "disconnected": {
+    "report": {
+      "ccDetected": false,
+      "ccPort": null,
+      "ccStatus": null,
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": null,
+      "codexState": "pending",
+      "configured": true,
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "phaseTimings": [],
+      "postConnectErrorCategory": null,
+      "postConnectStatus": "idle",
+      "protocol": null,
+      "proxyPort": null,
+      "proxyStatus": null,
+      "reachable": false,
+      "reconnectState": "idle",
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuthMethod": "unknown",
+      "status": "disconnected",
+      "toolInstallations": [],
+      "vscodeState": "pending"
+    },
+    "summary": {
+      "activeProxyRevision": null,
+      "cc": null,
+      "ccStatus": null,
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeProfileState": "notStarted",
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": null,
+      "codexProfileState": "notStarted",
+      "codexState": "pending",
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "environment": "",
+      "error": null,
+      "installCapabilities": {
+        "brew": false,
+        "curl": false,
+        "nodeVersion": null,
+        "npm": false
+      },
+      "postConnectError": null,
+      "postConnectStatus": "idle",
+      "proxy": null,
+      "proxyStatus": null,
+      "reconnectState": "idle",
+      "runtimeExpectedProxyPort": null,
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentCommand": null,
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuth": {
+        "authenticated": false,
+        "method": "unknown",
+        "mode": "nonInteractive",
+        "passwordStored": false
+      },
+      "status": "disconnected",
+      "target": {
+        "authenticationMethod": "agent",
+        "available": true,
+        "canOpenMobaxterm": false,
+        "canOpenVscode": false,
+        "compatibility": "compatible",
+        "configPath": "",
+        "displayName": "Fixture target",
+        "host": "fixture.invalid",
+        "id": "fixture-target",
+        "identityFile": null,
+        "port": 22,
+        "source": "manual",
+        "sourceLabel": "Fixture",
+        "sshAlias": null,
+        "unavailableReason": null,
+        "user": null
+      },
+      "timings": [],
+      "toolInstallations": [
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "codex",
+          "version": null
+        },
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "claude",
+          "version": null
+        }
+      ],
+      "tools": [
+        {
+          "configProjection": "routeAndClientProfile",
+          "configured": false,
+          "displayName": "Codex CLI",
+          "id": "codex",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        },
+        {
+          "configProjection": "routeOnly",
+          "configured": false,
+          "displayName": "Claude Code CLI",
+          "id": "claude",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        }
+      ],
+      "vscodeState": "pending"
+    }
+  },
+  "extensionFailure": {
+    "report": {
+      "ccDetected": true,
+      "ccPort": 15721,
+      "ccStatus": "connected",
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeState": "pending",
+      "codexConfigured": true,
+      "codexExtension": null,
+      "codexState": "pending",
+      "configured": true,
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "phaseTimings": [],
+      "postConnectErrorCategory": null,
+      "postConnectStatus": "idle",
+      "protocol": null,
+      "proxyPort": null,
+      "proxyStatus": null,
+      "reachable": true,
+      "reconnectState": "idle",
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuthMethod": "unknown",
+      "status": "connected",
+      "toolInstallations": [
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "broken",
+          "extensionVersion": null,
+          "state": "installed",
+          "tool": "codex",
+          "version": "1.2.3"
+        },
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "claude",
+          "version": null
+        }
+      ],
+      "vscodeState": "pending"
+    },
+    "summary": {
+      "activeProxyRevision": null,
+      "cc": {
+        "local": {
+          "host": "127.0.0.1",
+          "port": 15721,
+          "protocol": "http"
+        },
+        "remotePort": 15721
+      },
+      "ccStatus": "connected",
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeProfileState": "notStarted",
+      "claudeState": "pending",
+      "codexConfigured": true,
+      "codexExtension": "fixture.untrusted.extension",
+      "codexProfileState": "notStarted",
+      "codexState": "pending",
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "environment": "",
+      "error": null,
+      "installCapabilities": {
+        "brew": false,
+        "curl": false,
+        "nodeVersion": null,
+        "npm": false
+      },
+      "postConnectError": null,
+      "postConnectStatus": "idle",
+      "proxy": null,
+      "proxyStatus": null,
+      "reconnectState": "idle",
+      "runtimeExpectedProxyPort": null,
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentCommand": null,
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuth": {
+        "authenticated": false,
+        "method": "unknown",
+        "mode": "nonInteractive",
+        "passwordStored": false
+      },
+      "status": "connected",
+      "target": {
+        "authenticationMethod": "agent",
+        "available": true,
+        "canOpenMobaxterm": false,
+        "canOpenVscode": false,
+        "compatibility": "compatible",
+        "configPath": "",
+        "displayName": "Fixture target",
+        "host": "fixture.invalid",
+        "id": "fixture-target",
+        "identityFile": null,
+        "port": 22,
+        "source": "manual",
+        "sourceLabel": "Fixture",
+        "sshAlias": null,
+        "unavailableReason": null,
+        "user": null
+      },
+      "timings": [],
+      "toolInstallations": [
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "broken",
+          "extensionVersion": null,
+          "state": "installed",
+          "tool": "codex",
+          "version": "1.2.3"
+        },
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "claude",
+          "version": null
+        }
+      ],
+      "tools": [
+        {
+          "configProjection": "routeAndClientProfile",
+          "configured": true,
+          "displayName": "Codex CLI",
+          "id": "codex",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "verifyPending",
+          "verificationSupported": false
+        },
+        {
+          "configProjection": "routeOnly",
+          "configured": false,
+          "displayName": "Claude Code CLI",
+          "id": "claude",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        }
+      ],
+      "vscodeState": "pending"
+    }
+  },
+  "missingTarget": {
+    "report": {
+      "ccDetected": false,
+      "ccPort": null,
+      "ccStatus": null,
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": null,
+      "codexState": "pending",
+      "configured": false,
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "phaseTimings": [],
+      "postConnectErrorCategory": null,
+      "postConnectStatus": "idle",
+      "protocol": null,
+      "proxyPort": null,
+      "proxyStatus": null,
+      "reachable": false,
+      "reconnectState": "idle",
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuthMethod": "unknown",
+      "status": "disconnected",
+      "toolInstallations": [],
+      "vscodeState": "pending"
+    },
+    "summary": {
+      "activeProxyRevision": null,
+      "cc": null,
+      "ccStatus": null,
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeProfileState": "notStarted",
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": null,
+      "codexProfileState": "notStarted",
+      "codexState": "pending",
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "environment": "",
+      "error": null,
+      "installCapabilities": {
+        "brew": false,
+        "curl": false,
+        "nodeVersion": null,
+        "npm": false
+      },
+      "postConnectError": null,
+      "postConnectStatus": "idle",
+      "proxy": null,
+      "proxyStatus": null,
+      "reconnectState": "idle",
+      "runtimeExpectedProxyPort": null,
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentCommand": null,
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuth": {
+        "authenticated": false,
+        "method": "unknown",
+        "mode": "nonInteractive",
+        "passwordStored": false
+      },
+      "status": "disconnected",
+      "target": null,
+      "timings": [],
+      "toolInstallations": [
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "codex",
+          "version": null
+        },
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "claude",
+          "version": null
+        }
+      ],
+      "tools": [
+        {
+          "configProjection": "routeAndClientProfile",
+          "configured": false,
+          "displayName": "Codex CLI",
+          "id": "codex",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        },
+        {
+          "configProjection": "routeOnly",
+          "configured": false,
+          "displayName": "Claude Code CLI",
+          "id": "claude",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        }
+      ],
+      "vscodeState": "pending"
+    }
+  },
+  "reconnecting": {
+    "report": {
+      "ccDetected": false,
+      "ccPort": null,
+      "ccStatus": null,
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": null,
+      "codexState": "pending",
+      "configured": true,
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "phaseTimings": [],
+      "postConnectErrorCategory": null,
+      "postConnectStatus": "idle",
+      "protocol": null,
+      "proxyPort": null,
+      "proxyStatus": null,
+      "reachable": false,
+      "reconnectState": "retrying",
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuthMethod": "unknown",
+      "status": "connecting",
+      "toolInstallations": [],
+      "vscodeState": "pending"
+    },
+    "summary": {
+      "activeProxyRevision": null,
+      "cc": null,
+      "ccStatus": null,
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeProfileState": "notStarted",
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": null,
+      "codexProfileState": "notStarted",
+      "codexState": "pending",
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "environment": "",
+      "error": null,
+      "installCapabilities": {
+        "brew": false,
+        "curl": false,
+        "nodeVersion": null,
+        "npm": false
+      },
+      "postConnectError": null,
+      "postConnectStatus": "idle",
+      "proxy": null,
+      "proxyStatus": null,
+      "reconnectState": "retrying",
+      "runtimeExpectedProxyPort": null,
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentCommand": null,
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuth": {
+        "authenticated": false,
+        "method": "unknown",
+        "mode": "nonInteractive",
+        "passwordStored": false
+      },
+      "status": "connecting",
+      "target": {
+        "authenticationMethod": "agent",
+        "available": true,
+        "canOpenMobaxterm": false,
+        "canOpenVscode": false,
+        "compatibility": "compatible",
+        "configPath": "",
+        "displayName": "Fixture target",
+        "host": "fixture.invalid",
+        "id": "fixture-target",
+        "identityFile": null,
+        "port": 22,
+        "source": "manual",
+        "sourceLabel": "Fixture",
+        "sshAlias": null,
+        "unavailableReason": null,
+        "user": null
+      },
+      "timings": [],
+      "toolInstallations": [
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "codex",
+          "version": null
+        },
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "claude",
+          "version": null
+        }
+      ],
+      "tools": [
+        {
+          "configProjection": "routeAndClientProfile",
+          "configured": false,
+          "displayName": "Codex CLI",
+          "id": "codex",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        },
+        {
+          "configProjection": "routeOnly",
+          "configured": false,
+          "displayName": "Claude Code CLI",
+          "id": "claude",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        }
+      ],
+      "vscodeState": "pending"
+    }
+  },
+  "staleFingerprint": {
+    "report": {
+      "ccDetected": true,
+      "ccPort": 15721,
+      "ccStatus": "connected",
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": null,
+      "codexState": "pending",
+      "configured": true,
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "phaseTimings": [],
+      "postConnectErrorCategory": null,
+      "postConnectStatus": "idle",
+      "protocol": null,
+      "proxyPort": null,
+      "proxyStatus": null,
+      "reachable": true,
+      "reconnectState": "idle",
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuthMethod": "unknown",
+      "status": "connected",
+      "toolInstallations": [
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "codex",
+          "version": null
+        },
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "claude",
+          "version": null
+        }
+      ],
+      "vscodeState": "pending"
+    },
+    "summary": {
+      "activeProxyRevision": null,
+      "cc": {
+        "local": {
+          "host": "127.0.0.1",
+          "port": 15721,
+          "protocol": "http"
+        },
+        "remotePort": 15721
+      },
+      "ccStatus": "connected",
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeProfileState": "notStarted",
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": null,
+      "codexProfileState": "notStarted",
+      "codexState": "pending",
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "environment": "",
+      "error": null,
+      "installCapabilities": {
+        "brew": false,
+        "curl": false,
+        "nodeVersion": null,
+        "npm": false
+      },
+      "postConnectError": null,
+      "postConnectStatus": "idle",
+      "proxy": null,
+      "proxyStatus": null,
+      "reconnectState": "idle",
+      "runtimeExpectedProxyPort": null,
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentCommand": null,
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuth": {
+        "authenticated": false,
+        "method": "unknown",
+        "mode": "nonInteractive",
+        "passwordStored": false
+      },
+      "status": "connected",
+      "target": {
+        "authenticationMethod": "agent",
+        "available": true,
+        "canOpenMobaxterm": false,
+        "canOpenVscode": false,
+        "compatibility": "compatible",
+        "configPath": "",
+        "displayName": "Fixture target",
+        "host": "fixture.invalid",
+        "id": "fixture-target",
+        "identityFile": null,
+        "port": 22,
+        "source": "manual",
+        "sourceLabel": "Fixture",
+        "sshAlias": null,
+        "unavailableReason": null,
+        "user": null
+      },
+      "timings": [],
+      "toolInstallations": [
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "installed",
+          "tool": "codex",
+          "version": "1.2.3"
+        },
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "claude",
+          "version": null
+        }
+      ],
+      "tools": [
+        {
+          "configProjection": "routeAndClientProfile",
+          "configured": false,
+          "displayName": "Codex CLI",
+          "id": "codex",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        },
+        {
+          "configProjection": "routeOnly",
+          "configured": false,
+          "displayName": "Claude Code CLI",
+          "id": "claude",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        }
+      ],
+      "vscodeState": "pending"
+    }
+  },
+  "toolDisabled": {
+    "report": {
+      "ccDetected": true,
+      "ccPort": 15721,
+      "ccStatus": "connected",
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": null,
+      "codexState": "pending",
+      "configured": true,
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "phaseTimings": [],
+      "postConnectErrorCategory": null,
+      "postConnectStatus": "idle",
+      "protocol": null,
+      "proxyPort": null,
+      "proxyStatus": null,
+      "reachable": true,
+      "reconnectState": "idle",
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuthMethod": "unknown",
+      "status": "connected",
+      "toolInstallations": [
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "broken",
+          "extensionVersion": null,
+          "state": "installed",
+          "tool": "codex",
+          "version": "1.2.3"
+        },
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "claude",
+          "version": null
+        }
+      ],
+      "vscodeState": "pending"
+    },
+    "summary": {
+      "activeProxyRevision": null,
+      "cc": {
+        "local": {
+          "host": "127.0.0.1",
+          "port": 15721,
+          "protocol": "http"
+        },
+        "remotePort": 15721
+      },
+      "ccStatus": "connected",
+      "claudeConfigured": false,
+      "claudeExtension": null,
+      "claudeProfileState": "notStarted",
+      "claudeState": "pending",
+      "codexConfigured": false,
+      "codexExtension": "fixture.untrusted.extension",
+      "codexProfileState": "notStarted",
+      "codexState": "pending",
+      "diagnostics": {
+        "aiRouteVerification": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "generalProxyEgress": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverDirect": {
+          "checkedAt": null,
+          "durationMs": null,
+          "errorCode": null,
+          "state": "notTested"
+        },
+        "serverInternet": null
+      },
+      "environment": "",
+      "error": null,
+      "installCapabilities": {
+        "brew": false,
+        "curl": false,
+        "nodeVersion": null,
+        "npm": false
+      },
+      "postConnectError": null,
+      "postConnectStatus": "idle",
+      "proxy": null,
+      "proxyStatus": null,
+      "reconnectState": "idle",
+      "runtimeExpectedProxyPort": null,
+      "runtimeProxyMatch": "unknown",
+      "security": {
+        "aiRouteAuth": "session",
+        "generalProxyAuth": "none",
+        "remoteBindScope": "loopback",
+        "shellScope": "sessionOnly"
+      },
+      "sessionEnvironmentCommand": null,
+      "sessionEnvironmentState": "pending",
+      "skillsState": "pending",
+      "sshAuth": {
+        "authenticated": false,
+        "method": "unknown",
+        "mode": "nonInteractive",
+        "passwordStored": false
+      },
+      "status": "connected",
+      "target": {
+        "authenticationMethod": "agent",
+        "available": true,
+        "canOpenMobaxterm": false,
+        "canOpenVscode": false,
+        "compatibility": "compatible",
+        "configPath": "",
+        "displayName": "Fixture target",
+        "host": "fixture.invalid",
+        "id": "fixture-target",
+        "identityFile": null,
+        "port": 22,
+        "source": "manual",
+        "sourceLabel": "Fixture",
+        "sshAlias": null,
+        "unavailableReason": null,
+        "user": null
+      },
+      "timings": [],
+      "toolInstallations": [
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "broken",
+          "extensionVersion": null,
+          "state": "installed",
+          "tool": "codex",
+          "version": "1.2.3"
+        },
+        {
+          "checkedAt": null,
+          "errorCode": null,
+          "extensionState": "unknown",
+          "extensionVersion": null,
+          "state": "unknown",
+          "tool": "claude",
+          "version": null
+        }
+      ],
+      "tools": [
+        {
+          "configProjection": "routeAndClientProfile",
+          "configured": false,
+          "displayName": "Codex CLI",
+          "id": "codex",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        },
+        {
+          "configProjection": "routeOnly",
+          "configured": false,
+          "displayName": "Claude Code CLI",
+          "id": "claude",
+          "requestPolicy": "passthrough",
+          "supportedRouteModes": [
+            "ccSwitch"
+          ],
+          "verification": "notConfigured",
+          "verificationSupported": false
+        }
+      ],
+      "vscodeState": "pending"
+    }
+  }
+}

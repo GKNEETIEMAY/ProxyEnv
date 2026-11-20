@@ -394,6 +394,95 @@ fn report_projection_omits_untrusted_text_and_preserves_cached_proof() {
 }
 
 #[test]
+fn bridge_projection_matches_pre_extraction_json() {
+    use tool_adapter::{RemoteToolId, RemoteToolInstallState};
+
+    let snapshot = |state: &Store| {
+        json!({
+            "report": project_report(state),
+            "summary": exposed_summary(&state.summary),
+        })
+    };
+    let mut state = Store::default();
+    let missing_target = snapshot(&state);
+
+    state.summary.target = Some(RemoteTarget {
+        id: "fixture-target".into(),
+        display_name: "Fixture target".into(),
+        source: RemoteTargetSource::Manual,
+        source_label: "Fixture".into(),
+        config_path: String::new(),
+        ssh_alias: None,
+        host: Some("fixture.invalid".into()),
+        user: None,
+        port: Some(22),
+        identity_file: None,
+        authentication_method: SshAuthMethod::Agent,
+        available: true,
+        compatibility: RemoteTargetCompatibility::Compatible,
+        unavailable_reason: None,
+        can_open_vscode: false,
+        can_open_mobaxterm: false,
+    });
+    let disconnected = snapshot(&state);
+
+    state.summary.status = Status::Connecting;
+    state.summary.reconnect_state = reconnect::State::Retrying;
+    let reconnecting = snapshot(&state);
+
+    state.summary.status = Status::Connected;
+    state.summary.reconnect_state = reconnect::State::Idle;
+    state.summary.cc_status = Some(Status::Connected);
+    state.summary.cc = Some(Endpoint {
+        local: ProxyEndpoint {
+            host: "127.0.0.1".into(),
+            port: 15721,
+            protocol: ProxyProtocol::Http,
+        },
+        remote_port: 15721,
+    });
+    state.cc_detected = true;
+    state.cc_status = Status::Connected;
+    state.reachable = true;
+    state.target_fingerprint = Some("fixture-current".into());
+    state.tool_discovery_fingerprint = Some("fixture-stale".into());
+    state.summary.tool_installations = tool_adapter::unknown_installations();
+    let codex = &mut state.summary.tool_installations[0];
+    assert_eq!(codex.tool, RemoteToolId::Codex);
+    codex.state = RemoteToolInstallState::Installed;
+    codex.version = Some("1.2.3".into());
+    let stale_fingerprint = snapshot(&state);
+
+    state.tool_discovery_fingerprint = state.target_fingerprint.clone();
+    state.summary.codex_extension = Some("fixture.untrusted.extension".into());
+    state.summary.tool_installations[0].extension_state = RemoteToolInstallState::Broken;
+    let codex_adapter = tool_adapter::by_id(RemoteToolId::Codex);
+    codex_adapter.apply(&mut state.summary);
+    let extension_failure = snapshot(&state);
+
+    state.disabled_tools.push(RemoteToolId::Codex);
+    codex_adapter.restore(&mut state.summary);
+    let tool_disabled = snapshot(&state);
+
+    let snapshots = json!({
+        "missingTarget": missing_target,
+        "disconnected": disconnected,
+        "reconnecting": reconnecting,
+        "staleFingerprint": stale_fingerprint,
+        "extensionFailure": extension_failure,
+        "toolDisabled": tool_disabled,
+    });
+    let baseline: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/projection_baseline.json")).unwrap();
+    let snapshots = snapshots.as_object().unwrap();
+    let baseline = baseline.as_object().unwrap();
+    assert_eq!(snapshots.len(), baseline.len());
+    for (scenario, actual) in snapshots {
+        assert_eq!(baseline.get(scenario), Some(actual), "scenario {scenario}");
+    }
+}
+
+#[test]
 fn diagnostic_report_preserves_verified_snapshot_during_store_contention() {
     let source = StateStore::default();
     {
