@@ -1,0 +1,25 @@
+# RouteSpan 开发记录
+
+## v0.3.0dev 目录整理
+
+- [全工程目录审计、路径依赖与基线哈希](V0.3.0_PROJECT_DIRECTORY_AUDIT.md)
+- [R1 SSH 物理分组](V0.3.0_REMOTE_BRIDGE_R1_SSH_LAYOUT_REVIEW.md)
+- [R2 Relay 物理分组](V0.3.0_REMOTE_BRIDGE_R2_RELAY_LAYOUT_REVIEW.md)
+- [R3 根模块测试迁移](V0.3.0_REMOTE_BRIDGE_R3_ROOT_TESTS_REVIEW.md)
+- [后端 R4、UI 与脚本拆分设计](V0.3.0_REMOTE_BRIDGE_R4_SPLIT_DESIGN.md)
+
+## v0.3.0dev 桥接阶段
+
+| 阶段 | 设计、验证与持续记录 |
+| --- | --- |
+| M0 | [基线审计](V0.3.0_M0_BASELINE_AUDIT.md) · [Fix](M0_FIX_REVIEW.md) · [Fix2](M0_FIX2_REVIEW.md) |
+| M1 | [平台适配 Review](V0.3.0_M1_ADAPTER_REVIEW.md) · [Linux SSH/SCP 验收计划](V0.3.0_M1_LINUX_SSH_SCP_ACCEPTANCE.md) · [M1.1 Skills 目标绑定](V0.3.0_M1_1_SKILLS_TARGET_REVIEW.md) |
+| M2 | [Windows 目标探测设计](V0.3.0_M2_WINDOWS_TARGET_DETECTION_DESIGN.md) · [探测 Review](V0.3.0_M2_WINDOWS_TARGET_DETECTION_REVIEW.md) |
+| M3 | [Windows 网络桥接设计](V0.3.0_M3_WINDOWS_NETWORK_BRIDGE_DESIGN.md) · [M3.1 桥接计划](V0.3.0_M3_1_BRIDGE_PLAN_REVIEW.md) |
+| M3.2 | [转发安全前置审查](V0.3.0_M3_2_FORWARDING_SECURITY_PRECHECK.md) · [安全夹具](V0.3.0_M3_2_SAFETY_FIXTURE_REVIEW.md) · [安全接线准备](V0.3.0_M3_2_SECURITY_WIRING_PREPARATION_REVIEW.md) · [NTFS 文件夹具](V0.3.0_M3_2_NTFS_FROZEN_FILE_REVIEW.md) |
+
+## v0.2.2 本机环境
+
+- [本机环境设计](LOCAL_ENVIRONMENT_V0.2.2.zh-CN.md)
+- [本机环境 QA](LOCAL_ENVIRONMENT_V0.2.2_QA.md) · [界面 QA](LOCAL_ENVIRONMENT_V0.2.2_UI_QA.zh-CN.md)
+- [应用代理助手提案](APPLICATION_PROXY_ASSISTANT_PROPOSAL.zh-CN.md) · [旧应用规则备份](LEGACY_APPLICATION_RULE_BACKUPS.zh-CN.md)
