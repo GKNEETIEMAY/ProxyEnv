@@ -246,6 +246,50 @@ fn installation_snapshot_invalidation_and_generation_guards_are_independent_of_c
     assert_eq!(state.tool_discovery_ticket, 10);
 }
 #[test]
+fn tool_configuration_rejects_unconfirmed_or_stale_requests_before_io() {
+    assert_eq!(
+        config_apply("fixture-preview".into(), false).unwrap_err(),
+        "confirmationRequired"
+    );
+    assert_eq!(
+        config_restore("fixture-preview".into(), false).unwrap_err(),
+        "confirmationRequired"
+    );
+
+    let mut state = automatic_setup_fixture();
+    for (requested_id, restore) in [("new-preview", false), ("fixture-preview", true)] {
+        state.pending = Some(Pending {
+            preview: ConfigPreview {
+                id: "fixture-preview".into(),
+                tool: tool_adapter::RemoteToolId::Codex,
+                path: String::new(),
+                before: String::new(),
+                after: String::new(),
+                version: "1.2.3".into(),
+                launch: String::new(),
+                alias: "fixture-old-target".into(),
+                restore,
+                existing_config: false,
+                route_update: false,
+                permission_hardening: false,
+            },
+            hash: "fixture-hash".into(),
+            target_id: "fixture-old-target".into(),
+            port: 15721,
+            backup_hash: None,
+            target_fingerprint: "fixture-fingerprint".into(),
+            local_profile: None,
+        });
+        assert_eq!(
+            config_apply_locked(&mut state, requested_id.into()).unwrap_err(),
+            "configConflict"
+        );
+        assert!(state.pending.is_none());
+        assert!(!state.summary.codex_configured);
+    }
+}
+
+#[test]
 fn terminal_command_is_a_read_only_session_scoped_projection() {
     let mut summary = super::Summary {
         proxy: Some(super::Endpoint {

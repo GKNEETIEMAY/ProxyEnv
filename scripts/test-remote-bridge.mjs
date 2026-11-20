@@ -500,6 +500,7 @@ test("managed remote environment refuses foreign same-name files",{skip:!availab
 test("general proxy exposes no credential command while AI verification remains session-authenticated",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   assert.doesNotMatch(page,/copyProxyPassword|rbCopyProxyPassword|rbProxyAuthUsername/);
@@ -508,7 +509,7 @@ test("general proxy exposes no credential command while AI verification remains 
   assert.doesNotMatch(page,/copyValue\(summary\.environment\)|\{\{ summary\.environment \}\}/);
   assert.doesNotMatch(state.match(/export interface BridgeSummary[^\n]+/)[0],/token|password|secret/i);
   assert.doesNotMatch(bridge,/pub fn proxy_password\(/);
-  const verify=bridge.slice(bridge.indexOf("pub fn verify_tool("),bridge.indexOf("#[cfg(test)]",bridge.indexOf("pub fn verify_tool(")));
+  const verify=config.slice(config.indexOf("fn verify_tool_for_generation("));
   assert.match(verify,/capability_ready\(state\.child\.is_some\(\), state\.summary\.cc_status\)/);
   assert.match(verify,/sessionToken/);
   assert.doesNotMatch(verify,/summary\.status != Status::Connected/);
@@ -1253,6 +1254,7 @@ test("remote bridge resolves consumer and AI ports independently and restores en
 test("enabled AI capability configures discovered tools through the existing guarded transaction",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const capabilities=readFileSync("src-tauri/src/features/remote_bridge/capabilities.rs","utf8");
+  const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
   const setup=bridge.slice(bridge.indexOf("fn configure_discovered_tools"),bridge.indexOf("pub fn discover_tools"));
   assert.match(setup,/discovery_context_current\(&state, target_id, fingerprint, generation, ticket\)/);
   assert.match(setup,/state\.pending\.is_some\(\) \|\| state\.extension_pending\.is_some\(\) \|\| state\.profile_syncing/);
@@ -1260,11 +1262,11 @@ test("enabled AI capability configures discovered tools through the existing gua
   assert.doesNotMatch(setup,/tool_verify|verify_tool|operation.*verify|capabilities::apply_tool/);
   assert.match(capabilities,/change\.enabled && change\.capability == Capability::Cc/);
   assert.match(capabilities,/configure_discovered_tools\(&change\.target_id, &fingerprint, generation, ticket\)/);
-  const apply=bridge.slice(bridge.indexOf("fn config_apply_locked"),bridge.indexOf("pub fn config_restore_preview"));
+  const apply=config.slice(config.indexOf("fn config_apply_locked"),config.indexOf("pub fn config_restore_preview"));
   assert.match(apply,/let rollback =/);
   assert.match(apply,/profile_verified/);
   assert.match(apply,/set_cached_profile\(state, Some\(profile\)\)/);
-  assert.match(bridge,/state\.disabled_tools\.push\(pending\.preview\.tool\)/);
+  assert.match(config,/state\.disabled_tools\.push\(pending\.preview\.tool\)/);
 });
 
 test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debounced before parsing",()=>{
@@ -1329,6 +1331,7 @@ test("Claude model profile is shared, synced, and restored without copying crede
 test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary",()=>{
   const backend=readFileSync("src-tauri/src/features/remote_bridge/tool_adapter.rs","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
   const frontend=readFileSync("src/features/remote-bridge/tool-adapters.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolDialog.vue","utf8");
@@ -1343,9 +1346,9 @@ test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary"
   assert.match(backend,/fn launch\(&self\) -> &'static str \{\s+"codex"/);
   assert.match(backend,/fn launch\(&self\) -> &'static str \{\s+"claude"/);
   assert.match(bridge,/tool_adapter::by_name\(&tool\)/);
-  assert.match(bridge,/verified\["previousPort"\]\.as_u64\(\) != Some\(u64::from\(pending\.port\)\)/);
-  assert.match(bridge,/"writeRolledBack"/);
-  assert.match(bridge,/"rollbackFailed"/);
+  assert.match(config,/verified\["previousPort"\]\.as_u64\(\) != Some\(u64::from\(pending\.port\)\)/);
+  assert.match(config,/"writeRolledBack"/);
+  assert.match(config,/"rollbackFailed"/);
   assert.doesNotMatch(bridge,/fn overlay\(/);
   assert.match(frontend,/export interface RemoteToolAdapter/);
   assert.match(frontend,/summary\.tools\?\.find/);
