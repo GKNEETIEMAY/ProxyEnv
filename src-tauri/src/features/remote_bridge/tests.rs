@@ -127,17 +127,31 @@ fn automatic_setup_preserves_explicit_off_and_skips_already_configured_tools() {
         item.state = I::Installed;
     }
     state.disabled_tools.push(T::Codex);
-    assert!(!automatic_tool_setup_allowed(&state, T::Codex));
-    assert!(automatic_tool_setup_allowed(&state, T::Claude));
+    let previous_summary = serde_json::to_value(&state.summary).unwrap();
+    for _ in 0..2 {
+        assert!(!automatic_tool_setup_allowed(&state, T::Codex));
+        assert!(automatic_tool_setup_allowed(&state, T::Claude));
+    }
+    assert_eq!(
+        serde_json::to_value(&state.summary).unwrap(),
+        previous_summary
+    );
+    assert_eq!(state.disabled_tools, [T::Codex]);
     // Discovery and a new transport do not clear the user's per-tool OFF.
     state.summary.tool_installations = tool_adapter::unknown_installations();
-    state.summary.tool_installations[0].extension_state = I::Installed;
+    for item in &mut state.summary.tool_installations {
+        item.extension_state = I::Installed;
+    }
     state.child = Some(Box::new(DiscoveryTransport));
     assert!(!automatic_tool_setup_allowed(&state, T::Codex));
     state.disabled_tools.clear();
     assert!(automatic_tool_setup_allowed(&state, T::Codex));
     state.summary.codex_configured = true;
     assert!(!automatic_tool_setup_allowed(&state, T::Codex));
+    state.summary.claude_configured = true;
+    assert!(!automatic_tool_setup_allowed(&state, T::Claude));
+    state.summary.claude_configured = false;
+    assert!(automatic_tool_setup_allowed(&state, T::Claude));
     state.child = None;
     assert!(!automatic_tool_setup_allowed(&state, T::Claude));
 }
@@ -156,6 +170,12 @@ fn installation_snapshot_invalidation_and_generation_guards_are_independent_of_c
     state.summary.target = Some(target);
     state.summary.status = Status::Connected;
     state.summary.codex_configured = true;
+    state.summary.session_environment_state = RuntimeState::Ready;
+    state.summary.install_capabilities.npm = true;
+    state
+        .disabled_tools
+        .push(tool_adapter::RemoteToolId::Claude);
+    state.profile_syncing = true;
     state.summary.tool_installations = vec![
         tool_adapter::project_installation(tool_adapter::RemoteToolId::Codex, false, false, None),
         tool_adapter::project_installation(
@@ -187,6 +207,8 @@ fn installation_snapshot_invalidation_and_generation_guards_are_independent_of_c
         ));
     }
     invalidate_tool_discovery(&mut state, Some("first"));
+    assert_eq!(state.tool_discovery_ticket, 9);
+    assert!(state.summary.install_capabilities.npm);
     assert_eq!(
         state.summary.tool_installations[0].state,
         tool_adapter::RemoteToolInstallState::Missing
@@ -195,11 +217,16 @@ fn installation_snapshot_invalidation_and_generation_guards_are_independent_of_c
     assert_eq!(report["toolInstallations"][1]["version"], "2.1.227");
     assert!(!report.to_string().contains("test.example"));
     invalidate_tool_discovery(&mut state, Some("changed"));
-    assert!(state
-        .summary
-        .tool_installations
-        .iter()
-        .all(|tool| tool.state == tool_adapter::RemoteToolInstallState::Unknown));
+    assert_eq!(state.tool_discovery_ticket, 10);
+    assert!(state.tool_discovery_fingerprint.is_none());
+    assert_eq!(
+        state.summary.install_capabilities,
+        tool_discovery::RemoteInstallCapabilities::default()
+    );
+    assert!(state.summary.tool_installations.iter().all(|tool| {
+        tool.state == tool_adapter::RemoteToolInstallState::Unknown
+            && tool.extension_state == tool_adapter::RemoteToolInstallState::Unknown
+    }));
     assert!(!discovery_context_current(
         &state,
         "discovery-target",
@@ -210,6 +237,13 @@ fn installation_snapshot_invalidation_and_generation_guards_are_independent_of_c
     assert_eq!(state.summary.status, Status::Connected);
     assert!(state.summary.codex_configured);
     assert!(state.child.is_some());
+    assert_eq!(state.connection_generation, 7);
+    assert_eq!(state.target_fingerprint.as_deref(), Some("first"));
+    assert_eq!(state.summary.session_environment_state, RuntimeState::Ready);
+    assert_eq!(state.disabled_tools, [tool_adapter::RemoteToolId::Claude]);
+    assert!(state.profile_syncing);
+    invalidate_tool_discovery(&mut state, None);
+    assert_eq!(state.tool_discovery_ticket, 10);
 }
 #[test]
 fn terminal_command_is_a_read_only_session_scoped_projection() {
