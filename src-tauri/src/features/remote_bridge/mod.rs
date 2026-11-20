@@ -1,51 +1,72 @@
 #[path = "relay/authenticated_relay.rs"]
 mod authenticated_relay;
+#[path = "runtime/capabilities.rs"]
 mod capabilities;
 pub use capabilities::{set_capability, CapabilityChange};
 #[allow(dead_code)]
 #[path = "relay/codex_relay.rs"]
 mod codex_relay;
+#[path = "configuration/config_transaction.rs"]
 mod config_transaction;
 use config_transaction::{config_apply_locked, config_preview_locked, verify_tool_for_generation};
 pub use config_transaction::{config_restore, config_restore_preview};
+#[path = "runtime/connections.rs"]
 pub(crate) mod connections;
 #[path = "ssh/credential_cache.rs"]
 pub(crate) mod credential_cache;
+#[path = "observability/diagnostics.rs"]
 pub mod diagnostics;
+#[path = "observability/events.rs"]
 pub mod events;
+#[path = "tooling/extension.rs"]
 pub mod extension;
+#[path = "observability/logging.rs"]
 pub mod logging;
+#[path = "observability/observations.rs"]
 pub mod observations;
 pub mod security;
 use events::{Action as EventAction, Component as EventComponent, Outcome as EventOutcome};
 use observations::{DiagnosticSnapshot, DiagnosticState, ErrorCategory};
+#[path = "configuration/local_model.rs"]
 mod local_model;
+#[path = "integrations/mobaxterm.rs"]
 pub(crate) mod mobaxterm;
 mod models;
 pub use models::{
     RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request, SshAuthMethod,
     SshAuthMode, SshAuthState,
 };
+#[path = "runtime/port_allocation.rs"]
 mod port_allocation;
 use port_allocation::{derived_port, first_available_port, resolve_port_pair};
+#[path = "observability/projection.rs"]
 mod projection;
 use projection::{project_report, projected_session_command, sync_tool_states};
+#[path = "runtime/reconnect.rs"]
 mod reconnect;
+#[path = "configuration/settings.rs"]
 pub(crate) mod settings;
+#[path = "tooling/skills.rs"]
 mod skills;
 mod ssh;
 #[path = "ssh/ssh_auth.rs"]
 pub mod ssh_auth;
 mod target_os;
 pub use target_os::windows::WindowsTargetProbe;
+#[path = "tooling/tool_adapter.rs"]
 pub mod tool_adapter;
+#[path = "tooling/tool_discovery.rs"]
 pub mod tool_discovery;
+#[path = "tooling/tool_state.rs"]
 mod tool_state;
 use tool_state::{
     automatic_tool_setup_allowed, discovery_context_current, invalidate_tool_discovery,
 };
+#[path = "integrations/tray_state.rs"]
 pub(crate) mod tray_state;
+#[path = "integrations/vscode.rs"]
 pub(crate) mod vscode;
+#[path = "integrations/vscode_network.rs"]
 mod vscode_network;
 #[cfg(test)]
 use super::proxy::ProxyVariable;

@@ -500,7 +500,7 @@ test("managed remote environment refuses foreign same-name files",{skip:!availab
 test("general proxy exposes no credential command while AI verification remains session-authenticated",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
+  const config=readFileSync("src-tauri/src/features/remote_bridge/configuration/config_transaction.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   assert.doesNotMatch(page,/copyProxyPassword|rbCopyProxyPassword|rbProxyAuthUsername/);
@@ -844,7 +844,7 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
 });
 test("managed proxy terminal loads a private authenticated session environment",()=>{
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
-  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux.rs","utf8");
+  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux/mod.rs","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
@@ -1235,7 +1235,7 @@ test("CLI launch commands are hidden until their remote configuration is applied
 
 test("remote bridge resolves consumer and AI ports independently and restores enabled tool state",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const portAllocation=readFileSync("src-tauri/src/features/remote_bridge/port_allocation.rs","utf8");
+  const portAllocation=readFileSync("src-tauri/src/features/remote_bridge/runtime/port_allocation.rs","utf8");
   const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh/ssh_auth.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
@@ -1253,8 +1253,8 @@ test("remote bridge resolves consumer and AI ports independently and restores en
 
 test("enabled AI capability configures discovered tools through the existing guarded transaction",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const capabilities=readFileSync("src-tauri/src/features/remote_bridge/capabilities.rs","utf8");
-  const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
+  const capabilities=readFileSync("src-tauri/src/features/remote_bridge/runtime/capabilities.rs","utf8");
+  const config=readFileSync("src-tauri/src/features/remote_bridge/configuration/config_transaction.rs","utf8");
   const setup=bridge.slice(bridge.indexOf("fn configure_discovered_tools"),bridge.indexOf("pub fn discover_tools"));
   assert.match(setup,/discovery_context_current\(&state, target_id, fingerprint, generation, ticket\)/);
   assert.match(setup,/state\.pending\.is_some\(\) \|\| state\.extension_pending\.is_some\(\) \|\| state\.profile_syncing/);
@@ -1271,8 +1271,8 @@ test("enabled AI capability configures discovered tools through the existing gua
 
 test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debounced before parsing",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const profile=readFileSync("src-tauri/src/features/remote_bridge/local_model.rs","utf8");
-  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux.rs","utf8");
+  const profile=readFileSync("src-tauri/src/features/remote_bridge/configuration/local_model.rs","utf8");
+  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux/mod.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(bridge,/sleep\(Duration::from_secs\(2\)\)/);
   assert.match(bridge,/sleep\(Duration::from_millis\(500\)\)/);
@@ -1329,9 +1329,9 @@ test("Claude model profile is shared, synced, and restored without copying crede
 });
 
 test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary",()=>{
-  const backend=readFileSync("src-tauri/src/features/remote_bridge/tool_adapter.rs","utf8");
+  const backend=readFileSync("src-tauri/src/features/remote_bridge/tooling/tool_adapter.rs","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
+  const config=readFileSync("src-tauri/src/features/remote_bridge/configuration/config_transaction.rs","utf8");
   const frontend=readFileSync("src/features/remote-bridge/tool-adapters.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolDialog.vue","utf8");
@@ -1394,7 +1394,7 @@ for(const tool of ["codex","claude"]) test(`${tool}: Skills status revalidates a
 });
 
 test("Skills snapshots are read-only and transient recovery uses verified remote status",()=>{
-  const source=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
+  const source=readFileSync("src-tauri/src/features/remote_bridge/tooling/skills.rs","utf8");
   const views=source.split("pub fn views()",2)[1].split("pub fn enable(",1)[0];
   assert.doesNotMatch(views,/remember\(|states\.insert|stamps\.insert/,"Polling must not overwrite the verified synchronization cache");
   assert.match(views,/snapshot_state\(fingerprint\.as_deref\(\)/);
@@ -1409,7 +1409,7 @@ test("Skills snapshots are read-only and transient recovery uses verified remote
 });
 
 test("Skills projection is CC Switch-link based, staged, owned and metadata-triggered",()=>{
-  const skills=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
+  const skills=readFileSync("src-tauri/src/features/remote_bridge/tooling/skills.rs","utf8");
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   const remote=readFileSync("src-tauri/src/features/remote_bridge/skill-remote.sh","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
@@ -1597,7 +1597,7 @@ test("Claude verification is a fixed isolated request and never returns model ou
   assert.match(commands,/fn remote_bridge_tool_verify/);
   assert.match(runtime,/remote_bridge::remote_bridge_tool_verify/);
   assert.match(page,/await remoteBackend\.runDiagnostics\(\)/);
-  const coordinator = readFileSync('src-tauri/src/features/remote_bridge/diagnostics.rs', 'utf8');
+  const coordinator = readFileSync('src-tauri/src/features/remote_bridge/observability/diagnostics.rs', 'utf8');
   assert.match(coordinator,/tool\.configured[\s\S]*by_id\(tool\.id\)\.configured\(summary\)[\s\S]*tool\.verification_supported/);
   assert.match(coordinator,/run_parallel\(jobs\)\?/);
   assert.match(coordinator,/scope\.spawn\(job\)/);
@@ -1609,8 +1609,8 @@ test("Claude verification is a fixed isolated request and never returns model ou
 
 test("actual egress runs automatically on network connect, enable and recovery without model requests",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const capabilities=readFileSync("src-tauri/src/features/remote_bridge/capabilities.rs","utf8");
-  const reconnect=readFileSync("src-tauri/src/features/remote_bridge/reconnect.rs","utf8");
+  const capabilities=readFileSync("src-tauri/src/features/remote_bridge/runtime/capabilities.rs","utf8");
+  const reconnect=readFileSync("src-tauri/src/features/remote_bridge/runtime/reconnect.rs","utf8");
   assert.match(bridge,/fn start_post_connect\(generation: u64\) \{\s*start_auto_proxy_test\(generation\);/);
   assert.match(capabilities,/let auto_proxy_test = change.enabled && change.capability == Capability::Proxy;/);
   assert.match(capabilities,/drop\(state\);\s*if auto_proxy_test \{\s*start_auto_proxy_test\(generation\);/);
@@ -1630,9 +1630,9 @@ test("actual egress runs automatically on network connect, enable and recovery w
 
 test("M7 keeps VS Code Server context and extension location conservative",()=>{
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
-  const vscode=readFileSync("src-tauri/src/features/remote_bridge/vscode.rs","utf8");
+  const vscode=readFileSync("src-tauri/src/features/remote_bridge/integrations/vscode.rs","utf8");
   const helper=readFileSync("scripts/remote-extension/main.mjs","utf8");
-  const backend=readFileSync("src-tauri/src/features/remote_bridge/extension.rs","utf8");
+  const backend=readFileSync("src-tauri/src/features/remote_bridge/tooling/extension.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolDialog.vue","utf8");
   const messages=readFileSync("src/shared/i18n/remote-bridge.ts","utf8");
@@ -1822,7 +1822,7 @@ test("terminal handoff prepares pending environment and allows AI-only plain ter
 test("VS Code network error categories cross the helper and SSH boundary without configuration values",()=>{
   const helper=readFileSync('scripts/remote-extension/main.mjs','utf8');
   const ssh=readFileSync('src-tauri/src/features/remote_bridge/ssh/mod.rs','utf8');
-  const linux=readFileSync('src-tauri/src/features/remote_bridge/target_os/linux.rs','utf8');
+  const linux=readFileSync('src-tauri/src/features/remote_bridge/target_os/linux/mod.rs','utf8');
   assert.match(ssh,/linux::parse_extension_output/);
   for (const code of ['vscodeNetworkBusy','vscodeNetworkConflict','vscodeNetworkUnsafe']) {
     assert.ok(helper.includes(code));
@@ -1834,7 +1834,7 @@ test("VS Code network error categories cross the helper and SSH boundary without
 
 test("core bridge becomes usable before optional setup and reconnect retries the retained session",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
-  const reconnect=readFileSync("src-tauri/src/features/remote_bridge/reconnect.rs","utf8");
+  const reconnect=readFileSync("src-tauri/src/features/remote_bridge/runtime/reconnect.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   assert.match(bridge,/prepare_post_connect\(&mut summary\)[\s\S]*state\.summary = summary[\s\S]*start_post_connect\(generation\)/);
@@ -1913,8 +1913,8 @@ test("remote SSH empty state finishes actions before random scenes and duets wit
 });
 
 test("SSH connection manager keeps credentials out and promotes edited imports to full ProxyEnv copies",()=>{
-  const store=readFileSync("src-tauri/src/features/remote_bridge/connections.rs","utf8");
-  const moba=readFileSync("src-tauri/src/features/remote_bridge/mobaxterm.rs","utf8");
+  const store=readFileSync("src-tauri/src/features/remote_bridge/runtime/connections.rs","utf8");
+  const moba=readFileSync("src-tauri/src/features/remote_bridge/integrations/mobaxterm.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(store,/pub struct ManualConnectionInput/);
@@ -1998,7 +1998,7 @@ test("SSH identity selection uses a native picker and validates without copying 
   assert.match(commands,/dialog\.set_directory\(parent\)/);
   assert.match(commands,/dialog\.set_file_name\(name\)/);
   assert.match(commands,/validate_identity_file\(path\)\.map\(Some\)/);
-  const backend=readFileSync("src-tauri/src/features/remote_bridge/connections.rs","utf8");
+  const backend=readFileSync("src-tauri/src/features/remote_bridge/runtime/connections.rs","utf8");
   assert.match(backend,/safe_read_first_line\(&path, 1024 \* 1024\)/);
   assert.match(backend,/identityFileUnsupported/);
   const localFile=readFileSync("src-tauri/src/services/local_file.rs","utf8");

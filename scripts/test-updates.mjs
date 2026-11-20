@@ -295,7 +295,7 @@ test("failed release is not reported as a recovered gate", async () => {
 test("backend entry points and monitors share the gate; Windows has no post-install relaunch guard", () => {
   const read = path => readFileSync(path, "utf8");
   assert.match(read("src-tauri/src/commands/remote_bridge.rs"), /bridge_operation\(\)/);
-  for (const path of ["src-tauri/src/features/remote_bridge/mod.rs", "src-tauri/src/features/remote_bridge/skills.rs"])
+  for (const path of ["src-tauri/src/features/remote_bridge/mod.rs", "src-tauri/src/features/remote_bridge/tooling/skills.rs"])
     assert.match(read(path), /sleep\(Duration::from_secs\(2\)\);\s*let Ok\(_operation\) = crate::desktop::updates::bridge_operation/);
   assert.match(read("src-tauri/src/desktop/updates.rs"), /bridge::update_activity\(\)/);
   assert.match(read("src-tauri/src/features/remote_bridge/mod.rs"), /ssh_auth::update_busy\(\)/);

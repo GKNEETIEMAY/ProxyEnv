@@ -11,7 +11,7 @@ const { remoteBridgeMessages } = await import(copyModuleUrl);
 const shell = readFileSync("src/app/AppShell.vue", "utf8");
 const page = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
 const tray = readFileSync("src-tauri/src/desktop/tray.rs", "utf8");
-const projection = readFileSync("src-tauri/src/features/remote_bridge/tray_state.rs", "utf8");
+const projection = readFileSync("src-tauri/src/features/remote_bridge/integrations/tray_state.rs", "utf8");
 const ref = value => ({ value });
 const connected = extra => ({ status: "connected", target: { id: "example" }, reconnectState: "idle", proxy: {}, cc: null, ...extra });
 

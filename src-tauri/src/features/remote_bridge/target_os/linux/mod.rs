@@ -3,7 +3,7 @@ use super::super::{tool_adapter, tool_discovery, BridgeResult};
 use zeroize::Zeroizing;
 
 pub(in super::super) const SCRIPT_COMMAND: &str = "sh -s";
-pub(in super::super) const SKILL_SCRIPT: &str = include_str!("../skill-remote.sh");
+pub(in super::super) const SKILL_SCRIPT: &str = include_str!("../../skill-remote.sh");
 
 pub(in super::super) fn managed_terminal_remote_command(session_id: &str) -> BridgeResult<String> {
     if session_id.len() != 32 || !session_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -151,7 +151,7 @@ pub(in super::super) fn remote_payload(
     {
         return Err("invalidRequest".into());
     }
-    let bundled = include_str!("../remote.sh");
+    let bundled = include_str!("../../remote.sh");
     // Read-only transport probes return before any configuration code runs.
     // Do not keep writing the entire configuration helper after the remote
     // shell has already emitted its result and closed its stdin.
@@ -344,7 +344,7 @@ pub(in super::super) fn skill_payload(
 // The request is JSON data inside a quoted heredoc, never a remote command.
 pub(in super::super) fn extension_payload(request: &serde_json::Value) -> Zeroizing<String> {
     let source = format!("{}\n\"$bridge_node\" - <<'PROXYENV_EXTENSION_JS'\nglobalThis.bridgeExtensionRequest = {};\n{}\nPROXYENV_EXTENSION_JS\n",
-        include_str!("../extension-launch.sh"), request, include_str!("../extension-helper.cjs"));
+        include_str!("../../extension-launch.sh"), request, include_str!("../../extension-helper.cjs"));
     Zeroizing::new(source)
 }
 

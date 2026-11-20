@@ -2,6 +2,7 @@ pub(super) mod linux;
 pub(super) mod windows;
 // M3.1 deliberately has no runtime caller. Keep the internal plan compiled.
 #[allow(dead_code)]
+#[path = "windows/bridge/mod.rs"]
 pub(super) mod windows_bridge;
 
 use super::BridgeResult;
