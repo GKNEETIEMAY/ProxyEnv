@@ -720,3 +720,112 @@ fn report_does_not_expose_target_or_paths() {
         assert!(!value.contains(forbidden));
     }
 }
+
+#[test]
+fn target_and_auth_enums_use_the_existing_ipc_strings() {
+    use crate::features::remote_bridge::{
+        RemoteTargetCompatibility, RemoteTargetSource, SshAuthMethod, SshAuthMode,
+    };
+
+    fn assert_wire_values<T>(cases: &[(T, &str)])
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned + std::fmt::Debug + PartialEq,
+    {
+        for (value, spelling) in cases {
+            let wire = json!(spelling);
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+            assert_eq!(&serde_json::from_value::<T>(wire).unwrap(), value);
+        }
+    }
+
+    assert_wire_values(&[
+        (RemoteTargetSource::Openssh, "openssh"),
+        (RemoteTargetSource::Vscode, "vscode"),
+        (RemoteTargetSource::Mobaxterm, "mobaxterm"),
+        (RemoteTargetSource::Manual, "manual"),
+    ]);
+    assert_wire_values(&[
+        (RemoteTargetCompatibility::Compatible, "compatible"),
+        (RemoteTargetCompatibility::Unsupported, "unsupported"),
+    ]);
+    assert_wire_values(&[
+        (SshAuthMode::NonInteractive, "nonInteractive"),
+        (SshAuthMode::Interactive, "interactive"),
+    ]);
+    assert_wire_values(&[
+        (SshAuthMethod::IdentityFile, "identityFile"),
+        (SshAuthMethod::Agent, "agent"),
+        (SshAuthMethod::Password, "password"),
+        (SshAuthMethod::KeyboardInteractive, "keyboardInteractive"),
+        (SshAuthMethod::Unknown, "unknown"),
+    ]);
+}
+
+#[test]
+fn target_and_auth_keep_the_frontend_summary_shape() {
+    use crate::features::remote_bridge::{RemoteTarget, SshAuthState, Summary};
+
+    let target_wire = concat!(
+        r#"{"id":"manual|demo","displayName":"Demo","source":"manual","sourceLabel":"Manual","#,
+        r#""configPath":"fixture/config","sshAlias":null,"host":"demo.invalid","user":null,"#,
+        r#""port":22,"identityFile":null,"authenticationMethod":"identityFile","available":true,"#,
+        r#""compatibility":"compatible","unavailableReason":null,"canOpenVscode":true,"#,
+        r#""canOpenMobaxterm":false}"#,
+    );
+    let target: RemoteTarget = serde_json::from_str(target_wire).unwrap();
+    assert_eq!(serde_json::to_string(&target).unwrap(), target_wire);
+
+    let target_value: serde_json::Value = serde_json::from_str(target_wire).unwrap();
+    for (field, invalid) in [("source", json!("unknown")), ("port", json!(65_536))] {
+        let mut input = target_value.clone();
+        input[field] = invalid;
+        assert!(serde_json::from_value::<RemoteTarget>(input).is_err());
+    }
+
+    let auth = SshAuthState::default();
+    let auth_wire = r#"{"mode":"nonInteractive","method":"unknown","authenticated":false,"passwordStored":false}"#;
+    assert_eq!(serde_json::to_string(&auth).unwrap(), auth_wire);
+    assert_eq!(
+        serde_json::from_str::<SshAuthState>(auth_wire).unwrap(),
+        auth
+    );
+
+    // These nested properties are the BridgeSummary fields consumed by state.ts.
+    let summary = serde_json::to_value(Summary {
+        target: Some(target),
+        ssh_auth: auth,
+        ..Summary::default()
+    })
+    .unwrap();
+    assert_eq!(summary["target"], target_value);
+    assert_eq!(
+        summary["sshAuth"],
+        serde_json::from_str::<serde_json::Value>(auth_wire).unwrap()
+    );
+}
+
+#[test]
+fn bridge_request_preserves_optional_ports_and_rejects_invalid_input() {
+    use crate::features::remote_bridge::Request;
+
+    let wire = r#"{"targetId":"manual|demo","proxyPort":null,"ccPort":null,"ccLocalPort":15721,"expectedRevision":8}"#;
+    for input in [
+        wire,
+        r#"{"targetId":"manual|demo","ccLocalPort":15721,"expectedRevision":8}"#,
+    ] {
+        let request: Request = serde_json::from_str(input).unwrap();
+        assert_eq!(serde_json::to_string(&request).unwrap(), wire);
+    }
+
+    let valid: serde_json::Value = serde_json::from_str(wire).unwrap();
+    for (field, invalid) in [
+        ("ccPort", json!(65_536)),
+        ("ccLocalPort", json!(-1)),
+        ("expectedRevision", json!(null)),
+        ("expected_revision", json!(8)),
+    ] {
+        let mut input = valid.clone();
+        input[field] = invalid;
+        assert!(serde_json::from_value::<Request>(input).is_err());
+    }
+}

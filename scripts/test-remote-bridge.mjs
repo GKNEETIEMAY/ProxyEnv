@@ -1756,7 +1756,7 @@ test("MobaXterm launch is available only from the connected overview",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const groups=readFileSync("src/features/remote-bridge/components/RemoteTargetGroups.vue","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
-  const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const bridge=readFileSync("src-tauri/src/features/remote_bridge/models.rs","utf8");
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   assert.match(state,/canOpenMobaxterm: boolean/);
   assert.match(bridge,/pub can_open_mobaxterm: bool/);
