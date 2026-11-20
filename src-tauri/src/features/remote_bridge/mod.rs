@@ -1,5 +1,6 @@
 #[path = "relay/authenticated_relay.rs"]
 mod authenticated_relay;
+#[path = "runtime/capabilities.rs"]
 mod capabilities;
 pub use capabilities::{set_capability, CapabilityChange};
 #[allow(dead_code)]
@@ -9,6 +10,7 @@ mod codex_relay;
 mod config_transaction;
 use config_transaction::{config_apply_locked, config_preview_locked, verify_tool_for_generation};
 pub use config_transaction::{config_restore, config_restore_preview};
+#[path = "runtime/connections.rs"]
 pub(crate) mod connections;
 #[path = "ssh/credential_cache.rs"]
 pub(crate) mod credential_cache;
@@ -34,11 +36,13 @@ pub use models::{
     RemoteTarget, RemoteTargetCompatibility, RemoteTargetSource, Request, SshAuthMethod,
     SshAuthMode, SshAuthState,
 };
+#[path = "runtime/port_allocation.rs"]
 mod port_allocation;
 use port_allocation::{derived_port, first_available_port, resolve_port_pair};
 #[path = "observability/projection.rs"]
 mod projection;
 use projection::{project_report, projected_session_command, sync_tool_states};
+#[path = "runtime/reconnect.rs"]
 mod reconnect;
 #[path = "configuration/settings.rs"]
 pub(crate) mod settings;
