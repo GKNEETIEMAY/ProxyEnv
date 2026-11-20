@@ -1597,7 +1597,7 @@ test("Claude verification is a fixed isolated request and never returns model ou
   assert.match(commands,/fn remote_bridge_tool_verify/);
   assert.match(runtime,/remote_bridge::remote_bridge_tool_verify/);
   assert.match(page,/await remoteBackend\.runDiagnostics\(\)/);
-  const coordinator = readFileSync('src-tauri/src/features/remote_bridge/diagnostics.rs', 'utf8');
+  const coordinator = readFileSync('src-tauri/src/features/remote_bridge/observability/diagnostics.rs', 'utf8');
   assert.match(coordinator,/tool\.configured[\s\S]*by_id\(tool\.id\)\.configured\(summary\)[\s\S]*tool\.verification_supported/);
   assert.match(coordinator,/run_parallel\(jobs\)\?/);
   assert.match(coordinator,/scope\.spawn\(job\)/);

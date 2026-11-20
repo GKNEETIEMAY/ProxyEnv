@@ -12,11 +12,15 @@ pub use config_transaction::{config_restore, config_restore_preview};
 pub(crate) mod connections;
 #[path = "ssh/credential_cache.rs"]
 pub(crate) mod credential_cache;
+#[path = "observability/diagnostics.rs"]
 pub mod diagnostics;
+#[path = "observability/events.rs"]
 pub mod events;
 #[path = "tooling/extension.rs"]
 pub mod extension;
+#[path = "observability/logging.rs"]
 pub mod logging;
+#[path = "observability/observations.rs"]
 pub mod observations;
 pub mod security;
 use events::{Action as EventAction, Component as EventComponent, Outcome as EventOutcome};
@@ -32,6 +36,7 @@ pub use models::{
 };
 mod port_allocation;
 use port_allocation::{derived_port, first_available_port, resolve_port_pair};
+#[path = "observability/projection.rs"]
 mod projection;
 use projection::{project_report, projected_session_command, sync_tool_states};
 mod reconnect;
