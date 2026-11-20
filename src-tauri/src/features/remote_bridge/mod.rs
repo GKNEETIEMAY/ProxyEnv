@@ -13,6 +13,7 @@ pub(crate) mod connections;
 pub(crate) mod credential_cache;
 pub mod diagnostics;
 pub mod events;
+#[path = "tooling/extension.rs"]
 pub mod extension;
 pub mod logging;
 pub mod observations;
@@ -32,14 +33,18 @@ mod projection;
 use projection::{project_report, projected_session_command, sync_tool_states};
 mod reconnect;
 pub(crate) mod settings;
+#[path = "tooling/skills.rs"]
 mod skills;
 mod ssh;
 #[path = "ssh/ssh_auth.rs"]
 pub mod ssh_auth;
 mod target_os;
 pub use target_os::windows::WindowsTargetProbe;
+#[path = "tooling/tool_adapter.rs"]
 pub mod tool_adapter;
+#[path = "tooling/tool_discovery.rs"]
 pub mod tool_discovery;
+#[path = "tooling/tool_state.rs"]
 mod tool_state;
 use tool_state::{
     automatic_tool_setup_allowed, discovery_context_current, invalidate_tool_discovery,

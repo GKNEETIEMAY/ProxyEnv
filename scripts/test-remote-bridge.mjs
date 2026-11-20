@@ -1329,7 +1329,7 @@ test("Claude model profile is shared, synced, and restored without copying crede
 });
 
 test("Claude and Codex CLI operations use the shared RemoteToolAdapter boundary",()=>{
-  const backend=readFileSync("src-tauri/src/features/remote_bridge/tool_adapter.rs","utf8");
+  const backend=readFileSync("src-tauri/src/features/remote_bridge/tooling/tool_adapter.rs","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const config=readFileSync("src-tauri/src/features/remote_bridge/config_transaction.rs","utf8");
   const frontend=readFileSync("src/features/remote-bridge/tool-adapters.ts","utf8");
@@ -1394,7 +1394,7 @@ for(const tool of ["codex","claude"]) test(`${tool}: Skills status revalidates a
 });
 
 test("Skills snapshots are read-only and transient recovery uses verified remote status",()=>{
-  const source=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
+  const source=readFileSync("src-tauri/src/features/remote_bridge/tooling/skills.rs","utf8");
   const views=source.split("pub fn views()",2)[1].split("pub fn enable(",1)[0];
   assert.doesNotMatch(views,/remember\(|states\.insert|stamps\.insert/,"Polling must not overwrite the verified synchronization cache");
   assert.match(views,/snapshot_state\(fingerprint\.as_deref\(\)/);
@@ -1409,7 +1409,7 @@ test("Skills snapshots are read-only and transient recovery uses verified remote
 });
 
 test("Skills projection is CC Switch-link based, staged, owned and metadata-triggered",()=>{
-  const skills=readFileSync("src-tauri/src/features/remote_bridge/skills.rs","utf8");
+  const skills=readFileSync("src-tauri/src/features/remote_bridge/tooling/skills.rs","utf8");
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   const remote=readFileSync("src-tauri/src/features/remote_bridge/skill-remote.sh","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
@@ -1632,7 +1632,7 @@ test("M7 keeps VS Code Server context and extension location conservative",()=>{
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   const vscode=readFileSync("src-tauri/src/features/remote_bridge/vscode.rs","utf8");
   const helper=readFileSync("scripts/remote-extension/main.mjs","utf8");
-  const backend=readFileSync("src-tauri/src/features/remote_bridge/extension.rs","utf8");
+  const backend=readFileSync("src-tauri/src/features/remote_bridge/tooling/extension.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const dialog=readFileSync("src/features/remote-bridge/components/RemoteToolDialog.vue","utf8");
   const messages=readFileSync("src/shared/i18n/remote-bridge.ts","utf8");
