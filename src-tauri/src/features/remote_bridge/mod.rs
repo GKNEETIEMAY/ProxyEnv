@@ -1,7 +1,9 @@
+#[path = "relay/authenticated_relay.rs"]
 mod authenticated_relay;
 mod capabilities;
 pub use capabilities::{set_capability, CapabilityChange};
 #[allow(dead_code)]
+#[path = "relay/codex_relay.rs"]
 mod codex_relay;
 pub(crate) mod connections;
 #[path = "ssh/credential_cache.rs"]

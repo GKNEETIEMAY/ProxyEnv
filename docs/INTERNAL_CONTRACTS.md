@@ -123,7 +123,7 @@ not evidence that every real device has passed acceptance.
 | Core/post-connect separation, disconnect, automatic egress | `src-tauri/src/features/remote_bridge/mod.rs` |
 | SSH PTY and host trust | `src-tauri/src/features/remote_bridge/ssh/mod.rs` |
 | Shared profile/version/installation behavior | `tool_adapter.rs`, `tool_discovery.rs`, `remote.sh` in the remote backend |
-| Fixed-upstream AI session authentication | `authenticated_relay.rs` in the remote backend |
+| Fixed-upstream AI session authentication | `relay/authenticated_relay.rs` in the remote backend |
 | CC Switch-linked Skills / owned removal | `skills.rs` in the remote backend |
 | Bounded JSONL events / safe reports | `logging.rs`, `diagnostics.rs`; `scripts/test-diagnostic-report.mjs` |
 | Draft workflow, signatures, unchanged update source | `.github/workflows/release.yml`; `src-tauri/tauri.conf.json` |

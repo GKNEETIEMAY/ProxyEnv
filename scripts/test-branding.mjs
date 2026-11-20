@@ -97,7 +97,7 @@ test("package, storage, session, repository and updater identities stay compatib
   assert.equal(config.plugins.updater.pubkey, "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5MEFBN0QwNzRDQzE0OUUKUldTZUZNeDAwS2NLcWFqSXlFSVU0eHRRQnlEeWtoRWUwaFNoTitRVmN0NE9uMmxlZW1Bc3pSdFkK");
   for (const file of ["src-tauri/src/services/settings.rs", "src-tauri/src/environment/snapshot.rs"]) assert.match(read(file), /path\.join\("ProxyEnv"\)/);
   assert.match(read("src/features/remote-bridge/components/RemoteBridgePage.vue"), /proxyenv\.remoteBridge\.lastTargetId/);
-  assert.match(read("src-tauri/src/features/remote_bridge/authenticated_relay.rs"), /x-proxyenv-session/i);
+  assert.match(read("src-tauri/src/features/remote_bridge/relay/authenticated_relay.rs"), /x-proxyenv-session/i);
   assert.match(read("src-tauri/src/features/remote_bridge/remote.sh"), /\.proxyenv/);
   assert.ok(read("src-tauri/src/desktop/update_metadata.rs").includes(config.plugins.updater.endpoints[0]));
   assert.match(read("src/app/AppShell.vue"), /invoke<UpdateMetadata \| null>\("fetch_update_metadata"\)/);

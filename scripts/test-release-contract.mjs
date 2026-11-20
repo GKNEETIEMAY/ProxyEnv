@@ -64,7 +64,7 @@ test("display brand and protected compatibility identities remain separate", () 
   for (const path of ["src-tauri/src/services/settings.rs", "src-tauri/src/environment/snapshot.rs"])
     assert.match(read(path), /path\.join\("ProxyEnv"\)/);
   assert.match(read("src-tauri/src/features/remote_bridge/remote.sh"), /\.proxyenv/);
-  assert.match(read("src-tauri/src/features/remote_bridge/authenticated_relay.rs"), /x-proxyenv-session/i);
+  assert.match(read("src-tauri/src/features/remote_bridge/relay/authenticated_relay.rs"), /x-proxyenv-session/i);
   assert.match(read("src/features/remote-bridge/components/RemoteBridgePage.vue"), /proxyenv\.remoteBridge\.lastTargetId/);
 });
 
