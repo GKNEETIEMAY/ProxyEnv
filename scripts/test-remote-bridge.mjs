@@ -1234,13 +1234,14 @@ test("CLI launch commands are hidden until their remote configuration is applied
 
 test("remote bridge resolves consumer and AI ports independently and restores enabled tool state",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
+  const portAllocation=readFileSync("src-tauri/src/features/remote_bridge/port_allocation.rs","utf8");
   const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh/ssh_auth.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(bridge,/runtime_expected_port\(\s*&target,/);
   assert.match(bridge,/DEFAULT_CC_REMOTE_PORT: u16 = 15_721/);
   assert.match(bridge,/resolve_port_pair\(\s*&fingerprint,\s*local_port,\s*runtime_expected_proxy_port/);
-  assert.match(bridge,/first_available_port\(/);
+  assert.match(portAllocation,/first_available_port\(/);
   assert.match(bridge,/if result\.is_ok\(\) \{\s*configure_discovered_tools\(&target_id, &fingerprint, generation, ticket\)/);
   assert.doesNotMatch(bridge,/PostConnectResult::Tools|refresh_tool_configuration/,'Tool setup must wait for discovery instead of racing an outdated summary');
   assert.equal(bridge.match(/start_post_connect\(generation\);/g)?.length,2,"Initial connection and resumed transport both restore tool state through post-connect work");

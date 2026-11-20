@@ -657,6 +657,108 @@ fn occupied_runtime_proxy_port_falls_back_without_moving_cc() {
         RuntimeProxyMatch::Unknown
     );
 }
+
+#[test]
+fn port_allocation_preserves_preference_and_probe_order() {
+    for (expected, prefer_defaults, occupied, probes, ports_and_conflict) in [
+        (
+            Some(7897),
+            true,
+            &[][..],
+            &[7897, 15721][..],
+            (7897, 15721, false),
+        ),
+        (
+            Some(7897),
+            true,
+            &[7897, 41616],
+            &[7897, 41616, 28163, 15721],
+            (28163, 15721, true),
+        ),
+        (
+            None,
+            true,
+            &[15721, 28527],
+            &[10809, 15721, 28527, 20824],
+            (10809, 20824, false),
+        ),
+        (
+            Some(15721),
+            true,
+            &[],
+            &[15721, 28527],
+            (15721, 28527, false),
+        ),
+        (None, false, &[], &[41616, 28527], (41616, 28527, false)),
+        (Some(7897), false, &[], &[7897, 28527], (7897, 28527, false)),
+    ] {
+        let mut actual_probes = Vec::new();
+        let result = resolve_port_pair("fixture", Some(10809), expected, prefer_defaults, |port| {
+            actual_probes.push(port);
+            Ok(!occupied.contains(&port))
+        })
+        .unwrap();
+
+        assert_eq!(actual_probes, probes);
+        assert_eq!(
+            (
+                result.proxy_port,
+                result.cc_port,
+                result.runtime_port_conflict
+            ),
+            ports_and_conflict
+        );
+        assert_eq!(result.runtime_expected_proxy_port, expected);
+    }
+}
+
+#[test]
+fn port_allocation_exhausts_exactly_one_lane_at_a_time() {
+    let proxy_candidates = [
+        41616, 28163, 25112, 44388, 33528, 59968, 42541, 26399, 32686, 58926, 20028, 27725, 56069,
+        54916, 27711, 37597, 21990, 36099, 24358, 44080, 42880, 51138, 36773, 58601,
+    ];
+    let cc_candidates = [
+        28527, 20824, 36294, 41394, 38242, 35846, 24561, 46913, 22811, 24470, 46457, 44289, 22210,
+        58564, 41362, 39839, 58134, 49950, 33913, 56613, 23024, 34753, 51682, 27225,
+    ];
+    for (expected, candidates) in [(None, proxy_candidates), (Some(7897), cc_candidates)] {
+        let mut probes = Vec::new();
+        let result = resolve_port_pair("fixture", None, expected, false, |port| {
+            probes.push(port);
+            Ok(Some(port) == expected)
+        });
+
+        assert_eq!(result.unwrap_err(), "portAllocationFailed");
+        assert_eq!(
+            probes,
+            expected.into_iter().chain(candidates).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn port_allocation_propagates_probe_errors_without_trying_more_ports() {
+    for (unavailable, error_port, expected_probes) in [
+        (&[][..], 7897, &[7897][..]),
+        (&[7897][..], 41616, &[7897, 41616][..]),
+        (&[15721][..], 28527, &[7897, 15721, 28527][..]),
+    ] {
+        let mut probes = Vec::new();
+        let result = resolve_port_pair("fixture", Some(10809), Some(7897), true, |port| {
+            probes.push(port);
+            if port == error_port {
+                Err("fixtureAvailabilityError".into())
+            } else {
+                Ok(!unavailable.contains(&port))
+            }
+        });
+
+        assert_eq!(result.unwrap_err(), "fixtureAvailabilityError");
+        assert_eq!(probes, expected_probes);
+    }
+}
+
 #[test]
 fn revision_changes_never_retarget_an_existing_tunnel() {
     let original = Endpoint {
