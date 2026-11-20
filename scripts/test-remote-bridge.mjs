@@ -844,7 +844,7 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
 });
 test("managed proxy terminal loads a private authenticated session environment",()=>{
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
-  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux.rs","utf8");
+  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux/mod.rs","utf8");
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
   const runtime=readFileSync("src-tauri/src/lib.rs","utf8");
@@ -1272,7 +1272,7 @@ test("enabled AI capability configures discovered tools through the existing gua
 test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debounced before parsing",()=>{
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const profile=readFileSync("src-tauri/src/features/remote_bridge/local_model.rs","utf8");
-  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux.rs","utf8");
+  const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux/mod.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   assert.match(bridge,/sleep\(Duration::from_secs\(2\)\)/);
   assert.match(bridge,/sleep\(Duration::from_millis\(500\)\)/);
@@ -1822,7 +1822,7 @@ test("terminal handoff prepares pending environment and allows AI-only plain ter
 test("VS Code network error categories cross the helper and SSH boundary without configuration values",()=>{
   const helper=readFileSync('scripts/remote-extension/main.mjs','utf8');
   const ssh=readFileSync('src-tauri/src/features/remote_bridge/ssh/mod.rs','utf8');
-  const linux=readFileSync('src-tauri/src/features/remote_bridge/target_os/linux.rs','utf8');
+  const linux=readFileSync('src-tauri/src/features/remote_bridge/target_os/linux/mod.rs','utf8');
   assert.match(ssh,/linux::parse_extension_output/);
   for (const code of ['vscodeNetworkBusy','vscodeNetworkConflict','vscodeNetworkUnsafe']) {
     assert.ok(helper.includes(code));
