@@ -22,7 +22,7 @@ const bundle = await build({
 const helpers = await import("data:text/javascript;base64," + Buffer.from(bundle.outputFiles[0].text).toString("base64"));
 const { code } = transformSync([
   section("const storedCopies =", "const checked ="),
-  section("async function perform(", "function clearAuthPoll("),
+  section("async function perform(", "async function finishConnectionUi("),
   section("async function load()", "function usePorts("),
   section("function saveConnection()", "function openEditConnectionDialog("),
   section("function removeConnection()", "function cancelSetup("),

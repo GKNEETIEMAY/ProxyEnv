@@ -14,6 +14,7 @@ import RemoteToolInstallDialog from "./RemoteToolInstallDialog.vue";
 import { canToggleRemoteTool } from "../tool-adapters";
 import { connectionNameLimit, destinationInputValid, displayNameInputValid, identityPathInputValid } from "../connection-validation";
 import { applyTargetCopies, readTargetCopies, writeTargetCopies } from "../target-copies";
+import { useRemoteInteractiveAuth, type ConnectionPhase } from "../composables/useRemoteInteractiveAuth";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
@@ -34,8 +35,6 @@ import {
   type PortAllocation,
   type RemoteTarget,
   type RemoteSkill,
-  type SshAuthOperation,
-  type SshAuthSnapshot,
 } from "../state";
 
 const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; ccDetection: CcDetection | null; reviewPreview?: boolean; visible?: boolean; updateLocked?: boolean }>();
@@ -100,14 +99,7 @@ function resetSessionCopyFeedback() {
 }
 const vscodeOpened = ref(false);
 const mobaOpened = ref(false);
-const authSession = ref<SshAuthSnapshot>();
-const lastAuthPrompt = ref<SshAuthSnapshot["prompt"]>(null);
-const authResponse = ref("");
-const submittedAuthMask = ref("");
-const submittedAuthPromptId = ref<string>();
-const authSubmitting = ref(false);
 const authCopyState = ref<"idle" | "copied" | "failed">("idle");
-const showAuthDiagnostic = ref(false);
 const advancedView = ref(false);
 const contentFields = ref<HTMLFieldSetElement>();
 const connectedHeading = ref<HTMLHeadingElement>();
@@ -124,7 +116,6 @@ let sessionCommandRequest:Promise<string>|undefined;
 let sessionCommandGeneration = 0;
 const sessionCommand = computed(() => props.summary.sessionEnvironmentCommand || resolvedSessionCommand.value);
 const commandLoading = computed(() => ["pending", "preparing"].includes(props.summary.sessionEnvironmentState ?? ""));
-type ConnectionPhase = "idle" | "checking" | "authenticating" | "building" | "succeeded" | "failed";
 const connectionPhase = ref<ConnectionPhase>("idle");
 watch([() => props.summary.status, () => props.summary.target?.id, () => readiness.value.state, connectionPhase], () => {
   if (!readinessAnnouncementTarget.value || props.summary.target?.id !== readinessAnnouncementTarget.value
@@ -136,7 +127,6 @@ watch([() => props.summary.status, () => props.summary.target?.id, () => readine
   readinessAnnouncementTarget.value = undefined;
 });
 const establishingBridge = computed(() => ["checking", "authenticating", "building"].includes(connectionPhase.value));
-const authRetryContext = ref<{ operation: SshAuthOperation; request: BridgeRequest | null }>();
 const newConnection = ref<ManualConnectionInput>({ displayName: "", destination: "", port: 22, authentication: "password", identityFile: null });
 const pickingIdentity = ref(false);
 const identitySelectionError = ref<unknown>();
@@ -145,9 +135,7 @@ const connectionSaveError = ref<unknown>();
 const connectionSaveErrorText = computed(() => connectionSaveError.value ? bridgeError(connectionSaveError.value, props.copy) : "");
 type ConnectionField = "displayName" | "destination" | "port" | "identityFile";
 const connectionTouched = ref<Record<ConnectionField, boolean>>({ displayName: false, destination: false, port: false, identityFile: false });
-let authPollTimer: ReturnType<typeof setTimeout> | undefined;
 let skillsPollTimer: ReturnType<typeof setTimeout> | undefined;
-let authBeginRevision = 0;
 const skills = ref<RemoteSkill[]>([]);
 type RemoteSkillGroup = {
   name: string;
@@ -237,8 +225,27 @@ const localProxyLabel = computed(() => localProxyCheck.value.state === "healthy"
 const ccStateLabel = computed(() => ccCheck.value.state === "healthy" ? props.copy.rbCcConfirmed : ccCheck.value.state === "warning" ? props.copy.rbCcUnknown : ccCheck.value.state === "failed" ? props.copy.rbCcMissing : ccCheck.value.state === "disabled" ? props.copy.rbCcDisabled : genericStateLabel(ccCheck.value.state));
 const sshRuntimeState = computed<CheckState>(() => needsAttention.value ? "failed" : live.value ? (props.summary.status === "connecting" ? "checking" : "healthy") : bridgeCheckState(props.summary.status));
 const sshRuntimeLabel = computed(() => sshRuntimeState.value === "healthy" ? props.copy.rbHealthy : genericStateLabel(sshRuntimeState.value));
-const authPrompt = computed(() => authSession.value?.prompt);
-const visibleAuthPrompt = computed(() => authPrompt.value ?? lastAuthPrompt.value);
+const {
+  authSession, visibleAuthPrompt, authResponse, authSubmitting, authCanRespond, authIsHostConfirmation,
+  authInputValue, showAuthDiagnostic, advanceAuthRevision, isCurrentAuthRevision, beginInteractiveAuth,
+  submitInteractiveAuth, retryInteractiveAuth, cancelInteractiveAuth, clearAuthSession, prepareAuthPreview, detachInteractiveAuth,
+} = useRemoteInteractiveAuth({
+  backend: remoteBackend, targetId, connectionPhase, busy, checked, sshCheck, error, readinessAnnouncementTarget,
+  dialog: {
+    isOpen: () => authDialog.value?.open,
+    show: () => authDialog.value?.showModal(),
+    close: () => authDialog.value?.close(),
+    focusPrompt: () => authInput.value?.focus({ preventScroll: true }),
+    focusHeading: () => connectedHeading.value?.focus({ preventScroll: true }),
+  },
+  usePorts, request, connectPrepared, finishConnectionUi,
+  isInteractiveAuthError: cause => needsInteractiveSshAuth(bridgeErrorCode(cause)),
+  invalidateNetworkChecks() {
+    networkRefreshRevision += 1;
+    networkCheckPending.value = false;
+  },
+  refresh: () => emit("refresh"),
+});
 const authPromptType = computed(() => visibleAuthPrompt.value?.type ?? "unknown");
 const authPromptUnavailable = computed(() => authSession.value?.status === "promptUnavailable");
 const authCompleting = computed(() => authSession.value?.status === "authenticated");
@@ -274,11 +281,8 @@ const authPromptCopy = computed(() => ({
   keyboardInteractive: { title: props.copy.rbAuthKeyboardTitle, description: props.copy.rbAuthKeyboardDescription, label: props.copy.rbAuthResponseLabel, action: props.copy.rbAuthSubmit },
   unknown: { title: props.copy.rbAuthUnknownTitle, description: props.copy.rbAuthUnknownDescription, label: props.copy.rbAuthResponseLabel, action: props.copy.rbAuthSubmit },
 })[authPromptType.value]);
-const authCanRespond = computed(() => authSession.value?.status === "waitingUser" && !!authPrompt.value);
-const authIsHostConfirmation = computed(() => authPromptType.value === "hostKeyConfirmation");
 const authInteractionVisible = computed(() => connectionPhase.value === "authenticating" && !authPromptUnavailable.value);
 const authSurfaceVisible = computed(() => ["authenticating", "building", "succeeded"].includes(connectionPhase.value) && !authPromptUnavailable.value);
-const authInputValue = computed(() => authSubmitting.value || !authCanRespond.value ? submittedAuthMask.value : authResponse.value);
 const authErrorMessage = computed(() => {
   const cause = authSession.value?.error ?? error.value;
   return cause && connectionPhase.value !== "succeeded" ? bridgeError(cause, props.copy) : "";
@@ -374,11 +378,6 @@ async function perform(action: () => Promise<void>, onError?: (cause: unknown) =
   }
 }
 
-function clearAuthPoll() {
-  clearTimeout(authPollTimer);
-  authPollTimer = undefined;
-}
-
 async function finishConnectionUi(summary: BridgeSummary) {
   emit("connected", summary);
   advancedView.value = false;
@@ -386,225 +385,15 @@ async function finishConnectionUi(summary: BridgeSummary) {
   busy.value = false;
   authSubmitting.value = false;
   authDialog.value?.close();
-  authSession.value = undefined;
-  lastAuthPrompt.value = null;
-  authResponse.value = "";
-  submittedAuthMask.value = "";
-  submittedAuthPromptId.value = undefined;
-  authRetryContext.value = undefined;
+  clearAuthSession();
   void refreshNetworkChecks();
   await nextTick();
   connectedHeading.value?.focus({ preventScroll: true });
 }
 
-async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
-  const revision = authBeginRevision;
-  clearAuthPoll();
-  authSession.value = snapshot;
-  connectionPhase.value = "building";
-  const outcome = await remoteBackend.sshAuthFinish(snapshot.sessionId);
-  if (revision !== authBeginRevision || authSession.value?.sessionId !== snapshot.sessionId) return;
-  if (outcome.operation === "check" && outcome.ports) {
-    usePorts(outcome.ports);
-    checked.value = true;
-    sshCheck.value = { state: "healthy", checkedAt: Date.now() };
-    connectionPhase.value = "building";
-    try {
-      const summary = await connectPrepared(request());
-      if (revision !== authBeginRevision) return;
-      await finishConnectionUi(summary);
-    } catch (cause) {
-      if (revision !== authBeginRevision) return;
-      if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
-        await beginInteractiveAuth("connect", request());
-        return;
-      }
-      connectionPhase.value = "failed";
-      readinessAnnouncementTarget.value = undefined;
-      error.value = cause;
-      return;
-    }
-  } else if (outcome.operation === "connect" && outcome.summary) {
-    await finishConnectionUi(outcome.summary);
-  }
-  if (revision === authBeginRevision) emit("refresh");
-}
-
-async function pollInteractiveAuth() {
-  const session = authSession.value;
-  if (!session) return;
-  const revision = authBeginRevision;
-  try {
-    const next = await remoteBackend.sshAuthState(session.sessionId);
-    if (revision !== authBeginRevision || authSession.value?.sessionId !== session.sessionId) return;
-    authSession.value = next;
-    if (next.status === "succeeded") {
-      await completeInteractiveAuth(next);
-      return;
-    }
-    if (next.status === "failed") {
-      connectionPhase.value = "failed";
-      readinessAnnouncementTarget.value = undefined;
-      busy.value = false;
-      clearAuthPoll();
-      emit("refresh");
-      return;
-    }
-  } catch (cause) {
-    if (revision !== authBeginRevision) return;
-    connectionPhase.value = "failed";
-    readinessAnnouncementTarget.value = undefined;
-    sshCheck.value = { state: "failed", checkedAt: Date.now() };
-    busy.value = false;
-    error.value = cause;
-    clearAuthPoll();
-    emit("refresh");
-    return;
-  }
-  if (!["failed", "promptUnavailable"].includes(authSession.value?.status ?? "")) {
-    authPollTimer = setTimeout(pollInteractiveAuth, 180);
-  }
-}
-
-async function beginInteractiveAuth(operation: SshAuthOperation, request: BridgeRequest | null = null) {
-  clearAuthPoll();
-  const revision = ++authBeginRevision;
-  const continuing = operation === "connect" && authDialog.value?.open;
-  error.value = undefined;
-  authSession.value = undefined;
-  authResponse.value = "";
-  if (!continuing) {
-    lastAuthPrompt.value = null;
-    submittedAuthMask.value = "";
-    submittedAuthPromptId.value = undefined;
-  }
-  showAuthDiagnostic.value = false;
-  authRetryContext.value = { operation, request };
-  connectionPhase.value = "authenticating";
-  await nextTick();
-  if (revision !== authBeginRevision) return;
-  if (!authDialog.value?.open) authDialog.value?.showModal();
-  let session: SshAuthSnapshot;
-  try {
-    session = await remoteBackend.sshAuthBegin(operation, targetId.value, request);
-  } catch (cause) {
-    if (revision === authBeginRevision) {
-      authDialog.value?.close();
-      connectionPhase.value = "failed";
-      readinessAnnouncementTarget.value = undefined;
-      error.value = cause;
-    }
-    throw cause;
-  }
-  if (revision !== authBeginRevision || connectionPhase.value !== "authenticating") {
-    await remoteBackend.sshAuthCancel(session.sessionId).catch(() => undefined);
-    return;
-  }
-  authSession.value = session;
-  authPollTimer = setTimeout(pollInteractiveAuth, 120);
-}
-
 function updateAuthResponse(event: Event) {
   if (!authCanRespond.value || authIsHostConfirmation.value) return;
   authResponse.value = (event.target as HTMLInputElement).value;
-}
-
-async function submitInteractiveAuth() {
-  const session = authSession.value;
-  const promptId = session?.prompt?.id;
-  if (!session || !promptId || !authCanRespond.value || authSubmitting.value) return;
-  if (!authIsHostConfirmation.value && !authResponse.value) return;
-  error.value = undefined;
-  authSubmitting.value = true;
-  const revision = authBeginRevision;
-  const response = authResponse.value;
-  submittedAuthMask.value = visibleAuthPrompt.value?.secret ? "••••••••" : "";
-  submittedAuthPromptId.value = promptId;
-  authResponse.value = "";
-  try {
-    const next = authIsHostConfirmation.value
-      ? await remoteBackend.sshAuthConfirmHost(session.sessionId, promptId)
-      : await remoteBackend.sshAuthSubmit(session.sessionId, promptId, response);
-    if (revision === authBeginRevision && authSession.value?.sessionId === session.sessionId) authSession.value = next;
-  } catch (cause) {
-    if (revision === authBeginRevision) error.value = cause;
-  } finally {
-    if (revision === authBeginRevision) authSubmitting.value = false;
-  }
-}
-
-async function retryInteractiveAuth() {
-  const retry = authRetryContext.value;
-  const sessionId = authSession.value?.sessionId;
-  if (!retry || authSubmitting.value) return;
-  authSubmitting.value = true;
-  let revision = authBeginRevision;
-  readinessAnnouncementTarget.value = targetId.value;
-  clearAuthPoll();
-  try {
-    if (sessionId) {
-      try { await remoteBackend.sshAuthCancel(sessionId); } catch { /* The timed-out PTY may already be closed. */ }
-    }
-    if (revision !== authBeginRevision) return;
-    const pending = beginInteractiveAuth(retry.operation, retry.request);
-    revision = authBeginRevision;
-    await pending;
-  } catch (cause) {
-    if (revision === authBeginRevision) error.value = cause;
-  } finally {
-    if (revision === authBeginRevision) authSubmitting.value = false;
-  }
-}
-
-watch(
-  // Watch primitive values separately: identical polling snapshots must not steal text selection.
-  [
-    () => authSession.value?.prompt?.id,
-    () => authSession.value?.prompt?.type,
-    () => authSession.value?.prompt?.attempt,
-    () => authSession.value?.status,
-  ],
-  async () => {
-    if (authPrompt.value) {
-      if (authPrompt.value.id !== submittedAuthPromptId.value) {
-        submittedAuthMask.value = "";
-        submittedAuthPromptId.value = undefined;
-      }
-      lastAuthPrompt.value = authPrompt.value;
-    }
-    if (!authCanRespond.value || authIsHostConfirmation.value) return;
-    await nextTick();
-    authInput.value?.focus({ preventScroll: true });
-  },
-);
-
-async function cancelInteractiveAuth() {
-  clearAuthPoll();
-  const revision = ++authBeginRevision;
-  readinessAnnouncementTarget.value = undefined;
-  networkRefreshRevision += 1;
-  networkCheckPending.value = false;
-  busy.value = false;
-  authSubmitting.value = false;
-  const sessionId = authSession.value?.sessionId;
-  authSession.value = undefined;
-  lastAuthPrompt.value = null;
-  authResponse.value = "";
-  submittedAuthMask.value = "";
-  submittedAuthPromptId.value = undefined;
-  showAuthDiagnostic.value = false;
-  authRetryContext.value = undefined;
-  connectionPhase.value = "idle";
-  authDialog.value?.close();
-  if (sessionId) {
-    try { await remoteBackend.sshAuthCancel(sessionId); } catch { /* Session may already be closed. */ }
-  }
-  if (revision !== authBeginRevision) return;
-  if (sshCheck.value.state === "checking") {
-    sshCheck.value = { state: "idle", checkedAt: null };
-  }
-  await nextTick();
-  if (connectionPhase.value === "idle") connectedHeading.value?.focus({ preventScroll: true });
 }
 
 async function load() {
@@ -681,7 +470,7 @@ async function connectPrepared(selected: BridgeRequest): Promise<BridgeSummary> 
 
 function startConnection() {
   if (!canStartConnection.value || busy.value) return;
-  const revision = ++authBeginRevision;
+  const revision = advanceAuthRevision();
   readinessAnnouncementTarget.value = targetId.value;
   checked.value = false;
   proxyPort.value = 0;
@@ -697,17 +486,17 @@ function startConnection() {
       const ports = props.reviewPreview
         ? { proxyPort: 23841, ccPort: 31472 }
         : await remoteBackend.check(targetId.value);
-      if (revision !== authBeginRevision) return;
+      if (!isCurrentAuthRevision(revision)) return;
       usePorts(ports);
       checked.value = true;
       sshCheck.value = { state: "healthy", checkedAt: Date.now() };
       const summary = props.reviewPreview
         ? props.summary
         : await connectPrepared(request());
-      if (revision !== authBeginRevision) return;
+      if (!isCurrentAuthRevision(revision)) return;
       await finishConnectionUi(summary);
     } catch (cause) {
-      if (revision !== authBeginRevision) return;
+      if (!isCurrentAuthRevision(revision)) return;
       if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
         busy.value = false;
         try {
@@ -720,7 +509,7 @@ function startConnection() {
       connectionPhase.value = "failed";
       error.value = cause;
     } finally {
-      if (revision === authBeginRevision) {
+      if (isCurrentAuthRevision(revision)) {
         busy.value = false;
         emit("refresh");
       }
@@ -1215,7 +1004,7 @@ onMounted(() => {
     const completing = authReview === "remote-auth-completing";
     const completionTimeout = authReview === "remote-auth-timeout";
     connectionPhase.value = "authenticating";
-    authSession.value = {
+    prepareAuthPreview({
       sessionId: "review-session",
       operation: "check",
       status: unavailable ? "promptUnavailable" : completionTimeout ? "failed" : completing ? "authenticated" : "waitingUser",
@@ -1223,8 +1012,7 @@ onMounted(() => {
       prompt: unavailable || completing || completionTimeout ? null : { id: "review-session:1", type: "password", message: "dev@remote's password:", secret: true, attempt: 1, target: "remote", fingerprint: null },
       diagnostic: { bytesReceived: 34, printableBytes: 18, cprRequests: 1, promptDetected: false, authMarkerDetected: completing || completionTimeout, remoteResultDetected: false, outputClosed: false },
       error: rejected ? "sshAuthRejected" : unavailable ? "sshAuthPromptUnavailable" : completionTimeout ? "sshAuthCompletionTimeout" : null,
-    };
-    authRetryContext.value = { operation: "check", request: null };
+    });
     void nextTick(() => authDialog.value?.showModal());
   }
 });
@@ -1232,9 +1020,7 @@ onBeforeUnmount(() => {
   sessionCopyRevision++;
   sessionCommandGeneration++;
   resetSessionCopyFeedback();
-  authBeginRevision += 1;
-  const sessionId = authSession.value?.sessionId;
-  clearAuthPoll();
+  const sessionId = detachInteractiveAuth();
   stopSkillsPolling();
   if (sessionId) void remoteBackend.sshAuthCancel(sessionId).catch(() => undefined);
 });

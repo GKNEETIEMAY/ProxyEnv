@@ -7,6 +7,7 @@ import test from "node:test";
 import ts from "typescript";
 import { runInNewContext } from "node:vm";
 import { presentationModuleUrl } from "./remote-tool-test-modules.mjs";
+import { interactiveAuthPath, mountInteractiveAuth } from "./remote-interactive-auth-test.mjs";
 
 const git = process.platform === "win32" ? spawnSync("where.exe",["git"],{encoding:"utf8"}).stdout?.trim().split(/\r?\n/)[0] : undefined;
 const shell = process.env.PROXYENV_TEST_SHELL || (git ? resolve(dirname(git),"../bin/bash.exe") : "/bin/sh");
@@ -184,12 +185,11 @@ test("SSH labels hide only port 22, and first-use host keys enter interactive co
   }
 });
 
-test("the real start-connection handler confirms new host keys without retrying changed keys", async () => {
+test("the real start-connection handler confirms new host keys without retrying changed keys", async t => {
   const page = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
   const start = page.slice(page.indexOf("function startConnection()"), page.indexOf("function refreshTargets()"));
   const compiled = ts.transpileModule(`export function create(context) {
-    const {canStartConnection,busy,checked,proxyPort,ccPort,runtimeExpectedPort,runtimePortConflict,sshCheck,error,connectionPhase,props,remoteBackend,targetId,needsInteractiveSshAuth,bridgeErrorCode,beginInteractiveAuth,emit,readinessAnnouncementTarget} = context;
-    let authBeginRevision = 0;
+    const {canStartConnection,busy,checked,proxyPort,ccPort,runtimeExpectedPort,runtimePortConflict,sshCheck,error,connectionPhase,props,remoteBackend,targetId,needsInteractiveSshAuth,bridgeErrorCode,beginInteractiveAuth,emit,readinessAnnouncementTarget,advanceAuthRevision,isCurrentAuthRevision} = context;
     ${start}
     return startConnection;
   }`, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
@@ -204,9 +204,14 @@ test("the real start-connection handler confirms new host keys without retrying 
       readinessAnnouncementTarget: ref(),
       remoteBackend: {check:async () => {throw code;}}, bridgeErrorCode:error=>error,
       needsInteractiveSshAuth:code=>["hostKey","sshAuth"].includes(code),
-      beginInteractiveAuth:async operation=>{calls.push(operation);}, emit:()=>{},
+      emit:()=>{},
     };
-    create(context)();
+    const auth = mountInteractiveAuth(t, {
+      ...context,
+      backend: { sshAuthBegin: async operation => { calls.push(operation); return { sessionId: operation }; } },
+    });
+    const { beginInteractiveAuth, advanceAuthRevision, isCurrentAuthRevision } = auth;
+    create({ ...context, beginInteractiveAuth, advanceAuthRevision, isCurrentAuthRevision })();
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(calls, ["hostKey","sshAuth"].includes(code) ? ["check"] : []);
     if (["hostKeyChanged","sshFailed"].includes(code)) {
@@ -217,50 +222,44 @@ test("the real start-connection handler confirms new host keys without retrying 
   }
 });
 
-test("post-auth SSH errors release the modal and stale polls cannot reopen it", async () => {
-  const source=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  const complete=source.slice(source.indexOf("async function completeInteractiveAuth("),source.indexOf("async function beginInteractiveAuth("));
-  const compiled=ts.transpileModule(complete,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
-  const ref=value=>({value});
-  for(const failure of ["state","finish","connect","cancelledPoll"]) {
-    let finishPoll,finishCalls=0,refreshes=0;
-    const snapshot={sessionId:"test-session",status:"succeeded",auth:{authenticated:true}};
-    const context={
-      authSession:ref(snapshot),authBeginRevision:0,connectionPhase:ref("authenticating"),busy:ref(false),error:ref(),sshCheck:ref({state:"checking"}),
-      readinessAnnouncementTarget:ref(),
-      checked:ref(false),authPollTimer:undefined,authDialog:ref({close:()=>{}}),lastAuthPrompt:ref(null),authResponse:ref(""),submittedAuthMask:ref("••••••••"),submittedAuthPromptId:ref("prompt-1"),
-      clearAuthPoll:()=>{},usePorts:()=>{},request:()=>({}),emit:()=>{refreshes++;},
-      needsInteractiveSshAuth:()=>false,bridgeErrorCode:value=>value,beginInteractiveAuth:async()=>{},refreshNetworkChecks:async()=>{},
-      remoteBackend:{
-        sshAuthState:async()=>{
-          if(failure==="state") throw "sshFailed";
-          if(failure==="cancelledPoll") return new Promise(resolve=>{finishPoll=()=>resolve(snapshot);});
+test("post-auth SSH errors release the modal and stale polls cannot reopen it", async t => {
+  const source = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
+  for (const failure of ["state", "finish", "connect", "cancelledPoll"]) {
+    let finishPoll;
+    let finishCalls = 0;
+    let refreshes = 0;
+    const snapshot = { sessionId: "test-session", status: "succeeded", auth: { authenticated: true } };
+    const auth = mountInteractiveAuth(t, {
+      refresh: () => { refreshes++; },
+      backend: {
+        sshAuthBegin: async () => snapshot,
+        sshAuthState: async () => {
+          if (failure === "state") throw "sshFailed";
+          if (failure === "cancelledPoll") return new Promise(resolve => { finishPoll = () => resolve(snapshot); });
           return snapshot;
         },
-        sshAuthFinish:async()=>{
+        sshAuthFinish: async () => {
           finishCalls++;
-          assert.equal(context.connectionPhase.value,"building","Authentication success is not bridge completion");
-          if(failure==="finish") throw "sshFailed";
-          return {operation:"check",ports:{proxyPort:7897,ccPort:15721}};
+          assert.equal(auth.connectionPhase.value, "building", "Authentication success is not bridge completion");
+          if (failure === "finish") throw "sshFailed";
+          return { operation: "check", ports: { proxyPort: 7897, ccPort: 15721 } };
         },
       },
-      connectPrepared:async()=>{throw "sshFailed";},
-      Date,setTimeout,clearTimeout,
-    };
-    runInNewContext(compiled,context);
-    const pending=context.pollInteractiveAuth();
-    if(failure==="cancelledPoll") {
-      context.authBeginRevision++;
-      context.authSession.value=undefined;
-      context.connectionPhase.value="idle";
+      connectPrepared: async () => { throw "sshFailed"; },
+    });
+    await auth.beginInteractiveAuth("check");
+    const pending = auth.runTimer();
+    if (failure === "cancelledPoll") {
+      await auth.cancelInteractiveAuth();
       finishPoll();
     }
     await pending;
-    assert.equal(context.busy.value,false);
-    assert.equal(context.connectionPhase.value,failure==="cancelledPoll"?"idle":"failed");
-    assert.equal(context.error.value,failure==="cancelledPoll"?undefined:"sshFailed");
-    assert.equal(finishCalls,["finish","connect"].includes(failure)?1:0);
-    if(failure==="cancelledPoll") assert.equal(refreshes,0,"Cancelled callbacks do not restore modal state");
+    assert.equal(auth.busy.value, false);
+    assert.equal(auth.connectionPhase.value, failure === "cancelledPoll" ? "idle" : "failed");
+    assert.equal(auth.error.value, failure === "cancelledPoll" ? undefined : "sshFailed");
+    assert.equal(finishCalls, ["finish", "connect"].includes(failure) ? 1 : 0);
+    if (failure === "cancelledPoll") assert.equal(refreshes, 0, "Cancelled callbacks do not restore modal state");
+    assert.deepEqual(auth.delays(), []);
   }
   assert.match(source,/v-if="authPromptUnavailable \|\| connectionPhase === 'failed'"[^>]*@click="retryInteractiveAuth"/);
   assert.match(source,/connectionPhase === 'failed' \|\| authSession\?\.status !== 'succeeded'/);
@@ -762,7 +761,8 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   assert.match(page,/serverDirectState/);
   assert.match(page,/localProxyCheck/);
   assert.match(page,/ccCheck/);
-  assert.match(page,/await finishConnectionUi\(outcome\.summary\)/);
+  assert.match(readFileSync(interactiveAuthPath,"utf8"),/await finishConnectionUi\(outcome\.summary\)/);
+  assert.match(page,/usePorts, request, connectPrepared, finishConnectionUi,/);
   assert.match(shell,/<div class="view-stage">/);
   assert.match(shell,/<div class="view-outlet">/);
   assert.match(shell,/<div v-show="view === 'local'" class="view-pane local-view-pane">/);
@@ -832,11 +832,13 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
   }
   assert.match(page,/needsInteractiveSshAuth\(bridgeErrorCode\(cause\)\)/);
   assert.match(page,/visibleAuthPrompt\?\.secret !== false \? 'password' : 'text'/);
-  assert.match(page,/remoteBackend\.sshAuthSubmit/);
-  assert.match(page,/remoteBackend\.sshAuthConfirmHost/);
+  const authUi=readFileSync(interactiveAuthPath,"utf8");
+  assert.match(page,/backend: remoteBackend,/);
+  assert.match(authUi,/backend\.sshAuthSubmit\(session\.sessionId, promptId, response\)/);
+  assert.match(authUi,/backend\.sshAuthConfirmHost\(session\.sessionId, promptId\)/);
   assert.match(page,/authPromptUnavailable/);
   assert.match(page,/authCompleting/);
-  assert.match(page,/authSession\.value\?\.status === "waitingUser" && !!authPrompt\.value/);
+  assert.match(authUi,/authSession\.value\?\.status === "waitingUser" && !!authPrompt\.value/);
   assert.match(page,/:disabled="authIsHostConfirmation \|\| !authCanRespond \|\| authSubmitting"/);
   assert.match(page,/retryInteractiveAuth/);
   assert.match(page,/authSession\.diagnostic\.cprRequests/);
@@ -1213,7 +1215,7 @@ test("preloaded network capability adopts late discovery without losing an expli
   const load=page.match(/async function load\(\) \{([\s\S]*?)\r?\n\}\r?\n\r?\nfunction usePorts/);
   assert.ok(load);
   assert.match(load[1],/remoteBackend\.targets\(\)/);
-  assert.doesNotMatch(load[1],/remoteBackend\.(connect|checkNetwork|sshAuthBegin|configApply|setCapability)\(/,"Preloading only discovers local connection metadata");
+  assert.doesNotMatch(load[1],/remoteBackend\.(connect|checkNetwork|sshAuthBegin|configApply|setCapability)\(|\bbeginInteractiveAuth\(/,"Preloading only discovers local connection metadata");
 });
 
 test("CLI launch commands are hidden until their remote configuration is applied",()=>{
@@ -1672,10 +1674,11 @@ test("M7 keeps VS Code Server context and extension location conservative",()=>{
 
 test("two-step setup auto-connects after interactive authentication and keeps one stable modal shell",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const auth=readFileSync(interactiveAuthPath,"utf8");
   assert.match(page,/@click="startConnection"/);
   assert.doesNotMatch(page,/@click="checkTarget"/);
-  assert.match(page,/outcome\.operation === "check"[\s\S]*connectPrepared\(request\(\)\)/);
-  assert.match(page,/connectionPhase\.value = "building"/);
+  assert.match(auth,/outcome\.operation === "check"[\s\S]*connectPrepared\(request\(\)\)/);
+  assert.match(auth,/connectionPhase\.value = "building"/);
   assert.match(page,/async function finishConnectionUi\(summary: BridgeSummary\)[\s\S]*emit\("connected", summary\)[\s\S]*connectionPhase\.value = "idle"/);
   assert.match(page,/bridgeErrorCode\(cause\) !== "portInUse"/);
   assert.match(page,/remoteBackend\.allocatePorts\(selected\.targetId, false\)/);
@@ -1684,11 +1687,12 @@ test("two-step setup auto-connects after interactive authentication and keeps on
   assert.doesNotMatch(page,/\.remote-auth-dialog \{[^}]*height:min\(/);
   assert.match(page,/authInteractionVisible/);
   assert.match(page,/authSurfaceVisible/);
-  assert.match(page,/const visibleAuthPrompt = computed\(\(\) => authPrompt\.value \?\? lastAuthPrompt\.value\)/);
+  assert.match(auth,/const visibleAuthPrompt = computed\(\(\) => authPrompt\.value \?\? lastAuthPrompt\.value\)/);
   assert.match(page,/\["authenticating", "building", "succeeded"\]\.includes\(connectionPhase\.value\)/);
   assert.doesNotMatch(page,/remote-auth-context|remote-auth-progress/);
-  assert.match(page,/connectionPhase\.value = "authenticating";[\s\S]*showModal\(\)[\s\S]*sshAuthBegin/);
-  assert.match(page,/submittedAuthMask\.value = visibleAuthPrompt\.value\?\.secret \? "••••••••" : ""/);
+  assert.match(auth,/connectionPhase\.value = "authenticating";[\s\S]*dialog\.show\(\)[\s\S]*sshAuthBegin/);
+  assert.match(page,/show: \(\) => authDialog\.value\?\.showModal\(\)/);
+  assert.match(auth,/submittedAuthMask\.value = visibleAuthPrompt\.value\?\.secret \? "••••••••" : ""/);
   assert.match(page,/:value="authInputValue"/);
   assert.match(page,/:disabled="authIsHostConfirmation \|\| !authCanRespond \|\| authSubmitting"/);
   assert.equal((page.match(/@click="startConnection"/g)??[]).length,1);
@@ -1717,31 +1721,37 @@ test("SSH authentication dialog keeps a compact width and input-to-action spacin
   assert.match(page,/\.remote-auth-dialog > form \{[^}]*overflow-y:auto/);
 });
 
-test("SSH polling does not steal selection from other authentication text",async()=>{
-  const { ref, watch, nextTick }=await import("vue");
-  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  const sources=page.match(/watch\(\s*\/\/ Watch primitive values separately:[^\n]*\n\s*(\[[\s\S]*?\]),\s*async \(\) =>/);
-  assert.ok(sources,"Authentication focus must watch individual primitive values");
-  const snapshot=(id="prompt-1",status="waitingUser",attempt=1)=>({prompt:{id,type:"password",attempt},status});
-  const authSession=ref(undefined);
-  const getters=new Function("authSession",`return ${sources[1]}`)(authSession);
-  let focusUpdates=0;
-  const stop=watch(getters,()=>{focusUpdates+=1;});
-  try {
-    authSession.value=snapshot();
+test("SSH polling does not steal selection from other authentication text", async t => {
+  const { nextTick } = await import("vue");
+  const source = readFileSync(interactiveAuthPath, "utf8");
+  const sources = source.match(/watch\(\s*\/\/ Watch primitive values separately:[^\n]*\n\s*(\[[\s\S]*?\]),\s*async \(\) =>/);
+  assert.ok(sources, "Authentication focus must watch individual primitive values");
+  const snapshot = (id = "prompt-1", status = "waitingUser", attempt = 1, type = "password") => ({
+    sessionId: "session", prompt: { id, type, attempt }, status,
+  });
+  let focusUpdates = 0;
+  let next;
+  const auth = mountInteractiveAuth(t, {
+    dialog: { focusPrompt() { focusUpdates++; } },
+    backend: { sshAuthBegin: async () => snapshot(), sshAuthState: async () => next },
+  });
+  await auth.beginInteractiveAuth("check");
+  await nextTick();
+  await nextTick();
+  assert.equal(focusUpdates, 1, "First prompt may focus the input");
+  for (let poll = 0; poll < 5; poll++) {
+    next = snapshot();
+    await auth.runTimer();
     await nextTick();
-    assert.equal(focusUpdates,1,"First prompt may focus the input");
-    for(let poll=0;poll<5;poll+=1) {
-      authSession.value=snapshot();
-      await nextTick();
-    }
-    assert.equal(focusUpdates,1,"Fresh objects containing the same prompt must preserve selection");
-    authSession.value=snapshot("prompt-2","waitingUser",2);
+  }
+  assert.equal(focusUpdates, 1, "Fresh objects containing the same prompt must preserve selection");
+  for (const [index, change] of [snapshot("prompt-2"), snapshot("prompt-2", "waitingUser", 2), snapshot("prompt-2", "waitingUser", 2, "keyboardInteractive")].entries()) {
+    next = change;
+    await auth.runTimer();
     await nextTick();
-    assert.equal(focusUpdates,2,"A new authentication challenge may focus the input");
-  } finally { stop(); }
-  assert.match(page,/\.remote-auth-heading h2,\.remote-auth-heading :deep\(\.check-status span\)[^\n]*user-select:text/);
-  assert.match(page,/authInput\.value\?\.focus\(\{ preventScroll: true \}\)/);
+    await nextTick();
+    assert.equal(focusUpdates, index + 2, "Only a changed ID, attempt or type may focus the input again");
+  }
 });
 
 test("bridge construction keeps disabled loading actions and omits detached busy text",()=>{

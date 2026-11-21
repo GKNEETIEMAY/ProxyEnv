@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { copyModuleUrl } from "./remote-tool-test-modules.mjs";
+import { mountInteractiveAuth } from "./remote-interactive-auth-test.mjs";
 
 const compile = source => ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
 const { remoteReadiness } = await import(`data:text/javascript;base64,${Buffer.from(compile(readFileSync("src/features/remote-bridge/readiness-presentation.ts", "utf8"))).toString("base64")}`);
@@ -44,13 +45,17 @@ test("Overview and Advanced do not introduce an aggregate optional-preparation w
   assert.doesNotMatch(page, /RemoteBridgeReadinessNotice|readinessVisible/);
 });
 
-test("core completion releases the dialog and launch controls without awaiting optional jobs", async () => {
+test("core completion releases the dialog and launch controls without awaiting optional jobs", async t => {
+  const auth = mountInteractiveAuth(t, { connectionPhase: ref("building"), busy: ref(true) });
+  auth.authSubmitting.value = true;
+  auth.prepareAuthPreview({ sessionId: "old" });
+  auth.authResponse.value = "secret-fixture";
   const context = {
-    emit: (...args) => context.events.push(args), events: [], advancedView: ref(true), connectionPhase: ref("building"), busy: ref(true), authSubmitting: ref(true),
-    authDialog: ref({ close: () => { context.closed = true; } }), authSession: ref({}), lastAuthPrompt: ref({}), authResponse: ref("secret-fixture"), submittedAuthMask: ref("masked"), submittedAuthPromptId: ref("prompt"), authRetryContext: ref({}),
+    ...auth, emit: (...args) => context.events.push(args), events: [], advancedView: ref(true),
+    authDialog: ref({ close: () => { context.closed = true; } }),
     refreshNetworkChecks: () => new Promise(() => {}), nextTick: async () => {}, connectedHeading: ref({ focus: () => { context.focused = true; } }),
   };
-  runInNewContext(section("async function finishConnectionUi(", "async function completeInteractiveAuth("), context);
+  runInNewContext(section("async function finishConnectionUi(", "function updateAuthResponse("), context);
   await context.finishConnectionUi(ready());
   assert.equal(context.events[0][0], "connected");
   assert.equal(context.connectionPhase.value, "idle");
@@ -62,31 +67,45 @@ test("core completion releases the dialog and launch controls without awaiting o
   assert.equal(context.authSession.value, undefined);
 });
 
-test("cancellation isolates both late finish and late password submission", async () => {
+test("cancellation isolates both late finish and late password submission", async t => {
+  const snapshot = { sessionId: "old", status: "succeeded" };
   let resolveFinish;
-  const snapshot = { sessionId: "old" };
-  const context = { authBeginRevision: 1, authSession: ref(snapshot), connectionPhase: ref("authenticating"), clearAuthPoll: () => {}, remoteBackend: { sshAuthFinish: () => new Promise(resolve => { resolveFinish = resolve; }) }, emit: () => { throw Error("stale emission"); } };
-  runInNewContext(section("async function completeInteractiveAuth(", "async function pollInteractiveAuth("), context);
-  const finish = context.completeInteractiveAuth(snapshot);
-  context.authBeginRevision++;
-  context.authSession.value = undefined;
-  context.connectionPhase.value = "idle";
+  let markFinishing;
+  const finishing = new Promise(resolve => { markFinishing = resolve; });
+  const auth = mountInteractiveAuth(t, {
+    backend: {
+      sshAuthBegin: async () => ({ sessionId: "old", status: "waitingPrompt" }),
+      sshAuthState: async () => snapshot,
+      sshAuthFinish: () => new Promise(resolve => {
+        resolveFinish = resolve;
+        markFinishing();
+      }),
+    },
+    finishConnectionUi() { assert.fail("stale connection"); },
+    refresh() { assert.fail("stale refresh"); },
+  });
+  await auth.beginInteractiveAuth("check");
+  const finish = auth.runTimer();
+  await finishing;
+  await auth.cancelInteractiveAuth();
   resolveFinish({ operation: "check", ports: {} });
   await finish;
-  assert.equal(context.connectionPhase.value, "idle");
+  assert.equal(auth.connectionPhase.value, "idle");
+  assert.deepEqual(auth.delays(), []);
 
   let resolveSubmit;
-  Object.assign(context, { authSession: ref({ sessionId: "old", prompt: { id: "password" } }), authCanRespond: ref(true), authSubmitting: ref(false), authIsHostConfirmation: ref(false), authResponse: ref("secret-fixture"), submittedAuthMask: ref(""), submittedAuthPromptId: ref(), visibleAuthPrompt: ref({ secret: true }), error: ref(), remoteBackend: { sshAuthSubmit: () => new Promise(resolve => { resolveSubmit = resolve; }) } });
-  runInNewContext(section("async function submitInteractiveAuth(", "async function retryInteractiveAuth("), context);
-  const submit = context.submitInteractiveAuth();
-  assert.equal(context.authResponse.value, "");
-  context.authBeginRevision++;
-  context.authSession.value = undefined;
-  context.authSubmitting.value = false;
+  const submitAuth = mountInteractiveAuth(t, {
+    backend: { sshAuthSubmit: () => new Promise(resolve => { resolveSubmit = resolve; }) },
+  });
+  submitAuth.authSession.value = { sessionId: "old", status: "waitingUser", prompt: { id: "password", type: "password", secret: true } };
+  submitAuth.authResponse.value = "secret-fixture";
+  const submit = submitAuth.submitInteractiveAuth();
+  assert.equal(submitAuth.authResponse.value, "");
+  await submitAuth.cancelInteractiveAuth();
   resolveSubmit(snapshot);
   await submit;
-  assert.equal(context.authSession.value, undefined);
-  assert.equal(context.error.value, undefined);
+  assert.equal(submitAuth.authSession.value, undefined);
+  assert.equal(submitAuth.error.value, undefined);
 });
 
 test("one success notification per explicit connect; optional warnings stay in existing statuses", () => {
@@ -119,28 +138,30 @@ test("localized readiness copy and launch safety use existing boundaries", async
   assert.doesNotMatch(page, /RemoteBridgeReadinessNotice/);
 });
 
-test("cancelling any auth prompt releases controls; an old cancellation cannot reset a newer check", async () => {
+test("cancelling any auth prompt releases controls; an old cancellation cannot reset a newer check", async t => {
   for (const status of ["waitingPrompt", "waitingUser", "promptUnavailable", "failed"]) {
     let finishCancel;
-    const context = {
-      clearAuthPoll: () => {}, authBeginRevision: 0, readinessAnnouncementTarget: ref("lab"), networkRefreshRevision: 0, networkCheckPending: ref(true), busy: ref(true), authSubmitting: ref(true),
-      authSession: ref({ sessionId: "old", status }), lastAuthPrompt: ref({}), authResponse: ref("secret-fixture"), submittedAuthMask: ref("masked"), submittedAuthPromptId: ref("p"), showAuthDiagnostic: ref(true), authRetryContext: ref({}), connectionPhase: ref("authenticating"), authDialog: ref({ close: () => {} }), sshCheck: ref({ state: "checking" }),
-      remoteBackend: { sshAuthCancel: () => new Promise(resolve => { finishCancel = resolve; }) }, nextTick: async () => {}, connectedHeading: ref(),
-    };
-    runInNewContext(section("async function cancelInteractiveAuth()", "async function load()"), context);
-    const cancelled = context.cancelInteractiveAuth();
-    assert.equal(context.busy.value, false);
-    assert.equal(context.authSubmitting.value, false);
-    assert.equal(context.networkCheckPending.value, false);
-    assert.equal(context.authSession.value, undefined);
-    assert.equal(context.authResponse.value, "");
-    assert.equal(context.submittedAuthMask.value, "");
-    assert.equal(context.readinessAnnouncementTarget.value, undefined);
-    context.authBeginRevision++;
-    context.connectionPhase.value = "checking";
+    const auth = mountInteractiveAuth(t, {
+      connectionPhase: ref("authenticating"), busy: ref(true),
+      backend: { sshAuthCancel: () => new Promise(resolve => { finishCancel = resolve; }) },
+    });
+    auth.prepareAuthPreview({ sessionId: "old", status });
+    auth.authSubmitting.value = true;
+    auth.authResponse.value = "secret-fixture";
+    auth.showAuthDiagnostic.value = true;
+    const cancelled = auth.cancelInteractiveAuth();
+    assert.equal(auth.busy.value, false);
+    assert.equal(auth.authSubmitting.value, false);
+    assert.equal(auth.networkCheckPending.value, false);
+    assert.equal(auth.authSession.value, undefined);
+    assert.equal(auth.authResponse.value, "");
+    assert.equal(auth.authInputValue.value, "");
+    assert.equal(auth.readinessAnnouncementTarget.value, undefined);
+    auth.advanceAuthRevision();
+    auth.connectionPhase.value = "checking";
     finishCancel();
     await cancelled;
-    assert.equal(context.sshCheck.value.state, "checking");
+    assert.equal(auth.sshCheck.value.state, "checking");
   }
 });
 
@@ -155,23 +176,261 @@ test("connected CC detection refreshes its observation without changing selected
   assert.doesNotMatch(page, /networkChecking/);
 });
 
-test("check-to-connect authentication keeps the same dialog, prompt and password mask", async () => {
-  const snapshot = { sessionId: "check", status: "succeeded" };
-  const context = { authBeginRevision: 0, clearAuthPoll: () => {}, authSession: ref(snapshot), connectionPhase: ref("authenticating"), authDialog: ref({ open: true, showModal: () => { throw Error("dialog reopened"); } }), lastAuthPrompt: ref({ id: "password", message: "Password:" }), authResponse: ref(""), submittedAuthMask: ref("masked"), submittedAuthPromptId: ref("password"), error: ref(), showAuthDiagnostic: ref(false), authRetryContext: ref(), targetId: ref("lab"), checked: ref(false), sshCheck: ref({}), readinessAnnouncementTarget: ref("lab"), nextTick: async () => {},
-    remoteBackend: { sshAuthFinish: async () => ({ operation: "check", ports: {} }), sshAuthBegin: async operation => ({ sessionId: operation, status: "starting" }) },
-    usePorts: () => {}, request: () => ({}), connectPrepared: async () => { throw "sshAuth"; }, needsInteractiveSshAuth: error => error === "sshAuth", bridgeErrorCode: error => error,
-    // Do not start real polling; this checks the handoff with the actual handlers.
-    setTimeout: () => 1, authPollTimer: undefined, pollInteractiveAuth: () => {},
-  };
-  runInNewContext(section("async function beginInteractiveAuth(", "function updateAuthResponse("), context);
-  runInNewContext(section("async function completeInteractiveAuth(", "async function pollInteractiveAuth("), context);
-  await context.completeInteractiveAuth(snapshot);
-  assert.equal(context.authSession.value.sessionId, "connect");
-  assert.equal(context.lastAuthPrompt.value.message, "Password:");
-  assert.equal(context.submittedAuthMask.value, "masked");
-  assert.equal(context.authDialog.value.open, true);
-  assert.equal(context.error.value, undefined);
+test("check-to-connect authentication keeps the same dialog, prompt and password mask", async t => {
+  const snapshot = { sessionId: "check", status: "waitingUser", prompt: { id: "password", type: "password", message: "Password:", secret: true } };
+  const ports = { proxyPort: 7897, ccPort: 15721 };
+  const selected = { targetId: "lab" };
+  const calls = [];
+  const auth = mountInteractiveAuth(t, {
+    dialog: { isOpen: () => true, show() { assert.fail("dialog reopened"); } },
+    backend: {
+      sshAuthFinish: async () => ({ operation: "check", ports }),
+      sshAuthBegin: async (operation, targetId, request) => {
+        calls.push(["begin", operation, targetId, request]);
+        return operation === "check" ? snapshot : { sessionId: "connect", status: "starting" };
+      },
+      sshAuthSubmit: async () => snapshot,
+      sshAuthState: async () => ({ sessionId: "check", status: "succeeded", prompt: null }),
+    },
+    usePorts: actual => calls.push(["ports", actual]),
+    request: () => selected,
+    connectPrepared: async request => { calls.push(["connect", request]); throw "sshAuth"; },
+    isInteractiveAuthError: error => error === "sshAuth",
+  });
+  await auth.beginInteractiveAuth("check");
+  auth.authResponse.value = "secret-fixture";
+  await auth.submitInteractiveAuth();
+  await auth.runTimer();
+  assert.equal(auth.authSession.value.sessionId, "connect");
+  assert.equal(auth.visibleAuthPrompt.value.message, "Password:");
+  assert.equal(auth.authInputValue.value, "••••••••");
+  assert.equal(auth.dialog.isOpen(), true);
+  assert.equal(auth.error.value, undefined);
+  assert.deepEqual(calls, [["begin", "check", "lab", null], ["ports", ports], ["connect", selected], ["begin", "connect", "lab", selected]]);
+  assert.deepEqual(auth.delays(), [120]);
 });
+
+function deferred() {
+  let resolve, reject;
+  const pending = new Promise((onResolve, onReject) => { resolve = onResolve; reject = onReject; });
+  return { pending, resolve, reject };
+}
+
+test("late begin cancels only the old SSH session and leaves the current timer in place", async t => {
+  const oldBegin = deferred();
+  const started = deferred();
+  const cancelled = [];
+  const selected = ref("first");
+  const auth = mountInteractiveAuth(t, {
+    targetId: selected,
+    backend: {
+      sshAuthBegin: async (_operation, target) => {
+        if (target !== "first") return { sessionId: "current", status: "waitingPrompt" };
+        started.resolve();
+        return oldBegin.pending;
+      },
+      sshAuthCancel: async id => { cancelled.push(id); },
+    },
+  });
+  const stale = auth.beginInteractiveAuth("check");
+  await started.pending;
+  selected.value = "second";
+  await auth.beginInteractiveAuth("check");
+  oldBegin.resolve({ sessionId: "obsolete", status: "waitingPrompt" });
+  await stale;
+  assert.deepEqual(cancelled, ["obsolete"]);
+  assert.equal(auth.authSession.value.sessionId, "current");
+  assert.deepEqual(auth.delays(), [120]);
+});
+
+test("begin failure closes only its own attempt and releases no polling timer", async t => {
+  const oldBegin = deferred();
+  const started = deferred();
+  let attempt = 0;
+  let closes = 0;
+  const auth = mountInteractiveAuth(t, {
+    dialog: { close() { closes++; } },
+    backend: {
+      sshAuthBegin: async () => {
+        attempt++;
+        if (attempt === 1) {
+          started.resolve();
+          return oldBegin.pending;
+        }
+        if (attempt === 2) return { sessionId: "current", status: "waitingPrompt" };
+        throw Error("current begin failed");
+      },
+    },
+  });
+  const stale = auth.beginInteractiveAuth("check");
+  const rejected = assert.rejects(stale, /old begin failed/);
+  await started.pending;
+  await auth.beginInteractiveAuth("check");
+  oldBegin.reject(Error("old begin failed"));
+  await rejected;
+  assert.equal(closes, 0);
+  assert.equal(auth.error.value, undefined);
+  assert.equal(auth.authSession.value.sessionId, "current");
+  await assert.rejects(auth.beginInteractiveAuth("check"), /current begin failed/);
+  assert.equal(closes, 1);
+  assert.equal(auth.connectionPhase.value, "failed");
+  assert.match(auth.error.value.message, /current begin failed/);
+  assert.deepEqual(auth.delays(), []);
+});
+
+test("SSH polling uses the original delays and stops for missing prompts or terminal failures", async t => {
+  for (const terminal of ["promptUnavailable", "failed"]) {
+    let refreshes = 0;
+    const states = ["waitingServer", "waitingUser", terminal];
+    const auth = mountInteractiveAuth(t, {
+      busy: ref(true),
+      refresh() { refreshes++; },
+      backend: {
+        sshAuthBegin: async () => ({ sessionId: "pty", status: "waitingPrompt" }),
+        sshAuthState: async id => ({ sessionId: id, status: states.shift(), prompt: null }),
+      },
+    });
+    await auth.beginInteractiveAuth("check");
+    assert.deepEqual(auth.delays(), [120]);
+    await auth.runTimer();
+    assert.equal(auth.authSession.value.status, "waitingServer");
+    assert.deepEqual(auth.delays(), [180]);
+    await auth.runTimer();
+    assert.equal(auth.authSession.value.status, "waitingUser");
+    assert.deepEqual(auth.delays(), [180]);
+    await auth.runTimer();
+    assert.equal(auth.authSession.value.status, terminal);
+    assert.deepEqual(auth.delays(), []);
+    assert.equal(refreshes, terminal === "failed" ? 1 : 0);
+    if (terminal === "failed") {
+      assert.equal(auth.connectionPhase.value, "failed");
+      assert.equal(auth.busy.value, false);
+    }
+  }
+});
+
+test("host confirmation is explicit and keyboard replies are removed before IPC", async t => {
+  const host = { sessionId: "pty", status: "waitingUser", prompt: { id: "host", type: "hostKeyConfirmation", secret: false } };
+  const keyboard = { sessionId: "pty", status: "waitingUser", prompt: { id: "keyboard", type: "keyboardInteractive", secret: true } };
+  const received = [];
+  const auth = mountInteractiveAuth(t, {
+    backend: {
+      sshAuthBegin: async () => host,
+      sshAuthState: async () => host,
+      sshAuthConfirmHost: async (...args) => { received.push(["confirm", ...args]); return keyboard; },
+      sshAuthSubmit: async (...args) => {
+        assert.equal(auth.authResponse.value, "");
+        assert.equal(auth.authInputValue.value, "••••••••");
+        received.push(["submit", ...args]);
+        return { sessionId: "pty", status: "submitting", prompt: null };
+      },
+    },
+  });
+  await auth.beginInteractiveAuth("check");
+  await auth.runTimer();
+  assert.deepEqual(received, [], "discovery of a host prompt may not confirm it");
+  await auth.submitInteractiveAuth();
+  await auth.submitInteractiveAuth();
+  assert.deepEqual(received, [["confirm", "pty", "host"]], "a keyboard reply cannot be sent empty");
+  auth.authResponse.value = "fixture-keyboard-response";
+  await auth.submitInteractiveAuth();
+  assert.deepEqual(received, [["confirm", "pty", "host"], ["submit", "pty", "keyboard", "fixture-keyboard-response"]]);
+  assert.equal(auth.authResponse.value, "");
+});
+
+test("an SSH response with the same revision still cannot overwrite a different session", async t => {
+  const response = deferred();
+  const auth = mountInteractiveAuth(t, { backend: { sshAuthSubmit: () => response.pending } });
+  auth.authSession.value = { sessionId: "old", status: "waitingUser", prompt: { id: "pass", secret: true } };
+  auth.authResponse.value = "fixture-password";
+  const pending = auth.submitInteractiveAuth();
+  auth.prepareAuthPreview({ sessionId: "replacement", status: "waitingPrompt" });
+  response.resolve({ sessionId: "old", status: "failed" });
+  await pending;
+  assert.equal(auth.authSession.value.sessionId, "replacement");
+  assert.equal(auth.authResponse.value, "");
+});
+
+test("an old SSH retry cannot reopen the dialog after cancellation and a new start", async t => {
+  const cancellations = [];
+  const beginnings = [];
+  const auth = mountInteractiveAuth(t, {
+    backend: {
+      sshAuthBegin: async operation => {
+        beginnings.push(operation);
+        return { sessionId: operation, status: "waitingPrompt" };
+      },
+      sshAuthCancel: id => {
+        const call = deferred();
+        cancellations.push([id, call]);
+        return call.pending;
+      },
+    },
+  });
+  await auth.beginInteractiveAuth("check");
+  const retry = auth.retryInteractiveAuth();
+  assert.deepEqual(auth.delays(), []);
+  const cancel = auth.cancelInteractiveAuth();
+  assert.deepEqual(cancellations.map(([id]) => id), ["check", "check"]);
+  cancellations[1][1].resolve();
+  await cancel;
+  await auth.beginInteractiveAuth("connect");
+  cancellations[0][1].resolve();
+  await retry;
+  assert.deepEqual(beginnings, ["check", "connect"]);
+  assert.equal(auth.authSession.value.sessionId, "connect");
+  assert.equal(auth.authSubmitting.value, false);
+  assert.deepEqual(auth.delays(), [120]);
+});
+
+test("detaching one SSH auth instance retires its pending poll and clears input without touching its peer", async t => {
+  const state = deferred();
+  const auth = mountInteractiveAuth(t, {
+    backend: {
+      sshAuthBegin: async () => ({ sessionId: "old", status: "waitingUser" }),
+      sshAuthState: () => state.pending,
+      sshAuthFinish() { assert.fail("a detached poll cannot finish authentication"); },
+    },
+  });
+  const peer = mountInteractiveAuth(t, {
+    backend: { sshAuthBegin: async () => ({ sessionId: "peer", status: "waitingPrompt" }) },
+  });
+  await auth.beginInteractiveAuth("check");
+  const poll = auth.runTimer();
+  await peer.beginInteractiveAuth("check");
+  auth.authResponse.value = "fixture-password";
+  assert.equal(auth.detachInteractiveAuth(), "old");
+  auth.scope.stop();
+  state.resolve({ sessionId: "old", status: "succeeded" });
+  await poll;
+  assert.equal(auth.authResponse.value, "");
+  assert.equal(auth.authSession.value, undefined);
+  assert.equal(auth.visibleAuthPrompt.value, null);
+  assert.deepEqual(auth.delays(), []);
+  assert.equal(peer.authSession.value.sessionId, "peer");
+  assert.deepEqual(peer.delays(), [120]);
+});
+
+test("successful direct interactive connect hands off exactly once and stops polling", async t => {
+  const calls = [];
+  const summary = ready();
+  const selected = { targetId: "lab" };
+  const auth = mountInteractiveAuth(t, {
+    backend: {
+      sshAuthBegin: async (...args) => { calls.push(args); return { sessionId: "connect", status: "waitingPrompt" }; },
+      sshAuthState: async id => ({ sessionId: id, status: "succeeded" }),
+      sshAuthFinish: async id => { calls.push(["finish", id]); return { operation: "connect", summary }; },
+    },
+    finishConnectionUi: async result => { calls.push(["completed", result]); },
+    refresh() { calls.push(["refresh"]); },
+    connectPrepared() { assert.fail("direct authentication must not start a second connection"); },
+  });
+  await auth.beginInteractiveAuth("connect", selected);
+  await auth.runTimer();
+  assert.deepEqual(calls, [["connect", "lab", selected], ["finish", "connect"], ["completed", summary], ["refresh"]]);
+  assert.deepEqual(auth.delays(), []);
+});
+
 
 test("reconnection and external disconnect disarm first-connect completion feedback", () => {
   const context = { watch: (_, callback) => { context.callback = callback; }, props: { summary: ready() }, readinessAnnouncementTarget: ref("lab") };
@@ -193,7 +452,7 @@ test("manual diagnostics executes once and releases the button on success or fai
       remoteBackend: { runDiagnostics: () => { context.calls++; return new Promise((resolve, reject) => { finish = () => fail ? reject("network") : resolve({}); }); } },
       emit: () => { context.refreshes++; },
     };
-    runInNewContext(section("async function perform(", "function clearAuthPoll()"), context);
+    runInNewContext(section("async function perform(", "async function finishConnectionUi("), context);
     runInNewContext(section("function runDiagnostics()", "async function refreshSkills()"), context);
     context.runDiagnostics(); context.runDiagnostics();
     assert.equal(context.calls, 1);
