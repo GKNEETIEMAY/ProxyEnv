@@ -2056,7 +2056,9 @@ test("remote target paths reuse the Windows extended-path display cleanup",async
   assert.equal(withoutWindowsExtendedPathPrefix("\\??\\D:\\SSH\\config"),"D:\\SSH\\config");
   assert.equal(withoutWindowsExtendedPathPrefix("\\\\?\\UNC\\server\\share\\config"),"\\\\server\\share\\config");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  assert.match(page,/withoutWindowsExtendedPathPrefix\(target\.configPath\)/);
+  const targetCopies=readFileSync("src/features/remote-bridge/target-copies.ts","utf8");
+  assert.match(page,/applyTargetCopies\(await remoteBackend\.targets\(\)/);
+  assert.match(targetCopies,/withoutWindowsExtendedPathPrefix\(target\.configPath\)/);
   assert.match(page,/withoutWindowsExtendedPathPrefix\(activeTarget\.configPath\)/);
 });
 

@@ -9,6 +9,7 @@
 - [后端 R4、UI 与脚本拆分设计](V0.3.0_REMOTE_BRIDGE_R4_SPLIT_DESIGN.md)
 - [D1 平台目录归类](V0.3.0_REMOTE_BRIDGE_D1_TARGET_OS_LAYOUT_REVIEW.md)
 - [D2 桥接文件分组与验收汇总](V0.3.0_REMOTE_BRIDGE_D2_SUMMARY.md)
+- [R4.4b 目标显示副本与本地持久化](V0.3.0_REMOTE_BRIDGE_R4_4B_TARGET_COPIES_REVIEW.md)
 
 ## v0.3.0dev 桥接阶段
 

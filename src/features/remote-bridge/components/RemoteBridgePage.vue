@@ -13,6 +13,7 @@ import RemoteToolDialog from "./RemoteToolDialog.vue";
 import RemoteToolInstallDialog from "./RemoteToolInstallDialog.vue";
 import { canToggleRemoteTool } from "../tool-adapters";
 import { connectionNameLimit, destinationInputValid, displayNameInputValid, identityPathInputValid } from "../connection-validation";
+import { applyTargetCopies, readTargetCopies, writeTargetCopies } from "../target-copies";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
@@ -55,19 +56,7 @@ const authDialog = ref<HTMLDialogElement>();
 const authInput = ref<HTMLInputElement>();
 const connectionDialog = ref<HTMLDialogElement>();
 const removeConnectionDialog = ref<HTMLDialogElement>();
-const targetCopiesStorageKey = "proxyenv.remoteBridge.targetCopies";
-function storedTargetCopies(): { hidden: string[]; names: Record<string, string> } {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(targetCopiesStorageKey) ?? "null");
-    return {
-      hidden: Array.isArray(parsed?.hidden) ? parsed.hidden.filter((value: unknown): value is string => typeof value === "string") : [],
-      names: parsed?.names && typeof parsed.names === "object" ? parsed.names : {},
-    };
-  } catch {
-    return { hidden: [], names: {} };
-  }
-}
-const storedCopies = storedTargetCopies();
+const storedCopies = readTargetCopies(() => localStorage);
 const targets = ref<RemoteTarget[]>([]);
 const hiddenSourceTargets = ref(new Set(storedCopies.hidden));
 const sourceTargetNames = ref(new Map(Object.entries(storedCopies.names)));
@@ -78,14 +67,7 @@ const connectionToRemove = ref<RemoteTarget | null>(null);
 const lastTargetStorageKey = "proxyenv.remoteBridge.lastTargetId";
 
 function persistTargetCopies() {
-  try {
-    localStorage.setItem(targetCopiesStorageKey, JSON.stringify({
-      hidden: [...hiddenSourceTargets.value],
-      names: Object.fromEntries(sourceTargetNames.value),
-    }));
-  } catch {
-    // Display copies remain usable for the current session when storage is unavailable.
-  }
+  writeTargetCopies(() => localStorage, hiddenSourceTargets.value, sourceTargetNames.value);
 }
 const checked = ref(false);
 const proxy = ref(true);
@@ -639,13 +621,7 @@ async function load() {
     targetId.value = targets.value[0].id;
     return;
   }
-  const next = (await remoteBackend.targets())
-    .filter((target) => !hiddenSourceTargets.value.has(target.id))
-    .map((target) => ({
-      ...target,
-      configPath: withoutWindowsExtendedPathPrefix(target.configPath),
-      displayName: target.source === "manual" ? target.displayName : sourceTargetNames.value.get(target.id) ?? target.displayName,
-    }));
+  const next = applyTargetCopies(await remoteBackend.targets(), hiddenSourceTargets.value, sourceTargetNames.value);
   targets.value = next;
   const preferred = props.summary.target?.id;
   let stored = "";
