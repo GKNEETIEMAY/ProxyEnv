@@ -136,6 +136,7 @@ const connectionSaveErrorText = computed(() => connectionSaveError.value ? bridg
 type ConnectionField = "displayName" | "destination" | "port" | "identityFile";
 const connectionTouched = ref<Record<ConnectionField, boolean>>({ displayName: false, destination: false, port: false, identityFile: false });
 let skillsPollTimer: ReturnType<typeof setTimeout> | undefined;
+let skillsRevision = 0;
 const skills = ref<RemoteSkill[]>([]);
 type RemoteSkillGroup = {
   name: string;
@@ -816,7 +817,9 @@ async function refreshSkills() {
     skills.value = [];
     return;
   }
-  skills.value = await remoteBackend.skills();
+  const revision = skillsRevision;
+  const next = await remoteBackend.skills();
+  if (revision === skillsRevision) skills.value = next;
 }
 
 function stopSkillsPolling() {
@@ -827,19 +830,23 @@ function stopSkillsPolling() {
 function scheduleSkillsPolling() {
   stopSkillsPolling();
   if (props.reviewPreview || !sshConnected.value) return;
+  const revision = skillsRevision;
   skillsPollTimer = setTimeout(async () => {
+    if (revision !== skillsRevision) return;
     if (!busy.value) await refreshSkills().catch(() => undefined);
-    scheduleSkillsPolling();
+    if (revision === skillsRevision) scheduleSkillsPolling();
   }, 2200);
 }
 
 
 function toggleSkill(skill: RemoteSkill) {
   if (busy.value || !sshConnected.value) return;
+  const revision = skillsRevision;
   skillPending.value = skill.id;
   void perform(async () => {
     try {
       const updated = skill.enabled ? await remoteBackend.disableSkill(skill.id) : await remoteBackend.enableSkill(skill.id);
+      if (revision !== skillsRevision) return;
       skills.value = skills.value.map((item) => item.id === updated.id ? updated : item);
       if (!props.reviewPreview) await refreshSkills();
     } finally { skillPending.value = undefined; }
@@ -953,13 +960,16 @@ watch([() => props.summary.target?.id, () => props.summary.status, () => props.s
     void refreshSkills().catch(() => undefined);
   }
 });
+// Invalidate old replies before the queued summary watcher reads the new target.
+watch([sshConnected, () => props.summary.target?.id], () => {
+  skillsRevision += 1;
+  skills.value = [];
+  scheduleSkillsPolling();
+}, { flush: "sync" });
 watch(sshConnected, (connected) => {
   if (connected) {
     void refreshSkills().catch(() => undefined);
-    scheduleSkillsPolling();
   } else {
-    stopSkillsPolling();
-    skills.value = [];
     mobaOpened.value = false;
   }
 });
@@ -1021,6 +1031,7 @@ onBeforeUnmount(() => {
   sessionCommandGeneration++;
   resetSessionCopyFeedback();
   const sessionId = detachInteractiveAuth();
+  skillsRevision += 1;
   stopSkillsPolling();
   if (sessionId) void remoteBackend.sshAuthCancel(sessionId).catch(() => undefined);
 });
