@@ -453,7 +453,7 @@ test("manual diagnostics executes once and releases the button on success or fai
       emit: () => { context.refreshes++; },
     };
     runInNewContext(section("async function perform(", "async function finishConnectionUi("), context);
-    runInNewContext(section("function runDiagnostics()", "async function refreshSkills()"), context);
+    runInNewContext(section("function runDiagnostics()", "function copyValue("), context);
     context.runDiagnostics(); context.runDiagnostics();
     assert.equal(context.calls, 1);
     assert.equal(context.diagnosing.value, true);

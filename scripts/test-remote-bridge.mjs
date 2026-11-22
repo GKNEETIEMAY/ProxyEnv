@@ -1446,9 +1446,12 @@ test("Skills projection is CC Switch-link based, staged, owned and metadata-trig
   assert.match(state,/enableSkill/);
   assert.match(readFileSync("src/features/remote-bridge/components/RemoteBridgeOverview.vue","utf8"),/rbSkillsTitle/);
   assert.doesNotMatch(readFileSync("src/features/remote-bridge/components/RemoteBridgeAdvancedView.vue","utf8"),/rbSkillsTitle/);
-  assert.match(page,/const skillGroups = computed/);
-  assert.match(page,/group\.codex/);
-  assert.match(page,/group\.claude/);
+  const skillsModule=readFileSync("src/features/remote-bridge/composables/useRemoteSkills.ts","utf8");
+  assert.match(skillsModule,/const skillGroups = computed/);
+  assert.match(skillsModule,/group\.codex/);
+  assert.match(skillsModule,/group\.claude/);
+  assert.match(skillsModule,/function scheduleSkillsPolling\(/);
+  assert.match(page,/useRemoteSkills\(\{\s*backend: remoteBackend,/);
   assert.match(page,/scheduleSkillsPolling/);
 });
 
@@ -1564,8 +1567,9 @@ test("overview preserves independent statuses, public port mappings, and existin
   assert.match(overview,/emit\('toggleSkill', agent\.skill\)/);
   assert.doesNotMatch(page,/function manageSkills|@manage-skills=/);
   assert.match(page,/@toggle-skill="toggleSkill"/);
-  assert.match(page,/remoteBackend\.disableSkill\(skill\.id\)/);
-  assert.match(page,/remoteBackend\.enableSkill\(skill\.id\)/);
+  const skillsModule=readFileSync("src/features/remote-bridge/composables/useRemoteSkills.ts","utf8");
+  assert.match(skillsModule,/backend\.disableSkill\(skill\.id\)/);
+  assert.match(skillsModule,/backend\.enableSkill\(skill\.id\)/);
   assert.match(page,/\.remote-connected-page \.remote-fields \{ flex:1; min-height:0; overflow-y:scroll; scrollbar-gutter:stable/);
   assert.match(overview,/\.bridge-skills-list \{[^}]*overflow-y:scroll; scrollbar-gutter:stable/);
   for(const app of ["powershell.png","vscode.ico","mobaxterm.ico"]) assert.ok(launch.includes(`/remote-apps/${app}`));

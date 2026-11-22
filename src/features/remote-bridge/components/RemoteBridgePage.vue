@@ -15,6 +15,7 @@ import { canToggleRemoteTool } from "../tool-adapters";
 import { connectionNameLimit, destinationInputValid, displayNameInputValid, identityPathInputValid } from "../connection-validation";
 import { applyTargetCopies, readTargetCopies, writeTargetCopies } from "../target-copies";
 import { useRemoteInteractiveAuth, type ConnectionPhase } from "../composables/useRemoteInteractiveAuth";
+import { useRemoteSkills } from "../composables/useRemoteSkills";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
@@ -34,7 +35,6 @@ import {
   type ManualConnectionInput,
   type PortAllocation,
   type RemoteTarget,
-  type RemoteSkill,
 } from "../state";
 
 const props = defineProps<{ copy: RemoteBridgeCopy; activeProxy: ActiveProxyContext; summary: BridgeSummary; ccDetection: CcDetection | null; reviewPreview?: boolean; visible?: boolean; updateLocked?: boolean }>();
@@ -46,7 +46,6 @@ const trayChangeTitle = computed(() => {
   const capability = trayChange.value.capability === "proxy" ? props.copy.rbLocalNetworkTitle : props.copy.rbCcUseTitle;
   return (trayChange.value.enabled ? props.copy.rbTrayEnableCapability : props.copy.rbTrayPauseCapability).replace("{capability}", capability);
 });
-const skillPending = ref<string>();
 const emit = defineEmits<{ refresh: []; connected: [summary: BridgeSummary]; openReport: [] }>();
 const toolDialog = ref<InstanceType<typeof RemoteToolDialog>>();
 const installDialog = ref<InstanceType<typeof RemoteToolInstallDialog>>();
@@ -135,31 +134,6 @@ const connectionSaveError = ref<unknown>();
 const connectionSaveErrorText = computed(() => connectionSaveError.value ? bridgeError(connectionSaveError.value, props.copy) : "");
 type ConnectionField = "displayName" | "destination" | "port" | "identityFile";
 const connectionTouched = ref<Record<ConnectionField, boolean>>({ displayName: false, destination: false, port: false, identityFile: false });
-let skillsPollTimer: ReturnType<typeof setTimeout> | undefined;
-let skillsRevision = 0;
-const skills = ref<RemoteSkill[]>([]);
-type RemoteSkillGroup = {
-  name: string;
-  agents: Array<{ tool: RemoteToolId; label: string; skill?: RemoteSkill }>;
-};
-const skillGroups = computed<RemoteSkillGroup[]>(() => {
-  const grouped = new Map<string, Partial<Record<RemoteToolId, RemoteSkill>>>();
-  for (const skill of skills.value) {
-    const group = grouped.get(skill.name) ?? {};
-    group[skill.tool] = skill;
-    grouped.set(skill.name, group);
-  }
-  return [...grouped.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, group]) => ({
-      name,
-      agents: [
-        { tool: "codex" as const, label: "Codex", skill: group.codex },
-        { tool: "claude" as const, label: "Claude Code", skill: group.claude },
-      ],
-    }));
-});
-
 const selectedTarget = computed(() => targets.value.find((target) => target.id === targetId.value));
 const reconnecting = computed(() => ["waiting", "retrying"].includes(props.summary.reconnectState ?? ""));
 const needsAttention = computed(() => props.summary.reconnectState === "attentionRequired");
@@ -170,6 +144,14 @@ watch([() => props.summary.status, () => props.summary.reconnectState], ([status
 });
 const live = computed(() => !establishingBridge.value && (["connected", "stale", "unavailable", "connecting"].includes(props.summary.status) || needsAttention.value) && !!props.summary.target);
 const sshConnected = computed(() => live.value && props.summary.status !== "connecting" && !needsAttention.value);
+const { skillGroups, skillPending, refreshSkills, scheduleSkillsPolling, disposeSkills, toggleSkill } = useRemoteSkills({
+  backend: remoteBackend,
+  busy,
+  sshConnected,
+  activeTargetId: () => props.summary.target?.id,
+  reviewPreview: () => props.reviewPreview,
+  perform,
+});
 const proxyAvailable = computed(() => props.activeProxy.available && !!props.activeProxy.candidate && props.activeProxy.candidate.protocol !== "unknown");
 const ccUsable = computed(() => ccDetection.value.state === "confirmed");
 const canStartConnection = computed(() => !!selectedTarget.value?.available
@@ -803,56 +785,6 @@ function runDiagnostics() {
   });
 }
 
-async function refreshSkills() {
-  if (props.reviewPreview) {
-    skills.value = sshConnected.value ? [
-      { id: "codex|release-notes", tool: "codex", name: "release-notes", hash: "review-1", fileCount: 3, totalSize: 4100, state: "synced", enabled: true },
-      { id: "claude|release-notes", tool: "claude", name: "release-notes", hash: "review-2", fileCount: 3, totalSize: 4100, state: "synced", enabled: true },
-      { id: "codex|rust-review", tool: "codex", name: "rust-review", hash: "review-3", fileCount: 5, totalSize: 9200, state: "synced", enabled: true },
-      { id: "claude|frontend-audit", tool: "claude", name: "frontend-audit", hash: "review-4", fileCount: 4, totalSize: 6800, state: "synced", enabled: true },
-    ] : [];
-    return;
-  }
-  if (!sshConnected.value) {
-    skills.value = [];
-    return;
-  }
-  const revision = skillsRevision;
-  const next = await remoteBackend.skills();
-  if (revision === skillsRevision) skills.value = next;
-}
-
-function stopSkillsPolling() {
-  clearTimeout(skillsPollTimer);
-  skillsPollTimer = undefined;
-}
-
-function scheduleSkillsPolling() {
-  stopSkillsPolling();
-  if (props.reviewPreview || !sshConnected.value) return;
-  const revision = skillsRevision;
-  skillsPollTimer = setTimeout(async () => {
-    if (revision !== skillsRevision) return;
-    if (!busy.value) await refreshSkills().catch(() => undefined);
-    if (revision === skillsRevision) scheduleSkillsPolling();
-  }, 2200);
-}
-
-
-function toggleSkill(skill: RemoteSkill) {
-  if (busy.value || !sshConnected.value) return;
-  const revision = skillsRevision;
-  skillPending.value = skill.id;
-  void perform(async () => {
-    try {
-      const updated = skill.enabled ? await remoteBackend.disableSkill(skill.id) : await remoteBackend.enableSkill(skill.id);
-      if (revision !== skillsRevision) return;
-      skills.value = skills.value.map((item) => item.id === updated.id ? updated : item);
-      if (!props.reviewPreview) await refreshSkills();
-    } finally { skillPending.value = undefined; }
-  });
-}
-
 function copyValue(value: string) {
   void perform(async () => {
     await copyText(value);
@@ -960,12 +892,6 @@ watch([() => props.summary.target?.id, () => props.summary.status, () => props.s
     void refreshSkills().catch(() => undefined);
   }
 });
-// Invalidate old replies before the queued summary watcher reads the new target.
-watch([sshConnected, () => props.summary.target?.id], () => {
-  skillsRevision += 1;
-  skills.value = [];
-  scheduleSkillsPolling();
-}, { flush: "sync" });
 watch(sshConnected, (connected) => {
   if (connected) {
     void refreshSkills().catch(() => undefined);
@@ -1031,8 +957,7 @@ onBeforeUnmount(() => {
   sessionCommandGeneration++;
   resetSessionCopyFeedback();
   const sessionId = detachInteractiveAuth();
-  skillsRevision += 1;
-  stopSkillsPolling();
+  disposeSkills();
   if (sessionId) void remoteBackend.sshAuthCancel(sessionId).catch(() => undefined);
 });
 </script>

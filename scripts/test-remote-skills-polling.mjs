@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { transformSync } from "esbuild";
-import { computed, effectScope, reactive, ref, watch } from "vue";
+import * as vue from "vue";
+
+const { computed, effectScope, reactive, ref, watch } = vue;
 
 const page = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
 function section(first, last) {
@@ -13,14 +15,18 @@ function section(first, last) {
   return page.slice(start, end);
 }
 
+const { code: moduleCode } = transformSync(
+  readFileSync("src/features/remote-bridge/composables/useRemoteSkills.ts", "utf8"),
+  { loader: "ts", format: "cjs" },
+);
+
 const { code } = transformSync([
-  section("let skillsPollTimer:", "const selectedTarget ="),
   section("const live = computed", "const sshConnected = computed"),
   page.match(/^const sshConnected = computed.*$/m)?.[0],
-  section("async function refreshSkills()", "function copyValue("),
+  section("const { skillGroups, skillPending, refreshSkills", "const proxyAvailable ="),
   section('watch([() => props.summary.target?.id, () => props.summary.status, () => props.summary.sshAuth.authenticated]', 'watch(() => props.visible'),
   section("onMounted(() => {", "</script>"),
-  "Object.assign(actions, { skills, toggleSkill });",
+  "Object.assign(actions, { skillGroups, skillPending, toggleSkill });",
 ].join("\n"), { loader: "ts" });
 
 const skill = (name, id = name) => ({ id, name, tool: "codex", enabled: true });
@@ -32,23 +38,23 @@ function deferred() {
   return { pending, resolve, reject };
 }
 
-function mount(t, { reviewPreview = false, disableSkill } = {}) {
+function mount(t, { reviewPreview = false, initialTarget = "first", initialSkills, disableSkill, enableSkill } = {}) {
   const props = reactive({ reviewPreview, summary: {} });
   const setConnection = (id, status = "connected") => {
     props.summary = { target: id ? { id } : null, status, sshAuth: { authenticated: status === "connected" } };
   };
-  setConnection("first");
+  setConnection(initialTarget, initialTarget ? "connected" : "disconnected");
   const scope = effectScope();
   const actions = {};
   const timers = new Map();
   const reads = [];
-  const responses = [];
+  const responses = initialSkills ? [initialSkills] : [];
+  const errors = [];
   let nextTimer = 0;
   let mounted, beforeUnmount;
   const busy = ref(false);
-  const skillPending = ref();
   const context = {
-    actions, props, ref, computed, watch, busy, skillPending, URLSearchParams,
+    actions, props, computed, watch, busy, URLSearchParams,
     establishingBridge: ref(false), needsAttention: ref(false), targetId: ref("first"),
     mobaOpened: ref(false), serverDirectState: ref("healthy"),
     onMounted(callback) { mounted = callback; },
@@ -56,7 +62,7 @@ function mount(t, { reviewPreview = false, disableSkill } = {}) {
     window: { location: { search: "" } },
     perform(action) {
       busy.value = true;
-      return action().finally(() => { busy.value = false; });
+      return action().catch(error => { errors.push(error); }).finally(() => { busy.value = false; });
     },
     remoteBackend: {
       async skills() {
@@ -64,7 +70,7 @@ function mount(t, { reviewPreview = false, disableSkill } = {}) {
         reads.push(target);
         return responses.shift() ?? [skill(target)];
       },
-      disableSkill,
+      disableSkill, enableSkill,
     },
     initializeCapabilities() {}, updateLocalProxyCheck() {}, load: async () => {},
     resetSessionCopyFeedback() {}, detachInteractiveAuth() {},
@@ -76,6 +82,17 @@ function mount(t, { reviewPreview = false, disableSkill } = {}) {
     },
     clearTimeout(id) { timers.delete(id); },
   };
+  const module = { exports: {} };
+  runInNewContext(moduleCode, {
+    module,
+    require(name) {
+      assert.equal(name, "vue");
+      return vue;
+    },
+    setTimeout: context.setTimeout,
+    clearTimeout: context.clearTimeout,
+  });
+  context.useRemoteSkills = module.exports.useRemoteSkills;
   scope.run(() => runInNewContext(code, context));
   mounted();
   let disposed = false;
@@ -86,9 +103,11 @@ function mount(t, { reviewPreview = false, disableSkill } = {}) {
     scope.stop();
   }
   t.after(unmount);
+  const items = () => Array.from(actions.skillGroups.value, group =>
+    Array.from(group.agents, agent => agent.skill).filter(Boolean)).flat();
   return {
-    ...actions, unmount, setConnection, reads, responses, busy, skillPending,
-    names: () => Array.from(actions.skills.value, item => item.name),
+    ...actions, unmount, setConnection, reads, responses, busy, errors, items,
+    names: () => items().map(item => item.name),
     timerIds: () => [...timers.keys()],
     delays: () => [...timers.values()].map(timer => timer.delay),
     tick() {
@@ -167,7 +186,7 @@ test("a late Skills operation cannot update or refresh a different target", asyn
   const oldWrite = deferred();
   const page = mount(t, { disableSkill: () => oldWrite.pending });
   await settle();
-  page.toggleSkill(page.skills.value[0]);
+  page.toggleSkill(page.items()[0]);
   page.responses.push(Promise.resolve([skill("current", "first")]));
   page.setConnection("second");
   await settle();
@@ -203,7 +222,14 @@ test("current Skills polling keeps one 2200 ms timer and skips reads while busy"
 test("Skills review preview neither polls nor reads remote resources", async t => {
   const page = mount(t, { reviewPreview: true });
   await settle();
-  assert.deepEqual(page.names(), ["release-notes", "release-notes", "rust-review", "frontend-audit"]);
+  assert.deepEqual(page.names(), ["frontend-audit", "release-notes", "release-notes", "rust-review"]);
+  assert.deepEqual(page.items().map(({ id, hash, fileCount, totalSize, state, enabled }) =>
+    [id, hash, fileCount, totalSize, state, enabled]), [
+    ["claude|frontend-audit", "review-4", 4, 6800, "synced", true],
+    ["codex|release-notes", "review-1", 3, 4100, "synced", true],
+    ["claude|release-notes", "review-2", 3, 4100, "synced", true],
+    ["codex|rust-review", "review-3", 5, 9200, "synced", true],
+  ]);
   assert.deepEqual(page.reads, []);
   assert.deepEqual(page.delays(), []);
   page.setConnection(null, "disconnected");
@@ -211,4 +237,98 @@ test("Skills review preview neither polls nor reads remote resources", async t =
   assert.deepEqual(page.names(), []);
   assert.deepEqual(page.reads, []);
   assert.deepEqual(page.delays(), []);
+});
+
+test("Skills groups sort by name and pair Codex before Claude Code", async t => {
+  const page = mount(t, { initialSkills: [
+    { ...skill("zeta", "claude|zeta"), tool: "claude" },
+    { ...skill("alpha", "claude|alpha"), tool: "claude", enabled: false },
+    skill("alpha", "codex|alpha"),
+  ] });
+  await settle();
+  const groups = Array.from(page.skillGroups.value, group => [
+    group.name,
+    Array.from(group.agents, ({ tool, label, skill }) => [tool, label, skill?.id ?? null, skill?.enabled ?? null]),
+  ]);
+  assert.deepEqual(groups, [
+    ["alpha", [["codex", "Codex", "codex|alpha", true], ["claude", "Claude Code", "claude|alpha", false]]],
+    ["zeta", [["codex", "Codex", null, null], ["claude", "Claude Code", "claude|zeta", true]]],
+  ]);
+});
+
+test("Skills keeps the existing mount and connection refresh triggers", async t => {
+  const page = mount(t, { initialTarget: null });
+  await settle();
+  assert.deepEqual(page.names(), []);
+  assert.deepEqual(page.reads, []);
+  assert.deepEqual(page.delays(), []);
+  page.setConnection("first");
+  await settle();
+  assert.deepEqual(page.reads, ["first", "first"]);
+  assert.deepEqual(page.names(), ["first"]);
+  assert.deepEqual(page.delays(), [2200]);
+  page.setConnection(null, "disconnected");
+  await settle();
+  assert.deepEqual(page.reads, ["first", "first"]);
+  assert.deepEqual(page.names(), []);
+  assert.deepEqual(page.delays(), []);
+});
+
+test("Skills enable and disable replace the matching item before refreshing", async t => {
+  const calls = [];
+  let update;
+  const page = mount(t, {
+    disableSkill(id) { calls.push(["disable", id]); return update.pending; },
+    enableSkill(id) { calls.push(["enable", id]); return update.pending; },
+  });
+  await settle();
+  for (const enabled of [false, true]) {
+    update = deferred();
+    const list = deferred();
+    page.responses.push(list.pending);
+    page.toggleSkill(page.items()[0]);
+    page.toggleSkill(page.items()[0]);
+    assert.equal(page.skillPending.value, "first");
+    assert.equal(page.busy.value, true);
+    const updated = { ...skill("first"), enabled };
+    update.resolve(updated);
+    await settle();
+    assert.equal(page.items()[0].enabled, enabled);
+    assert.equal(page.skillPending.value, "first");
+    list.resolve([updated]);
+    await settle();
+    assert.equal(page.skillPending.value, undefined);
+    assert.equal(page.busy.value, false);
+  }
+  assert.deepEqual(calls, [["disable", "first"], ["enable", "first"]]);
+  assert.deepEqual(page.reads, ["first", "first", "first"]);
+});
+
+test("failed Skills operations release the pending row through the existing error path", async t => {
+  const cause = Error("synthetic Skills update failure");
+  const page = mount(t, { disableSkill: async () => { throw cause; } });
+  await settle();
+  page.toggleSkill(page.items()[0]);
+  await settle();
+  assert.deepEqual(page.errors, [cause]);
+  assert.equal(page.skillPending.value, undefined);
+  assert.equal(page.busy.value, false);
+  assert.equal(page.items()[0].enabled, true);
+  assert.deepEqual(page.reads, ["first"]);
+});
+
+test("each Skills mount owns only its own timer", async t => {
+  const first = mount(t);
+  const second = mount(t);
+  await settle();
+  assert.deepEqual(first.delays(), [2200]);
+  assert.deepEqual(second.delays(), [2200]);
+  first.unmount();
+  await second.tick();
+  assert.deepEqual(first.delays(), []);
+  assert.deepEqual(first.reads, ["first"]);
+  assert.deepEqual(second.delays(), [2200]);
+  assert.deepEqual(second.reads, ["first", "first"]);
+  second.unmount();
+  assert.deepEqual(second.delays(), []);
 });
