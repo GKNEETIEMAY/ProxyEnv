@@ -10,13 +10,9 @@ import { presentationModuleUrl } from "./remote-tool-test-modules.mjs";
 import { interactiveAuthPath, mountInteractiveAuth } from "./remote-interactive-auth-test.mjs";
 import { connectionFlowPath, mountConnection } from "./remote-connection-flow-test.mjs";
 import { createShellFixtureFactory, posix } from "./remote-bridge/shell-fixture.mjs";
+import { resolveShellEnvironment } from "./remote-bridge/shell-environment.mjs";
 
-const git = process.platform === "win32" ? spawnSync("where.exe",["git"],{encoding:"utf8"}).stdout?.trim().split(/\r?\n/)[0] : undefined;
-const shell = process.env.PROXYENV_TEST_SHELL || (git ? resolve(dirname(git),"../bin/bash.exe") : "/bin/sh");
-const available = existsSync(shell);
-const python = process.env.PROXYENV_TEST_PYTHON || (process.platform === "win32"
-  ? spawnSync("where.exe",["python"],{encoding:"utf8"}).stdout?.trim().split(/\r?\n/)[0]
-  : spawnSync("sh",["-c","command -v python3"],{encoding:"utf8"}).stdout?.trim());
+const { shell, available, python } = resolveShellEnvironment();
 const root = resolve(".debug-tmp");
 mkdirSync(root,{recursive:true});
 const script = readFileSync("src-tauri/src/features/remote_bridge/remote.sh","utf8");

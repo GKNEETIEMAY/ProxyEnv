@@ -3,23 +3,16 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createFixtureEnvironment, posix } from "./shell-environment.mjs";
 
-export const posix = p => p.replaceAll("\\", "/").replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+export { posix };
 
 export function createShellFixtureFactory({ root, shell, python, script, probeScript }) {
   return function fixture({jsonEngine="python3",claudeLocation="path",codexLocation="path",codexBody,versionBody,privateGroup=false,sharedGroup=false}={}) {
     const directory=mkdtempSync(join(root,"bridge-test-"));
     const home=join(directory,"home"), bin=join(directory,"bin"), temp=join(directory,"tmp");
     mkdirSync(home);mkdirSync(bin);mkdirSync(temp,{mode:0o700});
-    // A fixture must not source a developer's shell startup file, Python hooks,
-    // temporary directory or TEST_* overrides before its own script takes control.
-    const environment=(overrides={})=>{
-      const isolated={...process.env};
-      for(const key of Object.keys(isolated)) {
-        if (/^(?:TEST_|BASH_FUNC_|MSYS)/i.test(key) || ["BASH_ENV","ENV","BASHOPTS","SHELLOPTS","CDPATH","GLOBIGNORE","PYTHONHOME","PYTHONPATH","PROXYENV_SESSION_TOKEN","extension_version"].includes(key)) delete isolated[key];
-      }
-      return {...isolated,CODEX_HOME:"",CLAUDE_CONFIG_DIR:"",HOME:posix(home),PATH:`${posix(bin)}:/usr/bin:/bin`,TMPDIR:posix(temp),...overrides};
-    };
+    const environment = (overrides = {}) => createFixtureEnvironment({ home, bin, temp }, overrides);
     const mock=(name,body)=>writeFileSync(join(bin,name),`#!/bin/sh\n${body}\n`,{mode:0o755});
     mock("uname",'printf "%s" "${TEST_TARGET_OS-Linux}"');
     mock("ss",'printf "%s" "${TEST_LISTENERS:-}"');
