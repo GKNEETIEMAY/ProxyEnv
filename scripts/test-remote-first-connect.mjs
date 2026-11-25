@@ -216,6 +216,154 @@ function deferred() {
   return { pending, resolve, reject };
 }
 
+function mountConnection(t, backend, options = {}) {
+  const calls = [];
+  const context = {};
+  const auth = mountInteractiveAuth(t, {
+    backend: options.authBackend,
+    request: () => context.request(),
+    usePorts: ports => context.usePorts(ports),
+    connectPrepared: (...args) => context.connectPrepared(...args),
+    finishConnectionUi: summary => context.finishConnectionUi(summary),
+    refresh: () => calls.push(["refresh"]),
+  });
+  Object.assign(context, auth, {
+    remoteBackend: backend, props: { activeProxy: { revision: 17 }, ...options.props },
+    canStartConnection: ref(options.canStart ?? true), feedback: ref(),
+    proxy: ref(options.proxy ?? true), cc: ref(options.cc ?? true), ccLocalPort: ref(15721),
+    proxyPort: ref(0), ccPort: ref(0), runtimeExpectedPort: ref(null), runtimePortConflict: ref(false),
+    bridgeErrorCode: cause => cause, needsInteractiveSshAuth: cause => cause === "sshAuth",
+    advancedView: ref(true), authDialog: ref({ close: () => calls.push(["close"]) }),
+    emit: (...args) => calls.push(args),
+    refreshNetworkChecks: () => new Promise(() => {}),
+    nextTick: async () => {},
+    connectedHeading: ref({ focus: () => calls.push(["focus"]) }),
+    calls,
+  });
+  for (const [start, end] of [
+    ["async function finishConnectionUi(", "function updateAuthResponse("],
+    ["function usePorts(", "function initializeCapabilities("],
+    ["async function connectPrepared(", "function refreshTargets("],
+    ["function request()", "function detectCc("],
+  ]) runInNewContext(section(start, end), context);
+  return context;
+}
+
+const initialPorts = { proxyPort: 7897, ccPort: 15721 };
+const fallbackPorts = { proxyPort: 23841, ccPort: 31472 };
+const flushConnection = () => new Promise(resolve => setImmediate(resolve));
+
+test("Escape during authenticated preview prevents dispatching connect", async t => {
+  const previewStarted = deferred();
+  const preview = deferred();
+  const calls = [];
+  const state = mountConnection(t, {
+    preview(request) {
+      calls.push(["preview", request.targetId]);
+      previewStarted.resolve();
+      return preview.pending;
+    },
+    async connect(request) { calls.push(["connect", request.targetId]); return ready(); },
+  }, {
+    authBackend: {
+      async sshAuthBegin() { return { sessionId: "fixture", status: "waitingPrompt" }; },
+      async sshAuthState(sessionId) { return { sessionId, status: "succeeded" }; },
+      async sshAuthFinish() { return { operation: "check", ports: initialPorts }; },
+    },
+  });
+  await state.beginInteractiveAuth("check");
+  const attempt = state.runTimer();
+  await previewStarted.pending;
+  await state.cancelInteractiveAuth();
+  preview.resolve();
+  await attempt;
+  assert.deepEqual(calls, [["preview", "lab"]]);
+  assert.equal(state.connectionPhase.value, "idle");
+  assert.equal(state.busy.value, false);
+  assert.deepEqual(state.calls, []);
+});
+
+test("changing targets during fallback cannot use the old allocation even after selecting the original target again", async t => {
+  for (const switchBack of [false, true]) {
+    const allocated = deferred();
+    const allocationStarted = deferred();
+    const calls = [];
+    const state = mountConnection(t, {
+      async check(target) { calls.push(["check", target]); return initialPorts; },
+      async preview(request) { calls.push(["preview", request.targetId]); throw "portInUse"; },
+      allocatePorts(target, preferDefaults) {
+        calls.push(["allocate", target, preferDefaults]);
+        allocationStarted.resolve();
+        return allocated.pending;
+      },
+      async connect(request) { calls.push(["connect", request.targetId]); return ready(); },
+    });
+    state.startConnection();
+    await allocationStarted.pending;
+    state.targetId.value = "replacement";
+    if (switchBack) state.targetId.value = "lab";
+    allocated.resolve(fallbackPorts);
+    await flushConnection();
+    assert.deepEqual(calls, [["check", "lab"], ["preview", "lab"], ["allocate", "lab", false]]);
+    assert.equal(state.proxyPort.value, initialPorts.proxyPort);
+    assert.equal(state.connectionPhase.value, "idle");
+    assert.equal(state.busy.value, false);
+  }
+});
+
+test("first connect and one port fallback preserve the selected target, capability and proxy revision", async t => {
+  for (const [proxy, cc, conflict] of [[true, false, false], [false, true, true], [true, true, true]]) {
+    const calls = [];
+    const summary = ready();
+    const state = mountConnection(t, {
+      async check(id) { calls.push(["check", id]); return initialPorts; },
+      async preview(request) { calls.push(["preview", { ...request }]); },
+      async connect(request) {
+        calls.push(["connect", { ...request }]);
+        if (conflict && calls.length === 3) throw "portInUse";
+        return summary;
+      },
+      async allocatePorts(id, defaults) { calls.push(["allocate", id, defaults]); return fallbackPorts; },
+    }, { proxy, cc });
+    state.startConnection();
+    state.startConnection();
+    await flushConnection();
+    const request = ports => ({
+      targetId: "lab", proxyPort: proxy ? ports.proxyPort : null, ccPort: cc ? ports.ccPort : null,
+      ccLocalPort: 15721, expectedRevision: 17,
+    });
+    const initial = request(initialPorts);
+    const retry = request(fallbackPorts);
+    assert.deepEqual(calls, [
+      ["check", "lab"], ["preview", initial], ["connect", initial],
+      ...(conflict ? [["allocate", "lab", false], ["preview", retry], ["connect", retry]] : []),
+    ]);
+    assert.deepEqual(state.calls, [["connected", summary], ["close"], ["focus"], ["refresh"]]);
+    assert.equal(state.busy.value, false);
+  }
+});
+
+test("stale preview errors cannot retry and ordinary failures propagate without allocation", async t => {
+  for (const cancel of [false, true]) {
+    const preview = deferred();
+    const previewStarted = deferred();
+    const state = mountConnection(t, {
+      async check() { return initialPorts; },
+      preview() { previewStarted.resolve(); return preview.pending; },
+      connect() { assert.fail("failed preview cannot connect"); },
+      allocatePorts() { assert.fail("failed or stale preview cannot allocate"); },
+    });
+    state.startConnection();
+    await previewStarted.pending;
+    if (cancel) await state.cancelInteractiveAuth();
+    preview.reject(cancel ? "portInUse" : "sshFailed");
+    await flushConnection();
+    assert.equal(state.error.value, cancel ? undefined : "sshFailed");
+    assert.equal(state.connectionPhase.value, cancel ? "idle" : "failed");
+    assert.equal(state.busy.value, false);
+  }
+});
+
 test("late begin cancels only the old SSH session and leaves the current timer in place", async t => {
   const oldBegin = deferred();
   const started = deferred();

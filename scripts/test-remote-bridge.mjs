@@ -771,7 +771,7 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   assert.doesNotMatch(shell,/view-fade/);
   assert.match(shell,/@connected="acceptRemoteBridgeSummary"/);
   assert.doesNotMatch(page,/remote-steps|reviewedRequest|authPromptCopy\.notice/);
-  assert.match(page,/async function connectPrepared\(selected: BridgeRequest\)/);
+  assert.match(page,/async function connectPrepared\(selected: BridgeRequest, isCurrent: \(\) => boolean\)/);
   assert.match(page,/await remoteBackend\.preview\(selected\)/);
   assert.match(page,/return await remoteBackend\.connect\(selected\)/);
   assert.match(groups,/\["openssh", "vscode", "mobaxterm", "manual"\]/);
@@ -1681,7 +1681,7 @@ test("two-step setup auto-connects after interactive authentication and keeps on
   const auth=readFileSync(interactiveAuthPath,"utf8");
   assert.match(page,/@click="startConnection"/);
   assert.doesNotMatch(page,/@click="checkTarget"/);
-  assert.match(auth,/outcome\.operation === "check"[\s\S]*connectPrepared\(request\(\)\)/);
+  assert.match(auth,/outcome\.operation === "check"[\s\S]*connectPrepared\(request\(\), isCurrent\)/);
   assert.match(auth,/connectionPhase\.value = "building"/);
   assert.match(page,/async function finishConnectionUi\(summary: BridgeSummary\)[\s\S]*emit\("connected", summary\)[\s\S]*connectionPhase\.value = "idle"/);
   assert.match(page,/bridgeErrorCode\(cause\) !== "portInUse"/);

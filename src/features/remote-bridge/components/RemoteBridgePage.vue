@@ -438,15 +438,25 @@ function rememberProxyChoice(event: Event) {
   proxyPreferred.value = (event.target as HTMLInputElement).checked;
 }
 
-async function connectPrepared(selected: BridgeRequest): Promise<BridgeSummary> {
+async function connectPrepared(selected: BridgeRequest, isCurrent: () => boolean): Promise<BridgeSummary | undefined> {
+  if (!isCurrent()) return;
   try {
     await remoteBackend.preview(selected);
+    if (!isCurrent()) return;
     return await remoteBackend.connect(selected);
   } catch (cause) {
+    if (!isCurrent()) return;
     if (bridgeErrorCode(cause) !== "portInUse") throw cause;
-    usePorts(await remoteBackend.allocatePorts(selected.targetId, false));
-    const retry = request();
+    const ports = await remoteBackend.allocatePorts(selected.targetId, false);
+    if (!isCurrent()) return;
+    usePorts(ports);
+    const retry: BridgeRequest = {
+      ...selected,
+      proxyPort: selected.proxyPort === null ? null : ports.proxyPort,
+      ccPort: selected.ccPort === null ? null : ports.ccPort,
+    };
     await remoteBackend.preview(retry);
+    if (!isCurrent()) return;
     return remoteBackend.connect(retry);
   }
 }
@@ -454,7 +464,9 @@ async function connectPrepared(selected: BridgeRequest): Promise<BridgeSummary> 
 function startConnection() {
   if (!canStartConnection.value || busy.value) return;
   const revision = advanceAuthRevision();
-  readinessAnnouncementTarget.value = targetId.value;
+  const target = targetId.value;
+  const isCurrent = () => isCurrentAuthRevision(revision) && targetId.value === target;
+  readinessAnnouncementTarget.value = target;
   checked.value = false;
   proxyPort.value = 0;
   ccPort.value = 0;
@@ -468,18 +480,18 @@ function startConnection() {
     try {
       const ports = props.reviewPreview
         ? { proxyPort: 23841, ccPort: 31472 }
-        : await remoteBackend.check(targetId.value);
-      if (!isCurrentAuthRevision(revision)) return;
+        : await remoteBackend.check(target);
+      if (!isCurrent()) return;
       usePorts(ports);
       checked.value = true;
       sshCheck.value = { state: "healthy", checkedAt: Date.now() };
       const summary = props.reviewPreview
         ? props.summary
-        : await connectPrepared(request());
-      if (!isCurrentAuthRevision(revision)) return;
+        : await connectPrepared(request(), isCurrent);
+      if (!isCurrent() || !summary) return;
       await finishConnectionUi(summary);
     } catch (cause) {
-      if (!isCurrentAuthRevision(revision)) return;
+      if (!isCurrent()) return;
       if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
         busy.value = false;
         try {
@@ -492,7 +504,7 @@ function startConnection() {
       connectionPhase.value = "failed";
       error.value = cause;
     } finally {
-      if (isCurrentAuthRevision(revision)) {
+      if (isCurrent()) {
         busy.value = false;
         emit("refresh");
       }

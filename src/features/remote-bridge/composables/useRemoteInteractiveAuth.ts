@@ -22,7 +22,7 @@ interface RemoteInteractiveAuthOptions {
   };
   usePorts: (ports: PortAllocation) => void;
   request: () => BridgeRequest;
-  connectPrepared: (request: BridgeRequest) => Promise<BridgeSummary>;
+  connectPrepared: (request: BridgeRequest, isCurrent: () => boolean) => Promise<BridgeSummary | undefined>;
   finishConnectionUi: (summary: BridgeSummary) => Promise<void>;
   isInteractiveAuthError: (cause: unknown) => boolean;
   invalidateNetworkChecks: () => void;
@@ -65,22 +65,25 @@ export function useRemoteInteractiveAuth({
 
   async function completeInteractiveAuth(snapshot: SshAuthSnapshot) {
     const revision = authBeginRevision;
+    const target = targetId.value;
+    const isCurrent = () => revision === authBeginRevision
+      && authSession.value?.sessionId === snapshot.sessionId && targetId.value === target;
     clearAuthPoll();
     authSession.value = snapshot;
     connectionPhase.value = "building";
     const outcome = await backend.sshAuthFinish(snapshot.sessionId);
-    if (revision !== authBeginRevision || authSession.value?.sessionId !== snapshot.sessionId) return;
+    if (!isCurrent()) return;
     if (outcome.operation === "check" && outcome.ports) {
       usePorts(outcome.ports);
       checked.value = true;
       sshCheck.value = { state: "healthy", checkedAt: Date.now() };
       connectionPhase.value = "building";
       try {
-        const summary = await connectPrepared(request());
-        if (revision !== authBeginRevision) return;
+        const summary = await connectPrepared(request(), isCurrent);
+        if (!isCurrent() || !summary) return;
         await finishConnectionUi(summary);
       } catch (cause) {
-        if (revision !== authBeginRevision) return;
+        if (!isCurrent()) return;
         if (isInteractiveAuthError(cause)) {
           await beginInteractiveAuth("connect", request());
           return;
@@ -270,6 +273,12 @@ export function useRemoteInteractiveAuth({
     submittedAuthPromptId.value = undefined;
     authRetryContext.value = undefined;
   }
+
+  watch(() => targetId.value, () => {
+    if (["checking", "authenticating", "building"].includes(connectionPhase.value)) {
+      void cancelInteractiveAuth();
+    }
+  }, { flush: "sync" });
 
   function prepareAuthPreview(snapshot: SshAuthSnapshot) {
     authSession.value = snapshot;
