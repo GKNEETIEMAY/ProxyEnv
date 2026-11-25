@@ -14,7 +14,8 @@ import RemoteToolInstallDialog from "./RemoteToolInstallDialog.vue";
 import { canToggleRemoteTool } from "../tool-adapters";
 import { connectionNameLimit, destinationInputValid, displayNameInputValid, identityPathInputValid } from "../connection-validation";
 import { applyTargetCopies, readTargetCopies, writeTargetCopies } from "../target-copies";
-import { useRemoteInteractiveAuth, type ConnectionPhase } from "../composables/useRemoteInteractiveAuth";
+import { useRemoteInteractiveAuth } from "../composables/useRemoteInteractiveAuth";
+import { useRemoteConnectionFlow } from "../composables/useRemoteConnectionFlow";
 import { useRemoteSkills } from "../composables/useRemoteSkills";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
@@ -28,12 +29,10 @@ import { remoteToolAdapters, type RemoteToolAdapter, type RemoteToolId } from ".
 import {
   remoteBackend,
   targetLabel,
-  type BridgeRequest,
   type BridgeCapability,
   type BridgeSummary,
   type CcDetection,
   type ManualConnectionInput,
-  type PortAllocation,
   type RemoteTarget,
 } from "../state";
 
@@ -102,7 +101,6 @@ const authCopyState = ref<"idle" | "copied" | "failed">("idle");
 const advancedView = ref(false);
 const contentFields = ref<HTMLFieldSetElement>();
 const connectedHeading = ref<HTMLHeadingElement>();
-const readinessAnnouncementTarget = ref<string>();
 const readiness = computed(() => remoteReadiness(props.summary));
 watch(advancedView, async () => {
   await nextTick();
@@ -115,7 +113,33 @@ let sessionCommandRequest:Promise<string>|undefined;
 let sessionCommandGeneration = 0;
 const sessionCommand = computed(() => props.summary.sessionEnvironmentCommand || resolvedSessionCommand.value);
 const commandLoading = computed(() => ["pending", "preparing"].includes(props.summary.sessionEnvironmentState ?? ""));
-const connectionPhase = ref<ConnectionPhase>("idle");
+const {
+  connectionPhase, readinessAnnouncementTarget, establishingBridge, request,
+  usePorts, connectPrepared, finishConnectionUi, startConnection, reconnectManually,
+} = useRemoteConnectionFlow({
+  remoteBackend, targetId, busy, error, checked, sshCheck, advancedView,
+  ports: {
+    proxy, cc, proxyPort, ccPort, ccLocalPort, runtimeExpectedPort, runtimePortConflict,
+    proxyRevision: () => props.activeProxy.revision,
+  },
+  canStartConnection: () => canStartConnection.value,
+  reviewPreview: () => props.reviewPreview,
+  currentSummary: () => props.summary,
+  auth: {
+    advanceAuthRevision: (): number => advanceAuthRevision(),
+    isCurrentAuthRevision: (revision): boolean => isCurrentAuthRevision(revision),
+    beginInteractiveCheck: (): Promise<void> => beginInteractiveAuth("check"),
+    dismissAuth() {
+      authSubmitting.value = false;
+      authDialog.value?.close();
+      clearAuthSession();
+    },
+  },
+  emit,
+  showAllocatedPorts: () => { feedback.value = "ports"; },
+  refreshNetworkChecks,
+  focusConnectedHeading: () => connectedHeading.value?.focus({ preventScroll: true }),
+});
 watch([() => props.summary.status, () => props.summary.target?.id, () => readiness.value.state, connectionPhase], () => {
   if (!readinessAnnouncementTarget.value || props.summary.target?.id !== readinessAnnouncementTarget.value
     || props.summary.status !== "connected" || connectionPhase.value !== "idle"
@@ -125,7 +149,6 @@ watch([() => props.summary.status, () => props.summary.target?.id, () => readine
   if (!attention) notify(props.copy.rbReadinessReadyNotification, "success", "remote-first-ready");
   readinessAnnouncementTarget.value = undefined;
 });
-const establishingBridge = computed(() => ["checking", "authenticating", "building"].includes(connectionPhase.value));
 const newConnection = ref<ManualConnectionInput>({ displayName: "", destination: "", port: 22, authentication: "password", identityFile: null });
 const pickingIdentity = ref(false);
 const identitySelectionError = ref<unknown>();
@@ -361,19 +384,6 @@ async function perform(action: () => Promise<void>, onError?: (cause: unknown) =
   }
 }
 
-async function finishConnectionUi(summary: BridgeSummary) {
-  emit("connected", summary);
-  advancedView.value = false;
-  connectionPhase.value = "idle";
-  busy.value = false;
-  authSubmitting.value = false;
-  authDialog.value?.close();
-  clearAuthSession();
-  void refreshNetworkChecks();
-  await nextTick();
-  connectedHeading.value?.focus({ preventScroll: true });
-}
-
 function updateAuthResponse(event: Event) {
   if (!authCanRespond.value || authIsHostConfirmation.value) return;
   authResponse.value = (event.target as HTMLInputElement).value;
@@ -407,14 +417,6 @@ async function load() {
   else if (!next.some((target) => target.id === targetId.value && target.available)) targetId.value = next.find((target) => target.available)?.id ?? next[0]?.id ?? "";
 }
 
-function usePorts(ports: PortAllocation) {
-  proxyPort.value = ports.proxyPort;
-  ccPort.value = ports.ccPort;
-  runtimeExpectedPort.value = ports.runtimeExpectedProxyPort ?? null;
-  runtimePortConflict.value = ports.runtimePortConflict ?? false;
-  feedback.value = "ports";
-}
-
 function initializeCapabilities(autoEnable = true) {
   if (autoEnable || !proxyAvailable.value) proxy.value = proxyAvailable.value && proxyPreferred.value;
   const result = props.ccDetection ?? (props.reviewPreview ? { state: "confirmed" as const, localPort: ccLocalPort.value } : null);
@@ -436,80 +438,6 @@ function rememberCcChoice(event: Event) {
 
 function rememberProxyChoice(event: Event) {
   proxyPreferred.value = (event.target as HTMLInputElement).checked;
-}
-
-async function connectPrepared(selected: BridgeRequest, isCurrent: () => boolean): Promise<BridgeSummary | undefined> {
-  if (!isCurrent()) return;
-  try {
-    await remoteBackend.preview(selected);
-    if (!isCurrent()) return;
-    return await remoteBackend.connect(selected);
-  } catch (cause) {
-    if (!isCurrent()) return;
-    if (bridgeErrorCode(cause) !== "portInUse") throw cause;
-    const ports = await remoteBackend.allocatePorts(selected.targetId, false);
-    if (!isCurrent()) return;
-    usePorts(ports);
-    const retry: BridgeRequest = {
-      ...selected,
-      proxyPort: selected.proxyPort === null ? null : ports.proxyPort,
-      ccPort: selected.ccPort === null ? null : ports.ccPort,
-    };
-    await remoteBackend.preview(retry);
-    if (!isCurrent()) return;
-    return remoteBackend.connect(retry);
-  }
-}
-
-function startConnection() {
-  if (!canStartConnection.value || busy.value) return;
-  const revision = advanceAuthRevision();
-  const target = targetId.value;
-  const isCurrent = () => isCurrentAuthRevision(revision) && targetId.value === target;
-  readinessAnnouncementTarget.value = target;
-  checked.value = false;
-  proxyPort.value = 0;
-  ccPort.value = 0;
-  runtimeExpectedPort.value = null;
-  runtimePortConflict.value = false;
-  sshCheck.value = { ...sshCheck.value, state: "checking" };
-  busy.value = true;
-  error.value = undefined;
-  connectionPhase.value = "checking";
-  void (async () => {
-    try {
-      const ports = props.reviewPreview
-        ? { proxyPort: 23841, ccPort: 31472 }
-        : await remoteBackend.check(target);
-      if (!isCurrent()) return;
-      usePorts(ports);
-      checked.value = true;
-      sshCheck.value = { state: "healthy", checkedAt: Date.now() };
-      const summary = props.reviewPreview
-        ? props.summary
-        : await connectPrepared(request(), isCurrent);
-      if (!isCurrent() || !summary) return;
-      await finishConnectionUi(summary);
-    } catch (cause) {
-      if (!isCurrent()) return;
-      if (needsInteractiveSshAuth(bridgeErrorCode(cause))) {
-        busy.value = false;
-        try {
-          await beginInteractiveAuth("check");
-        } catch { /* The current auth attempt owns its error and revision. */ }
-        return;
-      }
-      sshCheck.value = { state: "failed", checkedAt: Date.now() };
-      readinessAnnouncementTarget.value = undefined;
-      connectionPhase.value = "failed";
-      error.value = cause;
-    } finally {
-      if (isCurrent()) {
-        busy.value = false;
-        emit("refresh");
-      }
-    }
-  })();
 }
 
 function refreshTargets() {
@@ -656,30 +584,6 @@ function cancelSetup() {
   targetId.value = "";
   checked.value = false;
   error.value = undefined;
-}
-
-function request(): BridgeRequest {
-  return {
-    targetId: targetId.value,
-    proxyPort: proxy.value ? proxyPort.value : null,
-    ccPort: cc.value ? ccPort.value : null,
-    ccLocalPort: ccLocalPort.value,
-    expectedRevision: props.activeProxy.revision,
-  };
-}
-
-async function reconnectManually() {
-  if (busy.value) return;
-  busy.value = true;
-  error.value = undefined;
-  try {
-    emit("connected", await remoteBackend.retryReconnect());
-  } catch (cause) {
-    error.value = cause;
-  } finally {
-    busy.value = false;
-    emit("refresh");
-  }
 }
 
 function detectCc() {

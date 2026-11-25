@@ -5,6 +5,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { copyModuleUrl } from "./remote-tool-test-modules.mjs";
 import { mountInteractiveAuth } from "./remote-interactive-auth-test.mjs";
+import { mountConnection } from "./remote-connection-flow-test.mjs";
 
 const compile = source => ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
 const { remoteReadiness } = await import(`data:text/javascript;base64,${Buffer.from(compile(readFileSync("src/features/remote-bridge/readiness-presentation.ts", "utf8"))).toString("base64")}`);
@@ -46,25 +47,20 @@ test("Overview and Advanced do not introduce an aggregate optional-preparation w
 });
 
 test("core completion releases the dialog and launch controls without awaiting optional jobs", async t => {
-  const auth = mountInteractiveAuth(t, { connectionPhase: ref("building"), busy: ref(true) });
+  const auth = mountConnection(t, {});
+  auth.connectionPhase.value = "building";
+  auth.busy.value = true;
   auth.authSubmitting.value = true;
   auth.prepareAuthPreview({ sessionId: "old" });
   auth.authResponse.value = "secret-fixture";
-  const context = {
-    ...auth, emit: (...args) => context.events.push(args), events: [], advancedView: ref(true),
-    authDialog: ref({ close: () => { context.closed = true; } }),
-    refreshNetworkChecks: () => new Promise(() => {}), nextTick: async () => {}, connectedHeading: ref({ focus: () => { context.focused = true; } }),
-  };
-  runInNewContext(section("async function finishConnectionUi(", "function updateAuthResponse("), context);
-  await context.finishConnectionUi(ready());
-  assert.equal(context.events[0][0], "connected");
-  assert.equal(context.connectionPhase.value, "idle");
-  assert.equal(context.busy.value, false);
-  assert.equal(context.closed, true);
-  assert.equal(context.focused, true);
-  assert.equal(context.advancedView.value, false);
-  assert.equal(context.authResponse.value, "");
-  assert.equal(context.authSession.value, undefined);
+  const summary = ready();
+  await auth.finishConnectionUi(summary);
+  assert.deepEqual(auth.calls, [["connected", summary], ["close"], ["focus"]]);
+  assert.equal(auth.connectionPhase.value, "idle");
+  assert.equal(auth.busy.value, false);
+  assert.equal(auth.advancedView.value, false);
+  assert.equal(auth.authResponse.value, "");
+  assert.equal(auth.authSession.value, undefined);
 });
 
 test("cancellation isolates both late finish and late password submission", async t => {
@@ -111,7 +107,7 @@ test("cancellation isolates both late finish and late password submission", asyn
 test("one success notification per explicit connect; optional warnings stay in existing statuses", () => {
   const context = { watch: (_, callback) => { context.callback = callback; }, props: { summary: { ...ready(), reconnectState: "idle" }, copy: { rbReadinessReadyNotification: "ready" } }, readiness: ref({ state: "preparing" }), connectionPhase: ref("idle"), readinessAnnouncementTarget: ref("lab"), notify: (...args) => context.notices.push(args), notices: [] };
   const start = page.indexOf("watch([() => props.summary.status, () => props.summary.target?.id, () => readiness.value.state");
-  runInNewContext(compile(page.slice(start, page.indexOf("const establishingBridge", start))), context);
+  runInNewContext(compile(page.slice(start, page.indexOf("const newConnection", start))), context);
   context.callback();
   assert.equal(context.notices.length, 0);
   context.readiness.value.state = "ready";
@@ -214,39 +210,6 @@ function deferred() {
   let resolve, reject;
   const pending = new Promise((onResolve, onReject) => { resolve = onResolve; reject = onReject; });
   return { pending, resolve, reject };
-}
-
-function mountConnection(t, backend, options = {}) {
-  const calls = [];
-  const context = {};
-  const auth = mountInteractiveAuth(t, {
-    backend: options.authBackend,
-    request: () => context.request(),
-    usePorts: ports => context.usePorts(ports),
-    connectPrepared: (...args) => context.connectPrepared(...args),
-    finishConnectionUi: summary => context.finishConnectionUi(summary),
-    refresh: () => calls.push(["refresh"]),
-  });
-  Object.assign(context, auth, {
-    remoteBackend: backend, props: { activeProxy: { revision: 17 }, ...options.props },
-    canStartConnection: ref(options.canStart ?? true), feedback: ref(),
-    proxy: ref(options.proxy ?? true), cc: ref(options.cc ?? true), ccLocalPort: ref(15721),
-    proxyPort: ref(0), ccPort: ref(0), runtimeExpectedPort: ref(null), runtimePortConflict: ref(false),
-    bridgeErrorCode: cause => cause, needsInteractiveSshAuth: cause => cause === "sshAuth",
-    advancedView: ref(true), authDialog: ref({ close: () => calls.push(["close"]) }),
-    emit: (...args) => calls.push(args),
-    refreshNetworkChecks: () => new Promise(() => {}),
-    nextTick: async () => {},
-    connectedHeading: ref({ focus: () => calls.push(["focus"]) }),
-    calls,
-  });
-  for (const [start, end] of [
-    ["async function finishConnectionUi(", "function updateAuthResponse("],
-    ["function usePorts(", "function initializeCapabilities("],
-    ["async function connectPrepared(", "function refreshTargets("],
-    ["function request()", "function detectCc("],
-  ]) runInNewContext(section(start, end), context);
-  return context;
 }
 
 const initialPorts = { proxyPort: 7897, ccPort: 15721 };
@@ -362,6 +325,92 @@ test("stale preview errors cannot retry and ordinary failures propagate without 
     assert.equal(state.connectionPhase.value, cancel ? "idle" : "failed");
     assert.equal(state.busy.value, false);
   }
+});
+
+test("interactive check uses the real prepared connection before handing off to connect authentication", async t => {
+  const calls = [];
+  const state = mountConnection(t, {
+    async check(id) { calls.push(["check", id]); throw "sshAuth"; },
+    async preview(request) { calls.push(["preview", request.targetId]); },
+    async connect(request) { calls.push(["connect", request.targetId]); throw "sshAuth"; },
+  }, {
+    authBackend: {
+      async sshAuthBegin(operation, id, request) {
+        calls.push(["auth", operation, id, request?.proxyPort ?? null]);
+        return { sessionId: operation, status: "waitingPrompt" };
+      },
+      async sshAuthState(sessionId) { return { sessionId, status: "succeeded" }; },
+      async sshAuthFinish() { return { operation: "check", ports: initialPorts }; },
+    },
+  });
+  state.startConnection();
+  await flushConnection();
+  await state.runTimer();
+  assert.deepEqual(calls, [
+    ["check", "lab"], ["auth", "check", "lab", null],
+    ["preview", "lab"], ["connect", "lab"], ["auth", "connect", "lab", initialPorts.proxyPort],
+  ]);
+  assert.equal(state.authSession.value.sessionId, "connect");
+  assert.deepEqual(state.delays(), [120]);
+  assert.deepEqual(state.calls, []);
+});
+
+test("fallback preview failure preserves the error and cancelling it prevents the retry connect", async t => {
+  for (const cancelled of [false, true]) {
+    const fallback = deferred();
+    const fallbackStarted = deferred();
+    const calls = [];
+    const state = mountConnection(t, {
+      async check() { return initialPorts; },
+      async preview(request) {
+        calls.push(["preview", request.proxyPort]);
+        if (request.proxyPort === initialPorts.proxyPort) return;
+        fallbackStarted.resolve();
+        await fallback.pending;
+      },
+      async connect(request) { calls.push(["connect", request.proxyPort]); throw "portInUse"; },
+      async allocatePorts() { return fallbackPorts; },
+    });
+    state.startConnection();
+    await fallbackStarted.pending;
+    if (cancelled) {
+      await state.cancelInteractiveAuth();
+      fallback.resolve();
+    } else {
+      fallback.reject("portInUse");
+    }
+    await flushConnection();
+    assert.deepEqual(calls, [["preview", 7897], ["connect", 7897], ["preview", 23841]]);
+    assert.equal(state.error.value, cancelled ? undefined : "portInUse");
+    assert.equal(state.busy.value, false);
+  }
+});
+
+test("disabled and review-only starts avoid IPC; manual reconnect shares the same busy state", async t => {
+  const deniedBackend = new Proxy({}, { get() { assert.fail("no IPC for disabled or review-only starts"); } });
+  const summary = ready();
+  const review = mountConnection(t, deniedBackend, { props: { reviewPreview: true, summary }, canStart: false });
+  review.startConnection();
+  await flushConnection();
+  assert.deepEqual(review.calls, []);
+  review.canStartConnection.value = true;
+  review.startConnection();
+  await flushConnection();
+  assert.deepEqual(review.calls, [["connected", summary], ["close"], ["focus"], ["refresh"]]);
+  assert.equal(review.proxyPort.value, 23841);
+
+  const reconnect = deferred();
+  let requests = 0;
+  const state = mountConnection(t, { retryReconnect() { requests++; return reconnect.pending; } });
+  const pending = state.reconnectManually();
+  state.startConnection();
+  await state.reconnectManually();
+  assert.equal(state.busy.value, true);
+  reconnect.resolve(summary);
+  await pending;
+  assert.equal(requests, 1);
+  assert.equal(state.busy.value, false);
+  assert.deepEqual(state.calls, [["connected", summary], ["refresh"]]);
 });
 
 test("late begin cancels only the old SSH session and leaves the current timer in place", async t => {
@@ -600,7 +649,7 @@ test("manual diagnostics executes once and releases the button on success or fai
       remoteBackend: { runDiagnostics: () => { context.calls++; return new Promise((resolve, reject) => { finish = () => fail ? reject("network") : resolve({}); }); } },
       emit: () => { context.refreshes++; },
     };
-    runInNewContext(section("async function perform(", "async function finishConnectionUi("), context);
+    runInNewContext(section("async function perform(", "function updateAuthResponse("), context);
     runInNewContext(section("function runDiagnostics()", "function copyValue("), context);
     context.runDiagnostics(); context.runDiagnostics();
     assert.equal(context.calls, 1);

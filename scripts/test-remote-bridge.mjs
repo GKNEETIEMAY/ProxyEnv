@@ -8,6 +8,7 @@ import ts from "typescript";
 import { runInNewContext } from "node:vm";
 import { presentationModuleUrl } from "./remote-tool-test-modules.mjs";
 import { interactiveAuthPath, mountInteractiveAuth } from "./remote-interactive-auth-test.mjs";
+import { connectionFlowPath, mountConnection } from "./remote-connection-flow-test.mjs";
 
 const git = process.platform === "win32" ? spawnSync("where.exe",["git"],{encoding:"utf8"}).stdout?.trim().split(/\r?\n/)[0] : undefined;
 const shell = process.env.PROXYENV_TEST_SHELL || (git ? resolve(dirname(git),"../bin/bash.exe") : "/bin/sh");
@@ -179,39 +180,20 @@ test("SSH labels hide only port 22, and first-use host keys enter interactive co
   assert.equal(needsInteractiveSshAuth("hostKey"), true);
   for (const code of ["hostKeyChanged", "sshFailed", "sshTimeout", "forwardDenied"]) assert.equal(needsInteractiveSshAuth(code), false);
   const page = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
-  assert.equal((page.match(/needsInteractiveSshAuth\(bridgeErrorCode\(cause\)\)/g) ?? []).length, 2);
+  const flow = readFileSync(connectionFlowPath, "utf8");
+  assert.equal((`${page}\n${flow}`.match(/needsInteractiveSshAuth\(bridgeErrorCode\(cause\)\)/g) ?? []).length, 2);
   for (const file of ["RemoteBridgePage.vue", "RemoteTargetGroups.vue"]) {
     assert.match(readFileSync(`src/features/remote-bridge/components/${file}`, "utf8"), /sshTargetAddress as/);
   }
 });
 
 test("the real start-connection handler confirms new host keys without retrying changed keys", async t => {
-  const page = readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue", "utf8");
-  const start = page.slice(page.indexOf("function startConnection()"), page.indexOf("function refreshTargets()"));
-  const compiled = ts.transpileModule(`export function create(context) {
-    const {canStartConnection,busy,checked,proxyPort,ccPort,runtimeExpectedPort,runtimePortConflict,sshCheck,error,connectionPhase,props,remoteBackend,targetId,needsInteractiveSshAuth,bridgeErrorCode,beginInteractiveAuth,emit,readinessAnnouncementTarget,advanceAuthRevision,isCurrentAuthRevision} = context;
-    ${start}
-    return startConnection;
-  }`, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
-  const { create } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
   for (const code of ["hostKey", "sshAuth", "hostKeyChanged", "sshFailed"]) {
-    const ref = value => ({ value });
     const calls = [];
-    const context = {
-      canStartConnection: ref(true), busy: ref(false), checked: ref(false), proxyPort: ref(0), ccPort: ref(0),
-      runtimeExpectedPort: ref(null), runtimePortConflict: ref(false), sshCheck: ref({state:"idle"}), error: ref(), connectionPhase: ref("idle"),
-      props: {reviewPreview:false}, targetId: ref("manual-test"),
-      readinessAnnouncementTarget: ref(),
-      remoteBackend: {check:async () => {throw code;}}, bridgeErrorCode:error=>error,
-      needsInteractiveSshAuth:code=>["hostKey","sshAuth"].includes(code),
-      emit:()=>{},
-    };
-    const auth = mountInteractiveAuth(t, {
-      ...context,
-      backend: { sshAuthBegin: async operation => { calls.push(operation); return { sessionId: operation }; } },
+    const context = mountConnection(t, { async check() { throw code; } }, {
+      authBackend: { sshAuthBegin: async operation => { calls.push(operation); return { sessionId: operation }; } },
     });
-    const { beginInteractiveAuth, advanceAuthRevision, isCurrentAuthRevision } = auth;
-    create({ ...context, beginInteractiveAuth, advanceAuthRevision, isCurrentAuthRevision })();
+    context.startConnection();
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(calls, ["hostKey","sshAuth"].includes(code) ? ["check"] : []);
     if (["hostKeyChanged","sshFailed"].includes(code)) {
@@ -771,9 +753,10 @@ test("remote status UI uses shared checks and keeps network capabilities indepen
   assert.doesNotMatch(shell,/view-fade/);
   assert.match(shell,/@connected="acceptRemoteBridgeSummary"/);
   assert.doesNotMatch(page,/remote-steps|reviewedRequest|authPromptCopy\.notice/);
-  assert.match(page,/async function connectPrepared\(selected: BridgeRequest, isCurrent: \(\) => boolean\)/);
-  assert.match(page,/await remoteBackend\.preview\(selected\)/);
-  assert.match(page,/return await remoteBackend\.connect\(selected\)/);
+  const flow = readFileSync(connectionFlowPath, "utf8");
+  assert.match(flow,/async function connectPrepared\(selected: BridgeRequest, isCurrent: \(\) => boolean\)/);
+  assert.match(flow,/await remoteBackend\.preview\(selected\)/);
+  assert.match(flow,/return await remoteBackend\.connect\(selected\)/);
   assert.match(groups,/\["openssh", "vscode", "mobaxterm", "manual"\]/);
   assert.match(groups,/:disabled="disabled \|\| !target\.available"/);
   assert.match(page,/<RemoteTargetGroups/);
@@ -1212,7 +1195,7 @@ test("preloaded network capability adopts late discovery without losing an expli
   observe(true,context);
   assert.equal(context.proxy.value,false,"Discovery cannot change an in-progress connection");
   assert.match(page,/@change="rememberProxyChoice"/);
-  const load=page.match(/async function load\(\) \{([\s\S]*?)\r?\n\}\r?\n\r?\nfunction usePorts/);
+  const load=page.match(/async function load\(\) \{([\s\S]*?)\r?\n\}\r?\n\r?\nfunction initializeCapabilities/);
   assert.ok(load);
   assert.match(load[1],/remoteBackend\.targets\(\)/);
   assert.doesNotMatch(load[1],/remoteBackend\.(connect|checkNetwork|sshAuthBegin|configApply|setCapability)\(|\bbeginInteractiveAuth\(/,"Preloading only discovers local connection metadata");
@@ -1240,7 +1223,7 @@ test("remote bridge resolves consumer and AI ports independently and restores en
   const portAllocation=readFileSync("src-tauri/src/features/remote_bridge/runtime/port_allocation.rs","utf8");
   const auth=readFileSync("src-tauri/src/features/remote_bridge/ssh/ssh_auth.rs","utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
-  const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const flow=readFileSync(connectionFlowPath,"utf8");
   assert.match(bridge,/runtime_expected_port\(\s*&target,/);
   assert.match(bridge,/DEFAULT_CC_REMOTE_PORT: u16 = 15_721/);
   assert.match(bridge,/resolve_port_pair\(\s*&fingerprint,\s*local_port,\s*runtime_expected_proxy_port/);
@@ -1250,7 +1233,7 @@ test("remote bridge resolves consumer and AI ports independently and restores en
   assert.equal(bridge.match(/start_post_connect\(generation\);/g)?.length,2,"Initial connection and resumed transport both restore tool state through post-connect work");
   assert.match(auth,/super::allocate_ports\(session\.target_id, true\)/);
   assert.match(state,/allocatePorts: \(targetId: string, preferDefaults = true\)/);
-  assert.match(page,/remoteBackend\.allocatePorts\(selected\.targetId, false\)/);
+  assert.match(flow,/remoteBackend\.allocatePorts\(selected\.targetId, false\)/);
 });
 
 test("enabled AI capability configures discovered tools through the existing guarded transaction",()=>{
@@ -1679,13 +1662,14 @@ test("M7 keeps VS Code Server context and extension location conservative",()=>{
 test("two-step setup auto-connects after interactive authentication and keeps one stable modal shell",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
   const auth=readFileSync(interactiveAuthPath,"utf8");
+  const flow=readFileSync(connectionFlowPath,"utf8");
   assert.match(page,/@click="startConnection"/);
   assert.doesNotMatch(page,/@click="checkTarget"/);
   assert.match(auth,/outcome\.operation === "check"[\s\S]*connectPrepared\(request\(\), isCurrent\)/);
   assert.match(auth,/connectionPhase\.value = "building"/);
-  assert.match(page,/async function finishConnectionUi\(summary: BridgeSummary\)[\s\S]*emit\("connected", summary\)[\s\S]*connectionPhase\.value = "idle"/);
-  assert.match(page,/bridgeErrorCode\(cause\) !== "portInUse"/);
-  assert.match(page,/remoteBackend\.allocatePorts\(selected\.targetId, false\)/);
+  assert.match(flow,/async function finishConnectionUi\(summary: BridgeSummary\)[\s\S]*emit\("connected", summary\)[\s\S]*connectionPhase\.value = "idle"/);
+  assert.match(flow,/bridgeErrorCode\(cause\) !== "portInUse"/);
+  assert.match(flow,/remoteBackend\.allocatePorts\(selected\.targetId, false\)/);
   assert.match(page,/connectionPhase === 'failed' \|\| authSession\?\.status !== 'succeeded'/);
   assert.match(page,/\.remote-auth-dialog \{[^}]*width:min\(400px,calc\(100vw - 40px\)\)[^}]*max-height:calc\(100vh - 40px\)/);
   assert.doesNotMatch(page,/\.remote-auth-dialog \{[^}]*height:min\(/);
@@ -1850,6 +1834,7 @@ test("core bridge becomes usable before optional setup and reconnect retries the
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const reconnect=readFileSync("src-tauri/src/features/remote_bridge/runtime/reconnect.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
+  const flow=readFileSync(connectionFlowPath,"utf8");
   const state=readFileSync("src/features/remote-bridge/state.ts","utf8");
   assert.match(bridge,/prepare_post_connect\(&mut summary\)[\s\S]*state\.summary = summary[\s\S]*start_post_connect\(generation\)/);
   assert.match(bridge,/sessionEnv\.apply/);
@@ -1859,7 +1844,7 @@ test("core bridge becomes usable before optional setup and reconnect retries the
   assert.doesNotMatch(reconnect,/reconnect_probe/);
   assert.match(reconnect,/1 => 1,[\s\S]*2 => 2,[\s\S]*3 => 4,[\s\S]*4 => 8,[\s\S]*5 => 15,[\s\S]*_ => 30/);
   assert.match(state,/retryReconnect: \(\) => invoke<BridgeSummary>\("remote_bridge_retry_reconnect"\)/);
-  assert.match(page,/await remoteBackend\.retryReconnect\(\)/);
+  assert.match(flow,/await remoteBackend\.retryReconnect\(\)/);
   assert.match(page,/remote-post-connect/);
 });
 
