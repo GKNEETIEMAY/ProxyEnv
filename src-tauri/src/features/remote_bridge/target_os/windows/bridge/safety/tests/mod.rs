@@ -13,6 +13,7 @@ use std::{cell::Cell, rc::Rc};
 
 #[cfg(windows)]
 mod ntfs;
+mod policy_lifecycle;
 #[cfg(windows)]
 mod process;
 
