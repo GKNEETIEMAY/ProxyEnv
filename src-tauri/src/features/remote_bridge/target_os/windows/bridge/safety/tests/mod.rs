@@ -290,6 +290,102 @@ fn safety_requires_one_exact_unrevoked_reviewed_host_key() {
 }
 
 #[test]
+fn host_identity_is_bound_to_the_exact_effective_config_and_generation() {
+    let bound = ssh::BoundTarget::fixture("alias-a", CONFIG).unwrap();
+    let same = ssh::BoundTarget::fixture("alias-a", CONFIG).unwrap();
+    let key = [37; 32];
+    let identity = ssh::VerifiedHostIdentity::fixture(&bound, 23, key);
+    assert_eq!(identity.key_for(&same, 23), Ok(key));
+    for generation in [22, 24] {
+        rejected(identity.key_for(&same, generation), "hostKey");
+    }
+
+    let alias = ssh::BoundTarget::fixture("alias-b", CONFIG).unwrap();
+    assert_eq!(alias.endpoint_identity(), bound.endpoint_identity());
+    rejected(identity.key_for(&alias, 23), "hostKey");
+
+    let changed_config = format!("{CONFIG}serveraliveinterval 15\n");
+    let changed = ssh::BoundTarget::fixture("alias-a", &changed_config).unwrap();
+    assert_eq!(changed.endpoint_identity(), bound.endpoint_identity());
+    rejected(
+        bound.checked_config_fingerprint(&changed_config),
+        "sshConfigChanged",
+    );
+    rejected(identity.key_for(&changed, 23), "hostKey");
+}
+
+#[test]
+fn frozen_host_identity_rejects_unsupported_trust_entries() {
+    let f = Fixture::new();
+    let (host, account, _) = f.target.endpoint_identity();
+    let key = format!("ssh-ed25519 {}", base64_bytes(&f.blob));
+    let exact = format!("{host} {key}");
+    let reviewed = format!("# reviewed fixture\r\n{exact}\r\n");
+    let other = blob(17);
+    let revoked = [other.as_slice()];
+    let build = |known: &str| {
+        FrozenProfile::build(
+            (host, account, 22),
+            f.review[0].host_key_sha256,
+            HostTrustEvidence {
+                known_hosts: Some(known),
+                revoked_blobs: Some(&revoked),
+                ..f.trust()
+            },
+            DIR,
+        )
+    };
+    let profile = build(&reviewed).unwrap();
+    assert_eq!(profile.known_hosts, format!("{exact}\n"));
+    assert_eq!(
+        profile.revoked_hosts,
+        format!("ssh-ed25519 {}\n", base64_bytes(&other))
+    );
+
+    for entry in [
+        format!("@cert-authority {exact}"),
+        format!("|1|dGVzdA==|dGVzdA== {key}"),
+        format!("*.example {key}"),
+        format!("{host},other.example {key}"),
+        format!("[{host}]:22 {key}"),
+        format!("{exact}\n@cert-authority {exact}"),
+    ] {
+        rejected(build(&entry), "hostKey");
+    }
+}
+
+#[test]
+fn frozen_host_identity_checks_blob_digest_and_revocation_bounds() {
+    let f = Fixture::new();
+    let endpoint = f.target.endpoint_identity();
+    let digest = f.review[0].host_key_sha256;
+    let encoded_digest = Sha256::digest(base64_bytes(&f.blob).as_bytes()).into();
+    rejected(
+        FrozenProfile::build(endpoint, encoded_digest, f.trust(), DIR),
+        "hostKey",
+    );
+
+    let other = blob(17);
+    let bounded = [other.as_slice(); 64];
+    let excessive = [other.as_slice(); 65];
+    let malformed = [&other[..other.len() - 1]];
+    let build = |revoked_blobs: &[&[u8]]| {
+        FrozenProfile::build(
+            endpoint,
+            digest,
+            HostTrustEvidence {
+                revoked_blobs: Some(revoked_blobs),
+                ..f.trust()
+            },
+            DIR,
+        )
+    };
+    assert_eq!(build(&bounded).unwrap().revoked_hosts.lines().count(), 64);
+    rejected(build(&excessive), "hostKey");
+    rejected(build(&malformed), "hostKey");
+}
+
+#[test]
 fn safety_rejects_unsigned_tampered_and_ambiguous_signed_policy() {
     let f = Fixture::new();
     let status = f.sign(STATUS_DOMAIN, Fixture::status());
