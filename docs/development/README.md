@@ -24,6 +24,7 @@
 - [R4.6-F2 后台任务停止与操作接纳](V0.3.0_REMOTE_BRIDGE_R4_6F2_MONITOR_SHUTDOWN_REVIEW.md)
 - [R4.6-F3 Profile 同步任务归属](V0.3.0_REMOTE_BRIDGE_R4_6F3_PROFILE_STATE_REVIEW.md)
 - [R4.6 生命周期修复汇总与剩余验收](V0.3.0_REMOTE_BRIDGE_R4_6_SUMMARY.md)
+- [R4.6 最终生命周期验收与阻断项](V0.3.0_REMOTE_BRIDGE_R4_6_FINAL_ACCEPTANCE.md)
 
 ## v0.3.0dev 桥接阶段
 
