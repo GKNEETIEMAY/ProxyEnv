@@ -365,7 +365,8 @@ struct Store {
     follow_local_codex_profile: bool,
     local_codex_profile: Option<local_model::LocalCodexProfile>,
     local_claude_profile: Option<local_model::LocalClaudeProfile>,
-    profile_syncing: bool,
+    profile_syncing: Option<ProfileSyncTask>,
+    profile_sync_ticket: u64,
     connect_started_at: Option<Instant>,
 }
 
@@ -399,7 +400,8 @@ impl Default for Store {
             follow_local_codex_profile: true,
             local_codex_profile: None,
             local_claude_profile: None,
-            profile_syncing: false,
+            profile_syncing: None,
+            profile_sync_ticket: 0,
             connect_started_at: None,
         }
     }
@@ -493,7 +495,7 @@ fn lock() -> BridgeResult<StoreGuard<'static>> {
 pub(crate) fn update_activity() -> BridgeResult<crate::desktop::updates::Activity> {
     let mut state = store().try_lock().map_err(|_| "updateBusy")?;
     if ssh_auth::update_busy()?
-        || state.profile_syncing
+        || state.profile_syncing.is_some()
         || state.summary.post_connect_status == PostConnectStatus::Preparing
         || state.summary.status == Status::Connecting
         || state.reconnect.is_some()
@@ -623,7 +625,7 @@ fn refresh(state: &mut Store) {
             state.local_claude_profile = None;
             state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
             state.summary.codex_profile_state = settings::ProfileSyncState::NotStarted;
-            state.profile_syncing = false;
+            state.profile_syncing = None;
             return;
         }
         let current = active::snapshot().ok();
@@ -760,14 +762,56 @@ fn invalidate_tool_verification(summary: &mut Summary) {
     sync_tool_states(summary);
 }
 
-fn finish_profile_sync(tool: tool_adapter::RemoteToolId, value: settings::ProfileSyncState) {
-    if let Ok(mut state) = store().lock() {
-        state.profile_syncing = false;
-        if tool == tool_adapter::RemoteToolId::Codex {
-            state.summary.codex_profile_state = value;
-        } else {
-            state.summary.claude_profile_state = value;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ProfileSyncTask {
+    tool: tool_adapter::RemoteToolId,
+    generation: u64,
+    ticket: u64,
+}
+
+impl ProfileSyncTask {
+    fn claim(state: &mut Store, tool: tool_adapter::RemoteToolId) -> Option<Self> {
+        if state.profile_syncing.is_some() {
+            return None;
         }
+        state.profile_sync_ticket = state.profile_sync_ticket.wrapping_add(1);
+        let task = Self {
+            tool,
+            generation: state.connection_generation,
+            ticket: state.profile_sync_ticket,
+        };
+        state.profile_syncing = Some(task);
+        Some(task)
+    }
+
+    fn is_current(self, state: &Store) -> bool {
+        state.connection_generation == self.generation && state.profile_syncing == Some(self)
+    }
+
+    fn finish(self, state: &mut Store, value: Option<settings::ProfileSyncState>) -> bool {
+        if !self.is_current(state) {
+            return false;
+        }
+        state.profile_syncing = None;
+        if let Some(value) = value {
+            match self.tool {
+                tool_adapter::RemoteToolId::Codex => state.summary.codex_profile_state = value,
+                tool_adapter::RemoteToolId::Claude => state.summary.claude_profile_state = value,
+            }
+        }
+        true
+    }
+}
+
+fn cancel_tool_profile_sync(state: &mut Store, tool: tool_adapter::RemoteToolId) {
+    if state.profile_syncing.is_some_and(|task| task.tool == tool) {
+        state.profile_syncing = None;
+    }
+}
+
+fn finish_profile_sync(task: ProfileSyncTask, value: settings::ProfileSyncState) {
+    if let Ok(mut state) = store().lock() {
+        task.finish(&mut state, Some(value));
     }
 }
 
@@ -804,11 +848,12 @@ fn profile_sync_enabled(state: &Store, tool: tool_adapter::RemoteToolId) -> bool
         && (tool != tool_adapter::RemoteToolId::Codex || state.follow_local_codex_profile)
 }
 
-fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
+fn sync_changed_profile(task: ProfileSyncTask) {
+    let tool = task.tool;
     let profile = match LocalToolProfile::inspect(tool) {
         Ok(profile) => profile,
         Err(_) => {
-            finish_profile_sync(tool, settings::ProfileSyncState::InvalidLocalProfile);
+            finish_profile_sync(task, settings::ProfileSyncState::InvalidLocalProfile);
             return;
         }
     };
@@ -816,22 +861,24 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
         let Ok(mut state) = store().lock() else {
             return;
         };
+        if !task.is_current(&state) {
+            return;
+        }
         if state.child.is_none()
             || state.ai_relay.is_none()
             || !profile_sync_enabled(&state, tool)
             || state.pending.is_some()
         {
-            state.profile_syncing = false;
+            task.finish(&mut state, None);
             return;
         }
         let cached = cached_profile(&state, tool);
         if !profile.can_replace(cached.as_ref()) {
-            state.profile_syncing = false;
-            state.summary.claude_profile_state = settings::ProfileSyncState::LocalChanged;
+            task.finish(&mut state, Some(settings::ProfileSyncState::LocalChanged));
             return;
         }
         let Some(local_port) = state.summary.cc.as_ref().map(|route| route.local.port) else {
-            state.profile_syncing = false;
+            task.finish(&mut state, None);
             return;
         };
         if !profile.routes_to(local_port) {
@@ -839,12 +886,10 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
                 .as_ref()
                 .is_none_or(|cached| cached.routes_to(local_port));
             set_cached_profile(&mut state, Some(profile));
-            state.profile_syncing = false;
-            if tool == tool_adapter::RemoteToolId::Codex {
-                state.summary.codex_profile_state = settings::ProfileSyncState::RemoteUnavailable;
-            } else {
-                state.summary.claude_profile_state = settings::ProfileSyncState::RemoteUnavailable;
-            }
+            task.finish(
+                &mut state,
+                Some(settings::ProfileSyncState::RemoteUnavailable),
+            );
             if changed {
                 record_inactive_tool_route(&mut state, tool);
             }
@@ -854,7 +899,7 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
             .is_some_and(|cached| cached.routes_to(local_port) && cached.hash() == profile.hash())
         {
             set_cached_profile(&mut state, Some(profile));
-            state.profile_syncing = false;
+            task.finish(&mut state, None);
             if tool == tool_adapter::RemoteToolId::Codex
                 && state.summary.codex_profile_state != settings::ProfileSyncState::RestartRequired
             {
@@ -867,15 +912,15 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
             return;
         }
         let Some(target) = state.summary.target.as_ref() else {
-            state.profile_syncing = false;
+            task.finish(&mut state, None);
             return;
         };
         let Some(endpoint) = state.summary.cc.as_ref() else {
-            state.profile_syncing = false;
+            task.finish(&mut state, None);
             return;
         };
         let Some(session_token) = state.ai_relay.as_ref().map(|relay| relay.token()) else {
-            state.profile_syncing = false;
+            task.finish(&mut state, None);
             return;
         };
         (
@@ -883,14 +928,13 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
             endpoint.remote_port,
             state.target_fingerprint.clone(),
             session_token,
-            state.connection_generation,
         )
     };
     // Debounce the parsed snapshot too, not only the initial mtime observation.
     // An in-flight provider save must never become a remote replacement.
     std::thread::sleep(Duration::from_millis(500));
     if profile.stamp_changed().unwrap_or(true) {
-        finish_profile_sync(tool, settings::ProfileSyncState::LocalChanged);
+        finish_profile_sync(task, settings::ProfileSyncState::LocalChanged);
         return;
     }
     let adapter = tool_adapter::by_id(tool);
@@ -907,7 +951,7 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
         Ok(value) => value,
         Err(code) => {
             finish_profile_sync(
-                tool,
+                task,
                 if code == "configConflict" || code == "remoteProfileConflict" {
                     settings::ProfileSyncState::Conflict
                 } else {
@@ -922,18 +966,18 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
         && preview["previousPort"].as_u64() == Some(u64::from(snapshot.1))
     {
         if let Ok(mut state) = store().lock() {
-            if state.connection_generation != snapshot.4
-                || !profile_sync_enabled(&state, tool)
+            if !task.finish(&mut state, None) {
+                return;
+            }
+            if !profile_sync_enabled(&state, tool)
                 || state
                     .ai_relay
                     .as_ref()
                     .is_none_or(|relay| relay.token().as_str() != snapshot.3.as_str())
             {
-                state.profile_syncing = false;
                 return;
             }
             set_cached_profile(&mut state, Some(profile));
-            state.profile_syncing = false;
             if tool == tool_adapter::RemoteToolId::Codex
                 && state.summary.codex_profile_state != settings::ProfileSyncState::RestartRequired
             {
@@ -947,7 +991,7 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
         return;
     }
     let Some(expected_hash) = preview["expectedHash"].as_str() else {
-        finish_profile_sync(tool, settings::ProfileSyncState::RemoteUnavailable);
+        finish_profile_sync(task, settings::ProfileSyncState::RemoteUnavailable);
         return;
     };
     let mut apply_request = remote_request(
@@ -960,22 +1004,24 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
     apply_request["expectedHash"] = json!(expected_hash);
     apply_request["repairPermissions"] = json!(false);
     if profile.stamp_changed().unwrap_or(true) {
-        finish_profile_sync(tool, settings::ProfileSyncState::LocalChanged);
+        finish_profile_sync(task, settings::ProfileSyncState::LocalChanged);
         return;
     }
     {
         let Ok(mut state) = store().lock() else {
             return;
         };
-        if state.connection_generation != snapshot.4
-            || state.summary.cc.as_ref().map(|route| route.remote_port) != Some(snapshot.1)
+        if !task.is_current(&state) {
+            return;
+        }
+        if state.summary.cc.as_ref().map(|route| route.remote_port) != Some(snapshot.1)
             || state
                 .ai_relay
                 .as_ref()
                 .is_none_or(|relay| relay.token().as_str() != snapshot.3.as_str())
             || !profile_sync_enabled(&state, tool)
         {
-            state.profile_syncing = false;
+            task.finish(&mut state, None);
             return;
         }
     }
@@ -985,7 +1031,7 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
         Ok(value) => value,
         Err(code) => {
             finish_profile_sync(
-                tool,
+                task,
                 if code == "configConflict" || code == "remoteProfileConflict" {
                     settings::ProfileSyncState::Conflict
                 } else {
@@ -999,16 +1045,18 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
         && applied["profileHash"].as_str() == Some(profile.hash())
         && applied["previousPort"].as_u64() == Some(u64::from(snapshot.1));
     if !verified {
-        finish_profile_sync(tool, settings::ProfileSyncState::Conflict);
+        finish_profile_sync(task, settings::ProfileSyncState::Conflict);
         return;
     }
     if profile.stamp_changed().unwrap_or(true) {
-        finish_profile_sync(tool, settings::ProfileSyncState::LocalChanged);
+        finish_profile_sync(task, settings::ProfileSyncState::LocalChanged);
         return;
     }
     if let Ok(mut state) = store().lock() {
+        if !task.finish(&mut state, None) {
+            return;
+        }
         let same_bridge = state.child.is_some()
-            && state.connection_generation == snapshot.4
             && state.ai_relay.is_some()
             && profile_sync_enabled(&state, tool)
             && state
@@ -1018,7 +1066,6 @@ fn sync_changed_profile(tool: tool_adapter::RemoteToolId) {
                 .map(|target| target.id.as_str())
                 == Some(snapshot.0.as_str())
             && state.target_fingerprint == snapshot.2;
-        state.profile_syncing = false;
         if same_bridge {
             set_cached_profile(&mut state, Some(profile));
             adapter.apply(&mut state.summary);
@@ -1138,7 +1185,7 @@ pub fn start_monitor() {
                     continue;
                 };
                 refresh(&mut state);
-                if state.profile_syncing || state.pending.is_some() {
+                if state.profile_syncing.is_some() || state.pending.is_some() {
                     continue;
                 }
                 // Profile polling exists only while the bridge and at least one
@@ -1201,14 +1248,11 @@ pub fn start_monitor() {
                         }
                     }
                 }
-                if changed.is_some() {
-                    state.profile_syncing = true;
-                }
-                changed
+                changed.and_then(|tool| ProfileSyncTask::claim(&mut state, tool))
             };
             let Some(candidate) = candidate else { continue };
             // A missing/invalid Codex profile must not starve Claude (or vice versa).
-            last_profile = candidate;
+            last_profile = candidate.tool;
             // Coalesce editor save sequences (temporary file, rename, metadata update)
             // before opening and parsing either profile file.
             std::thread::sleep(Duration::from_millis(500));
@@ -1295,7 +1339,10 @@ fn configure_discovered_tools(target_id: &str, fingerprint: &str, generation: u6
             return;
         }
         // Serialize with manual transactions; never replace their pending preview.
-        if state.pending.is_some() || state.extension_pending.is_some() || state.profile_syncing {
+        if state.pending.is_some()
+            || state.extension_pending.is_some()
+            || state.profile_syncing.is_some()
+        {
             return;
         }
         let tool = adapter.id();
@@ -1512,8 +1559,15 @@ pub fn save_model_settings(
     let follow = settings.follow_local_codex_profile;
     let mut view = settings::save(settings, None)?;
     let mut state = lock()?;
+    set_follow_local_codex_profile(&mut state, follow);
+    view.profile_state = state.summary.codex_profile_state;
+    Ok(view)
+}
+
+fn set_follow_local_codex_profile(state: &mut Store, follow: bool) {
     state.follow_local_codex_profile = follow;
     if !follow {
+        cancel_tool_profile_sync(state, tool_adapter::RemoteToolId::Codex);
         state.local_codex_profile = None;
         state.summary.codex_profile_state = settings::ProfileSyncState::Disabled;
     } else if state.child.is_some() && state.ai_relay.is_some() && state.summary.codex_configured {
@@ -1521,8 +1575,6 @@ pub fn save_model_settings(
     } else {
         state.summary.codex_profile_state = settings::ProfileSyncState::NotStarted;
     }
-    view.profile_state = state.summary.codex_profile_state;
-    Ok(view)
 }
 pub fn report() -> Report {
     // Report generation reads cached observations only: no SSH or socket probes.
@@ -2493,7 +2545,7 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     state.child = None;
     state.pending = None;
     state.extension_pending = None;
-    state.profile_syncing = false;
+    state.profile_syncing = None;
     state.additional_tunnels.clear();
     state.paused_proxy = None;
     state.paused_cc = None;

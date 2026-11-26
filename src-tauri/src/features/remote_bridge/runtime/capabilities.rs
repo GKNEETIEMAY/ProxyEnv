@@ -67,7 +67,7 @@ pub fn set_capability(change: CapabilityChange, confirmed: bool) -> BridgeResult
         return Err("bridgeUnavailable".into());
     }
     if state.summary.post_connect_status == PostConnectStatus::Preparing
-        || state.profile_syncing
+        || state.profile_syncing.is_some()
         || state.pending.is_some()
         || state.extension_pending.is_some()
     {

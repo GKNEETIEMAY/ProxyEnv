@@ -179,4 +179,38 @@ mod r46_lifecycle_regressions {
         )));
         assert_terminal();
     }
+
+    #[test]
+    fn old_profile_failure_cannot_finish_new_generation_work() {
+        use settings::ProfileSyncState::{InvalidLocalProfile, Synced};
+        use tool_adapter::RemoteToolId::Codex;
+        assert_new_process();
+        let old = ProfileSyncTask::claim(&mut lock().unwrap(), Codex).unwrap();
+        let (resume, waiting) = mpsc::channel();
+        let (done, completion) = mpsc::channel();
+        let returning = std::thread::spawn(move || {
+            waiting.recv_timeout(DEADLINE).unwrap();
+            finish_profile_sync(old, InvalidLocalProfile);
+            done.send(()).unwrap();
+        });
+        let current = {
+            let mut state = lock().unwrap();
+            reconnect::cancel(&mut state);
+            state.summary.codex_profile_state = Synced;
+            ProfileSyncTask::claim(&mut state, Codex).unwrap()
+        };
+        resume.send(()).unwrap();
+        completion.recv_timeout(DEADLINE).unwrap();
+        returning.join().unwrap();
+        {
+            let state = lock().unwrap();
+            assert_ne!(old.generation, current.generation);
+            assert_eq!(state.profile_syncing, Some(current));
+            assert_eq!(state.summary.codex_profile_state, Synced);
+        }
+        finish_profile_sync(current, InvalidLocalProfile);
+        let state = lock().unwrap();
+        assert!(state.profile_syncing.is_none());
+        assert_eq!(state.summary.codex_profile_state, InvalidLocalProfile);
+    }
 }

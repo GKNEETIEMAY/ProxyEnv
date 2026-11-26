@@ -17,6 +17,7 @@ const cases = [
   "shutdown_drops_resources_outside_store_after_publishing",
   "shutdown_refuses_new_operations_and_releases_existing_operation",
   "monitor_wait_stops_before_sleep_and_on_shutdown_during_sleep",
+  "old_profile_failure_cannot_finish_new_generation_work",
 ];
 for (const testCase of requested) {
   assert.ok(cases.includes(testCase), `Unknown lifecycle case ${testCase}`);

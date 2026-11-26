@@ -1,8 +1,8 @@
 use super::{
-    base64, base64_bytes, capability_ready, elapsed_ms, listening, lock, refresh, remote_request,
-    set_cached_profile, settings, ssh, sync_tool_states, tool_adapter, BridgeResult, ConfigPreview,
-    DiagnosticState, ErrorCategory, EventAction, EventComponent, EventOutcome, LocalToolProfile,
-    Pending, Store, ToolVerificationResult,
+    base64, base64_bytes, cancel_tool_profile_sync, capability_ready, elapsed_ms, listening, lock,
+    refresh, remote_request, set_cached_profile, settings, ssh, sync_tool_states, tool_adapter,
+    BridgeResult, ConfigPreview, DiagnosticState, ErrorCategory, EventAction, EventComponent,
+    EventOutcome, LocalToolProfile, Pending, Store, ToolVerificationResult,
 };
 use serde_json::json;
 use std::time::Instant;
@@ -11,7 +11,7 @@ pub(super) fn config_preview_locked(
     state: &mut Store,
     adapter: &'static dyn tool_adapter::RemoteToolAdapter,
 ) -> BridgeResult<ConfigPreview> {
-    if state.profile_syncing {
+    if state.profile_syncing.is_some() {
         return Err("configConflict".into());
     }
     if state.child.is_none() || state.summary.cc.is_none() {
@@ -265,7 +265,7 @@ pub fn config_restore_preview(target_id: String, tool: String) -> BridgeResult<C
     let adapter = tool_adapter::by_name(&tool)?;
     let target_fingerprint = ssh::fingerprint(&target_id)?;
     let mut state = lock()?;
-    if state.profile_syncing {
+    if state.profile_syncing.is_some() {
         return Err("configConflict".into());
     }
     let value = ssh::remote(
@@ -333,6 +333,7 @@ pub fn config_restore(id: String, confirmed: bool) -> BridgeResult<()> {
         }),
     )?;
     if state.summary.target.as_ref().map(|target| &target.id) == Some(&pending.target_id) {
+        cancel_tool_profile_sync(&mut state, pending.preview.tool);
         if !state.disabled_tools.contains(&pending.preview.tool) {
             state.disabled_tools.push(pending.preview.tool);
         }

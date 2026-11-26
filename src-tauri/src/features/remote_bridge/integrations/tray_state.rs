@@ -91,7 +91,7 @@ impl Cache {
         let mut snapshot = Snapshot::project(
             &state.summary,
             state.child.is_some(),
-            state.profile_syncing
+            state.profile_syncing.is_some()
                 || state.pending.is_some()
                 || state.extension_pending.is_some()
                 || state.reconnect.is_some(),
@@ -141,7 +141,7 @@ fn live_can_change(source: &super::StateStore, busy: bool) -> bool {
     Snapshot::project(
         &state.summary,
         state.child.is_some(),
-        busy || state.profile_syncing
+        busy || state.profile_syncing.is_some()
             || state.pending.is_some()
             || state.extension_pending.is_some()
             || state.reconnect.is_some(),

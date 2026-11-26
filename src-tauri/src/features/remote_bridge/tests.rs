@@ -4,6 +4,96 @@ impl super::ssh::ManagedSsh for DiscoveryTransport {
         Ok(true)
     }
 }
+
+#[test]
+fn profile_sync_current_receipts_update_only_the_owning_tool_once() {
+    use super::settings::ProfileSyncState::{Conflict, NotStarted, Synced};
+    use super::tool_adapter::RemoteToolId::{Claude, Codex};
+    use super::{ProfileSyncTask, Store};
+
+    let mut state = Store::default();
+    let codex = ProfileSyncTask::claim(&mut state, Codex).unwrap();
+    assert!(ProfileSyncTask::claim(&mut state, Claude).is_none());
+    assert!(codex.finish(&mut state, Some(Synced)));
+    assert_eq!(state.summary.codex_profile_state, Synced);
+    assert_eq!(state.summary.claude_profile_state, NotStarted);
+    assert!(!codex.finish(&mut state, Some(Conflict)));
+    let claude = ProfileSyncTask::claim(&mut state, Claude).unwrap();
+    assert!(!codex.finish(&mut state, Some(Conflict)));
+    assert_eq!(state.profile_syncing, Some(claude));
+    assert!(claude.finish(&mut state, Some(Conflict)));
+    assert!(state.profile_syncing.is_none());
+    assert_eq!(state.summary.codex_profile_state, Synced);
+    assert_eq!(state.summary.claude_profile_state, Conflict);
+}
+
+#[test]
+fn profile_sync_disable_and_reenable_invalidates_only_the_selected_tool() {
+    use super::settings::ProfileSyncState::{Disabled, InvalidLocalProfile, NotStarted};
+    use super::tool_adapter::RemoteToolId::{Claude, Codex};
+    use super::{set_follow_local_codex_profile, ProfileSyncTask, Store};
+
+    let mut state = Store::default();
+    let codex = ProfileSyncTask::claim(&mut state, Codex).unwrap();
+    set_follow_local_codex_profile(&mut state, false);
+    assert_eq!(state.summary.codex_profile_state, Disabled);
+    assert!(state.profile_syncing.is_none());
+    assert!(!codex.finish(&mut state, Some(InvalidLocalProfile)));
+    assert_eq!(state.summary.codex_profile_state, Disabled);
+    let claude = ProfileSyncTask::claim(&mut state, Claude).unwrap();
+    set_follow_local_codex_profile(&mut state, false);
+    assert_eq!(state.profile_syncing, Some(claude));
+    assert!(claude.finish(&mut state, None));
+
+    set_follow_local_codex_profile(&mut state, true);
+    let next_codex = ProfileSyncTask::claim(&mut state, Codex).unwrap();
+    assert_eq!(next_codex.generation, codex.generation);
+    assert_ne!(next_codex.ticket, codex.ticket);
+    assert!(!codex.finish(&mut state, Some(InvalidLocalProfile)));
+    assert_eq!(state.profile_syncing, Some(next_codex));
+    assert_eq!(state.summary.codex_profile_state, NotStarted);
+    assert_eq!(state.summary.claude_profile_state, NotStarted);
+}
+
+#[test]
+fn profile_sync_transport_loss_invalidates_claim_before_recovery() {
+    use super::settings::ProfileSyncState::{InvalidLocalProfile, NotStarted, Synced};
+    use super::tool_adapter::RemoteToolId::Codex;
+    use super::{reconnect, refresh, ssh, BridgeResult, ProfileSyncTask, Store};
+
+    struct LostTransport;
+    impl ssh::ManagedSsh for LostTransport {
+        fn is_running(&mut self) -> BridgeResult<bool> {
+            Ok(false)
+        }
+    }
+
+    let mut state = Store {
+        child: Some(Box::new(LostTransport)),
+        ..Store::default()
+    };
+    let old = ProfileSyncTask::claim(&mut state, Codex).unwrap();
+    state.summary.codex_profile_state = Synced;
+    refresh(&mut state);
+    assert!(state.child.is_none());
+    assert!(state.profile_syncing.is_none());
+    assert_eq!(state.summary.codex_profile_state, NotStarted);
+
+    // A replacement may be recovered in the same connection generation.
+    state.child = Some(Box::new(DiscoveryTransport));
+    let recovered = ProfileSyncTask::claim(&mut state, Codex).unwrap();
+    assert_eq!(old.generation, recovered.generation);
+    assert!(!old.finish(&mut state, Some(InvalidLocalProfile)));
+    assert_eq!(state.profile_syncing, Some(recovered));
+    assert!(recovered.finish(&mut state, Some(Synced)));
+
+    let next = ProfileSyncTask::claim(&mut state, Codex).unwrap();
+    reconnect::cancel(&mut state);
+    assert!(state.profile_syncing.is_none());
+    assert!(!next.finish(&mut state, Some(InvalidLocalProfile)));
+    assert_eq!(state.summary.codex_profile_state, Synced);
+}
+
 fn automatic_setup_fixture() -> super::Store {
     use super::*;
     Store {
@@ -175,7 +265,8 @@ fn installation_snapshot_invalidation_and_generation_guards_are_independent_of_c
     state
         .disabled_tools
         .push(tool_adapter::RemoteToolId::Claude);
-    state.profile_syncing = true;
+    let profile_task = ProfileSyncTask::claim(&mut state, tool_adapter::RemoteToolId::Codex);
+    assert!(profile_task.is_some());
     state.summary.tool_installations = vec![
         tool_adapter::project_installation(tool_adapter::RemoteToolId::Codex, false, false, None),
         tool_adapter::project_installation(
@@ -241,7 +332,7 @@ fn installation_snapshot_invalidation_and_generation_guards_are_independent_of_c
     assert_eq!(state.target_fingerprint.as_deref(), Some("first"));
     assert_eq!(state.summary.session_environment_state, RuntimeState::Ready);
     assert_eq!(state.disabled_tools, [tool_adapter::RemoteToolId::Claude]);
-    assert!(state.profile_syncing);
+    assert_eq!(state.profile_syncing, profile_task);
     invalidate_tool_discovery(&mut state, None);
     assert_eq!(state.tool_discovery_ticket, 10);
 }

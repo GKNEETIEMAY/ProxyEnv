@@ -221,6 +221,7 @@ fn restore_transport(job: &Job) -> BridgeResult<ssh::OwnedChild> {
 
 pub(super) fn cancel(state: &mut Store) {
     state.connection_generation = state.connection_generation.wrapping_add(1);
+    state.profile_syncing = None;
     state.last_request = None;
     state.reconnect = None;
     state.summary.reconnect_state = State::Idle;

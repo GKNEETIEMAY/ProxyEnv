@@ -1168,7 +1168,7 @@ test("enabled AI capability configures discovered tools through the existing gua
   const config=readFileSync("src-tauri/src/features/remote_bridge/configuration/config_transaction.rs","utf8");
   const setup=bridge.slice(bridge.indexOf("fn configure_discovered_tools"),bridge.indexOf("pub fn discover_tools"));
   assert.match(setup,/discovery_context_current\(&state, target_id, fingerprint, generation, ticket\)/);
-  assert.match(setup,/state\.pending\.is_some\(\) \|\| state\.extension_pending\.is_some\(\) \|\| state\.profile_syncing/);
+  assert.match(setup,/state\.pending\.is_some\(\)\s*\|\| state\.extension_pending\.is_some\(\)\s*\|\| state\.profile_syncing\.is_some\(\)/);
   assert.match(setup,/config_preview_locked\(&mut state, \*adapter\)[\s\S]*config_apply_locked\(&mut state, preview\.id\)/);
   assert.doesNotMatch(setup,/tool_verify|verify_tool|operation.*verify|capabilities::apply_tool/);
   assert.match(capabilities,/change\.enabled && change\.capability == Capability::Cc/);
