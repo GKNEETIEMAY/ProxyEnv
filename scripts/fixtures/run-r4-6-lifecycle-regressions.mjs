@@ -15,6 +15,8 @@ const cases = [
   "shutdown_retires_transport_once_and_publishes_terminal_state",
   "shutdown_returns_while_store_is_held_and_reaps_after_release",
   "shutdown_drops_resources_outside_store_after_publishing",
+  "shutdown_refuses_new_operations_and_releases_existing_operation",
+  "monitor_wait_stops_before_sleep_and_on_shutdown_during_sleep",
 ];
 for (const testCase of requested) {
   assert.ok(cases.includes(testCase), `Unknown lifecycle case ${testCase}`);

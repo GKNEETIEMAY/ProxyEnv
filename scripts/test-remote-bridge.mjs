@@ -1185,7 +1185,10 @@ test("Codex and Claude profile polling is bridge-scoped, metadata-only, and debo
   const profile=readFileSync("src-tauri/src/features/remote_bridge/configuration/local_model.rs","utf8");
   const linux=readFileSync("src-tauri/src/features/remote_bridge/target_os/linux/mod.rs","utf8");
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  assert.match(bridge,/sleep\(Duration::from_secs\(2\)\)/);
+  const skills=readFileSync("src-tauri/src/features/remote_bridge/tooling/skills.rs","utf8");
+  assert.match(bridge,/wait\(Duration::from_secs\(2\)\)/);
+  assert.match(bridge,/while wait_for_monitor_tick\(std::thread::sleep\)/);
+  assert.match(skills,/while super::wait_for_monitor_tick\(thread::sleep\)/);
   assert.match(bridge,/sleep\(Duration::from_millis\(500\)\)/);
   assert.match(bridge,/sync_changed_profile\(candidate\)/);
   assert.match(bridge,/local_model::profile_stamp_changed\(profile\)/);
@@ -1321,6 +1324,7 @@ test("Skills snapshots are read-only and transient recovery uses verified remote
 
 test("Skills projection is CC Switch-link based, staged, owned and metadata-triggered",()=>{
   const skills=readFileSync("src-tauri/src/features/remote_bridge/tooling/skills.rs","utf8");
+  const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const ssh=readFileSync("src-tauri/src/features/remote_bridge/ssh/mod.rs","utf8");
   const remote=readFileSync("src-tauri/src/features/remote_bridge/skill-remote.sh","utf8");
   const commands=readFileSync("src-tauri/src/commands/remote_bridge.rs","utf8");
@@ -1337,7 +1341,8 @@ test("Skills projection is CC Switch-link based, staged, owned and metadata-trig
   assert.match(skills,/remove_projection\(id\.clone\(\), false, &target, &fingerprint\)/);
   assert.match(skills,/value == "\.system"/);
   assert.match(skills,/metadata_stamp_id/);
-  assert.match(skills,/sleep\(Duration::from_secs\(2\)\)/);
+  assert.match(bridge,/fn wait_for_monitor_tick[\s\S]*?wait\(Duration::from_secs\(2\)\)/);
+  assert.match(skills,/while super::wait_for_monitor_tick\(thread::sleep\)/);
   assert.match(skills,/sleep\(Duration::from_millis\(500\)\)/);
   assert.match(skills,/MAX_FILES_PER_SKILL/);
   assert.match(skills,/MAX_SKILL_BYTES/);
@@ -1526,7 +1531,7 @@ test("actual egress runs automatically on network connect, enable and recovery w
   const bridge=readFileSync("src-tauri/src/features/remote_bridge/mod.rs","utf8");
   const capabilities=readFileSync("src-tauri/src/features/remote_bridge/runtime/capabilities.rs","utf8");
   const reconnect=readFileSync("src-tauri/src/features/remote_bridge/runtime/reconnect.rs","utf8");
-  assert.match(bridge,/fn start_post_connect\(generation: u64\) \{\s*start_auto_proxy_test\(generation\);/);
+  assert.match(bridge,/fn start_post_connect\(generation: u64\) \{\s*if is_stopping\(\) \{\s*return;\s*\}\s*start_auto_proxy_test\(generation\);/);
   assert.match(capabilities,/let auto_proxy_test = change.enabled && change.capability == Capability::Proxy;/);
   assert.match(capabilities,/drop\(state\);\s*if auto_proxy_test \{\s*start_auto_proxy_test\(generation\);/);
   assert.match(reconnect,/drop\(state\);\s*start_auto_proxy_test\(job.generation\);/);

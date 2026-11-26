@@ -128,4 +128,55 @@ mod r46_lifecycle_regressions {
             Err(mpsc::RecvTimeoutError::Disconnected)
         );
     }
+
+    #[test]
+    fn shutdown_refuses_new_operations_and_releases_existing_operation() {
+        use crate::desktop::updates;
+        assert_new_process();
+        let lease = updates::prepare_update_install(false).unwrap();
+        assert_eq!(
+            updates::bridge_operation().err().as_deref(),
+            Some("updateInProgress")
+        );
+        updates::validate_update_install(lease).unwrap();
+        updates::release_update_install(lease).unwrap();
+        let admitted = updates::bridge_operation().unwrap();
+
+        shutdown();
+        shutdown();
+        assert!(updates::bridge_changes_busy());
+        assert_eq!(
+            updates::bridge_operation().err().as_deref(),
+            Some("bridgeUnavailable")
+        );
+        assert_eq!(
+            updates::prepare_update_install(false),
+            Err("updateBusy".into())
+        );
+        drop(admitted);
+        let lease = updates::prepare_update_install(false).unwrap();
+        updates::validate_update_install(lease).unwrap();
+        updates::release_update_install(lease).unwrap();
+        assert_eq!(
+            updates::bridge_operation().err().as_deref(),
+            Some("bridgeUnavailable")
+        );
+    }
+
+    #[test]
+    fn monitor_wait_stops_before_sleep_and_on_shutdown_during_sleep() {
+        assert_new_process();
+        assert!(wait_for_monitor_tick(|period| assert_eq!(
+            period,
+            Duration::from_secs(2)
+        )));
+        assert!(!wait_for_monitor_tick(|period| {
+            assert_eq!(period, Duration::from_secs(2));
+            shutdown();
+        }));
+        assert!(!wait_for_monitor_tick(|_| panic!(
+            "stopped monitor tried to wait"
+        )));
+        assert_terminal();
+    }
 }

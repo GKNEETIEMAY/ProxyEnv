@@ -295,10 +295,13 @@ test("failed release is not reported as a recovered gate", async () => {
 test("backend entry points and monitors share the gate; Windows has no post-install relaunch guard", () => {
   const read = path => readFileSync(path, "utf8");
   assert.match(read("src-tauri/src/commands/remote_bridge.rs"), /bridge_operation\(\)/);
-  for (const path of ["src-tauri/src/features/remote_bridge/mod.rs", "src-tauri/src/features/remote_bridge/tooling/skills.rs"])
-    assert.match(read(path), /sleep\(Duration::from_secs\(2\)\);\s*let Ok\(_operation\) = crate::desktop::updates::bridge_operation/);
+  const bridge = read("src-tauri/src/features/remote_bridge/mod.rs");
+  const skills = read("src-tauri/src/features/remote_bridge/tooling/skills.rs");
+  assert.match(bridge, /fn wait_for_monitor_tick[\s\S]*?wait\(Duration::from_secs\(2\)\)/);
+  assert.match(bridge, /while wait_for_monitor_tick\(std::thread::sleep\) \{\s*let Ok\(_operation\) = crate::desktop::updates::bridge_operation/);
+  assert.match(skills, /while super::wait_for_monitor_tick\(thread::sleep\) \{\s*let Ok\(_operation\) = crate::desktop::updates::bridge_operation/);
   assert.match(read("src-tauri/src/desktop/updates.rs"), /bridge::update_activity\(\)/);
-  assert.match(read("src-tauri/src/features/remote_bridge/mod.rs"), /ssh_auth::update_busy\(\)/);
+  assert.match(bridge, /ssh_auth::update_busy\(\)/);
   const shell = read("src/app/AppShell.vue");
   assert.doesNotMatch(shell, /downloadAndInstall\(|relaunch\(/);
   assert.match(shell, /settingsReady = true;[\s\S]*?void checkForUpdates\(false\)/);

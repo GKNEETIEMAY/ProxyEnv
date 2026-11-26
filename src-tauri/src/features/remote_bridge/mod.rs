@@ -481,6 +481,9 @@ impl Drop for StoreGuard<'_> {
 }
 static STORE: OnceLock<StateStore> = OnceLock::new();
 static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(crate) fn is_stopping() -> bool {
+    STOPPING.load(std::sync::atomic::Ordering::SeqCst)
+}
 fn store() -> &'static StateStore {
     STORE.get_or_init(StateStore::default)
 }
@@ -1104,7 +1107,18 @@ fn profile_poll_order(last: tool_adapter::RemoteToolId) -> [tool_adapter::Remote
     }
 }
 
+fn wait_for_monitor_tick(wait: impl FnOnce(Duration)) -> bool {
+    if is_stopping() {
+        return false;
+    }
+    wait(Duration::from_secs(2));
+    !is_stopping()
+}
+
 pub fn start_monitor() {
+    if is_stopping() {
+        return;
+    }
     skills::start_monitor();
     if let Ok(mut state) = store().lock() {
         state.follow_local_codex_profile = settings::load()
@@ -1113,8 +1127,7 @@ pub fn start_monitor() {
     }
     std::thread::spawn(|| {
         let mut last_profile = tool_adapter::RemoteToolId::Claude;
-        loop {
-            std::thread::sleep(Duration::from_secs(2));
+        while wait_for_monitor_tick(std::thread::sleep) {
             let Ok(_operation) = crate::desktop::updates::bridge_operation() else {
                 continue;
             };
@@ -2010,6 +2023,9 @@ fn prepare_post_connect(summary: &mut Summary) {
 }
 
 fn start_post_connect(generation: u64) {
+    if is_stopping() {
+        return;
+    }
     start_auto_proxy_test(generation);
     std::thread::spawn(move || {
         let post_connect_started = Instant::now();
@@ -2017,7 +2033,7 @@ fn start_post_connect(generation: u64) {
             let Ok(state) = lock() else {
                 return;
             };
-            if state.connection_generation != generation || state.child.is_none() {
+            if is_stopping() || state.connection_generation != generation || state.child.is_none() {
                 return;
             }
             let Some(target_id) = state

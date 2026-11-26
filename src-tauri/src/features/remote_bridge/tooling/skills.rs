@@ -1017,18 +1017,19 @@ fn monitor_once() -> BridgeResult<()> {
 }
 
 pub fn start_monitor() {
-    if MONITOR.set(()).is_err() {
+    if super::is_stopping() || MONITOR.set(()).is_err() {
         return;
     }
-    thread::spawn(|| loop {
-        thread::sleep(Duration::from_secs(2));
-        let Ok(_operation) = crate::desktop::updates::bridge_operation() else {
-            continue;
-        };
-        if monitor_once().is_err() {
-            if let Ok(mut runtime) = runtime().lock() {
-                runtime.target_fingerprint = None;
-                runtime.stamps.clear();
+    thread::spawn(|| {
+        while super::wait_for_monitor_tick(thread::sleep) {
+            let Ok(_operation) = crate::desktop::updates::bridge_operation() else {
+                continue;
+            };
+            if monitor_once().is_err() {
+                if let Ok(mut runtime) = runtime().lock() {
+                    runtime.target_fingerprint = None;
+                    runtime.stamps.clear();
+                }
             }
         }
     });
