@@ -227,6 +227,7 @@ pub(super) fn cancel(state: &mut Store) {
     state.reconnect = None;
     state.summary.reconnect_state = State::Idle;
     if state.child.is_none() {
+        state.environment_write = None;
         state.additional_tunnels.clear();
         state.proxy_relay = None;
         state.ai_relay = None;

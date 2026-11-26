@@ -342,6 +342,7 @@ struct Store {
     reconnect: Option<reconnect::Retry>,
     connection_generation: u64,
     interactive_connect: Option<String>,
+    environment_write: Option<String>,
     summary: Summary,
     child: Option<Box<dyn ssh::ManagedSsh>>,
     additional_tunnels: Vec<Box<dyn ssh::ManagedSsh>>,
@@ -379,6 +380,7 @@ impl Default for Store {
             reconnect: None,
             connection_generation: 0,
             interactive_connect: None,
+            environment_write: None,
             summary: Summary::default(),
             child: None,
             additional_tunnels: Vec::new(),
@@ -599,6 +601,7 @@ fn refresh(state: &mut Store) {
                 state.summary.reconnect_state = reconnect::State::Waiting;
                 state.summary.status = Status::Connecting;
             } else {
+                state.environment_write = None;
                 state.proxy_relay = None;
                 state.ai_relay = None;
                 state.summary.status = Status::Disconnected;
@@ -2020,17 +2023,84 @@ fn apply_session_environment(
     Ok(())
 }
 
-fn remove_session_environment(target_id: &str, session_id: Option<&str>) {
-    let Some(session_id) = session_id else {
-        return;
-    };
-    let _ = ssh::remote(
+fn remove_session_environment(target_id: &str, session_id: &str) -> BridgeResult<()> {
+    ssh::remote(
         target_id,
         json!({
             "operation": "session-env-remove",
             "sessionId": session_id,
         }),
-    );
+    )?;
+    Ok(())
+}
+
+fn apply_post_connect_environment(
+    target_id: &str,
+    summary: &Summary,
+    session_id: Option<&str>,
+    generation: u64,
+    fingerprint: Option<&str>,
+) -> BridgeResult<()> {
+    let _operation = crate::desktop::updates::bridge_operation()?;
+    let session_id = session_id.ok_or("relayUnavailable")?;
+    let fingerprint = fingerprint.ok_or("sshConfigChanged")?;
+    if ssh::fingerprint(target_id)? != fingerprint {
+        return Err("sshConfigChanged".into());
+    }
+    {
+        let mut state = lock()?;
+        if is_stopping()
+            || state.connection_generation != generation
+            || state.child.is_none()
+            || state
+                .summary
+                .target
+                .as_ref()
+                .map(|target| target.id.as_str())
+                != Some(target_id)
+            || state.target_fingerprint.as_deref() != Some(fingerprint)
+            || state.proxy_relay.as_ref().map(|relay| relay.session_id()) != Some(session_id)
+            || state.summary.proxy.is_none()
+            || state.environment_write.is_some()
+        {
+            return Err("bridgeUnavailable".into());
+        }
+        state.environment_write = Some(session_id.into());
+    }
+
+    let result = apply_session_environment(target_id, summary, Some(session_id));
+    let retired = {
+        let mut state = lock()?;
+        if state.environment_write.as_deref() == Some(session_id) {
+            state.environment_write = None;
+            false
+        } else {
+            true
+        }
+    };
+    if retired {
+        // Disconnect transferred cleanup to this operation. An error receipt may
+        // have arrived after the remote file was committed, so still remove it.
+        let cleanup = ssh::fingerprint(target_id).and_then(|current| {
+            if current != fingerprint {
+                return Err("sshConfigChanged".into());
+            }
+            remove_session_environment(target_id, session_id)
+        });
+        if let Err(code) = cleanup {
+            logging::record(&events::BridgeEvent {
+                timestamp: observations::timestamp(),
+                level: events::Level::Warning,
+                component: EventComponent::SessionEnvironment,
+                action: EventAction::Disconnect,
+                outcome: EventOutcome::Warning,
+                error_code: Some(ErrorCategory::from_code(&code)),
+                duration_ms: None,
+            });
+            return Err(code);
+        }
+    }
+    result
 }
 
 enum PostConnectResult {
@@ -2129,10 +2199,16 @@ fn start_post_connect(generation: u64) {
                 let target_id = target_id.clone();
                 let summary = summary.clone();
                 let proxy_session = proxy_session.clone();
+                let fingerprint = fingerprint.clone();
                 std::thread::spawn(move || {
                     let started = Instant::now();
-                    let result =
-                        apply_session_environment(&target_id, &summary, proxy_session.as_deref());
+                    let result = apply_post_connect_environment(
+                        &target_id,
+                        &summary,
+                        proxy_session.as_deref(),
+                        generation,
+                        fingerprint.as_deref(),
+                    );
                     let _ = sender.send(PostConnectResult::Environment(
                         result.clone(),
                         timing("sessionEnv.apply", started, result.is_ok()),
@@ -2569,12 +2645,15 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
         .proxy_relay
         .as_ref()
         .map(|relay| relay.session_id().to_owned());
+    let environment_write = state.environment_write.take();
     // Revoke both local capabilities before any potentially slow SSH cleanup.
     state.proxy_relay = None;
     state.ai_relay = None;
     let vscode_restore_error = restore_vscode_network(&mut state).err();
-    if let Some(target_id) = target_id.as_deref() {
-        remove_session_environment(target_id, session_id.as_deref());
+    if let (Some(target_id), Some(session_id)) = (target_id.as_deref(), session_id.as_deref()) {
+        if environment_write.as_deref() != Some(session_id) {
+            let _ = remove_session_environment(target_id, session_id);
+        }
     }
     state.child = None;
     state.pending = None;

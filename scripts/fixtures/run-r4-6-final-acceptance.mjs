@@ -83,6 +83,12 @@ if (phase >= 4) {
     "super::super::mark_interactive_connecting(id).unwrap();");
   replaceCase("connection_lifecycle", "\nstruct Transport;", "r4-6-fixed-connection.rs");
 }
+if (phase >= 5) {
+  replaceCase("background_lifecycle", "\nmod process_exit {", "r4-6-fixed-background.rs");
+  instrument("acceptance.rs", '            fs::write(path, request["port"].to_string()).unwrap();',
+    `            fs::write(path, request["port"].to_string()).unwrap();
+            if request["port"] == 27892 { return Err("remoteFailed".into()); }`);
+}
 for (const [path, signature, body] of [
   ["ssh/mod.rs", "pub fn targets() -> BridgeResult<Vec<RemoteTarget>> {",
     "return Ok(vec![super::acceptance::target(\"fixture-a\"), super::acceptance::target(\"fixture-b\")]);"],
