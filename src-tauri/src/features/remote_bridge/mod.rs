@@ -341,6 +341,7 @@ struct Store {
     last_request: Option<Request>,
     reconnect: Option<reconnect::Retry>,
     connection_generation: u64,
+    interactive_connect: Option<String>,
     summary: Summary,
     child: Option<Box<dyn ssh::ManagedSsh>>,
     additional_tunnels: Vec<Box<dyn ssh::ManagedSsh>>,
@@ -377,6 +378,7 @@ impl Default for Store {
             last_request: None,
             reconnect: None,
             connection_generation: 0,
+            interactive_connect: None,
             summary: Summary::default(),
             child: None,
             additional_tunnels: Vec::new(),
@@ -2270,6 +2272,7 @@ pub(super) struct InteractiveConnectCompletion {
     pub fingerprint: String,
     pub process: ssh_auth::PtyProcess,
     pub auth: SshAuthState,
+    pub password: Option<credential_cache::ProtectedPassword>,
     pub auth_duration_ms: u64,
     pub core_duration_ms: u64,
     pub proxy_relay: Option<authenticated_relay::AuthenticatedRelay>,
@@ -2302,12 +2305,16 @@ pub(super) fn prepare_interactive_connect(
     })
 }
 
-pub(super) fn mark_interactive_connecting() -> BridgeResult<()> {
+pub(super) fn mark_interactive_connecting(id: &str) -> BridgeResult<()> {
     let mut state = lock()?;
+    if is_stopping() {
+        return Err("bridgeUnavailable".into());
+    }
     if state.child.is_some() {
         return Err("alreadyConnected".into());
     }
     reconnect::cancel(&mut state);
+    state.interactive_connect = Some(id.into());
     state.disabled_tools.clear();
     state.pending = None;
     state.extension_pending = None;
@@ -2325,24 +2332,46 @@ pub(super) fn mark_interactive_connecting() -> BridgeResult<()> {
     Ok(())
 }
 
-pub(super) fn cancel_interactive_connect() {
+fn check_interactive_connect(state: &Store, id: &str) -> BridgeResult<()> {
+    if is_stopping() || state.interactive_connect.as_deref() != Some(id) {
+        return Err("sshAuthSessionMissing".into());
+    }
+    Ok(())
+}
+
+pub(super) fn ensure_interactive_connect(id: &str) -> BridgeResult<()> {
+    let state = lock()?;
+    check_interactive_connect(&state, id)
+}
+
+pub(super) fn cancel_interactive_connect(id: &str, cached_target: Option<&str>) -> bool {
     if let Ok(mut state) = lock() {
-        if state.child.is_none() && state.summary.status == Status::Connecting {
+        if state.interactive_connect.as_deref() == Some(id) {
+            state.interactive_connect = None;
+            state.connect_started_at = None;
             state.summary.status = Status::Disconnected;
             state.summary.error = None;
+            if let Some(fingerprint) = cached_target {
+                credential_cache::clear_if_matches(fingerprint);
+            }
+            return true;
         }
     }
+    false
 }
 
 pub(super) fn complete_interactive_connect(
+    id: &str,
     completion: InteractiveConnectCompletion,
 ) -> BridgeResult<Summary> {
+    ensure_interactive_connect(id)?;
     let InteractiveConnectCompletion {
         request,
         mut summary,
         fingerprint,
         process,
-        auth,
+        mut auth,
+        password,
         auth_duration_ms,
         core_duration_ms,
         proxy_relay,
@@ -2357,7 +2386,6 @@ pub(super) fn complete_interactive_connect(
     summary.status = Status::Connected;
     summary.proxy_status = summary.proxy.as_ref().map(|_| Status::Connected);
     summary.cc_status = summary.cc.as_ref().map(|_| Status::Connected);
-    summary.ssh_auth = auth;
     summary.timings.push(PhaseTiming {
         phase: "ssh.authenticate".into(),
         duration_ms: auth_duration_ms,
@@ -2375,9 +2403,13 @@ pub(super) fn complete_interactive_connect(
     });
     prepare_post_connect(&mut summary);
     let mut state = lock()?;
-    if state.child.is_some() {
-        return Err("alreadyConnected".into());
+    check_interactive_connect(&state, id)?;
+    if let Some(password) = password {
+        credential_cache::store(fingerprint.clone(), password)?;
     }
+    auth.password_stored = credential_cache::contains(&fingerprint);
+    summary.ssh_auth = auth;
+    state.interactive_connect = None;
     if let Some(started) = state.connect_started_at.take() {
         summary.timings.push(timing("bridge.total", started, true));
     }
@@ -2523,6 +2555,8 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     let mut state = lock()?;
     // Invalidate in-flight recovery before revoking credentials or cleanup.
     state.connection_generation = state.connection_generation.wrapping_add(1);
+    state.interactive_connect = None;
+    state.connect_started_at = None;
     state.last_request = None;
     state.reconnect = None;
     state.summary.reconnect_state = reconnect::State::Idle;

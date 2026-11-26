@@ -652,8 +652,27 @@ pub fn begin(
 ) -> BridgeResult<Snapshot> {
     cleanup();
     ssh::validate_target(&target_id)?;
-    let target_fingerprint = ssh::fingerprint(&target_id)?;
     let id = session_id()?;
+    if operation == Operation::Connect {
+        if request.as_ref().ok_or("invalidRequest")?.target_id != target_id {
+            return Err("invalidTarget".into());
+        }
+        super::mark_interactive_connecting(&id)?;
+    }
+    let result = begin_session(&id, operation, target_id, request);
+    if operation == Operation::Connect && result.is_err() {
+        super::cancel_interactive_connect(&id, None);
+    }
+    result
+}
+
+fn begin_session(
+    id: &str,
+    operation: Operation,
+    target_id: String,
+    request: Option<Request>,
+) -> BridgeResult<Snapshot> {
+    let target_fingerprint = ssh::fingerprint(&target_id)?;
     let marker = format!("{AUTH_MARKER_PREFIX}{id}__");
     let (mut command, destination) = ssh::interactive_target_command(&target_id)?;
     let (remote_command, completion) = match operation {
@@ -666,10 +685,10 @@ pub fn begin(
         }
         Operation::Connect => {
             let request = request.ok_or("invalidRequest")?;
-            if request.target_id != target_id {
-                return Err("invalidTarget".into());
-            }
             let plan = super::prepare_interactive_connect(&request)?;
+            if plan.fingerprint != target_fingerprint {
+                return Err("sshConfigChanged".into());
+            }
             command.arg("-oClearAllForwardings=no");
             for (remote, host, local) in &plan.endpoints {
                 let host = if host.contains(':') {
@@ -698,9 +717,12 @@ pub fn begin(
             )
         }
     };
+    if operation == Operation::Connect {
+        super::ensure_interactive_connect(id)?;
+    }
     let spawned = spawn(command, destination, remote_command, marker)?;
     let session = Session {
-        id: id.clone(),
+        id: id.into(),
         target_id,
         operation,
         auth: SshAuthState {
@@ -729,11 +751,18 @@ pub fn begin(
         password_cache_eligible: true,
         cached_password_attempted: false,
     };
-    if operation == Operation::Connect {
-        super::mark_interactive_connecting()?;
+    lock_sessions()?.insert(id.into(), session);
+    let result = (|| {
+        if operation == Operation::Connect {
+            super::ensure_interactive_connect(id)?;
+        }
+        state(id)
+    })();
+    if result.is_err() {
+        let retired = lock_sessions()?.remove(id);
+        drop(retired);
     }
-    lock_sessions()?.insert(id.clone(), session);
-    state(&id)
+    result
 }
 
 pub fn state(session_id: &str) -> BridgeResult<Snapshot> {
@@ -997,14 +1026,16 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
     let mut session = lock_sessions()?
         .remove(session_id)
         .ok_or("sshAuthSessionMissing")?;
-    if session.password_cache_eligible {
-        if let Some(password) = session.password_candidate.take() {
-            credential_cache::store(session.target_fingerprint.clone(), password)?;
-        }
-    }
-    session.auth.password_stored = credential_cache::contains(&session.target_fingerprint);
+    let password = session
+        .password_cache_eligible
+        .then(|| session.password_candidate.take())
+        .flatten();
     match session.completion {
         Completion::Check => {
+            if let Some(password) = password {
+                credential_cache::store(session.target_fingerprint.clone(), password)?;
+            }
+            session.auth.password_stored = credential_cache::contains(&session.target_fingerprint);
             super::complete_interactive_check(session.auth);
             let ports = super::allocate_ports(session.target_id, true)?;
             Ok(Outcome {
@@ -1031,19 +1062,31 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
                 .as_millis()
                 .try_into()
                 .unwrap_or(u64::MAX);
-            let process = session.process.take().ok_or("processFailed")?;
-            let summary =
-                super::complete_interactive_connect(super::InteractiveConnectCompletion {
-                    request,
-                    summary: *summary,
-                    fingerprint,
-                    process,
-                    auth: session.auth,
-                    auth_duration_ms,
-                    core_duration_ms,
-                    proxy_relay: *proxy_relay,
-                    ai_relay: *ai_relay,
-                })?;
+            let result = session
+                .process
+                .take()
+                .ok_or_else(|| String::from("processFailed"))
+                .and_then(|process| {
+                    super::complete_interactive_connect(
+                        session_id,
+                        super::InteractiveConnectCompletion {
+                            request,
+                            summary: *summary,
+                            fingerprint,
+                            process,
+                            auth: session.auth,
+                            password,
+                            auth_duration_ms,
+                            core_duration_ms,
+                            proxy_relay: *proxy_relay,
+                            ai_relay: *ai_relay,
+                        },
+                    )
+                });
+            if result.is_err() {
+                super::cancel_interactive_connect(session_id, None);
+            }
+            let summary = result?;
             Ok(Outcome {
                 operation: Operation::Connect,
                 ports: None,
@@ -1054,34 +1097,37 @@ pub fn finish(session_id: &str) -> BridgeResult<Outcome> {
 }
 
 pub fn cancel(session_id: &str) -> BridgeResult<()> {
-    let session = lock_sessions()?
-        .remove(session_id)
-        .ok_or("sshAuthSessionMissing")?;
-    credential_cache::clear_if_matches(&session.target_fingerprint);
-    if session.operation == Operation::Connect {
-        super::cancel_interactive_connect();
+    let session = lock_sessions()?.remove(session_id);
+    match session {
+        Some(session) if session.operation == Operation::Check => {
+            credential_cache::clear_if_matches(&session.target_fingerprint);
+        }
+        Some(session) => {
+            super::cancel_interactive_connect(session_id, Some(&session.target_fingerprint));
+        }
+        None if super::cancel_interactive_connect(session_id, None) => {}
+        None => return Err("sshAuthSessionMissing".into()),
     }
     Ok(())
 }
 
 pub fn cleanup() {
-    if let Ok(mut sessions) = sessions().try_lock() {
-        let cancelled_connect = sessions.values().any(|session| {
-            session.operation == Operation::Connect && session.created_at.elapsed() >= SESSION_TTL
-        });
-        let expired_cached_target = sessions
-            .values()
-            .find(|session| {
-                session.cached_password_attempted && session.created_at.elapsed() >= SESSION_TTL
-            })
-            .map(|session| session.target_fingerprint.clone());
-        sessions.retain(|_, session| session.created_at.elapsed() < SESSION_TTL);
-        drop(sessions);
-        if let Some(fingerprint) = expired_cached_target {
-            credential_cache::clear_if_matches(&fingerprint);
-        }
-        if cancelled_connect {
-            super::cancel_interactive_connect();
+    let retired: Vec<_> = {
+        let Ok(mut sessions) = sessions().try_lock() else {
+            return;
+        };
+        sessions
+            .extract_if(|_, session| session.created_at.elapsed() >= SESSION_TTL)
+            .collect()
+    };
+    for (id, session) in retired {
+        let cached_target = session
+            .cached_password_attempted
+            .then_some(session.target_fingerprint.as_str());
+        if session.operation == Operation::Connect {
+            super::cancel_interactive_connect(&id, cached_target);
+        } else if let Some(fingerprint) = cached_target {
+            credential_cache::clear_if_matches(fingerprint);
         }
     }
 }
