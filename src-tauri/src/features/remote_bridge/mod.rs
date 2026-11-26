@@ -444,6 +444,19 @@ impl StateStore {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
+    fn retire_for_shutdown(&self) -> Store {
+        let mut state = StoreGuard {
+            inner: self.inner.lock().unwrap_or_else(|e| e.into_inner()),
+            tray: &self.tray,
+            report: &self.report,
+        };
+        let terminal = Store {
+            connection_generation: state.connection_generation.wrapping_add(1),
+            ..Store::default()
+        };
+        // The guard publishes the terminal state before the caller drops the resources.
+        std::mem::replace(&mut *state, terminal)
+    }
 }
 impl std::ops::Deref for StoreGuard<'_> {
     type Target = Store;
@@ -2525,23 +2538,21 @@ pub fn clear_session_credential() {
     }
 }
 pub fn shutdown() {
-    STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
-    // Never hold up application exit behind an SSH timeout. Windows closes all
-    // outstanding kill-on-close jobs even when an operation owns the mutex.
-    if let Ok(mut state) = store().try_lock() {
-        state.child = None;
-        state.additional_tunnels.clear();
-        state.proxy_relay = None;
-        state.ai_relay = None;
-        state.profile_syncing = false;
-        state.local_codex_profile = None;
-        state.local_claude_profile = None;
-        state.summary.claude_profile_state = settings::ProfileSyncState::NotStarted;
-        state.events.clear();
+    if STOPPING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
     }
-    credential_cache::clear();
-    ssh_auth::shutdown();
-    logging::shutdown();
+
+    let (finished, completion) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let retired = store().retire_for_shutdown();
+        drop(retired);
+        ssh_auth::shutdown();
+        logging::shutdown();
+        let _ = finished.send(());
+    });
+    // Give the cleanup owner a bounded opportunity before Tauri exits. An
+    // operation holding Store or a slow destructor cannot extend this wait.
+    let _ = completion.recv_timeout(Duration::from_millis(200));
 }
 pub fn test() -> BridgeResult<()> {
     test_for_generation(None)

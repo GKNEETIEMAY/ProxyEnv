@@ -1087,11 +1087,12 @@ pub fn cleanup() {
 }
 
 pub fn shutdown() {
-    if let Ok(mut sessions) = sessions().try_lock() {
-        sessions.clear();
-    }
+    let retired = {
+        let mut sessions = sessions().lock().unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut *sessions)
+    };
+    drop(retired);
     credential_cache::clear();
-    super::cancel_interactive_connect();
 }
 
 #[cfg(test)]
