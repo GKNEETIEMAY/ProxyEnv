@@ -2,7 +2,10 @@
 //! The lease pauses mutations, not existing SSH/relay traffic. No credentials live here.
 use crate::features::remote_bridge::{self as bridge, BridgeResult};
 use serde::{Deserialize, Serialize};
-use std::sync::{Mutex, OnceLock};
+use std::{
+    sync::{Condvar, Mutex, OnceLock},
+    time::Instant,
+};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +101,21 @@ fn gate() -> &'static Mutex<Gate> {
     GATE.get_or_init(|| Mutex::new(Gate::default()))
 }
 
+static OPERATIONS_DRAINED: Condvar = Condvar::new();
+
+pub(crate) fn wait_for_bridge_operations(deadline: Instant) -> bool {
+    let Ok(state) = gate().lock() else {
+        return false;
+    };
+    OPERATIONS_DRAINED
+        .wait_timeout_while(
+            state,
+            deadline.saturating_duration_since(Instant::now()),
+            |state| state.operations != 0,
+        )
+        .is_ok_and(|(state, _)| state.operations == 0)
+}
+
 pub(crate) struct BridgeOperation;
 pub(crate) fn bridge_changes_busy() -> bool {
     bridge::is_stopping()
@@ -119,6 +137,9 @@ impl Drop for BridgeOperation {
     fn drop(&mut self) {
         if let Ok(mut state) = gate().lock() {
             state.operations = state.operations.saturating_sub(1);
+            if state.operations == 0 {
+                OPERATIONS_DRAINED.notify_all();
+            }
         }
     }
 }

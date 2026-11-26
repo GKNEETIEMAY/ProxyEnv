@@ -35,16 +35,19 @@ function fixture(name) {
 function instrument(path, anchor, replacement) {
   const file = join(checkout, bridge, path);
   const source = readFileSync(file, "utf8");
-  assert.equal(source.split(anchor).length, 2, `Expected one seam in ${path}`);
+  assert.equal(source.split(anchor).length, 2, `Expected one seam in ${path} at ${anchor.split("\n")[0].trim()}`);
   writeFileSync(file, source.replace(anchor, replacement));
 }
 function replaceCase(name, end, file) {
+  replaceSection(`#[test]\nfn ${name}() {`, end, fixture(file).trimEnd() + "\n");
+}
+function replaceSection(anchor, end, replacement) {
   const path = join(checkout, bridge, "acceptance.rs");
   const source = readFileSync(path, "utf8");
-  const start = source.indexOf(`#[test]\nfn ${name}() {`);
+  const start = source.indexOf(anchor);
   const boundary = source.indexOf(end, start);
-  assert.ok(start >= 0 && boundary > start, name);
-  writeFileSync(path, source.slice(0, start) + fixture(file).trimEnd() + "\n" + source.slice(boundary));
+  assert.ok(start >= 0 && boundary > start, anchor);
+  writeFileSync(path, source.slice(0, start) + replacement + source.slice(boundary));
 }
 const head = phase ? success(command("git", ["rev-parse", "HEAD"]), "identify candidate").trim() : observationBase;
 console.log(`Acceptance source ${head} (${phase ? `F${phase} candidate` : "original observation"})\nExit host: ${wry ? "Tauri/Wry" : "native Windows process"}\nEvidence ${batch}`);
@@ -62,19 +65,42 @@ if (phase) {
 appendFileSync(join(checkout, bridge, "tests.rs"), "\n" + fixture("r4-6-lifecycle-regressions.rs"));
 writeFileSync(join(checkout, bridge, "acceptance.rs"), fixture("r4-6-final-acceptance.rs"));
 if (wry) {
+  const buildScript = join(checkout, "src-tauri/build.rs");
+  const source = readFileSync(buildScript, "utf8");
+  const main = "fn main() {";
+  assert.equal(source.split(main).length, 2, "Expected isolated build-script entry");
+  writeFileSync(buildScript, source.replace(main, `${main}
+    println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'");
+`));
   instrument("acceptance.rs", `        wait_for_exit_request(&dir, &mode, first, second, port);
         run_exit_callback(&dir);
         std::process::exit(0);`, `        let mut context = tauri::generate_context!();
         context.config_mut().app.windows.clear();
         let app = tauri::Builder::<tauri::Wry>::default().any_thread().build(context).unwrap();
-        app.run(move |app, event| match event {
+        ${phase >= 6 ? `let exit_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        app.run(move |app, event| {
+            if matches!(event, tauri::RunEvent::Ready) {
+                wait_for_exit_request(&dir, &mode, first, second, port);
+                app.exit(0);
+                app.exit(0);
+            }
+            let requested = matches!(event, tauri::RunEvent::ExitRequested { .. });
+            if matches!(event, tauri::RunEvent::Exit) {
+                save_exit_snapshot(&dir);
+            }
+            crate::handle_application_exit(app, event, &exit_ready);
+            if requested && !dir.join("shutdown.requested").exists() {
+                mark(&dir, "shutdown.requested");
+            }
+        });` : `app.run(move |app, event| match event {
             tauri::RunEvent::Ready => {
                 wait_for_exit_request(&dir, &mode, first, second, port);
                 app.exit(0);
             }
             tauri::RunEvent::Exit => run_exit_callback(&dir),
             _ => (),
-        });`);
+        });`}`);
 }
 appendFileSync(join(checkout, bridge, "mod.rs"), "\n#[cfg(test)]\nmod acceptance;\n");
 appendFileSync(join(checkout, bridge, "ssh/ssh_auth.rs"), "\n" + fixture("r4-6-acceptance-auth.rs"));
@@ -88,6 +114,23 @@ if (phase >= 5) {
   instrument("acceptance.rs", '            fs::write(path, request["port"].to_string()).unwrap();',
     `            fs::write(path, request["port"].to_string()).unwrap();
             if request["port"] == 27892 { return Err("remoteFailed".into()); }`);
+}
+if (phase >= 6) {
+  replaceSection("        match mode {", '\n        mark(&dir, "release");',
+    "        assert_shutdown_result(&dir, mode, &exit_state, completed, [primary_started, primary_done, additional_started, additional_done]);");
+  replaceSection("    fn run_exit_callback(dir: &Path) {", "\n    fn observe(mode: &str) {",
+    fixture("r4-6-fixed-exit.rs").trimEnd() + "\n");
+  instrument("acceptance.rs", 'let (first, primary) = managed_resource(&dir, "primary", mode == "busy");',
+    'logging::initialize(dir.join("logs"));\n        let (first, primary) = managed_resource(&dir, "primary", matches!(mode.as_str(), "busy" | "timeout"));');
+  instrument("acceptance.rs", 'if mode == "contended" {', 'if matches!(mode, "contended" | "lock-timeout") {');
+  instrument("acceptance.rs", '        mark(&dir, "quit");', `        mark(&dir, "quit");
+        wait_until("shutdown was not requested", LIMIT, || dir.join("shutdown.requested").exists());
+        if matches!(mode, "busy" | "contended") {
+            assert!(app.0.try_wait().unwrap().is_none());
+            mark(&dir, "release");
+        }`);
+  instrument("acceptance.rs", '        mark(&dir, "release");\n    }', "    }");
+  instrument("acceptance.rs", '["normal", "busy", "contended"]', '["normal", "busy", "contended", "timeout", "lock-timeout"]');
 }
 for (const [path, signature, body] of [
   ["ssh/mod.rs", "pub fn targets() -> BridgeResult<Vec<RemoteTarget>> {",
@@ -109,16 +152,16 @@ instrument("tooling/extension.rs", "pub(super) fn discover(alias: &str) -> Bridg
   "pub(super) fn discover(alias: &str) -> BridgeResult<Inspection> {\n    #[cfg(test)]\n    if super::acceptance::enabled() { return Err(\"remoteUnsupported\".into()); }");
 const authTaken = phase ? "    let password = session" : "    if session.password_cache_eligible {";
 instrument("ssh/ssh_auth.rs", authTaken, "    #[cfg(test)]\n    super::acceptance::auth_taken(session_id);\n" + authTaken);
-instrument("mod.rs", "        let _ = finished.send(());",
-  "        #[cfg(test)]\n        acceptance::shutdown_finished();\n        let _ = finished.send(());");
+const shutdownReceipt = phase >= 6 ? "        let _ = finished.send(outcome);" : "        let _ = finished.send(());";
+instrument("mod.rs", shutdownReceipt, "        #[cfg(test)]\n        acceptance::shutdown_finished();\n" + shutdownReceipt);
 instrument("mod.rs", "        let post_connect_started = Instant::now();",
   "        #[cfg(test)]\n        let _worker = acceptance::PostConnectWorker;\n        let post_connect_started = Instant::now();");
 
 const manifest = join(checkout, "src-tauri/Cargo.toml");
 const build = command("cargo", ["test", "--manifest-path", manifest, "--lib", "--locked", "--offline", "--no-run",
   "--message-format=json"], {
-  timeout: 480_000, maxBuffer: 24 * 1024 * 1024,
-  env: { ...process.env, CARGO_TARGET_DIR: join(root, "src-tauri/target") },
+  timeout: 900_000, maxBuffer: 24 * 1024 * 1024,
+  env: { ...process.env, CARGO_TARGET_DIR: join(logRoot, wry ? "target-wry" : "target-native") },
 });
 const buildLog = join(batch, "build.jsonl");
 writeFileSync(buildLog, build.stdout);

@@ -2718,22 +2718,66 @@ pub fn clear_session_credential() {
         );
     }
 }
-pub fn shutdown() {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ShutdownOutcome {
+    Completed,
+    TimedOut,
+    Failed,
+}
+
+fn begin_shutdown(deadline: Option<Instant>) -> Option<std::sync::mpsc::Receiver<ShutdownOutcome>> {
     if STOPPING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return;
+        return None;
     }
 
     let (finished, completion) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
+        let drained = deadline.is_none_or(crate::desktop::updates::wait_for_bridge_operations);
         let retired = store().retire_for_shutdown();
         drop(retired);
         ssh_auth::shutdown();
-        logging::shutdown();
-        let _ = finished.send(());
+        if deadline.is_none() {
+            logging::shutdown();
+        }
+        let outcome = if drained {
+            ShutdownOutcome::Completed
+        } else {
+            ShutdownOutcome::TimedOut
+        };
+        let _ = finished.send(outcome);
     });
-    // Give the cleanup owner a bounded opportunity before Tauri exits. An
-    // operation holding Store or a slow destructor cannot extend this wait.
-    let _ = completion.recv_timeout(Duration::from_millis(200));
+    Some(completion)
+}
+
+pub(crate) fn coordinate_shutdown(
+    after_cleanup: impl FnOnce(ShutdownOutcome) + Send + 'static,
+) -> bool {
+    use std::sync::mpsc::RecvTimeoutError;
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let Some(completion) = begin_shutdown(Some(deadline)) else {
+        return false;
+    };
+    std::thread::spawn(move || {
+        let outcome =
+            match completion.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(outcome) => outcome,
+                Err(RecvTimeoutError::Timeout) => ShutdownOutcome::TimedOut,
+                Err(RecvTimeoutError::Disconnected) => ShutdownOutcome::Failed,
+            };
+        logging::finish_application_exit(outcome);
+        after_cleanup(outcome);
+    });
+    true
+}
+
+pub fn shutdown() {
+    // Final events that could not request a coordinated exit retain a short
+    // fallback opportunity for cleanup.
+    if let Some(completion) = begin_shutdown(None) {
+        let _ = completion.recv_timeout(Duration::from_millis(200));
+    }
 }
 pub fn test() -> BridgeResult<()> {
     test_for_generation(None)

@@ -7,6 +7,10 @@ mod services;
 
 use desktop::tray;
 use services::settings;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
@@ -16,6 +20,7 @@ pub fn try_run_ssh_askpass() -> bool {
 }
 
 pub fn run() {
+    let exit_ready = Arc::new(AtomicBool::new(false));
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main_window(app);
@@ -138,9 +143,28 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to run RouteSpan")
-        .run(|_, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                features::remote_bridge::shutdown();
-            }
-        });
+        .run(move |app, event| handle_application_exit(app, event, &exit_ready));
+}
+
+fn handle_application_exit(
+    app: &tauri::AppHandle,
+    event: tauri::RunEvent,
+    exit_ready: &Arc<AtomicBool>,
+) {
+    use features::remote_bridge as bridge;
+    match event {
+        tauri::RunEvent::ExitRequested { code, api, .. }
+            if code != Some(tauri::RESTART_EXIT_CODE) && !exit_ready.load(Ordering::Acquire) =>
+        {
+            api.prevent_exit();
+            let app = app.clone();
+            let exit_ready = exit_ready.clone();
+            bridge::coordinate_shutdown(move |_| {
+                exit_ready.store(true, Ordering::Release);
+                app.exit(code.unwrap_or(0));
+            });
+        }
+        tauri::RunEvent::Exit => bridge::shutdown(),
+        _ => (),
+    }
 }

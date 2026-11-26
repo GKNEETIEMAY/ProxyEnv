@@ -29,6 +29,7 @@ enum Message {
     Debug,
     Clear(mpsc::Sender<io::Result<()>>),
     Stop(mpsc::Sender<()>),
+    ApplicationExit(super::ShutdownOutcome),
 }
 #[derive(Serialize)]
 pub struct LogStatus {
@@ -63,6 +64,18 @@ pub fn initialize(directory: PathBuf) {
                     value["timestamp"] = timestamp().into();
                     value["component"] = "updater".into();
                     let result = serde_json::to_vec(&value).map_err(io::Error::other).and_then(|bytes| writer.append(bytes));
+                    worker_health.store(result.is_ok(), Ordering::Release);
+                }
+                Message::ApplicationExit(outcome) => {
+                    let value = serde_json::json!({
+                        "timestamp": timestamp(),
+                        "component": "application",
+                        "phase": "bridge.shutdown",
+                        "outcome": outcome,
+                    });
+                    let result = serde_json::to_vec(&value)
+                        .map_err(io::Error::other)
+                        .and_then(|bytes| writer.append(bytes));
                     worker_health.store(result.is_ok(), Ordering::Release);
                 }
                 Message::Debug => {
@@ -116,10 +129,19 @@ pub fn directory() -> super::BridgeResult<PathBuf> {
     Ok(sink.directory.clone())
 }
 pub fn shutdown() {
+    shutdown_with_timeout(Duration::from_secs(2));
+}
+pub(super) fn finish_application_exit(outcome: super::ShutdownOutcome) {
+    if let Some(sink) = SINK.get() {
+        let _ = sink.sender.try_send(Message::ApplicationExit(outcome));
+    }
+    shutdown_with_timeout(Duration::from_millis(200));
+}
+fn shutdown_with_timeout(timeout: Duration) {
     if let Some(sink) = SINK.get() {
         let (ack, receiver) = mpsc::channel();
         if sink.sender.try_send(Message::Stop(ack)).is_ok() {
-            let _ = receiver.recv_timeout(Duration::from_secs(2));
+            let _ = receiver.recv_timeout(timeout);
         }
         sink.healthy.store(false, Ordering::Release);
     }
