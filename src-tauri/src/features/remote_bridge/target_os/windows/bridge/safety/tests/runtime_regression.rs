@@ -12,7 +12,8 @@ use crate::features::remote_bridge::target_os::windows_bridge::safety::{
     },
     runtime::{
         local::{
-            Completion, End, LocalRuntime, Shutdown, COORDINATED_EXIT_BUDGET, EXIT_FALLBACK_BUDGET,
+            Completion, End, LocalRuntime, LocalVerification, Shutdown, COORDINATED_EXIT_BUDGET,
+            EXIT_FALLBACK_BUDGET,
         },
         Task,
     },
@@ -92,6 +93,180 @@ fn confirm_exit(witness: &OwnedHandle) {
         unsafe { WaitForSingleObject(raw(witness), PROCESS_WAIT_MS) },
         WAIT_OBJECT_0
     );
+}
+
+fn verification_args(
+    fixture: &Fixture,
+    plan: &WindowsBridgePlan<'_>,
+    layout: &Layout,
+) -> [String; 7] {
+    let directory = layout.frozen.to_str().unwrap().replace('\\', "/");
+    let profile = FrozenProfile::build(
+        plan.input.identity,
+        plan.input.host_key_sha256,
+        fixture.trust(),
+        &directory,
+    )
+    .unwrap();
+    profile.forward_args(
+        &plan
+            .forward_args(fixture.input(), fixture.clock(1).unix_seconds)
+            .unwrap(),
+    )
+}
+
+fn receive_proof(attempt: &mut LocalVerification, fixture: &Fixture) {
+    let listener = report(attempt.fixture_proof());
+    let receipt = attempt.fixture_proof().expected_receipt();
+    attempt
+        .listener_report(&listener, fixture.clock(2))
+        .unwrap();
+    attempt.receipt(&receipt, true, fixture.clock(2)).unwrap();
+}
+
+#[test]
+fn desktop_verification_requires_authorized_owned_resources_and_preserves_the_owner() {
+    let fixture = Fixture::new();
+    let layout = Layout::new();
+    let plan = fixture.plan();
+    let args = verification_args(&fixture, &plan, &layout);
+    let (mut runtime, task) = prepare(&fixture, &plan, &layout);
+    rejected(
+        runtime.begin_verification(&task, fixture.input(), &args, || fixture.clock(0)),
+        "windowsForwardPolicyDenied",
+    );
+    assert!(!layout.frozen.exists());
+
+    let witness = activate(&mut runtime, &task, &fixture);
+    let mut attempt = runtime
+        .begin_verification(&task, fixture.input(), &args, || fixture.clock(1))
+        .unwrap();
+    receive_proof(&mut attempt, &fixture);
+    runtime
+        .finish_verification(attempt, fixture.input(), &args, || fixture.clock(2))
+        .unwrap();
+    assert!(runtime.available(&task, fixture.clock(2)));
+    assert!(layout.frozen.join("ssh_config").is_file());
+
+    let closed = runtime
+        .stop(&task, End::Cancelled, shutdown_deadline())
+        .unwrap();
+    assert_eq!(closed.completion, Completion::Complete);
+    assert!(closed.pending.is_empty());
+    confirm_exit(&witness);
+    assert!(!layout.frozen.exists());
+}
+
+#[test]
+fn desktop_verification_rejects_other_tasks_and_host_key_changes() {
+    let fixture = Fixture::new();
+    let old_layout = Layout::new();
+    let plan = fixture.plan();
+    let old_args = verification_args(&fixture, &plan, &old_layout);
+    let (mut old, old_task) = prepare(&fixture, &plan, &old_layout);
+    let old_witness = activate(&mut old, &old_task, &fixture);
+    let mut stale = old
+        .begin_verification(&old_task, fixture.input(), &old_args, || fixture.clock(1))
+        .unwrap();
+    receive_proof(&mut stale, &fixture);
+    old.stop(&old_task, End::Cancelled, shutdown_deadline())
+        .unwrap();
+    confirm_exit(&old_witness);
+
+    let layout = Layout::new();
+    let args = verification_args(&fixture, &plan, &layout);
+    let (mut runtime, task) = prepare(&fixture, &plan, &layout);
+    let witness = activate(&mut runtime, &task, &fixture);
+    rejected(
+        runtime.finish_verification(stale, fixture.input(), &args, || fixture.clock(2)),
+        "windowsBridgeContextChanged",
+    );
+    assert!(runtime.available(&task, fixture.clock(2)));
+    assert!(layout.frozen.join("ssh_config").is_file());
+
+    let mut pending = runtime
+        .begin_verification(&task, fixture.input(), &args, || fixture.clock(2))
+        .unwrap();
+    receive_proof(&mut pending, &fixture);
+    let changed = WindowsBridgeInput {
+        verified_host: Some(ssh::VerifiedHostIdentity::fixture(
+            &fixture.target,
+            23,
+            [0x2a; 32],
+        )),
+        ..fixture.input()
+    };
+    rejected(
+        runtime.finish_verification(pending, changed, &args, || fixture.clock(3)),
+        "hostKeyChanged",
+    );
+    let closed = runtime
+        .stop(&task, End::Cancelled, shutdown_deadline())
+        .unwrap();
+    assert_eq!(closed.end, End::AuthorizationUnavailable);
+    assert_eq!(closed.completion, Completion::Complete);
+    confirm_exit(&witness);
+    assert!(!layout.frozen.exists());
+}
+
+#[test]
+fn desktop_verification_rechecks_history_deadlines_and_arguments_before_completion() {
+    enum Fault {
+        ExpiredGrant,
+        ExpiredProof,
+        UnavailableHistory,
+        ChangedArguments,
+        MissingReceipt,
+    }
+    for fault in [
+        Fault::ExpiredGrant,
+        Fault::ExpiredProof,
+        Fault::UnavailableHistory,
+        Fault::ChangedArguments,
+        Fault::MissingReceipt,
+    ] {
+        let fixture = Fixture::new();
+        let layout = Layout::new();
+        let plan = fixture.plan();
+        let mut args = verification_args(&fixture, &plan, &layout);
+        let (mut runtime, task) = prepare(&fixture, &plan, &layout);
+        let witness = activate(&mut runtime, &task, &fixture);
+        let mut attempt = runtime
+            .begin_verification(&task, fixture.input(), &args, || fixture.clock(1))
+            .unwrap();
+        if !matches!(fault, Fault::MissingReceipt) {
+            receive_proof(&mut attempt, &fixture);
+        }
+        let (seconds, code, end) = match fault {
+            Fault::ExpiredGrant => (30, "windowsForwardPolicyDenied", End::Expired),
+            Fault::ExpiredProof => (16, "windowsForwardVerificationClosed", End::SetupFailed),
+            Fault::UnavailableHistory => {
+                fs::write(
+                    layout.history.join("history.bin"),
+                    b"invalid protected history",
+                )
+                .unwrap();
+                (3, "windowsForwardPolicyDenied", End::HistoryUnavailable)
+            }
+            Fault::ChangedArguments => {
+                args[2] = "-v".into();
+                (3, "sshConfigUnsafe", End::SetupFailed)
+            }
+            Fault::MissingReceipt => (3, "windowsForwardReceiptInvalid", End::SetupFailed),
+        };
+        rejected(
+            runtime.finish_verification(attempt, fixture.input(), &args, || fixture.clock(seconds)),
+            code,
+        );
+        let closed = runtime
+            .stop(&task, End::Cancelled, shutdown_deadline())
+            .unwrap();
+        assert_eq!(closed.end, end);
+        assert_eq!(closed.completion, Completion::Complete);
+        assert!(closed.pending.is_empty());
+        confirm_exit(&witness);
+        assert!(!layout.frozen.exists());
+    }
 }
 
 #[test]
