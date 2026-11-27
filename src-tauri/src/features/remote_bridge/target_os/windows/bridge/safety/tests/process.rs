@@ -24,7 +24,7 @@ use windows::{
 
 const STDOUT_MARKER: &[u8] = b"routespan fixture stdout\n";
 const STDERR_MARKER: &[u8] = b"routespan fixture stderr\n";
-const WORKER_MODE: &str = "ROUTESPAN_LOCAL_PIPE_FIXTURE";
+pub(super) const WORKER_MODE: &str = "ROUTESPAN_LOCAL_PIPE_FIXTURE";
 
 pub(super) fn test_name(name: &str) -> String {
     format!("{}::{name}", module_path!().split_once("::").unwrap().1)
@@ -89,7 +89,16 @@ fn available(pipe: &PipeReader) -> Option<u32> {
 }
 
 // Peek first so a leaked writer fails by deadline instead of blocking the test.
-fn read_pipe(pipe: &mut PipeReader, marker: Option<&[u8]>) -> Vec<u8> {
+pub(super) fn read_pipe(pipe: &mut PipeReader, marker: Option<&[u8]>) -> Vec<u8> {
+    let bytes = read_pipe_until(pipe, marker);
+    assert!(
+        marker.is_none_or(|marker| bytes.windows(marker.len()).any(|window| window == marker)),
+        "child closed pipe before writing its marker"
+    );
+    bytes
+}
+
+pub(super) fn read_pipe_until(pipe: &mut PipeReader, marker: Option<&[u8]>) -> Vec<u8> {
     let deadline = Instant::now() + Duration::from_millis(u64::from(PROCESS_WAIT_MS));
     let mut bytes = Vec::new();
     loop {
@@ -109,13 +118,7 @@ fn read_pipe(pipe: &mut PipeReader, marker: Option<&[u8]>) -> Vec<u8> {
                     return bytes;
                 }
             }
-            None => {
-                assert!(
-                    marker.is_none(),
-                    "child closed pipe before writing its marker"
-                );
-                return bytes;
-            }
+            None => return bytes,
         }
     }
 }
@@ -239,16 +242,40 @@ fn isolated_job_worker() {
         Ok("managed-ownership") => super::managed_environment::check_managed_ownership(),
         Ok("managed-loss") => super::managed_environment::check_managed_loss(),
         Ok("managed-startup") => super::managed_environment::check_managed_startup(),
+        Ok("managed-cmd") => {
+            super::managed_environment::check_shell(super::managed_environment::ShellProgram::Cmd)
+        }
+        Ok("managed-powershell51") => super::managed_environment::check_shell(
+            super::managed_environment::ShellProgram::WindowsPowerShell,
+        ),
+        Ok("managed-powershell7") => super::managed_environment::check_shell(
+            super::managed_environment::ShellProgram::PowerShell7,
+        ),
+        Ok("managed-observer") => super::managed_environment::check_parent_environment(),
+        Ok("managed-cmd-payload") => super::managed_environment::check_cmd_payload(),
         _ => panic!("missing fixture case"),
     }
 }
 
 pub(super) fn run_isolated(mode: &str) {
+    run_worker(mode, &[], false);
+}
+
+pub(super) fn run_isolated_with_environment(mode: &str, variables: &[(&str, &str)]) -> String {
+    run_worker(mode, variables, true)
+}
+
+fn run_worker(mode: &str, variables: &[(&str, &str)], report: bool) -> String {
     // The child ends must briefly be inheritable for CreateProcessW. Keeping
     // them in this worker's handle table prevents unrelated test launches
     // in the parent test runner from inheriting them.
-    let mut worker = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", &test_name("isolated_job_worker"), "--ignored"])
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command.args(["--exact", &test_name("isolated_job_worker"), "--ignored"]);
+    if report {
+        command.arg("--nocapture");
+    }
+    let mut worker = command
+        .envs(variables.iter().copied())
         .env(WORKER_MODE, mode)
         .creation_flags(CREATE_NO_WINDOW.0)
         .stdout(Stdio::piped())
@@ -272,6 +299,7 @@ pub(super) fn run_isolated(mode: &str) {
         output.status,
         String::from_utf8_lossy(&output.stderr)
     );
+    stdout.into_owned()
 }
 
 #[test]

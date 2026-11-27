@@ -21,6 +21,10 @@ use windows::{
     },
 };
 
+#[cfg(test)]
+#[path = "owned_process/shell_fixture.rs"]
+pub(super) mod shell_fixture;
+
 pub(super) const PROCESS_WAIT_MS: u32 = 5000;
 
 pub(super) fn raw(handle: &OwnedHandle) -> HANDLE {

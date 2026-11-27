@@ -47,6 +47,8 @@ struct Fixture {
     blob: Vec<u8>,
     known: String,
     start: Instant,
+    #[cfg(windows)]
+    platform: Option<super::super::WindowsTargetProbe>,
 }
 
 fn blob(value: u8) -> Vec<u8> {
@@ -75,6 +77,8 @@ impl Fixture {
             known: format!("[a.example]:2222 ssh-ed25519 {}\n", base64_bytes(&blob)),
             blob,
             start: Instant::now(),
+            #[cfg(windows)]
+            platform: None,
         }
     }
 
@@ -86,13 +90,16 @@ impl Fixture {
     }
 
     fn input(&self) -> WindowsBridgeInput<'_> {
+        let input = input(&self.target, &self.proxy);
         WindowsBridgeInput {
             verified_host: Some(ssh::VerifiedHostIdentity::fixture(
                 &self.target,
                 23,
                 self.review[0].host_key_sha256,
             )),
-            ..input(&self.target, &self.proxy)
+            #[cfg(windows)]
+            platform: self.platform.as_ref().unwrap_or(input.platform),
+            ..input
         }
     }
 
