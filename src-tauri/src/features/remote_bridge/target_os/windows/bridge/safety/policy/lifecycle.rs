@@ -9,13 +9,15 @@ use std::time::{Duration, Instant};
 
 pub(in super::super) const FRESHNESS_DOMAIN: &[u8] = b"RouteSpan/windows-forward-status-proof/v1\0";
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Deserialize, serde::Serialize, PartialEq, Eq, Hash)]
+#[serde(deny_unknown_fields)]
 pub(in super::super) struct HistoryKey {
     pub issuer_key: [u8; 32],
     pub review: ReviewScope,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, serde::Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub(in super::super) struct Decision {
     pub sequence: u64,
     pub digest: [u8; 32],

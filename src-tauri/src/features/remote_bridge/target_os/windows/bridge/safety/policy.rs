@@ -23,8 +23,7 @@ pub(super) struct SignedRecord<'a> {
     pub signature: &'a [u8],
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
-#[cfg_attr(test, derive(serde::Serialize))]
+#[derive(Clone, Debug, Deserialize, serde::Serialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ReviewScope {
     pub review: String,

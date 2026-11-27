@@ -1,5 +1,9 @@
 mod frozen;
+#[cfg(windows)]
+mod local_files;
 mod policy;
+#[cfg(windows)]
+mod policy_storage;
 
 #[cfg(test)]
 mod tests;
