@@ -1,5 +1,9 @@
 use serde::Serialize;
 
+#[cfg(windows)]
+#[allow(dead_code)]
+pub(super) mod process_environment;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WindowsShell {
