@@ -1,4 +1,32 @@
 use super::{policy::lifecycle::*, *};
+
+#[cfg(windows)]
+pub(super) fn drive_local_policy_stop(revoked: bool, close: impl FnOnce()) {
+    let fixture = Fixture::new();
+    let history = MemoryHistory::default();
+    let lease = fixture.lease();
+    let mut lifecycle = enroll(&fixture, &lease, &history);
+    if revoked {
+        let status = Status {
+            sequence: 10,
+            revoked: true,
+            ..Fixture::status()
+        };
+        refresh(
+            &mut lifecycle,
+            &fixture,
+            &lease,
+            &history,
+            &mut source(&fixture, status),
+            fixture.clock(1),
+        );
+        assert!(matches!(lifecycle.state(), State::Revoked));
+    } else {
+        lifecycle.check_current(&history, || observe(&lease.scope, fixture.clock(30)));
+        assert!(matches!(lifecycle.state(), State::Expired));
+    }
+    close();
+}
 use std::{
     collections::HashMap,
     sync::{

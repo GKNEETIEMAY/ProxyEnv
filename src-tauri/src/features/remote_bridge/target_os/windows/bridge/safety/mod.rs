@@ -3,6 +3,8 @@ mod frozen;
 mod frozen_resources;
 #[cfg(windows)]
 mod local_files;
+#[cfg(windows)]
+mod owned_process;
 mod policy;
 #[cfg(windows)]
 mod policy_storage;
