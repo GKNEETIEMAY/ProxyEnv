@@ -10,24 +10,26 @@ use crate::features::remote_bridge::target_os::windows_bridge::safety::{
 use std::{fs, io, path::PathBuf};
 use windows::Win32::{Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject};
 
-struct Layout {
-    history: PathBuf,
-    frozen: PathBuf,
+pub(super) struct Layout {
+    pub(super) history: PathBuf,
+    pub(super) frozen: PathBuf,
 }
 
 impl Layout {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let mut nonce = [0; 12];
         getrandom::fill(&mut nonce).unwrap();
         let namespace = hex::encode(nonce);
-        let parent = std::env::current_dir().unwrap();
+        // Keep short-lived protected files beside the test binary, outside source-tree scans.
+        let executable = std::env::current_exe().unwrap();
+        let parent = executable.parent().unwrap();
         Self {
             history: parent.join(format!("routespan-runtime-history-{namespace}")),
             frozen: parent.join(format!("routespan-runtime-frozen-{namespace}")),
         }
     }
 
-    fn history(&self) -> PolicyStorage {
+    pub(super) fn history(&self) -> PolicyStorage {
         PolicyStorage::initialize(&self.history).unwrap()
     }
 }
@@ -41,11 +43,11 @@ impl Drop for Layout {
     }
 }
 
-fn start_child() -> io::Result<OwnedProcess> {
+pub(super) fn start_child() -> io::Result<OwnedProcess> {
     OwnedProcess::start_fixture(&process::test_name("job_pipe_child"))
 }
 
-fn shutdown_deadline() -> Instant {
+pub(super) fn shutdown_deadline() -> Instant {
     Instant::now() + Duration::from_millis(u64::from(PROCESS_WAIT_MS))
 }
 
@@ -75,13 +77,18 @@ pub(super) fn check_runtime_components() {
         ));
         assert!(!layout.frozen.exists());
         let lease = fixture.sign(LEASE_DOMAIN, fixture.lease());
-        assert!(runtime.refresh(
+        if !runtime.refresh(
             &task,
             fixture.input(),
             lease.record(),
             &mut source(&fixture, Fixture::status()),
-            || fixture.clock(0)
-        ));
+            || fixture.clock(0),
+        ) {
+            let report = runtime
+                .stop(&task, End::Cancelled, shutdown_deadline())
+                .unwrap();
+            panic!("initial grant for {end:?} rejected: {report:?}");
+        }
         let mut witness = None;
         assert!(runtime.activate(
             &task,

@@ -412,3 +412,22 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
 fn cleanup_deadline() -> Instant {
     Instant::now() + CLOSE_BUDGET
 }
+
+#[cfg(test)]
+#[test]
+fn runtime_boundaries_reports_no_progress_as_cleanup_failure() {
+    let unresolved = PendingCleanup {
+        name: ".",
+        id: None,
+        error: io::ErrorKind::PermissionDenied.into(),
+    };
+    let report = LocalResources::default().close(
+        End::SetupFailed,
+        cleanup_deadline(),
+        vec![unresolved],
+        None,
+    );
+    assert_eq!(report.completion, Completion::Failed);
+    assert_eq!(report.pending.len(), 1);
+    assert!(report.process.is_none());
+}

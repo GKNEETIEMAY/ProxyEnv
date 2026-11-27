@@ -228,6 +228,10 @@ fn isolated_job_worker() {
         Ok("policy-stop") => check_policy_shutdown(),
         Ok("startup-error") => check_failed_fixture_launch(),
         Ok("runtime-integration") => super::runtime_integration::check_runtime_components(),
+        Ok("runtime-startup-failure") => super::runtime_regression::check_startup_failure(),
+        Ok("runtime-policy-failures") => super::runtime_regression::check_policy_failures(),
+        Ok("runtime-exit-budget") => super::runtime_regression::check_application_exit(),
+        Ok("runtime-drop") => super::runtime_regression::check_drop(),
         _ => panic!("missing fixture case"),
     }
 }

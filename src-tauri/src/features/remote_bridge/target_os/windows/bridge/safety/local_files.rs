@@ -377,12 +377,18 @@ impl PrivateDirectory {
 }
 
 pub(super) fn delete_by_handle(file: &File) -> io::Result<()> {
-    let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
+    // A second handle sharing deletion can keep a classic delete-pending name visible.
+    // Unlink the verified NTFS object when our deletion handle closes.
+    let disposition = FILE_DISPOSITION_INFO_EX {
+        Flags: FILE_DISPOSITION_INFO_EX_FLAGS(
+            FILE_DISPOSITION_FLAG_DELETE.0 | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS.0,
+        ),
+    };
     // SAFETY: file remains live and disposition matches the requested Win32 class.
     unsafe {
         SetFileInformationByHandle(
             handle(file),
-            FileDispositionInfo,
+            FileDispositionInfoEx,
             std::ptr::from_ref(&disposition).cast(),
             size_of_val(&disposition) as u32,
         )

@@ -18,6 +18,8 @@ mod policy_lifecycle;
 mod process;
 #[cfg(windows)]
 mod runtime_integration;
+#[cfg(windows)]
+mod runtime_regression;
 
 const DIR: &str = "C:/RouteSpan fixture";
 

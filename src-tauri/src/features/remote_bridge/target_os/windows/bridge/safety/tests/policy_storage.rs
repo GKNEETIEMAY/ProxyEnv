@@ -77,7 +77,21 @@ fn protected_history_cas_isolates_scopes_and_preserves_revocation() {
         Err(HistoryError::Conflict)
     );
     drop(_lock);
+    let prior_bytes = fs::read(root.0.join(DATA)).unwrap();
+    let mut observer = first
+        .directory
+        .file(
+            DATA,
+            GENERIC_READ.0,
+            FILE_SHARE_READ | FILE_SHARE_DELETE,
+            false,
+        )
+        .unwrap();
     second.commit(&main, Some(allowed), revoked).unwrap();
+    let mut observed_bytes = Vec::new();
+    observer.read_to_end(&mut observed_bytes).unwrap();
+    assert_eq!(observed_bytes, prior_bytes);
+    drop(observer);
     assert_eq!(
         first.commit(&main, Some(allowed), decision(11, false)),
         Err(HistoryError::Conflict)

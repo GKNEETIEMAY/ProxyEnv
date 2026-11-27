@@ -17,13 +17,17 @@ use windows::Win32::{
         CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     },
     Storage::FileSystem::{
-        FileRenameInfo, SetFileInformationByHandle, DELETE, FILE_RENAME_INFO, FILE_SHARE_MODE,
+        FileRenameInfo, FileRenameInfoEx, SetFileInformationByHandle, DELETE, FILE_RENAME_INFO,
+        FILE_SHARE_DELETE, FILE_SHARE_MODE, FILE_SHARE_READ,
     },
 };
 
 const LOCK: &str = "history.lock";
 const DATA: &str = "history.bin";
 const MAX_BYTES: usize = 1024 * 1024;
+// FILE_RENAME_INFORMATION flags for FileRenameInfoEx.
+const FILE_RENAME_REPLACE_IF_EXISTS: u32 = 0x0000_0001;
+const FILE_RENAME_POSIX_SEMANTICS: u32 = 0x0000_0002;
 type HistoryResult<T> = Result<T, HistoryError>;
 
 #[derive(Deserialize, Serialize)]
@@ -64,7 +68,8 @@ impl PolicyStorage {
     }
 
     fn directory(path: &Path, create: bool) -> HistoryResult<Self> {
-        let directory = PrivateDirectory::new(path, create, GENERIC_READ.0).map_err(history_io)?;
+        let directory = PrivateDirectory::new(path, create, GENERIC_READ.0)
+            .map_err(|error| history_io("open directory", error))?;
         Ok(Self { directory })
     }
 
@@ -74,9 +79,11 @@ impl PolicyStorage {
             .file(LOCK, GENERIC_READ.0, FILE_SHARE_MODE(0), create)
             .map_err(|error| {
                 if error.raw_os_error() == Some(ERROR_SHARING_VIOLATION.0 as i32) {
+                    #[cfg(test)]
+                    eprintln!("policy history lock contention (Win32 sharing violation)");
                     HistoryError::Conflict
                 } else {
-                    history_io(error)
+                    history_io("open lock", error)
                 }
             })
     }
@@ -93,12 +100,12 @@ impl PolicyStorage {
     fn load(&self) -> HistoryResult<Snapshot> {
         let file = self
             .directory
-            .file(DATA, GENERIC_READ.0, FILE_SHARE_MODE(0), false)
-            .map_err(history_io)?;
+            .file(DATA, GENERIC_READ.0, FILE_SHARE_READ, false)
+            .map_err(|error| history_io("open snapshot", error))?;
         let mut blob = Vec::new();
         file.take((MAX_BYTES + 1) as u64)
             .read_to_end(&mut blob)
-            .map_err(history_io)?;
+            .map_err(|error| history_io("read snapshot", error))?;
         let plain = crypt(&blob, &self.entropy(), false)?;
         let snapshot: Snapshot =
             serde_json::from_slice(&plain).map_err(|_| HistoryError::Corrupt)?;
@@ -131,21 +138,38 @@ impl PolicyStorage {
                 FILE_SHARE_MODE(0),
                 true,
             )
-            .map_err(history_io)?;
+            .map_err(|error| history_io("create stage", error))?;
         if let Err(error) = file.write_all(&blob).and_then(|()| file.sync_all()) {
             let _ = delete_by_handle(&file);
-            return Err(history_io(error));
+            return Err(history_io("flush stage", error));
         }
         Ok(file)
     }
 
     fn save(&self, snapshot: &Snapshot, replace: bool) -> HistoryResult<()> {
+        // Keep the validated old object pinned until publication. Observers must have opted
+        // into delete sharing. A reader that denies deletion still blocks this transaction.
+        let _destination = if replace {
+            Some(
+                self.directory
+                    .file(
+                        DATA,
+                        GENERIC_READ.0 | DELETE.0,
+                        FILE_SHARE_READ | FILE_SHARE_DELETE,
+                        false,
+                    )
+                    .map_err(|error| history_io("open snapshot for replacement", error))?,
+            )
+        } else {
+            None
+        };
         let file = self.stage(snapshot)?;
         if let Err(error) = rename(&file, &self.directory.path.join(DATA), replace) {
             let _ = delete_by_handle(&file);
-            return Err(history_io(error));
+            return Err(history_io("publish snapshot", error));
         }
-        file.sync_all().map_err(history_io)
+        file.sync_all()
+            .map_err(|error| history_io("flush snapshot", error))
     }
 }
 
@@ -201,7 +225,13 @@ impl PolicyHistory for PolicyStorage {
     }
 }
 
-fn history_io(error: io::Error) -> HistoryError {
+fn history_io(_operation: &str, error: io::Error) -> HistoryError {
+    #[cfg(test)]
+    eprintln!(
+        "policy history {_operation}: {:?} ({:?})",
+        error.kind(),
+        error.raw_os_error()
+    );
     match error.kind() {
         io::ErrorKind::NotFound => HistoryError::Missing,
         io::ErrorKind::InvalidData => HistoryError::Corrupt,
@@ -268,14 +298,20 @@ fn rename(file: &File, destination: &Path, replace: bool) -> io::Result<()> {
     // SAFETY: this zeroed, aligned buffer has space for the header and complete UTF-16 name.
     unsafe {
         let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
-        (*info).Anonymous.ReplaceIfExists = replace;
+        let mode = if replace {
+            (*info).Anonymous.Flags = FILE_RENAME_REPLACE_IF_EXISTS | FILE_RENAME_POSIX_SEMANTICS;
+            FileRenameInfoEx
+        } else {
+            // The zeroed ReplaceIfExists member refuses to overwrite on initialization.
+            FileRenameInfo
+        };
         (*info).FileNameLength = (bytes - size_of::<u16>()) as u32;
         std::ptr::copy_nonoverlapping(
             name.as_ptr(),
             std::ptr::addr_of_mut!((*info).FileName).cast(),
             name.len(),
         );
-        SetFileInformationByHandle(handle(file), FileRenameInfo, info.cast(), length as u32)
+        SetFileInformationByHandle(handle(file), mode, info.cast(), length as u32)
     }
     .map_err(win_error)
 }

@@ -211,6 +211,12 @@ impl OwnedProcess {
         Self::spawn_suspended(exe.as_os_str(), &mut command)
     }
 
+    #[cfg(test)]
+    pub(super) fn invalid_fixture() -> io::Result<Self> {
+        let path = std::env::current_dir()?.join("<invalid-fixture-image>.exe");
+        Self::spawn_suspended(path.as_os_str(), &mut [0])
+    }
+
     pub(super) fn resume(&mut self) -> io::Result<()> {
         let primary = self
             .child
@@ -324,10 +330,7 @@ fn wait_empty(job: &OwnedHandle, deadline: Instant) -> Result<(), bool> {
 
 #[cfg(test)]
 pub(super) fn check_failed_fixture_launch() {
-    let path = std::env::current_dir()
-        .unwrap()
-        .join("<invalid-fixture-image>.exe");
-    let Err(error) = OwnedProcess::spawn_suspended(path.as_os_str(), &mut [0]) else {
+    let Err(error) = OwnedProcess::invalid_fixture() else {
         panic!("unexpected fixture image");
     };
     assert_eq!(
