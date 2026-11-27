@@ -13,7 +13,17 @@ use crate::features::remote_bridge::target_os::windows_bridge::safety::{
 };
 use crate::features::proxy::ProxyProtocol;
 pub(super) use crate::features::remote_bridge::target_os::windows_bridge::safety::owned_process::shell_fixture::ShellProgram;
-use std::{env, fs, io::{self, Write}, os::windows::io::OwnedHandle, path::{Path, PathBuf}};
+use std::{
+    env, fs,
+    io::{self, Write},
+    os::windows::{fs::OpenOptionsExt, io::OwnedHandle},
+    path::{Path, PathBuf},
+    thread,
+};
+use windows::Win32::{
+    Foundation::ERROR_SHARING_VIOLATION,
+    Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_READ, FILE_SHARE_WRITE},
+};
 
 const PARENT: [(&str, &str); 5] = [
     ("HTTP_PROXY", "http://127.0.0.1:29991"),
@@ -212,11 +222,58 @@ pub(super) fn check_managed_startup() {
 
 struct WorkingFixture(PathBuf);
 
+impl WorkingFixture {
+    fn remove_directory_until(&self, deadline: Instant) -> io::Result<()> {
+        if Instant::now() >= deadline {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        loop {
+            match fs::remove_dir(&self.0) {
+                Err(error) if error.raw_os_error() == Some(ERROR_SHARING_VIOLATION.0 as i32) => {
+                    // Windows can retain a directory share briefly after the Job is empty.
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        return Err(error);
+                    }
+                    thread::sleep(remaining.min(Duration::from_millis(5)));
+                    if Instant::now() >= deadline {
+                        return Err(error);
+                    }
+                }
+                result => return result,
+            }
+        }
+    }
+}
+
 impl Drop for WorkingFixture {
     fn drop(&mut self) {
         let _ = fs::remove_file(self.0.join(CWD_WITNESS));
         let _ = fs::remove_dir(&self.0);
     }
+}
+
+#[test]
+fn managed_child_working_directory_sharing_respects_cleanup_deadline() {
+    let path = Layout::new().history.with_extension("cwd-sharing");
+    fs::create_dir(&path).unwrap();
+    let directory = WorkingFixture(path);
+    let handle = fs::OpenOptions::new()
+        .read(true)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE).0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+        .open(&directory.0)
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_millis(150);
+    let error = directory.remove_directory_until(deadline).unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(ERROR_SHARING_VIOLATION.0 as i32));
+    assert!(Instant::now() >= deadline);
+    assert!(directory.0.is_dir());
+    drop(handle);
+    directory
+        .remove_directory_until(shutdown_deadline())
+        .unwrap();
+    assert!(!directory.0.exists());
 }
 
 pub(super) fn check_parent_environment() {
@@ -378,6 +435,9 @@ pub(super) fn check_shell(program: ShellProgram) {
         check_parent_environment();
         if protocol == ProxyProtocol::Mixed {
             process::run_isolated("managed-observer");
+        }
+        let deadline = shutdown_deadline();
+        if protocol == ProxyProtocol::Mixed {
             let changed = WindowsBridgeInput {
                 generation: 24,
                 verified_host: Some(ssh::VerifiedHostIdentity::fixture(
@@ -399,9 +459,7 @@ pub(super) fn check_shell(program: ShellProgram) {
                 Some(ManagedStatus::Prepared)
             ));
         }
-        let report = runtime
-            .stop(&task, End::Cancelled, shutdown_deadline())
-            .unwrap();
+        let report = runtime.stop(&task, End::Cancelled, deadline).unwrap();
         assert_eq!(report.completion, Completion::Complete);
         assert!(report.pending.is_empty());
         assert!(report
@@ -413,7 +471,9 @@ pub(super) fn check_shell(program: ShellProgram) {
         assert!(!layout.frozen.exists());
         check_parent_environment();
         fs::remove_file(directory.0.join(CWD_WITNESS)).expect("remove current fixture witness");
-        fs::remove_dir(&directory.0).expect("remove current fixture working directory");
+        directory
+            .remove_directory_until(deadline)
+            .expect("remove current fixture working directory");
     }
     println!("M33 SHELL {} HTTP/SOCKS5/Mixed", verified_version.unwrap());
 }
