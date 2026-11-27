@@ -6,17 +6,20 @@ use super::{
 };
 use crate::features::remote_bridge::target_os::windows_bridge::safety::{
     local_files::{delete_by_handle, PrivateDirectory},
-    owned_process::{raw, OwnedProcess, PROCESS_WAIT_MS},
+    owned_process::{raw, CloseReport, OwnedProcess, ParentPipes, PROCESS_WAIT_MS},
     policy::lifecycle::{
         Enrollment, StatusRequest, StatusResponse, StatusSource, StatusUnavailable,
     },
     runtime::{
-        local::{Completion, End, LocalRuntime, Shutdown},
+        local::{
+            Completion, End, LocalRuntime, Shutdown, COORDINATED_EXIT_BUDGET, EXIT_FALLBACK_BUDGET,
+        },
         Task,
     },
 };
 use std::{
     fs,
+    io::{self, Write},
     os::windows::{fs::OpenOptionsExt, io::OwnedHandle},
 };
 use windows::Win32::{
@@ -27,8 +30,6 @@ use windows::Win32::{
     },
     System::Threading::WaitForSingleObject,
 };
-
-const EXIT_BUDGET: Duration = Duration::from_millis(200);
 
 fn prepare<'p, 'review>(
     fixture: &Fixture,
@@ -61,6 +62,14 @@ fn authorize(runtime: &mut LocalRuntime<'_, '_>, task: &Task, fixture: &Fixture)
 }
 
 fn activate(runtime: &mut LocalRuntime<'_, '_>, task: &Task, fixture: &Fixture) -> OwnedHandle {
+    activate_with_pipes(runtime, task, fixture).0
+}
+
+fn activate_with_pipes(
+    runtime: &mut LocalRuntime<'_, '_>,
+    task: &Task,
+    fixture: &Fixture,
+) -> (OwnedHandle, ParentPipes) {
     authorize(runtime, task, fixture);
     let mut witness = None;
     assert!(runtime.activate(
@@ -69,7 +78,7 @@ fn activate(runtime: &mut LocalRuntime<'_, '_>, task: &Task, fixture: &Fixture) 
         || fixture.clock(1),
         || {
             let child = start_child()?;
-            witness = Some(child.witness()?.0);
+            witness = Some(child.witness()?);
             Ok(child)
         }
     ));
@@ -123,7 +132,11 @@ fn runtime_boundaries_cancel_preparation_and_reject_stale_actions() {
     ));
     authorize(&mut current, &task, &fixture);
     let report = current
-        .stop(&task, End::ApplicationExit, Instant::now() + EXIT_BUDGET)
+        .stop(
+            &task,
+            End::ApplicationExit,
+            Instant::now() + EXIT_FALLBACK_BUDGET,
+        )
         .unwrap();
     assert_eq!(report.end, End::ApplicationExit);
     assert_eq!(report.completion, Completion::Complete);
@@ -131,21 +144,47 @@ fn runtime_boundaries_cancel_preparation_and_reject_stale_actions() {
 }
 
 pub(super) fn check_startup_failure() {
-    for foreign_file in [false, true] {
+    #[derive(Clone, Copy)]
+    enum RollbackCase {
+        Complete,
+        PartialForeignFile,
+        FailedLockedFiles,
+    }
+    for case in [
+        RollbackCase::Complete,
+        RollbackCase::PartialForeignFile,
+        RollbackCase::FailedLockedFiles,
+    ] {
         let fixture = Fixture::new();
         let layout = Layout::new();
         let plan = fixture.plan();
         let (mut runtime, task) = prepare(&fixture, &plan, &layout);
         authorize(&mut runtime, &task, &fixture);
         let marker = layout.frozen.join("fixture-foreign.txt");
+        let mut locked = Vec::new();
         assert!(!runtime.activate(
             &task,
             fixture.input(),
             || fixture.clock(1),
             || {
                 assert!(layout.frozen.join("ssh_config").is_file());
-                if foreign_file {
-                    fs::write(&marker, b"synthetic foreign content").unwrap();
+                match case {
+                    RollbackCase::Complete => {}
+                    RollbackCase::PartialForeignFile => {
+                        fs::write(&marker, b"synthetic foreign content").unwrap();
+                    }
+                    RollbackCase::FailedLockedFiles => {
+                        for name in ["ssh_config", "known_hosts", "revoked_hosts"] {
+                            locked.push(
+                                fs::OpenOptions::new()
+                                    .read(true)
+                                    .share_mode(FILE_SHARE_READ.0)
+                                    .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+                                    .open(layout.frozen.join(name))
+                                    .unwrap(),
+                            );
+                        }
+                    }
                 }
                 OwnedProcess::invalid_fixture()
             }
@@ -159,19 +198,36 @@ pub(super) fn check_startup_failure() {
             report.setup_error.as_ref().unwrap().raw_os_error(),
             Some(ERROR_INVALID_NAME.0 as i32)
         );
-        for name in ["ssh_config", "known_hosts", "revoked_hosts"] {
-            assert!(!layout.frozen.join(name).exists());
-        }
-        if foreign_file {
-            assert_eq!(report.completion, Completion::Partial);
-            assert_eq!(report.pending.len(), 1);
-            assert_eq!(report.pending[0].name, ".");
-            assert_eq!(fs::read(&marker).unwrap(), b"synthetic foreign content");
-            fs::remove_file(&marker).unwrap();
-            reclaim_fixture(&layout, report);
-        } else {
-            assert_eq!(report.completion, Completion::Complete);
-            assert!(report.pending.is_empty());
+        match case {
+            RollbackCase::Complete => {
+                assert_eq!(report.completion, Completion::Complete);
+                assert!(report.pending.is_empty());
+            }
+            RollbackCase::PartialForeignFile => {
+                for name in ["ssh_config", "known_hosts", "revoked_hosts"] {
+                    assert!(!layout.frozen.join(name).exists());
+                }
+                assert_eq!(report.completion, Completion::Partial);
+                assert_eq!(report.pending.len(), 1);
+                assert_eq!(report.pending[0].name, ".");
+                assert_eq!(fs::read(&marker).unwrap(), b"synthetic foreign content");
+                fs::remove_file(&marker).unwrap();
+                reclaim_fixture(&layout, report);
+            }
+            RollbackCase::FailedLockedFiles => {
+                assert_eq!(report.completion, Completion::Failed);
+                assert_eq!(
+                    report
+                        .pending
+                        .iter()
+                        .map(|entry| entry.name)
+                        .collect::<Vec<_>>(),
+                    vec!["ssh_config", "known_hosts", "revoked_hosts", "."]
+                );
+                assert!(report.pending.iter().all(|entry| entry.id.is_some()));
+                drop(locked);
+                reclaim_fixture(&layout, report);
+            }
         }
         assert!(!layout.frozen.exists());
     }
@@ -180,9 +236,10 @@ pub(super) fn check_startup_failure() {
 fn reclaim_fixture(layout: &Layout, report: &Shutdown) {
     let directory =
         PrivateDirectory::new(&layout.frozen, false, GENERIC_READ.0 | DELETE.0).unwrap();
+    let mut directory_id = None;
     for entry in &report.pending {
         if entry.name == "." {
-            assert_eq!(entry.id, Some(directory.id));
+            directory_id = entry.id;
             continue;
         }
         assert!(matches!(
@@ -200,6 +257,7 @@ fn reclaim_fixture(layout: &Layout, report: &Shutdown) {
         assert_eq!(entry.id, Some(directory.validate(&file, false).unwrap()));
         delete_by_handle(&file).unwrap();
     }
+    assert_eq!(directory_id, Some(directory.id));
     delete_by_handle(&directory.directory).unwrap();
 }
 
@@ -265,30 +323,152 @@ pub(super) fn check_policy_failures() {
 }
 
 pub(super) fn check_application_exit() {
-    for budget in [Duration::ZERO, EXIT_BUDGET] {
+    // 1. Coordinated 3s exit after child has already exited on its own (normal exit, not forced).
+    let fixture = Fixture::new();
+    let layout = Layout::new();
+    let plan = fixture.plan();
+    let (mut runtime, task) = prepare(&fixture, &plan, &layout);
+    let (witness, mut pipes) = activate_with_pipes(&mut runtime, &task, &fixture);
+    pipes.input.write_all(b"e").unwrap();
+    drop(pipes);
+    confirm_exit(&witness);
+    let report = runtime
+        .stop(
+            &task,
+            End::ApplicationExit,
+            Instant::now() + COORDINATED_EXIT_BUDGET,
+        )
+        .unwrap();
+    assert_eq!(report.end, End::ApplicationExit);
+    assert_eq!(report.completion, Completion::Complete);
+    assert_eq!(
+        report.process,
+        Some(CloseReport {
+            process_exited: true,
+            job_empty: true,
+            forced: false,
+            termination_error: None,
+            timed_out: false,
+        })
+    );
+    assert!(report.pending.is_empty());
+    assert!(!layout.frozen.exists());
+
+    // 2. Coordinated 3s exit and 200ms fallback exit on an active owned Job (forced reclamation),
+    // plus exhausted 0ms shared budget proving no nested wait re-acquires a full 3s/5s budget.
+    for budget in [
+        COORDINATED_EXIT_BUDGET,
+        EXIT_FALLBACK_BUDGET,
+        Duration::ZERO,
+    ] {
         let fixture = Fixture::new();
         let layout = Layout::new();
         let plan = fixture.plan();
         let (mut runtime, task) = prepare(&fixture, &plan, &layout);
-        let witness = activate(&mut runtime, &task, &fixture);
+        let (witness, mut pipes) = activate_with_pipes(&mut runtime, &task, &fixture);
+        pipes.input.write_all(b"r").unwrap();
+        drop(pipes);
+        let started = Instant::now();
         let report = runtime
-            .stop(&task, End::ApplicationExit, Instant::now() + budget)
+            .stop(&task, End::ApplicationExit, started + budget)
             .unwrap();
         assert_eq!(report.end, End::ApplicationExit);
-        confirm_exit(&witness);
-        if budget.is_zero() {
+        let process_report = report.process.unwrap();
+        assert!(process_report.forced);
+        if budget == COORDINATED_EXIT_BUDGET {
+            assert_eq!(report.completion, Completion::Complete);
+            assert_eq!(
+                process_report,
+                CloseReport {
+                    process_exited: true,
+                    job_empty: true,
+                    forced: true,
+                    termination_error: None,
+                    timed_out: false,
+                }
+            );
+            assert!(report.pending.is_empty());
+            assert!(started.elapsed() < COORDINATED_EXIT_BUDGET);
+            let fallback_started = Instant::now();
+            let repeated = runtime
+                .stop(
+                    &task,
+                    End::ApplicationExit,
+                    fallback_started + EXIT_FALLBACK_BUDGET,
+                )
+                .unwrap();
+            assert_eq!(repeated.completion, Completion::Complete);
+            assert_eq!(repeated.process, Some(process_report));
+            confirm_exit(&witness);
+            drop(runtime);
+            assert!(!layout.frozen.exists());
+            continue;
+        } else if budget.is_zero() {
             assert_eq!(report.completion, Completion::TimedOut);
-            assert!(report.process.unwrap().timed_out);
-            assert_eq!(report.pending.len(), 3);
+            assert!(process_report.timed_out);
+            assert_eq!(
+                report
+                    .pending
+                    .iter()
+                    .map(|entry| entry.name)
+                    .collect::<Vec<_>>(),
+                vec!["ssh_config", "known_hosts", "revoked_hosts", "."]
+            );
+            assert!(report
+                .pending
+                .iter()
+                .all(|entry| entry.id.is_some() && entry.error.kind() == io::ErrorKind::TimedOut));
+            let pending_ids: Vec<_> = report
+                .pending
+                .iter()
+                .map(|entry| (entry.name, entry.id.unwrap()))
+                .collect();
+            reclaim_pending_after_drop(runtime, &witness, &layout, &pending_ids, started);
+            assert!(!layout.frozen.exists());
+            continue;
         }
+        confirm_exit(&witness);
         match report.completion {
             Completion::Complete => assert!(report.pending.is_empty()),
             Completion::TimedOut if !report.pending.is_empty() => reclaim_fixture(&layout, report),
             Completion::TimedOut => {}
             ref other => panic!("unexpected exit cleanup: {other:?}"),
         }
+        drop(runtime);
         assert!(!layout.frozen.exists());
     }
+}
+
+fn reclaim_pending_after_drop(
+    runtime: LocalRuntime<'_, '_>,
+    witness: &OwnedHandle,
+    layout: &Layout,
+    pending_ids: &[(
+        &'static str,
+        crate::features::remote_bridge::target_os::windows_bridge::safety::local_files::FileId,
+    )],
+    started: Instant,
+) {
+    drop(runtime);
+    // Dropping a timed-out LocalRuntime must not re-acquire a 3s or 5s wait budget.
+    assert!(started.elapsed() < Duration::from_secs(1));
+    confirm_exit(witness);
+    let directory =
+        PrivateDirectory::new(&layout.frozen, false, GENERIC_READ.0 | DELETE.0).unwrap();
+    let mut directory_id = None;
+    for &(name, expected_id) in pending_ids {
+        if name == "." {
+            directory_id = Some(expected_id);
+            continue;
+        }
+        let file = directory
+            .file(name, GENERIC_READ.0 | DELETE.0, FILE_SHARE_MODE(0), false)
+            .unwrap();
+        assert_eq!(directory.validate(&file, false).unwrap(), expected_id);
+        delete_by_handle(&file).unwrap();
+    }
+    assert_eq!(directory_id, Some(directory.id));
+    delete_by_handle(&directory.directory).unwrap();
 }
 
 pub(super) fn check_drop() {

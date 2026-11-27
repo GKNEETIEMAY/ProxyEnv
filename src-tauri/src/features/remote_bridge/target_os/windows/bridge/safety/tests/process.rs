@@ -49,7 +49,7 @@ fn local_job(resume: bool) -> LocalProcess {
             WAIT_TIMEOUT
         );
     } else {
-        assert_eq!(owner.close(), clean_exit());
+        assert_eq!(owner.close(), forced_reclaim());
     }
     LocalProcess {
         owner,
@@ -58,10 +58,11 @@ fn local_job(resume: bool) -> LocalProcess {
     }
 }
 
-fn clean_exit() -> CloseReport {
+fn forced_reclaim() -> CloseReport {
     CloseReport {
         process_exited: true,
         job_empty: true,
+        forced: true,
         termination_error: None,
         timed_out: false,
     }
@@ -136,6 +137,9 @@ fn assert_reaped(witness: &OwnedHandle, input: &mut PipeWriter) {
 fn job_pipe_child() {
     let mut signal = [0];
     io::stdin().read_exact(&mut signal).unwrap();
+    if signal == *b"e" {
+        return;
+    }
     assert_eq!(signal, *b"r");
     io::stdout().write_all(STDOUT_MARKER).unwrap();
     io::stdout().flush().unwrap();
@@ -210,7 +214,7 @@ fn check_policy_shutdown() {
         read_pipe(&mut error, Some(STDERR_MARKER));
         super::policy_lifecycle::drive_local_policy_stop(revoked, || {
             let outcome = owner.close();
-            assert_eq!(outcome, clean_exit());
+            assert_eq!(outcome, forced_reclaim());
             assert_eq!(owner.close(), outcome);
         });
         assert_reaped(&witness, &mut input);

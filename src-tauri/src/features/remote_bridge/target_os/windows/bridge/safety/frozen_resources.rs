@@ -54,10 +54,16 @@ impl FrozenResources {
     ) -> Result<Self, CreationError> {
         let mut resources = Self::new(path, profile)?;
         if let Err(error) = resources.populate().and_then(|()| resources.validate()) {
-            resources.cleanup_deadline = deadline();
             let before = resources.resource_count();
-            let pending = resources.close();
-            let released_any = resources.resource_count() < before;
+            let (mut pending, released_any) = match deadline() {
+                Some(deadline) => resources.close_until(deadline),
+                None => {
+                    let pending = resources.close();
+                    (pending, resources.resource_count() < before)
+                }
+            };
+            resources.push_unremoved_directory(&mut pending);
+            resources.cleanup_deadline.get_or_insert_with(Instant::now);
             return Err(CreationError {
                 error,
                 pending,
@@ -203,6 +209,55 @@ impl FrozenResources {
         (pending, after < before)
     }
 
+    #[must_use]
+    pub(super) fn retire_until(mut self, deadline: Instant) -> (Vec<PendingCleanup>, bool) {
+        let (mut pending, released_any) = self.close_until(deadline);
+        self.push_unremoved_directory(&mut pending);
+        (pending, released_any)
+    }
+
+    #[must_use]
+    pub(super) fn retire_unclosed(mut self, kind: io::ErrorKind) -> Vec<PendingCleanup> {
+        self.cleanup_deadline = Some(Instant::now());
+        let mut pending: Vec<_> = self
+            .files
+            .iter()
+            .map(|entry| PendingCleanup {
+                name: entry.name,
+                id: Some(entry.id),
+                error: io::Error::from(kind),
+            })
+            .collect();
+        if let Some(directory) = &self.directory {
+            pending.push(PendingCleanup {
+                name: ".",
+                id: Some(directory.id),
+                error: io::Error::from(kind),
+            });
+        }
+        pending
+    }
+
+    fn push_unremoved_directory(&self, pending: &mut Vec<PendingCleanup>) {
+        if let Some(directory) = &self.directory {
+            if pending.iter().all(|entry| entry.name != ".") {
+                let kind = if pending
+                    .iter()
+                    .any(|entry| entry.error.kind() == io::ErrorKind::TimedOut)
+                {
+                    io::ErrorKind::TimedOut
+                } else {
+                    io::ErrorKind::DirectoryNotEmpty
+                };
+                pending.push(PendingCleanup {
+                    name: ".",
+                    id: Some(directory.id),
+                    error: io::Error::from(kind),
+                });
+            }
+        }
+    }
+
     fn resource_count(&self) -> usize {
         self.files.len() + usize::from(self.directory.is_some())
     }
@@ -224,9 +279,9 @@ impl FrozenResources {
             }
         };
         self.files.retain_mut(|entry| {
-            entry.reader.take();
             let removed = budget()
                 .and_then(|()| {
+                    entry.reader.take();
                     directory.file(
                         entry.name,
                         GENERIC_READ.0 | DELETE.0,

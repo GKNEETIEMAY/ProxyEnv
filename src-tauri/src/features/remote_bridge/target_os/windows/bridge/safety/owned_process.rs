@@ -111,6 +111,7 @@ struct Child {
 pub(super) struct CloseReport {
     pub(super) process_exited: bool,
     pub(super) job_empty: bool,
+    pub(super) forced: bool,
     pub(super) termination_error: Option<i32>,
     pub(super) timed_out: bool,
 }
@@ -256,6 +257,7 @@ impl OwnedProcess {
         let mut report = CloseReport {
             process_exited: false,
             job_empty: false,
+            forced: false,
             termination_error: None,
             timed_out: false,
         };
@@ -263,22 +265,31 @@ impl OwnedProcess {
             let now = Instant::now();
             let deadline = deadline.min(now + Duration::from_millis(u64::from(PROCESS_WAIT_MS)));
             report.timed_out = now >= deadline;
-            // SAFETY: this Job and process are exclusively the handles returned by spawn_suspended.
-            unsafe {
-                report.termination_error = TerminateJobObject(raw(&child.job), 1)
+            // SAFETY: child.process is the private handle returned by spawn_suspended.
+            let exited_before_kill =
+                unsafe { WaitForSingleObject(raw(&child.process), 0) == WAIT_OBJECT_0 };
+            // Windows signals the process object slightly before decrementing Job ActiveProcesses.
+            let settle = deadline.min(now + Duration::from_millis(50));
+            let empty_before_kill = exited_before_kill && wait_empty(&child.job, settle).is_ok();
+            if empty_before_kill {
+                report.process_exited = true;
+                report.job_empty = true;
+            } else {
+                report.forced = true;
+                // SAFETY: this Job is exclusively the handle returned by spawn_suspended.
+                report.termination_error = unsafe { TerminateJobObject(raw(&child.job), 1) }
                     .err()
                     .map(|error| error.code().0);
-                let remaining = deadline
-                    .saturating_duration_since(Instant::now())
-                    .as_millis() as u32;
-                let wait = WaitForSingleObject(raw(&child.process), remaining);
-                report.process_exited = wait == WAIT_OBJECT_0;
-                report.timed_out |= wait == WAIT_TIMEOUT;
-            }
-            match wait_empty(&child.job, deadline) {
-                Ok(()) => report.job_empty = true,
-                Err(true) => report.timed_out = true,
-                Err(false) => {}
+                match wait_exited(&child.process, deadline) {
+                    Ok(()) => report.process_exited = true,
+                    Err(true) => report.timed_out = true,
+                    Err(false) => {}
+                }
+                match wait_empty(&child.job, deadline) {
+                    Ok(()) => report.job_empty = true,
+                    Err(true) => report.timed_out = true,
+                    Err(false) => {}
+                }
             }
             // Dropping the private Job handle also requests kill-on-close as a fallback.
         }
@@ -300,25 +311,52 @@ impl Drop for OwnedProcess {
     }
 }
 
+fn active_processes(job: &OwnedHandle) -> Result<u32, ()> {
+    let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+    // SAFETY: the buffer is writable and matches the requested class for this live Job.
+    unsafe {
+        QueryInformationJobObject(
+            Some(raw(job)),
+            JobObjectBasicAccountingInformation,
+            std::ptr::from_mut(&mut info).cast(),
+            size_of_val(&info) as u32,
+            None,
+        )
+    }
+    .map(|()| info.ActiveProcesses)
+    .map_err(|_| ())
+}
+
+// Err(true) is a deadline miss, Err(false) is a native wait failure.
+fn wait_exited(process: &OwnedHandle, deadline: Instant) -> Result<(), bool> {
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let wait_ms = if remaining.is_zero() {
+            0
+        } else {
+            (remaining.as_millis() as u32).max(1)
+        };
+        // SAFETY: process is a live synchronization handle owned by this instance.
+        let status = unsafe { WaitForSingleObject(raw(process), wait_ms) };
+        if status == WAIT_OBJECT_0 {
+            return Ok(());
+        }
+        if status != WAIT_TIMEOUT {
+            return Err(false);
+        }
+        if wait_ms == 0 || Instant::now() >= deadline {
+            return Err(true);
+        }
+    }
+}
+
 // Err(true) is a deadline miss, Err(false) is a native query failure.
 fn wait_empty(job: &OwnedHandle, deadline: Instant) -> Result<(), bool> {
     loop {
-        let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-        // SAFETY: the buffer is writable and matches the requested class for this live Job.
-        let result = unsafe {
-            QueryInformationJobObject(
-                Some(raw(job)),
-                JobObjectBasicAccountingInformation,
-                std::ptr::from_mut(&mut info).cast(),
-                size_of_val(&info) as u32,
-                None,
-            )
-        };
-        if result.is_err() {
-            return Err(false);
-        }
-        if info.ActiveProcesses == 0 {
-            return Ok(());
+        match active_processes(job) {
+            Ok(0) => return Ok(()),
+            Ok(_) => {}
+            Err(()) => return Err(false),
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {

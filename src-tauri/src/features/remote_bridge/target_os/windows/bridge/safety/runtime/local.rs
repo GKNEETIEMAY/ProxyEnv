@@ -21,6 +21,8 @@ use std::{
 };
 
 const CLOSE_BUDGET: Duration = Duration::from_millis(PROCESS_WAIT_MS as u64);
+pub(in super::super) const COORDINATED_EXIT_BUDGET: Duration = Duration::from_secs(3);
+pub(in super::super) const EXIT_FALLBACK_BUDGET: Duration = Duration::from_millis(200);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(in super::super) enum End {
@@ -62,21 +64,49 @@ impl LocalResources {
         mut self,
         end: End,
         deadline: Instant,
-        mut pending: Vec<PendingCleanup>,
+        pending: Vec<PendingCleanup>,
         setup_error: Option<io::Error>,
     ) -> Shutdown {
         let process = self
             .process
             .take()
             .map(|mut process| process.close_until(deadline));
+        Self::summarize(
+            end,
+            deadline,
+            process,
+            self.files.take(),
+            self.released_any,
+            pending,
+            setup_error,
+        )
+    }
+
+    fn summarize(
+        end: End,
+        deadline: Instant,
+        process: Option<CloseReport>,
+        files: Option<FrozenResources>,
+        released_before_close: bool,
+        mut pending: Vec<PendingCleanup>,
+        setup_error: Option<io::Error>,
+    ) -> Shutdown {
         let mut timed_out = process.is_some_and(|process| process.timed_out);
         let mut progress =
-            self.released_any || process.is_some_and(|process| process.process_exited);
-        if let Some(mut files) = self.files.take() {
+            released_before_close || process.is_some_and(|process| process.process_exited);
+        let drained = process.is_none_or(|process| process.process_exited && process.job_empty);
+        if let Some(files) = files {
             // The process must be confirmed stopped before its frozen inputs can be removed.
-            let drained = process.is_none_or(|process| process.process_exited && process.job_empty);
-            let file_deadline = if drained { deadline } else { Instant::now() };
-            let (missing, released_any) = files.close_until(file_deadline);
+            let (missing, released_any) = if drained {
+                files.retire_until(deadline)
+            } else {
+                let kind = if timed_out {
+                    io::ErrorKind::TimedOut
+                } else {
+                    io::ErrorKind::Other
+                };
+                (files.retire_unclosed(kind), false)
+            };
             timed_out |= drained
                 && (Instant::now() >= deadline
                     || missing
@@ -84,17 +114,19 @@ impl LocalResources {
                         .any(|entry| entry.error.kind() == io::ErrorKind::TimedOut));
             progress |= released_any;
             pending.extend(missing);
+        } else if released_before_close && Instant::now() >= deadline {
+            timed_out = true;
         }
-        timed_out |= pending
-            .iter()
-            .any(|entry| entry.error.kind() == io::ErrorKind::TimedOut)
-            && process.is_none_or(|process| process.process_exited && process.job_empty);
-        let clean_process = process.is_none_or(|process| {
+        timed_out |= drained
+            && pending
+                .iter()
+                .any(|entry| entry.error.kind() == io::ErrorKind::TimedOut);
+        let process_reclaimed = process.is_none_or(|process| {
             process.process_exited && process.job_empty && process.termination_error.is_none()
         });
         let completion = if timed_out {
             Completion::TimedOut
-        } else if clean_process && pending.is_empty() {
+        } else if process_reclaimed && pending.is_empty() {
             Completion::Complete
         } else if progress {
             Completion::Partial
@@ -256,15 +288,16 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
             self.stop(task, self.policy_end(), cleanup_deadline());
             return false;
         }
+        let mut cleanup = None;
         let files = match FrozenResources::create_with_cleanup_deadline(&path, profile, || {
-            Some(cleanup_deadline())
+            Some(*cleanup.get_or_insert_with(cleanup_deadline))
         }) {
             Ok(files) => files,
             Err(error) => {
                 self.finish(
                     task,
                     End::SetupFailed,
-                    cleanup_deadline(),
+                    cleanup.unwrap_or_else(cleanup_deadline),
                     LocalResources {
                         files: None,
                         process: None,
@@ -395,6 +428,11 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         if !self.runtime.owns(task) {
             return None;
         }
+        let deadline = if end == End::ApplicationExit {
+            deadline.min(Instant::now() + COORDINATED_EXIT_BUDGET)
+        } else {
+            deadline
+        };
         self.policy.stop();
         self.profile = None;
         self.runtime.close(task, |owned| {
@@ -430,4 +468,38 @@ fn runtime_boundaries_reports_no_progress_as_cleanup_failure() {
     assert_eq!(report.completion, Completion::Failed);
     assert_eq!(report.pending.len(), 1);
     assert!(report.process.is_none());
+
+    let unstopped = LocalResources::summarize(
+        End::ApplicationExit,
+        cleanup_deadline(),
+        Some(CloseReport {
+            process_exited: false,
+            job_empty: false,
+            forced: true,
+            termination_error: Some(5),
+            timed_out: false,
+        }),
+        None,
+        false,
+        Vec::new(),
+        None,
+    );
+    assert_eq!(unstopped.completion, Completion::Failed);
+
+    let root_only = LocalResources::summarize(
+        End::ApplicationExit,
+        cleanup_deadline(),
+        Some(CloseReport {
+            process_exited: true,
+            job_empty: false,
+            forced: true,
+            termination_error: Some(5),
+            timed_out: false,
+        }),
+        None,
+        false,
+        Vec::new(),
+        None,
+    );
+    assert_eq!(root_only.completion, Completion::Partial);
 }
