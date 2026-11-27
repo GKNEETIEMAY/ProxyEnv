@@ -26,7 +26,7 @@ const STDOUT_MARKER: &[u8] = b"routespan fixture stdout\n";
 const STDERR_MARKER: &[u8] = b"routespan fixture stderr\n";
 const WORKER_MODE: &str = "ROUTESPAN_LOCAL_PIPE_FIXTURE";
 
-fn test_name(name: &str) -> String {
+pub(super) fn test_name(name: &str) -> String {
     format!("{}::{name}", module_path!().split_once("::").unwrap().1)
 }
 
@@ -63,6 +63,7 @@ fn clean_exit() -> CloseReport {
         process_exited: true,
         job_empty: true,
         termination_error: None,
+        timed_out: false,
     }
 }
 
@@ -226,11 +227,12 @@ fn isolated_job_worker() {
         Ok("startup-abort") => check_startup_abort(),
         Ok("policy-stop") => check_policy_shutdown(),
         Ok("startup-error") => check_failed_fixture_launch(),
+        Ok("runtime-integration") => super::runtime_integration::check_runtime_components(),
         _ => panic!("missing fixture case"),
     }
 }
 
-fn run_isolated(mode: &str) {
+pub(super) fn run_isolated(mode: &str) {
     // The child ends must briefly be inheritable for CreateProcessW. Keeping
     // them in this worker's handle table prevents unrelated test launches
     // in the parent test runner from inheriting them.

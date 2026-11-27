@@ -6,6 +6,7 @@ use std::{
     fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
     path::Path,
+    time::Instant,
 };
 use windows::Win32::{
     Foundation::{GENERIC_READ, GENERIC_WRITE},
@@ -31,20 +32,37 @@ pub(super) struct PendingCleanup {
 pub(super) struct CreationError {
     pub(super) error: io::Error,
     pub(super) pending: Vec<PendingCleanup>,
+    pub(super) released_any: bool,
 }
 
 pub(super) struct FrozenResources {
     directory: Option<PrivateDirectory>,
     profile: FrozenProfile,
     files: Vec<OwnedFile>,
+    cleanup_deadline: Option<Instant>,
 }
 
 impl FrozenResources {
     pub(super) fn create(path: &Path, profile: FrozenProfile) -> Result<Self, CreationError> {
+        Self::create_with_cleanup_deadline(path, profile, || None)
+    }
+
+    pub(super) fn create_with_cleanup_deadline(
+        path: &Path,
+        profile: FrozenProfile,
+        deadline: impl FnOnce() -> Option<Instant>,
+    ) -> Result<Self, CreationError> {
         let mut resources = Self::new(path, profile)?;
         if let Err(error) = resources.populate().and_then(|()| resources.validate()) {
+            resources.cleanup_deadline = deadline();
+            let before = resources.resource_count();
             let pending = resources.close();
-            return Err(CreationError { error, pending });
+            let released_any = resources.resource_count() < before;
+            return Err(CreationError {
+                error,
+                pending,
+                released_any,
+            });
         }
         Ok(resources)
     }
@@ -59,6 +77,7 @@ impl FrozenResources {
                     "frozen profile directory mismatch",
                 ),
                 pending: Vec::new(),
+                released_any: false,
             });
         }
         let mut created = false;
@@ -73,12 +92,17 @@ impl FrozenResources {
                         })
                         .into_iter()
                         .collect();
-                    CreationError { error, pending }
+                    CreationError {
+                        error,
+                        pending,
+                        released_any: false,
+                    }
                 })?;
         Ok(Self {
             directory: Some(directory),
             profile,
             files: Vec::new(),
+            cleanup_deadline: None,
         })
     }
 
@@ -168,20 +192,48 @@ impl FrozenResources {
     }
 
     #[must_use]
+    pub(super) fn close_until(&mut self, deadline: Instant) -> (Vec<PendingCleanup>, bool) {
+        self.cleanup_deadline = Some(
+            self.cleanup_deadline
+                .map_or(deadline, |current| current.min(deadline)),
+        );
+        let before = self.resource_count();
+        let pending = self.close();
+        let after = self.resource_count();
+        (pending, after < before)
+    }
+
+    fn resource_count(&self) -> usize {
+        self.files.len() + usize::from(self.directory.is_some())
+    }
+
+    #[must_use]
     pub(super) fn close(&mut self) -> Vec<PendingCleanup> {
         let Some(directory) = self.directory.as_ref() else {
             return Vec::new();
         };
         let mut pending = Vec::new();
+        let budget = || {
+            if self
+                .cleanup_deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+            {
+                Err(io::Error::from(io::ErrorKind::TimedOut))
+            } else {
+                Ok(())
+            }
+        };
         self.files.retain_mut(|entry| {
             entry.reader.take();
-            let removed = directory
-                .file(
-                    entry.name,
-                    GENERIC_READ.0 | DELETE.0,
-                    FILE_SHARE_MODE(0),
-                    false,
-                )
+            let removed = budget()
+                .and_then(|()| {
+                    directory.file(
+                        entry.name,
+                        GENERIC_READ.0 | DELETE.0,
+                        FILE_SHARE_MODE(0),
+                        false,
+                    )
+                })
                 .and_then(|file| {
                     if directory.validate(&file, false)? != entry.id {
                         return Err(io::Error::new(
@@ -189,6 +241,7 @@ impl FrozenResources {
                             "cleanup file identity changed",
                         ));
                     }
+                    budget()?;
                     delete_by_handle(&file)
                 });
             if let Err(error) = removed {
@@ -202,8 +255,8 @@ impl FrozenResources {
             false
         });
         if self.files.is_empty() {
-            let removed = directory
-                .validate(&directory.directory, true)
+            let removed = budget()
+                .and_then(|()| directory.validate(&directory.directory, true))
                 .and_then(|id| {
                     if id != directory.id {
                         return Err(io::Error::new(
@@ -211,6 +264,7 @@ impl FrozenResources {
                             "cleanup directory identity changed",
                         ));
                     }
+                    budget()?;
                     delete_by_handle(&directory.directory)
                 });
             match removed {
@@ -228,6 +282,10 @@ impl FrozenResources {
 
 impl Drop for FrozenResources {
     fn drop(&mut self) {
+        if self.cleanup_deadline.is_some() {
+            // A bounded owner already received the unresolved identities.
+            return;
+        }
         for pending in self.close() {
             tracing::warn!(resource = pending.name, inode = ?pending.id, kind = ?pending.error.kind(),
                 "frozen resource cleanup pending");

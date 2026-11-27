@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
+#[cfg(windows)]
+pub(super) mod local;
+
 #[derive(Clone)]
-struct Task(Arc<()>);
+pub(super) struct Task(Arc<()>);
 
 enum Phase<R, C> {
     Unprepared,

@@ -47,6 +47,24 @@ struct PreparedForward {
     policy: VerifiedPolicy,
 }
 
+fn plan_lease_scope(plan: &WindowsBridgePlan<'_>, issuer: &PolicyIssuer) -> LeaseScope {
+    let (host, account, ssh_port) = plan.input.identity;
+    LeaseScope {
+        review: ReviewScope {
+            review: plan.policy.review_id.into(),
+            revision: issuer.revision,
+            deployment: issuer.deployment,
+        },
+        host: host.into(),
+        account: account.into(),
+        ssh_port,
+        host_key_sha256: plan.input.host_key_sha256,
+        config_fingerprint: plan.input.config_fingerprint.into(),
+        generation: plan.input.generation,
+        remote_port: plan.remote_port,
+    }
+}
+
 impl PreparedForward {
     fn prepare(plan: &WindowsBridgePlan<'_>, input: Preparation<'_>) -> BridgeResult<Self> {
         // Retargeting, proxy changes, and the absence of an authenticated identity
@@ -57,21 +75,7 @@ impl PreparedForward {
             .issuer
             .as_ref()
             .ok_or("windowsForwardPolicyUnreviewed")?;
-        let (host, account, ssh_port) = plan.input.identity;
-        let scope = LeaseScope {
-            review: ReviewScope {
-                review: plan.policy.review_id.into(),
-                revision: issuer.revision,
-                deployment: issuer.deployment,
-            },
-            host: host.into(),
-            account: account.into(),
-            ssh_port,
-            host_key_sha256: plan.input.host_key_sha256,
-            config_fingerprint: plan.input.config_fingerprint.into(),
-            generation: plan.input.generation,
-            remote_port: plan.remote_port,
-        };
+        let scope = plan_lease_scope(plan, issuer);
         let policy = policy::verify(
             issuer,
             &scope,

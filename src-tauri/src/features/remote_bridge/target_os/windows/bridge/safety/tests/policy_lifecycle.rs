@@ -116,7 +116,7 @@ fn response(f: &Fixture, request: &StatusRequest<'_>, status: Signed) -> StatusR
     }
 }
 
-fn source(f: &Fixture, status: Status) -> impl StatusSource + '_ {
+pub(super) fn source(f: &Fixture, status: Status) -> impl StatusSource + '_ {
     Source(move |request: &StatusRequest<'_>| {
         assert_eq!(request.key.issuer_key, issuer(f).key);
         assert_eq!(request.key.review, status.review);

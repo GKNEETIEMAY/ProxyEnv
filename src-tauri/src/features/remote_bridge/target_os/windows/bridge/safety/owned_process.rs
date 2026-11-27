@@ -13,7 +13,9 @@ use std::{
 use windows::{
     core::{BOOL, PCWSTR, PWSTR},
     Win32::{
-        Foundation::{SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, WAIT_OBJECT_0},
+        Foundation::{
+            SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, WAIT_OBJECT_0, WAIT_TIMEOUT,
+        },
         System::{JobObjects::*, Threading::*},
     },
 };
@@ -110,6 +112,7 @@ pub(super) struct CloseReport {
     pub(super) process_exited: bool,
     pub(super) job_empty: bool,
     pub(super) termination_error: Option<i32>,
+    pub(super) timed_out: bool,
 }
 
 pub(super) struct OwnedProcess {
@@ -216,7 +219,6 @@ impl OwnedProcess {
             .ok_or_else(|| io::Error::other("suspended child unavailable"))?;
         // SAFETY: the private thread handle belongs to the suspended child assigned to the Job.
         if unsafe { ResumeThread(raw(&primary)) } != 1 {
-            self.close();
             return Err(io::Error::other("child did not resume from one suspension"));
         }
         Ok(())
@@ -237,6 +239,10 @@ impl OwnedProcess {
     }
 
     pub(super) fn close(&mut self) -> CloseReport {
+        self.close_until(Instant::now() + Duration::from_millis(u64::from(PROCESS_WAIT_MS)))
+    }
+
+    pub(super) fn close_until(&mut self, deadline: Instant) -> CloseReport {
         if let Some(report) = self.closed {
             return report;
         }
@@ -245,18 +251,29 @@ impl OwnedProcess {
             process_exited: false,
             job_empty: false,
             termination_error: None,
+            timed_out: false,
         };
         if let Some(child) = self.child.take() {
-            let deadline = Instant::now() + Duration::from_millis(u64::from(PROCESS_WAIT_MS));
+            let now = Instant::now();
+            let deadline = deadline.min(now + Duration::from_millis(u64::from(PROCESS_WAIT_MS)));
+            report.timed_out = now >= deadline;
             // SAFETY: this Job and process are exclusively the handles returned by spawn_suspended.
             unsafe {
                 report.termination_error = TerminateJobObject(raw(&child.job), 1)
                     .err()
                     .map(|error| error.code().0);
-                report.process_exited =
-                    WaitForSingleObject(raw(&child.process), PROCESS_WAIT_MS) == WAIT_OBJECT_0;
+                let remaining = deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_millis() as u32;
+                let wait = WaitForSingleObject(raw(&child.process), remaining);
+                report.process_exited = wait == WAIT_OBJECT_0;
+                report.timed_out |= wait == WAIT_TIMEOUT;
             }
-            report.job_empty = wait_empty(&child.job, deadline);
+            match wait_empty(&child.job, deadline) {
+                Ok(()) => report.job_empty = true,
+                Err(true) => report.timed_out = true,
+                Err(false) => {}
+            }
             // Dropping the private Job handle also requests kill-on-close as a fallback.
         }
         self.closed = Some(report);
@@ -267,13 +284,18 @@ impl OwnedProcess {
 impl Drop for OwnedProcess {
     fn drop(&mut self) {
         let report = self.close();
-        if !report.process_exited || !report.job_empty || report.termination_error.is_some() {
+        if !report.process_exited
+            || !report.job_empty
+            || report.termination_error.is_some()
+            || report.timed_out
+        {
             tracing::warn!(?report, "local Job cleanup incomplete");
         }
     }
 }
 
-fn wait_empty(job: &OwnedHandle, deadline: Instant) -> bool {
+// Err(true) is a deadline miss, Err(false) is a native query failure.
+fn wait_empty(job: &OwnedHandle, deadline: Instant) -> Result<(), bool> {
     loop {
         let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         // SAFETY: the buffer is writable and matches the requested class for this live Job.
@@ -287,15 +309,16 @@ fn wait_empty(job: &OwnedHandle, deadline: Instant) -> bool {
             )
         };
         if result.is_err() {
-            return false;
+            return Err(false);
         }
         if info.ActiveProcesses == 0 {
-            return true;
+            return Ok(());
         }
-        if Instant::now() >= deadline {
-            return false;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(true);
         }
-        thread::sleep(Duration::from_millis(5));
+        thread::sleep(remaining.min(Duration::from_millis(5)));
     }
 }
 

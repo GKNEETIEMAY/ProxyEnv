@@ -166,6 +166,13 @@ impl<'a> PolicyLifecycle<'a> {
         &self.state
     }
 
+    pub fn active_at(&self, now: ClockSample) -> bool {
+        matches!(&self.state, State::Active(grant) if grant.policy.check_time(now).is_ok())
+            && self.last_clock.is_none_or(|last| {
+                now.unix_seconds >= last.unix_seconds && now.monotonic >= last.monotonic
+            })
+    }
+
     pub fn refresh<'scope>(
         &mut self,
         lease: SignedRecord<'_>,

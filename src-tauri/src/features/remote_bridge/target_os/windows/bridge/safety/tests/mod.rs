@@ -16,6 +16,8 @@ mod ntfs;
 mod policy_lifecycle;
 #[cfg(windows)]
 mod process;
+#[cfg(windows)]
+mod runtime_integration;
 
 const DIR: &str = "C:/RouteSpan fixture";
 
