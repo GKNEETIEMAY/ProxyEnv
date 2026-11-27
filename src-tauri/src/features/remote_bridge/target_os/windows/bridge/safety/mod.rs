@@ -89,8 +89,18 @@ impl PreparedForward {
             input.host_trust,
             input.directory,
         )?;
-        let args = profile.forward_args(&forward);
-        Ok(Self {
+        Ok(Self::from_checked(plan, &forward, scope, profile, policy))
+    }
+
+    fn from_checked(
+        plan: &WindowsBridgePlan<'_>,
+        forward: &[String; 2],
+        scope: LeaseScope,
+        profile: FrozenProfile,
+        policy: VerifiedPolicy,
+    ) -> Self {
+        let args = profile.forward_args(forward);
+        Self {
             scope,
             upstream: plan.input.upstream.clone(),
             proxy_revision: plan.input.proxy_revision,
@@ -98,7 +108,7 @@ impl PreparedForward {
             profile,
             args,
             policy,
-        })
+        }
     }
 
     fn check_launch(
@@ -126,11 +136,7 @@ impl PreparedForward {
         {
             return Err("windowsBridgeContextChanged".into());
         }
-        self.profile.check_files(FrozenFiles {
-            config: current.profile.config.as_bytes(),
-            known_hosts: current.profile.known_hosts.as_bytes(),
-            revoked_hosts: current.profile.revoked_hosts.as_bytes(),
-        })
+        self.profile.check_files(current.profile.files())
     }
 }
 

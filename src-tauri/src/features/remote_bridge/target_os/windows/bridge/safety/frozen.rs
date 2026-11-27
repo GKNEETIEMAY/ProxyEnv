@@ -10,6 +10,7 @@ pub(super) struct HostTrustEvidence<'a> {
     pub revoked_blobs: Option<&'a [&'a [u8]]>,
 }
 
+#[derive(Clone)]
 pub(super) struct FrozenProfile {
     pub config_path: String,
     pub config: String,
@@ -127,6 +128,14 @@ impl FrozenProfile {
             known_hosts: format!("{expected}\n"),
             revoked_hosts,
         })
+    }
+
+    pub fn files(&self) -> FrozenFiles<'_> {
+        FrozenFiles {
+            config: self.config.as_bytes(),
+            known_hosts: self.known_hosts.as_bytes(),
+            revoked_hosts: self.revoked_hosts.as_bytes(),
+        }
     }
 
     pub fn check_files(&self, files: FrozenFiles<'_>) -> BridgeResult<()> {

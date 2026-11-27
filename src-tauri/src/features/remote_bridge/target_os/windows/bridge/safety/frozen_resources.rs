@@ -160,6 +160,11 @@ impl FrozenResources {
         Ok(())
     }
 
+    pub(super) fn checked_profile(&mut self) -> io::Result<&FrozenProfile> {
+        self.validate()?;
+        Ok(&self.profile)
+    }
+
     pub(super) fn validate(&mut self) -> io::Result<()> {
         let directory = self.directory.as_ref().ok_or(io::ErrorKind::NotFound)?;
         if directory.validate(&directory.directory, true)? != directory.id

@@ -7,10 +7,10 @@ use crate::features::remote_bridge::{
         plan_lease_scope,
         policy::{
             lifecycle::{Enrollment, Observation, PolicyLifecycle, State, StatusSource},
-            ClockSample, LeaseScope, SignedRecord,
+            ClockSample, LeaseScope, SignedRecord, VerifiedPolicy,
         },
         policy_storage::PolicyStorage,
-        WindowsBridgeInput, WindowsBridgePlan,
+        PreparedForward, Verification, WindowsBridgeInput, WindowsBridgePlan,
     },
     BridgeResult,
 };
@@ -170,6 +170,26 @@ pub(in super::super) struct LocalRuntime<'p, 'review> {
     profile: Option<(PathBuf, FrozenProfile)>,
 }
 
+pub(in super::super) struct LocalVerification {
+    task: Task,
+    proof: Verification<()>,
+}
+
+impl LocalVerification {
+    pub fn listener_report(&mut self, bytes: &[u8], now: ClockSample) -> BridgeResult<()> {
+        self.proof.listener_report(bytes, now)
+    }
+
+    pub fn receipt(&mut self, bytes: &[u8], eof: bool, now: ClockSample) -> BridgeResult<()> {
+        self.proof.receipt(bytes, eof, now)
+    }
+
+    #[cfg(test)]
+    pub(in super::super) fn fixture_proof(&self) -> &Verification<()> {
+        &self.proof
+    }
+}
+
 impl<'p, 'review> LocalRuntime<'p, 'review> {
     pub fn begin(
         plan: &'p WindowsBridgePlan<'review>,
@@ -284,7 +304,7 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
             self.stop(task, End::SetupFailed, cleanup_deadline());
             return false;
         };
-        if !self.check_policy(&mut clock) {
+        if self.check_policy(&mut clock).is_none() {
             self.stop(task, self.policy_end(), cleanup_deadline());
             return false;
         }
@@ -334,17 +354,17 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
             .as_mut()
             .ok_or_else(|| setup_error(io::ErrorKind::NotFound.into()))?;
         files.validate().map_err(setup_error)?;
-        if !self.check_policy(clock) {
+        if self.check_policy(clock).is_none() {
             return Err((self.policy_end(), None));
         }
         let child = start().map_err(setup_error)?;
         let child = resources.process.insert(child);
         files.validate().map_err(setup_error)?;
-        if !self.check_policy(clock) {
+        if self.check_policy(clock).is_none() {
             return Err((self.policy_end(), None));
         }
         child.resume().map_err(setup_error)?;
-        if !self.check_policy(clock) {
+        if self.check_policy(clock).is_none() {
             return Err((self.policy_end(), None));
         }
         Ok(())
@@ -354,6 +374,87 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         self.runtime.owns(task)
             && matches!(self.runtime.phase, Phase::Available(_))
             && self.policy.active_at(now)
+    }
+
+    // This proof is for the offline lifecycle. LocalRuntime keeps the Job and
+    // frozen file handles, and verification does not expose an upstream.
+    pub fn begin_verification(
+        &mut self,
+        task: &Task,
+        current: WindowsBridgeInput<'_>,
+        args: &[String],
+        clock: impl FnMut() -> ClockSample,
+    ) -> BridgeResult<LocalVerification> {
+        let (prepared, now) = self.verification_snapshot(task, current, clock)?;
+        let checked_profile = prepared.profile.clone();
+        match Verification::new(prepared, checked_profile.files(), args, (), now) {
+            Ok(proof) => Ok(LocalVerification {
+                task: task.clone(),
+                proof,
+            }),
+            Err(error) => {
+                self.stop(task, End::SetupFailed, cleanup_deadline());
+                Err(error)
+            }
+        }
+    }
+
+    pub fn finish_verification(
+        &mut self,
+        attempt: LocalVerification,
+        current: WindowsBridgeInput<'_>,
+        args: &[String],
+        clock: impl FnMut() -> ClockSample,
+    ) -> BridgeResult<()> {
+        let LocalVerification { task, proof } = attempt;
+        let (prepared, now) = self.verification_snapshot(&task, current, clock)?;
+        let result = proof.finish(&prepared, prepared.profile.files(), args, now);
+        if result.is_err() {
+            self.stop(&task, End::SetupFailed, cleanup_deadline());
+        }
+        result
+    }
+
+    fn verification_snapshot(
+        &mut self,
+        task: &Task,
+        current: WindowsBridgeInput<'_>,
+        mut clock: impl FnMut() -> ClockSample,
+    ) -> BridgeResult<(PreparedForward, ClockSample)> {
+        if !self.runtime.owns(task) {
+            return Err("windowsBridgeContextChanged".into());
+        }
+        let Phase::Available(resources) = &mut self.runtime.phase else {
+            return Err("windowsForwardPolicyDenied".into());
+        };
+        let profile = match resources
+            .files
+            .as_mut()
+            .ok_or(io::ErrorKind::NotFound.into())
+            .and_then(FrozenResources::checked_profile)
+        {
+            Ok(profile) => profile.clone(),
+            Err(_) => {
+                self.stop(task, End::SetupFailed, cleanup_deadline());
+                return Err("sshConfigUnsafe".into());
+            }
+        };
+        let Some((policy, now)) = self.check_policy(&mut clock) else {
+            self.stop(task, self.policy_end(), cleanup_deadline());
+            return Err("windowsForwardPolicyDenied".into());
+        };
+        let policy = policy.clone();
+        let forward = match self.plan.forward_args(current, now.unix_seconds) {
+            Ok(forward) => forward,
+            Err(error) => {
+                self.stop(task, End::AuthorizationUnavailable, cleanup_deadline());
+                return Err(error);
+            }
+        };
+        Ok((
+            PreparedForward::from_checked(self.plan, &forward, self.scope.clone(), profile, policy),
+            now,
+        ))
     }
 
     pub fn poll(
@@ -368,19 +469,21 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         {
             return false;
         }
-        if self.check_policy(&mut clock) {
+        if self.check_policy(&mut clock).is_some() {
             return true;
         }
         self.stop(task, self.policy_end(), cleanup_deadline());
         false
     }
 
-    fn check_policy(&mut self, clock: &mut impl FnMut() -> ClockSample) -> bool {
+    fn check_policy(
+        &mut self,
+        clock: &mut impl FnMut() -> ClockSample,
+    ) -> Option<(&VerifiedPolicy, ClockSample)> {
         self.policy.check_current(&self.history, || Observation {
             scope: &self.scope,
             clock: clock(),
-        });
-        matches!(self.policy.state(), State::Active(_))
+        })
     }
 
     fn in_context(

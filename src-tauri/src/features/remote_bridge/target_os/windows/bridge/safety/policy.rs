@@ -81,7 +81,7 @@ pub(super) struct PolicyEvidence<'a> {
     pub seen_status_sequence: u64,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct VerifiedPolicy {
     checked_at: ClockSample,
     expires: u64,

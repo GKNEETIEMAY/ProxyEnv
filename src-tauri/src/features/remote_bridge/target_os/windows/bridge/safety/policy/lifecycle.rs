@@ -201,7 +201,7 @@ impl<'a> PolicyLifecycle<'a> {
         &mut self,
         history: &impl PolicyHistory,
         mut observe: impl FnMut() -> Observation<'scope>,
-    ) {
+    ) -> Option<(&VerifiedPolicy, ClockSample)> {
         self.state = match std::mem::replace(&mut self.state, State::AwaitingVerification) {
             State::Active(grant) => match self.check_grant(&grant, history, &mut observe) {
                 Ok(()) => State::Active(grant),
@@ -209,6 +209,10 @@ impl<'a> PolicyLifecycle<'a> {
             },
             closed => closed,
         };
+        match (&self.state, self.last_clock) {
+            (State::Active(grant), Some(now)) => Some((&grant.policy, now)),
+            _ => None,
+        }
     }
 
     pub fn stop(&mut self) {
