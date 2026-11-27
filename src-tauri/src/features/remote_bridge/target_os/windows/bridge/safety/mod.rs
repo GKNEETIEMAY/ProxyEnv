@@ -1,5 +1,7 @@
 mod frozen;
 #[cfg(windows)]
+mod frozen_resources;
+#[cfg(windows)]
 mod local_files;
 mod policy;
 #[cfg(windows)]

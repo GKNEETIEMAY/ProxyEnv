@@ -293,6 +293,15 @@ pub(super) struct PrivateDirectory {
 
 impl PrivateDirectory {
     pub(super) fn new(path: &Path, create: bool, access: u32) -> io::Result<Self> {
+        Self::open_tracked(path, create, access, &mut false)
+    }
+
+    pub(super) fn open_tracked(
+        path: &Path,
+        create: bool,
+        access: u32,
+        created: &mut bool,
+    ) -> io::Result<Self> {
         let parent = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
         leaf(path.file_name().ok_or(io::ErrorKind::InvalidInput)?)?;
         let ancestors = pin_ancestors(parent)?;
@@ -303,6 +312,7 @@ impl PrivateDirectory {
             // SAFETY: both the terminated path and its descriptor are live during creation.
             unsafe { CreateDirectoryW(PCWSTR(path.as_ptr()), Some(&attributes)) }
                 .map_err(win_error)?;
+            *created = true;
         }
         let directory = open(path, access, DIRECTORY_SHARE, true, None)?;
         let mut filesystem = [0_u16; 32];
