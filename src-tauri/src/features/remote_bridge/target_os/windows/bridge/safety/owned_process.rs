@@ -1,4 +1,5 @@
 use super::local_files::win_error;
+use super::runtime::local::managed::ManagedLaunch;
 use std::{
     ffi::OsStr,
     io::{self, PipeReader, PipeWriter},
@@ -123,8 +124,25 @@ pub(super) struct OwnedProcess {
 }
 
 impl OwnedProcess {
-    fn spawn_suspended(exe: &OsStr, command: &mut [u16]) -> io::Result<Self> {
+    fn spawn_suspended(
+        exe: &OsStr,
+        command: &mut [u16],
+        launch: Option<&ManagedLaunch<'_>>,
+    ) -> io::Result<Self> {
         let application: Vec<_> = exe.encode_wide().chain([0]).collect();
+        let directory = launch.map(|launch| {
+            launch
+                .directory
+                .as_os_str()
+                .encode_wide()
+                .chain([0])
+                .collect::<Vec<_>>()
+        });
+        let mut flags = CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT;
+        let environment = launch.map(|launch| {
+            flags |= CREATE_UNICODE_ENVIRONMENT;
+            launch.environment.block().as_ptr().cast()
+        });
         let (child_input, input) = io::pipe()?;
         let (output, child_output) = io::pipe()?;
         let (error, child_error) = io::pipe()?;
@@ -146,8 +164,8 @@ impl OwnedProcess {
             },
             lpAttributeList: attributes.list,
         };
-        // SAFETY: the writable command and application strings are terminated, the inherited
-        // ends are live, and each handle from a successful call is transferred to a unique owner.
+        // SAFETY: the command, application, optional Unicode block and directory remain live
+        // through creation. Successful process handles and the pipe ends have unique owners.
         let child = unsafe {
             let job = CreateJobObjectW(None, None).map_err(win_error)?;
             let job = OwnedHandle::from_raw_handle(job.0);
@@ -166,9 +184,11 @@ impl OwnedProcess {
                 None,
                 None,
                 true,
-                CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
-                None,
-                PCWSTR::null(),
+                flags,
+                environment,
+                directory
+                    .as_ref()
+                    .map_or(PCWSTR::null(), |path| PCWSTR(path.as_ptr())),
                 &startup.StartupInfo,
                 &mut info,
             )
@@ -203,19 +223,27 @@ impl OwnedProcess {
 
     #[cfg(test)]
     pub(super) fn start_fixture(test: &str) -> io::Result<Self> {
+        Self::start_fixture_with_environment(test, None)
+    }
+
+    #[cfg(test)]
+    pub(super) fn start_fixture_with_environment(
+        test: &str,
+        launch: Option<&ManagedLaunch<'_>>,
+    ) -> io::Result<Self> {
         let exe = std::env::current_exe()?;
         let mut command = vec![u16::from(b'"')];
         command.extend(exe.as_os_str().encode_wide());
         command.extend("\" --exact ".encode_utf16());
         command.extend(test.encode_utf16());
         command.extend(" --ignored --nocapture\0".encode_utf16());
-        Self::spawn_suspended(exe.as_os_str(), &mut command)
+        Self::spawn_suspended(exe.as_os_str(), &mut command, launch)
     }
 
     #[cfg(test)]
     pub(super) fn invalid_fixture() -> io::Result<Self> {
         let path = std::env::current_dir()?.join("<invalid-fixture-image>.exe");
-        Self::spawn_suspended(path.as_os_str(), &mut [0])
+        Self::spawn_suspended(path.as_os_str(), &mut [0], None)
     }
 
     pub(super) fn resume(&mut self) -> io::Result<()> {
@@ -229,6 +257,16 @@ impl OwnedProcess {
             return Err(io::Error::other("child did not resume from one suspension"));
         }
         Ok(())
+    }
+
+    pub(super) fn is_running(&self) -> io::Result<bool> {
+        let child = self.child.as_ref().ok_or(io::ErrorKind::NotFound)?;
+        // SAFETY: the process handle belongs to this owner and remains live for the wait.
+        match unsafe { WaitForSingleObject(raw(&child.process), 0) } {
+            WAIT_TIMEOUT => Ok(true),
+            WAIT_OBJECT_0 => Ok(false),
+            _ => Err(io::Error::last_os_error()),
+        }
     }
 
     #[cfg(test)]

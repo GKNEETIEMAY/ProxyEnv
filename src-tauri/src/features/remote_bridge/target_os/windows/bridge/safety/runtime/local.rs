@@ -1,4 +1,5 @@
 use super::{Phase, Runtime, Task};
+pub(in super::super) mod managed;
 use crate::features::remote_bridge::{
     target_os::windows_bridge::safety::{
         frozen::{FrozenProfile, HostTrustEvidence},
@@ -14,6 +15,7 @@ use crate::features::remote_bridge::{
     },
     BridgeResult,
 };
+use managed::ManagedPhase;
 use std::{
     io,
     path::{Path, PathBuf},
@@ -33,6 +35,7 @@ pub(in super::super) enum End {
     AuthorizationUnavailable,
     HistoryUnavailable,
     SetupFailed,
+    ProcessExited,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -168,6 +171,7 @@ pub(in super::super) struct LocalRuntime<'p, 'review> {
     scope: LeaseScope,
     policy: PolicyLifecycle<'review>,
     profile: Option<(PathBuf, FrozenProfile)>,
+    managed: ManagedPhase,
 }
 
 pub(in super::super) struct LocalVerification {
@@ -214,6 +218,7 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
                 scope,
                 policy,
                 profile: None,
+                managed: ManagedPhase::Unprepared,
             },
             task,
         ))
@@ -538,6 +543,7 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         };
         self.policy.stop();
         self.profile = None;
+        self.managed = ManagedPhase::Unprepared;
         self.runtime.close(task, |owned| {
             let report = owned.unwrap_or(staged).close(end, deadline, pending, error);
             let abnormal = report.completion != Completion::Complete

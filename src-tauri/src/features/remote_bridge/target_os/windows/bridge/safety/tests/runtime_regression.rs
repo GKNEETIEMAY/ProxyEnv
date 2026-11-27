@@ -32,7 +32,7 @@ use windows::Win32::{
     System::Threading::WaitForSingleObject,
 };
 
-fn prepare<'p, 'review>(
+pub(super) fn prepare<'p, 'review>(
     fixture: &Fixture,
     plan: &'p WindowsBridgePlan<'review>,
     layout: &Layout,
@@ -51,7 +51,7 @@ fn prepare<'p, 'review>(
     (runtime, task)
 }
 
-fn authorize(runtime: &mut LocalRuntime<'_, '_>, task: &Task, fixture: &Fixture) {
+pub(super) fn authorize(runtime: &mut LocalRuntime<'_, '_>, task: &Task, fixture: &Fixture) {
     let lease = fixture.sign(LEASE_DOMAIN, fixture.lease());
     assert!(runtime.refresh(
         task,
@@ -87,7 +87,7 @@ fn activate_with_pipes(
     witness.unwrap()
 }
 
-fn confirm_exit(witness: &OwnedHandle) {
+pub(super) fn confirm_exit(witness: &OwnedHandle) {
     // SAFETY: this duplicate only observes the fixture child created by this test.
     assert_eq!(
         unsafe { WaitForSingleObject(raw(witness), PROCESS_WAIT_MS) },

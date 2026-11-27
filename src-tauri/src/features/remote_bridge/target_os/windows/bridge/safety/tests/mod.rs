@@ -12,6 +12,8 @@ use sha2::{Digest, Sha256};
 use std::{cell::Cell, rc::Rc};
 
 #[cfg(windows)]
+mod managed_environment;
+#[cfg(windows)]
 mod ntfs;
 mod policy_lifecycle;
 #[cfg(windows)]
