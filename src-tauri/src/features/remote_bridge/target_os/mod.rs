@@ -37,6 +37,7 @@ impl TargetPlatformProbe {
         let windows_bridge = (platform == TargetPlatform::Windows).then_some(WindowsBridgeView {
             transport: WindowsTransportState::Unavailable,
             terminal: WindowsTerminalState::Unavailable,
+            ai: WindowsAiState::Unavailable,
         });
         Self {
             target_id,
@@ -52,6 +53,7 @@ impl TargetPlatformProbe {
 pub struct WindowsBridgeView {
     pub transport: WindowsTransportState,
     pub terminal: WindowsTerminalState,
+    pub ai: WindowsAiState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -174,7 +176,7 @@ mod tests {
             serde_json::to_value(snapshot).unwrap(),
             serde_json::json!({
                 "targetId": "candidate", "platform": "windows", "status": "confirmed", "shell": "cmd",
-                "windowsBridge": {"transport": "unavailable", "terminal": "unavailable"}
+                "windowsBridge": {"transport": "unavailable", "terminal": "unavailable", "ai": "unavailable"}
             })
         );
     }

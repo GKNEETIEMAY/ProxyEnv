@@ -1,10 +1,24 @@
 import type { CheckState } from "../../shared/types";
 import type { RemoteBridgeCopy } from "../../shared/i18n/remote-bridge";
-import type { BridgeStatus, BridgeSummary, DiagnosticState, RemoteSkill } from "./state";
+import type { BridgeStatus, BridgeSummary, CcDetection, DiagnosticState, RemoteSkill } from "./state";
 import type { RemoteToolId } from "./tool-adapters";
 import { getRemoteToolAdapter } from "./tool-adapters";
 
 export const bridgeEndpointLabel = (host: string, port: number) => `${host.includes(":") ? `[${host}]` : host}:${port}`;
+
+export function ccServiceLabel(copy: RemoteBridgeCopy, detection: CcDetection | null): string {
+  switch (detection?.service) {
+    case "notRunning": return copy.rbCcServiceNotRunning;
+    case "notListening": return copy.rbCcServiceNotListening;
+    case "uncertain": return copy.rbCcServiceUncertain;
+    case "recognized": return copy.rbCcServiceRecognized;
+    case "unavailable": return copy.rbCcServiceUnavailable;
+    default:
+      if (!detection) return copy.rbCheckIdle;
+      if (detection.state === "confirmed") return copy.rbCcServiceRecognized;
+      return detection.state === "listeningUnknown" ? copy.rbCcServiceUncertain : copy.rbCcMissing;
+  }
+}
 
 export function diagnosticCheckState(state: DiagnosticState | undefined): CheckState {
   return state === "passed" ? "healthy" : state === "failed" ? "failed" : state === "testing" ? "checking" : "idle";

@@ -25,7 +25,7 @@ import RemotePlatformStatus from "./RemotePlatformStatus.vue";
 import { remoteReadiness } from "../readiness-presentation";
 import RemoteBridgeAdvancedView from "./RemoteBridgeAdvancedView.vue";
 import BridgeLaunchBar from "./BridgeLaunchBar.vue";
-import { serverDirectCheckState, overviewServerDirectStatus, overviewToolChecking } from "../overview-presentation";
+import { ccServiceLabel, serverDirectCheckState, overviewServerDirectStatus, overviewToolChecking } from "../overview-presentation";
 import { sshTargetAddress as targetAddress, needsInteractiveSshAuth } from "../ssh-presentation";
 import { remoteToolAdapters, type RemoteToolAdapter, type RemoteToolId } from "../tool-adapters";
 import {
@@ -185,6 +185,9 @@ const { skillGroups, skillPending, refreshSkills, scheduleSkillsPolling, dispose
 });
 const proxyAvailable = computed(() => props.activeProxy.available && !!props.activeProxy.candidate && props.activeProxy.candidate.protocol !== "unknown");
 const ccUsable = computed(() => ccDetection.value.state === "confirmed");
+const ccService = computed(() => ccCheck.value.state === "checking"
+  ? props.copy.rbCheckChecking
+  : ccServiceLabel(props.copy, ccDetection.value));
 const canStartConnection = computed(() => !!selectedTarget.value?.available
   && !platformBlocked.value && !platformPending.value
   && (proxy.value || cc.value)
@@ -237,7 +240,6 @@ const helpContent = computed(() => ({
 const genericStateLabel = (state: CheckState) => ({ idle: props.copy.rbCheckIdle, checking: props.copy.rbCheckChecking, healthy: props.copy.rbCheckHealthy, warning: props.copy.rbCheckWarning, failed: props.copy.rbCheckFailed, disabled: props.copy.rbCheckDisabled })[state];
 const serverDirectStatus = computed(() => overviewServerDirectStatus(props.copy, serverDirectState.value));
 const localProxyLabel = computed(() => localProxyCheck.value.state === "healthy" ? props.copy.rbLocalProxyReady : localProxyCheck.value.state === "failed" ? props.copy.rbLocalProxyUnavailable : genericStateLabel(localProxyCheck.value.state));
-const ccStateLabel = computed(() => ccCheck.value.state === "healthy" ? props.copy.rbCcConfirmed : ccCheck.value.state === "warning" ? props.copy.rbCcUnknown : ccCheck.value.state === "failed" ? props.copy.rbCcMissing : ccCheck.value.state === "disabled" ? props.copy.rbCcDisabled : genericStateLabel(ccCheck.value.state));
 const sshRuntimeState = computed<CheckState>(() => needsAttention.value ? "failed" : live.value ? (props.summary.status === "connecting" ? "checking" : "healthy") : bridgeCheckState(props.summary.status));
 const sshRuntimeLabel = computed(() => sshRuntimeState.value === "healthy" ? props.copy.rbHealthy : genericStateLabel(sshRuntimeState.value));
 const {
@@ -967,7 +969,7 @@ onBeforeUnmount(() => {
                 <button class="text-action" type="button" @click="openEditConnectionDialog(selectedTarget)">{{ copy.rbConnectionEdit }}</button>
               </div>
               <p v-if="!selectedTarget.available" class="notice notice-warning">{{ copy.rbMobaUnsupported }}</p>
-              <RemotePlatformStatus :copy="copy" :platform="selectedPlatform" :windows-bridge="windowsBridge"
+              <RemotePlatformStatus :copy="copy" :platform="selectedPlatform" :windows-bridge="windowsBridge" :cc-detection="props.ccDetection"
                 :pending="platformPending" :error="platformError" :disabled="!selectedTarget.available"
                 @probe="checkPlatform" @cancel="cancelProbe" />
 
@@ -985,7 +987,7 @@ onBeforeUnmount(() => {
                   <span class="remote-capability-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24"><path d="M8.5 7.5 5 12l3.5 4.5M15.5 7.5 19 12l-3.5 4.5M13.5 5l-3 14"/></svg>
                   </span>
-                  <span class="remote-capability-copy"><span class="remote-capability-title"><label for="bridge-ai-route">{{ copy.rbCcUseTitle }}</label><HelpTooltip :label="copy.rbCcUseTitle" :text="copy.rbCcOpenHint" /></span><small :title="ccUsable ? `${copy.rbCcRouteDetected} · http://127.0.0.1:${ccDetection.localPort}` : ccStateLabel"><template v-if="ccUsable">{{ copy.rbCcRouteDetected }} · http://127.0.0.1:{{ ccDetection.localPort }}</template><template v-else>{{ ccStateLabel }}</template></small><small v-if="ccUsable" class="remote-capability-reminder">{{ copy.rbCcRouteReminder }}</small></span>
+                  <span class="remote-capability-copy"><span class="remote-capability-title"><label for="bridge-ai-route">{{ copy.rbCcUseTitle }}</label><HelpTooltip :label="copy.rbCcUseTitle" :text="copy.rbCcOpenHint" /></span><small :title="ccUsable ? `${copy.rbCcRouteDetected} · http://127.0.0.1:${ccDetection.localPort}` : ccService"><template v-if="ccUsable">{{ copy.rbCcRouteDetected }} · http://127.0.0.1:{{ ccDetection.localPort }}</template><template v-else>{{ ccService }}</template></small><small v-if="ccUsable" class="remote-capability-reminder">{{ copy.rbCcRouteReminder }}</small></span>
                   <input id="bridge-ai-route" v-model="cc" class="switch-input" type="checkbox" role="switch" :disabled="!ccUsable" @change="rememberCcChoice" />
                 </div>
                 </div>

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { RemoteBridgeCopy } from "../../../shared/i18n/remote-bridge";
-import type { TargetPlatform, WindowsBridgeView } from "../state";
+import { ccServiceLabel } from "../overview-presentation";
+import type { CcDetection, TargetPlatform, WindowsBridgeView } from "../state";
 
 const props = defineProps<{
   copy: RemoteBridgeCopy;
   platform: TargetPlatform;
   windowsBridge?: WindowsBridgeView;
+  ccDetection: CcDetection | null;
   pending: boolean;
   error: string;
   disabled: boolean;
@@ -33,6 +35,17 @@ const terminal = computed(() => ({
   unavailable: props.copy.rbStates.unavailable,
   closed: props.copy.rbStates.disconnected,
 })[props.windowsBridge?.terminal ?? "unavailable"]);
+const ai = computed(() => ({
+  notEnabled: props.copy.rbOverviewNotEnabled,
+  awaitingAuthorization: props.copy.rbPlatformAwaitAuthorization,
+  preparing: props.copy.rbAiPreparing,
+  prepared: props.copy.rbAiPrepared,
+  unavailable: props.copy.rbAiTargetUnavailable,
+  configurationConflict: props.copy.rbAiConfigConflict,
+  closed: props.copy.rbAiClosed,
+  invalidated: props.copy.rbAiInvalidated,
+  cleanupIncomplete: props.copy.rbPlatformCleanupIncomplete,
+})[props.windowsBridge?.ai ?? "unavailable"]);
 </script>
 
 <template>
@@ -48,6 +61,10 @@ const terminal = computed(() => ({
         <div><dt>{{ copy.rbStatus }}</dt><dd>{{ transport }}</dd></div>
         <div><dt>{{ copy.rbManagedTerminal }}</dt><dd>{{ terminal }}</dd></div>
       </dl>
+      <dl class="remote-platform-ai" aria-live="polite">
+        <div><dt>{{ copy.rbAiCapability }}</dt><dd>{{ ai }}</dd></div>
+        <div><dt>CC Switch</dt><dd>{{ ccServiceLabel(copy, ccDetection) }}</dd></div>
+      </dl>
       <p id="remote-windows-reason">{{ copy.rbWindowsBridgeUnavailable }}</p>
     </div>
   </section>
@@ -61,5 +78,6 @@ const terminal = computed(() => ({
 .remote-platform-label strong, dd { color: var(--ink); margin-inline-start: 5px; font-weight: 600; }
 dl { margin: 8px 0 0; }
 dl div { display: flex; flex-wrap: wrap; }
+.remote-platform-ai { gap: 4px 18px; }
 .remote-platform-windows p { margin-block: 6px 0; overflow-wrap: anywhere; }
 </style>

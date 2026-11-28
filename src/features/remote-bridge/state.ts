@@ -45,9 +45,11 @@ export interface ToolVerificationResult { tool: RemoteToolId; verification: Remo
 export interface BridgeSummary { status: BridgeStatus; target: RemoteTarget | null; proxy: BridgeEndpoint | null; runtimeExpectedProxyPort?: number | null; runtimeProxyMatch?: UserProxyPortState; cc: BridgeEndpoint | null; proxyStatus: BridgeStatus | null; ccStatus: BridgeStatus | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; codexProfileState?: ProfileSyncState; claudeProfileState?: ProfileSyncState; tools?: RemoteToolState[]; codexExtension?: string | null; claudeExtension?: string | null; error: string | null; sshAuth: SshAuthState; postConnectStatus?:PostConnectStatus; sessionEnvironmentState?:RemoteRuntimeState; vscodeState?:RemoteRuntimeState; codexState?:RemoteRuntimeState; claudeState?:RemoteRuntimeState; skillsState?:RemoteRuntimeState; postConnectError?:string|null; timings?:PhaseTiming[] }
 export interface BridgeRequest { targetId: string; proxyPort: number | null; ccPort: number | null; ccLocalPort: number; expectedRevision: number }
 export type TargetPlatform = "linux" | "windows" | "unknown" | "unsupported";
+export type WindowsAiState = "notEnabled" | "awaitingAuthorization" | "preparing" | "prepared" | "unavailable" | "configurationConflict" | "closed" | "invalidated" | "cleanupIncomplete";
 export interface WindowsBridgeView {
   transport: "notPrepared" | "preparing" | "awaitingAuthorization" | "unavailable" | "closing" | "disconnected" | "closedAbnormally" | "cleanupIncomplete";
   terminal: "unprepared" | "awaitingEnvironment" | "prepared" | "unavailable" | "closed";
+  ai?: WindowsAiState;
 }
 export interface TargetPlatformProbe {
   targetId: string;
@@ -63,7 +65,12 @@ export interface BridgeSummary {
 export type BridgeCapability = "proxy" | "cc";
 export interface BridgeCapabilityChange { targetId: string; capability: BridgeCapability; enabled: boolean; expectedRevision: number; ccLocalPort: number }
 export interface PortAllocation { proxyPort: number; ccPort: number; runtimeExpectedProxyPort?: number | null; runtimePortConflict?: boolean }
-export interface CcDetection { state: "confirmed" | "listeningUnknown" | "notDetected"; localPort: number }
+export interface CcDetection {
+  state: "confirmed" | "listeningUnknown" | "notDetected";
+  localPort: number;
+  service?: "notRunning" | "notListening" | "uncertain" | "recognized" | "unavailable";
+  revision?: number;
+}
 export interface RemoteNetworkObservation { serverInternet: "reachable" | "unreachable" | "unknown" }
 export type SkillProjectionState = "notSynced" | "synced" | "localChanged" | "conflict" | "unavailable";
 export interface RemoteSkill { id:string; tool:RemoteToolId; name:string; hash:string; fileCount:number; totalSize:number; state:SkillProjectionState; enabled:boolean }
@@ -165,7 +172,8 @@ export function useRemoteBridge() {
     try {
       const next = await remoteBackend.summary();
       if (!disposed) summary.value = next.targetPlatform === "windows"
-        ? { ...next, status: "unavailable", proxy: null, cc: null, proxyStatus: null, ccStatus: null }
+        ? { ...next, status: "unavailable", proxy: null, cc: null, proxyStatus: null, ccStatus: null,
+            codexConfigured: false, claudeConfigured: false, tools: [] }
         : next;
     }
     catch { if (!disposed) summary.value={...summary.value,status:"unavailable"}; }
@@ -178,9 +186,11 @@ export function useRemoteBridge() {
       const localPort = ccDetection.value?.localPort ?? 15721;
       try {
         const next = await remoteBackend.detectCc(localPort, true);
-        if (!disposed && (next.state !== ccDetection.value?.state || next.localPort !== ccDetection.value?.localPort)) ccDetection.value = next;
+        const previous = ccDetection.value;
+        if (!disposed && (next.state !== previous?.state || next.localPort !== previous?.localPort
+          || next.service !== previous?.service || next.revision !== previous?.revision)) ccDetection.value = next;
       } catch {
-        if (!disposed) ccDetection.value = { state: "notDetected", localPort };
+        if (!disposed) ccDetection.value = { state: "notDetected", localPort, service: "unavailable" };
       }
     })().finally(() => { ccPending = undefined; });
     return ccPending;
