@@ -19,6 +19,7 @@ try {
     window.isTauri = true;
     window.pendingPlatformProbes = [];
     window.unexpectedBridgeCalls = [];
+    window.fixtureCc = { state: "notDetected", localPort: 15721, service: "notRunning", revision: 1 };
     window.fixtureSummary = {
       status: "disconnected", target: null, proxy: null, cc: null, proxyStatus: null, ccStatus: null,
       activeProxyRevision: null, environment: "", codexConfigured: false, claudeConfigured: false,
@@ -27,7 +28,7 @@ try {
     window.__TAURI_INTERNALS__ = {
       invoke: async (command, args) => {
         if (command === "remote_bridge_summary") return structuredClone(window.fixtureSummary);
-        if (command === "remote_bridge_detect_cc") return { state: "notDetected", localPort: 15721 };
+        if (command === "remote_bridge_detect_cc") return structuredClone(window.fixtureCc);
         if (command === "remote_bridge_clear_session_credential") return undefined;
         if (command === "remote_bridge_probe_target_os") {
           return new Promise((complete, reject) => window.pendingPlatformProbes.push({
@@ -83,24 +84,41 @@ try {
 
   await probe.click();
   await pendingCount(4);
-  await complete(3, "windows", { transport: "unavailable", terminal: "unavailable" });
+  await complete(3, "windows", { transport: "unavailable", terminal: "unavailable", ai: "unavailable" });
   await label("Windows");
   assert.ok(await connect.isDisabled());
   assert.equal(await page.locator(".remote-current-state.unavailable").innerText(), "当前不可用");
   assert.equal(await page.locator(".remote-setup-panel .switch-input").count(), 0);
   assert.match(await platform.innerText(), /实机验收/);
+  const aiStatus = platform.locator(".remote-platform-ai");
+  await aiStatus.getByText("此目标暂不可接入", { exact: true }).waitFor();
+  await aiStatus.getByText("本机服务未运行", { exact: true }).waitFor();
+  const setCc = (state, service, revision) => page.evaluate(({ state, service, revision }) => {
+    Object.assign(window.fixtureCc, { state, service, revision });
+  }, { state, service, revision });
+  for (const [state, service, status] of [
+    ["notDetected", "notListening", "路由服务未监听"],
+    ["listeningUnknown", "uncertain", "本机服务待确认"],
+    ["listeningUnknown", "unavailable", "本机服务不可用"],
+  ]) {
+    await setCc(state, service, 1);
+    await aiStatus.getByText(status, { exact: true }).waitFor();
+  }
+  await setCc("confirmed", "recognized", 2);
+  await aiStatus.getByText("本机服务已识别", { exact: true }).waitFor();
+  assert.ok(await connect.isDisabled());
   await page.screenshot({ path: resolve(screenshots, "windows-blocked-light.png") });
 
-  const setWindows = async (transport, terminal) => page.evaluate(({ transport, terminal }) => {
+  const setWindows = async (transport, terminal, ai) => page.evaluate(({ transport, terminal, ai }) => {
     Object.assign(window.fixtureSummary, {
       status: "connected",
       targetPlatform: "windows",
       target: { id: "vscode|preview|gpu-server", displayName: "gpu-server" },
-      windowsBridge: { transport, terminal },
+      windowsBridge: { transport, terminal, ai },
     });
-  }, { transport, terminal });
-  await setWindows("awaitingAuthorization", "awaitingEnvironment");
-  await platform.getByText("等待授权", { exact: true }).waitFor();
+  }, { transport, terminal, ai });
+  await setWindows("awaitingAuthorization", "awaitingEnvironment", "awaitingAuthorization");
+  await aiStatus.getByText("等待授权", { exact: true }).waitFor();
   await platform.getByText("等待代理环境", { exact: true }).waitFor();
   assert.equal(await page.locator(".bridge-launch-bar").count(), 0);
   assert.ok(await connect.isDisabled());
@@ -110,11 +128,24 @@ try {
   assert.ok(await platform.evaluate(element => element.scrollWidth <= element.clientWidth + 1));
   await page.screenshot({ path: resolve(screenshots, "windows-awaiting-dark.png") });
 
-  await setWindows("preparing", "prepared");
+  await setWindows("preparing", "prepared", "preparing");
   await platform.getByText("代理环境已准备", { exact: true }).waitFor();
+  await aiStatus.getByText("正在准备 AI 环境", { exact: true }).waitFor();
+  for (const [state, label] of [
+    ["notEnabled", "未启用"],
+    ["prepared", "会话已准备"],
+    ["configurationConflict", "配置冲突"],
+    ["invalidated", "会话已失效"],
+    ["closed", "会话已关闭"],
+  ]) {
+    await setWindows("preparing", "prepared", state);
+    await aiStatus.getByText(label, { exact: true }).waitFor();
+    assert.equal(await page.locator(".bridge-launch-bar").count(), 0);
+    assert.ok(await connect.isDisabled());
+  }
   assert.equal(await page.locator(".remote-target-name .check-status").count(), 0);
-  await setWindows("cleanupIncomplete", "closed");
-  await platform.getByText("清理尚未完成", { exact: true }).waitFor();
+  await setWindows("cleanupIncomplete", "closed", "cleanupIncomplete");
+  await aiStatus.getByText("清理尚未完成", { exact: true }).waitFor();
   await page.screenshot({ path: resolve(screenshots, "windows-cleanup-dark.png") });
   assert.deepEqual(await page.evaluate(() => window.unexpectedBridgeCalls), []);
 
@@ -136,17 +167,18 @@ try {
   const localizedPlatformCopy = await page.evaluate(async () => {
     const { remoteBridgeMessages } = await import("/src/shared/i18n/remote-bridge.ts");
     return Object.fromEntries(Object.entries(remoteBridgeMessages).map(([locale, copy]) => [
-      locale, [copy.rbTargetPlatform, copy.rbWindowsBridgeUnavailable, copy.rbPlatformCleanupIncomplete],
+      locale, [copy.rbTargetPlatform, copy.rbWindowsBridgeUnavailable, copy.rbPlatformCleanupIncomplete,
+        copy.rbAiCapability, copy.rbAiConfigConflict, copy.rbCcServiceRecognized],
     ]));
   });
   assert.deepEqual(Object.keys(localizedPlatformCopy).sort(), ["en", "ja", "ko", "zh-CN"]);
   for (const copy of Object.values(localizedPlatformCopy)) {
     assert.ok(copy.every(message => typeof message === "string" && message.trim() !== ""));
   }
-  for (const index of [0, 1, 2]) {
+  for (const index of [0, 1, 2, 3, 4, 5]) {
     assert.equal(new Set(Object.values(localizedPlatformCopy).map(copy => copy[index])).size, 4);
   }
-  console.log("Windows and Linux platform IPC, cancellation, stale replies, production action gates, managed state and cleanup UI passed.");
+  console.log("Windows and Linux platform IPC, local CC Switch readiness, independent AI/terminal states, production gates and four locales passed.");
 } finally {
   await browser.close();
 }

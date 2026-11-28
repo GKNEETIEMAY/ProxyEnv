@@ -33,6 +33,22 @@ pub struct CcDetection {
     pub revision: u64,
 }
 
+impl CcDetection {
+    fn at_requested_port(self, port: u16) -> Self {
+        if self.local_port == port {
+            return self;
+        }
+        // A newer discovery may publish a different endpoint while this exact
+        // check was running. Its health is evidence only for its own port.
+        Self {
+            state: CcDetectionState::ListeningUnknown,
+            local_port: port,
+            service: CcServiceState::Uncertain,
+            revision: self.revision,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Observation {
     service: CcServiceState,
@@ -99,7 +115,11 @@ fn check(preferred_port: u16, discover: bool) -> BridgeResult<CcDetection> {
     let mut state = lock()?;
     let result = state.cc_service.publish(ticket, observed);
     state.cc_detected = result.state == CcDetectionState::Confirmed;
-    Ok(result)
+    Ok(if discover {
+        result
+    } else {
+        result.at_requested_port(preferred_port)
+    })
 }
 
 pub(super) fn endpoint_healthy(local_port: u16) -> BridgeResult<bool> {
@@ -284,6 +304,10 @@ mod tests {
         let result = tracker.publish(moved, checked(&[listener(15723, 2)], true));
         assert_eq!(result.local_port, 15723);
         assert!(result.revision > changed.revision);
+        let exact = result.at_requested_port(15721);
+        assert_eq!(exact.local_port, 15721);
+        assert_eq!(exact.state, CcDetectionState::ListeningUnknown);
+        assert_eq!(exact.service, CcServiceState::Uncertain);
         let failed = tracker.begin();
         let result = tracker.publish(failed, checked(&[listener(15723, 2)], false));
         assert_eq!(result.service, CcServiceState::Unavailable);

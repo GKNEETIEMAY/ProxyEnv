@@ -323,6 +323,20 @@ fn offline_ai_tool_overlay_is_bound_to_preview_owner_and_preserves_original() {
     let codex = RemoteToolId::Codex;
     let claude = RemoteToolId::Claude;
     let source = b"model = \"fixture-local-model\"\n";
+    struct FixtureFiles([std::path::PathBuf; 2]);
+    impl Drop for FixtureFiles {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    let files = FixtureFiles([
+        layout.history.join("fixture-codex-original.toml"),
+        layout.history.join("fixture-codex-overlay.toml"),
+    ]);
+    let [original_path, overlay_path] = &files.0;
+    fs::write(original_path, source).unwrap();
     assert_eq!(
         runtime
             .preview_ai_tool(&task, fixture.clock(2), codex, "0.133.0", None)
@@ -394,11 +408,20 @@ fn offline_ai_tool_overlay_is_bound_to_preview_owner_and_preserves_original() {
     let config = std::str::from_utf8(&contents).unwrap();
     assert!(config.contains("127.0.0.1") && config.contains("wire_api = \"responses\""));
     assert!(!config.contains("fixture-local-model") && !config.contains("model_catalog_json"));
-    assert!(applied.restore(Some(b"other-owner")).is_err());
+    fs::write(overlay_path, &contents).unwrap();
+    fs::write(overlay_path, b"other-owner").unwrap();
+    let foreign = fs::read(overlay_path).unwrap();
+    assert!(applied.restore(Some(&foreign)).is_err());
+    assert_eq!(fs::read(overlay_path).unwrap(), b"other-owner");
     assert_eq!(applied.content(), Some(contents.as_slice()));
-    applied.restore(Some(&contents)).unwrap();
+    fs::write(overlay_path, &contents).unwrap();
+    applied
+        .restore(Some(&fs::read(overlay_path).unwrap()))
+        .unwrap();
+    fs::remove_file(overlay_path).unwrap();
     applied.restore(None).unwrap();
     assert!(applied.content().is_none());
+    assert_eq!(fs::read(original_path).unwrap(), source);
 
     let stale = preview(&runtime);
     runtime.stop_ai(&task);
@@ -445,6 +468,140 @@ fn offline_ai_tool_overlay_is_bound_to_preview_owner_and_preserves_original() {
     runtime
         .stop(&task, End::Cancelled, shutdown_deadline())
         .unwrap();
+    confirm_exit(&witness);
+}
+
+#[test]
+fn offline_ai_relay_closes_on_application_exit_and_ignores_old_target_tasks() {
+    use crate::features::remote_bridge::{
+        cc_service::{CcDetection, CcDetectionState, CcServiceState},
+        target_os::WindowsAiState,
+    };
+    use std::{
+        io::{BufRead, BufReader},
+        net::{Ipv4Addr, TcpListener, TcpStream},
+    };
+
+    let local_upstream = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    local_upstream.set_nonblocking(true).unwrap();
+    let service = CcDetection {
+        state: CcDetectionState::Confirmed,
+        local_port: local_upstream.local_addr().unwrap().port(),
+        service: CcServiceState::Recognized,
+        revision: 1,
+    };
+    let old_fixture = Fixture::new();
+    let old_layout = Layout::new();
+    let old_plan = old_fixture.plan();
+    let (mut old_runtime, old_task) = prepare(&old_fixture, &old_plan, &old_layout);
+    old_runtime
+        .stop(&old_task, End::Cancelled, shutdown_deadline())
+        .unwrap();
+
+    let mut fixture = Fixture::new();
+    fixture.target = ssh::BoundTarget::fixture("alias-b", CONFIG).unwrap();
+    let layout = Layout::new();
+    let plan = fixture.plan();
+    let args = verification_args(&fixture, &plan, &layout);
+    let (mut runtime, task) = prepare(&fixture, &plan, &layout);
+    let witness = activate(&mut runtime, &task, &fixture);
+    let mut proof = runtime
+        .begin_verification(&task, fixture.input(), &args, || fixture.clock(1))
+        .unwrap();
+    receive_proof(&mut proof, &fixture);
+    runtime
+        .finish_verification(proof, fixture.input(), &args, || fixture.clock(2))
+        .unwrap();
+    let unavailable = CcDetection {
+        state: CcDetectionState::ListeningUnknown,
+        service: CcServiceState::Unavailable,
+        ..service
+    };
+    assert_eq!(
+        runtime
+            .prepare_ai(&task, fixture.input(), unavailable, true, || fixture
+                .clock(2))
+            .err()
+            .as_deref(),
+        Some("ccUnavailable")
+    );
+    assert!(runtime.ai_relay_fixture().is_none());
+    let pending = runtime
+        .prepare_ai(&task, fixture.input(), service, true, || fixture.clock(2))
+        .unwrap();
+    runtime
+        .finish_ai(
+            &task,
+            pending,
+            || fixture.input(),
+            || service,
+            || fixture.clock(2),
+        )
+        .unwrap();
+    assert!(runtime.stop_ai(&old_task).is_none());
+    assert!(runtime
+        .poll_ai(&old_task, fixture.input(), unavailable, || fixture
+            .clock(30))
+        .is_none());
+    let relay = runtime.ai_relay_fixture().unwrap();
+    let relay_addr = (Ipv4Addr::LOCALHOST, relay.port());
+    let token = relay.token();
+    let client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .unwrap();
+    let url = format!("http://127.0.0.1:{}/v1/responses", relay.port());
+    let denied = client.post(&url).body("").send().unwrap();
+    assert!(denied.status().is_client_error());
+    assert!(local_upstream.accept().is_err());
+    let server = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut stream = loop {
+            match local_upstream.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error)
+                    if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("synthetic upstream did not receive request: {error}"),
+            }
+        };
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut lines = BufReader::new(&mut stream);
+        let mut line = String::new();
+        assert!(lines.read_line(&mut line).unwrap() > 0);
+        assert_eq!(line.trim_end(), "POST /v1/responses HTTP/1.1");
+        loop {
+            line.clear();
+            assert!(lines.read_line(&mut line).unwrap() > 0);
+            if line == "\r\n" {
+                break;
+            }
+            assert!(!line.to_ascii_lowercase().starts_with("x-proxyenv-session:"));
+        }
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .unwrap();
+    });
+    let result = client
+        .post(url)
+        .header("X-ProxyEnv-Session", token.as_str())
+        .body("")
+        .send();
+    server.join().unwrap();
+    assert_eq!(result.unwrap().text().unwrap(), "ok");
+    let stopped = runtime
+        .stop(&task, End::ApplicationExit, shutdown_deadline())
+        .unwrap();
+    assert_eq!(stopped.ai, WindowsAiState::Closed);
+    assert_eq!(stopped.completion, Completion::Complete);
+    assert!(TcpStream::connect_timeout(&relay_addr.into(), Duration::from_millis(100)).is_err());
+    assert!(!layout.frozen.exists());
     confirm_exit(&witness);
 }
 
