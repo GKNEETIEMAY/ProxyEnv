@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
+import ts from "typescript";
+import { createRemoteFixturePage } from "./fixtures/remote-ui-browser.mjs";
 
 const require = createRequire(process.env.PROXYENV_LAYOUT_PLAYWRIGHT || import.meta.url);
 const { chromium } = require("playwright");
@@ -14,7 +16,7 @@ const browser = await chromium.launch({
 });
 
 try {
-  const page = await browser.newPage({ viewport: { width: 880, height: 720 }, reducedMotion: "reduce" });
+  const page = await createRemoteFixturePage(browser, { viewport: { width: 880, height: 720 }, reducedMotion: "reduce" });
   await page.addInitScript(() => {
     window.isTauri = true;
     window.pendingPlatformProbes = [];
@@ -164,13 +166,15 @@ try {
   assert.equal(await platform.locator(".remote-platform-windows").count(), 0);
   assert.deepEqual(await page.evaluate(() => window.unexpectedBridgeCalls), []);
 
-  const localizedPlatformCopy = await page.evaluate(async () => {
-    const { remoteBridgeMessages } = await import("/src/shared/i18n/remote-bridge.ts");
-    return Object.fromEntries(Object.entries(remoteBridgeMessages).map(([locale, copy]) => [
-      locale, [copy.rbTargetPlatform, copy.rbWindowsBridgeUnavailable, copy.rbPlatformCleanupIncomplete,
-        copy.rbAiCapability, copy.rbAiConfigConflict, copy.rbCcServiceRecognized],
-    ]));
+  const localeSource = readFileSync(new URL("../src/shared/i18n/remote-bridge.ts", import.meta.url), "utf8");
+  const { outputText } = ts.transpileModule(localeSource, {
+    compilerOptions: { module: ts.ModuleKind.ESNext },
   });
+  const { remoteBridgeMessages } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
+  const localizedPlatformCopy = Object.fromEntries(Object.entries(remoteBridgeMessages).map(([locale, copy]) => [
+    locale, [copy.rbTargetPlatform, copy.rbWindowsBridgeUnavailable, copy.rbPlatformCleanupIncomplete,
+      copy.rbAiCapability, copy.rbAiConfigConflict, copy.rbCcServiceRecognized],
+  ]));
   assert.deepEqual(Object.keys(localizedPlatformCopy).sort(), ["en", "ja", "ko", "zh-CN"]);
   for (const copy of Object.values(localizedPlatformCopy)) {
     assert.ok(copy.every(message => typeof message === "string" && message.trim() !== ""));

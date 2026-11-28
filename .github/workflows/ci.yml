@@ -42,12 +42,17 @@ jobs:
         run: pnpm exec playwright install chromium
       - name: Test synthetic local and application proxy layouts
         run: pnpm test:ui
+      - name: Test synthetic remote bridge and capability layouts
+        run: node scripts/test-remote-ui.mjs
       - name: Upload synthetic screenshots and test log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: local-ui-fixtures
-          path: .impeccable/review/local-v0.2.2/
+          path: |
+            .impeccable/review/local-v0.2.2/
+            .impeccable/review/remote-ui/windows/
+            .impeccable/review/remote-ui/capabilities/
           include-hidden-files: true
           if-no-files-found: warn
 

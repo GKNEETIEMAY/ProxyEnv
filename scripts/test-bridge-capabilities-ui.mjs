@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { createRemoteFixturePage } from "./fixtures/remote-ui-browser.mjs";
 
 const require = createRequire(process.env.PROXYENV_LAYOUT_PLAYWRIGHT || import.meta.url);
 const { chromium } = require("playwright");
-const screenshots = process.argv.includes("--screenshots") ? resolve(".impeccable/review/remote-advanced") : null;
+const screenshots = process.argv.includes("--screenshots")
+  ? resolve(process.env.ROUTESPAN_REMOTE_CAPABILITY_SCREENSHOTS || ".impeccable/review/remote-advanced")
+  : null;
 if (screenshots) mkdirSync(screenshots, { recursive: true });
-const browser = await chromium.launch({ headless: true, ...(process.env.PROXYENV_LAYOUT_BROWSER ? { executablePath: process.env.PROXYENV_LAYOUT_BROWSER } : {}) });
+const browser = await chromium.launch({ headless: true, args: ["--no-proxy-server"], ...(process.env.PROXYENV_LAYOUT_BROWSER ? { executablePath: process.env.PROXYENV_LAYOUT_BROWSER } : {}) });
 try {
-  const page = await browser.newPage({ viewport: { width: 880, height: 720 }, reducedMotion: "reduce" });
+  const page = await createRemoteFixturePage(browser, { viewport: { width: 880, height: 720 }, reducedMotion: "reduce" });
   await page.addInitScript(() => {
     window.isTauri = true;
     window.capabilityCalls = [];
@@ -26,11 +29,15 @@ try {
     Object.defineProperty(navigator, 'clipboard', { configurable:true, value:{ writeText:async value => window.copiedCommands.push(value) } });
     // Synthetic IPC: no real SSH, relay, credentials or configuration writes.
     window.bridgeFixture = {
-      status: "connected", target: { id: "manual-preview", displayName: "aliyun-dev", source: "manual", sourceLabel: "ProxyEnv", sshAlias: null, host: "8.138.152.49", user: "lxl", port: 22, configPath: "ProxyEnv", available: true, compatibility: "compatible", canOpenVscode: true, canOpenMobaxterm: false },
+      status: "connected", target: { id: "manual-preview", displayName: "demo-dev", source: "manual", sourceLabel: "ProxyEnv", sshAlias: null, host: "203.0.113.12", user: "demo-user", port: 22, configPath: "ProxyEnv", available: true, compatibility: "compatible", canOpenVscode: true, canOpenMobaxterm: false },
       proxy: { local: { host: "127.0.0.1", port: 10809, protocol: "mixed" }, remotePort: 23841 },
       cc: { local: { host: "127.0.0.1", port: 15721, protocol: "http" }, remotePort: 31472 },
       proxyStatus: "connected", ccStatus: "connected", activeProxyRevision: 1, environment: "", codexConfigured: true, claudeConfigured: false,
       postConnectStatus: "preparing", codexState: "preparing", claudeState: "pending",
+      toolInstallations: [
+        { tool: "codex", state: "installed", version: "0.134.0", extensionState: "unknown" },
+        { tool: "claude", state: "installed", version: "2.1.227", extensionState: "unknown" },
+      ],
       error: null, sshAuth: { mode: "nonInteractive", method: "identityFile", authenticated: true, passwordStored: false },
       diagnostics: {generalProxyEgress:{state:"notTested",checkedAt:null,errorCode:null,durationMs:null}, aiRouteVerification:{state:"notTested",checkedAt:null,errorCode:null,durationMs:null}},
       security: {generalProxyAuth:"none",aiRouteAuth:"session",remoteBindScope:"loopback",shellScope:"sessionOnly"},
@@ -108,8 +115,9 @@ try {
   await page.goto(`${process.env.PROXYENV_LAYOUT_URL || "http://localhost:1420"}/?impeccable-review=remote-connected`);
   await page.locator('.bridge-launch-bar').waitFor();
   assert.equal(await page.locator('.bridge-launch-bar .bridge-launch-option button').first().isDisabled(), false, 'A supported connected manual target can open VS Code');
+  await page.waitForFunction(() => document.querySelector('.remote-target-metadata')?.textContent.includes('demo-user@203.0.113.12'));
   const metadata = await page.locator('.remote-target-metadata').innerText();
-  assert.ok(metadata.includes('lxl@8.138.152.49'), 'SSH metadata includes the selected user and host');
+  assert.ok(metadata.includes('demo-user@203.0.113.12'), 'SSH metadata includes the selected user and host');
   assert.ok(!metadata.includes(':22'), 'Default SSH port is omitted from display labels');
   const toolSwitches = page.locator('.bridge-tool .switch-input');
   await page.waitForFunction(() => [...document.querySelectorAll('.bridge-tool .switch-input')].every(input => input.getAttribute('aria-busy') === 'true'));
@@ -133,7 +141,12 @@ try {
   const advanced = page.locator('.bridge-advanced-view');
   await advanced.waitFor({state:'visible'});
   assert.equal(await advanced.locator('.switch-input').count(),0,'Advanced is diagnostic-only; tool controls remain in Overview');
-  assert.doesNotMatch(await advanced.locator('[aria-labelledby="advanced-environment-title"]').innerText(),/AI 工具|Codex|Claude Code|Skills/,'Advanced does not repeat Overview AI tool or Skills detection');
+  const advancedEnvironment = advanced.locator('[aria-labelledby="advanced-environment-title"]');
+  const installations = advancedEnvironment.getByRole("table", { name: "AI 工具" });
+  assert.deepEqual(await installations.getByRole("columnheader").allTextContents(), ["AI 工具", "CLI", "VS Code 插件"]);
+  assert.deepEqual(await installations.getByRole("rowheader").allTextContents(), ["Codex", "Claude Code"]);
+  assert.equal(await installations.locator("button, input, select, a").count(), 0, "Installation diagnostics are read-only");
+  assert.doesNotMatch(await advancedEnvironment.innerText(), /Skills/, "Skills actions and detection remain in Overview");
   assert.equal(await page.evaluate(() => window.toolCalls.length), 0, 'Blocked clicks never issue configuration requests');
   await page.locator('.remote-view-switch button').first().click();
   await page.evaluate(() => window.bridgeFixture.codexState = 'ready');
@@ -189,10 +202,19 @@ try {
   assert.equal(await page.locator('.remote-view-switch button').first().getAttribute('aria-pressed'), 'true', 'Launching Moba keeps Overview open');
   await page.locator('.bridge-launch-option').nth(1).locator('.help-tooltip').hover();
   await page.getByRole('tooltip').waitFor();
-  assert.match(await page.getByRole('tooltip').innerText(), /底部操作栏右侧的复制按钮/);
+  assert.match(await page.getByRole('tooltip').innerText(), /底部操作栏右侧“复制终端配置命令”/);
   await page.mouse.move(0,0);
   await page.getByRole('tooltip').waitFor({state:'hidden'});
-  for (const success of [true,false,true]) {
+  const resetCommand = async () => {
+    await page.evaluate(() => {
+      window.bridgeFixture.proxy.remotePort += 1;
+      window.bridgeFixture.sessionEnvironmentState = 'preparing';
+      window.bridgeFixture.sessionEnvironmentCommand = null;
+    });
+    await page.waitForFunction(() => document.querySelector('.advanced-command [role="status"]')?.textContent.includes('检测中'));
+  };
+  for (const [index, success] of [true,false,true].entries()) {
+    if (index === 1) await resetCommand();
     const callsBefore = await page.evaluate(() => window.environmentCalls);
     const copiesBefore = await page.evaluate(() => window.copiedCommands.length);
     const boxBefore = await copySetup.boundingBox();
@@ -252,12 +274,10 @@ try {
   const authRow=links.locator('.advanced-status-row').filter({hasText:'认证'});
   assert.equal(await authRow.locator('.check-status').getAttribute('data-state'),'healthy','Authenticated SSH uses the shared green check');
   await page.evaluate(()=>{window.bridgeFixture.runtimeProxyMatch='unknown';window.bridgeFixture.sshAuth.authenticated=false;});
-  await page.waitForFunction(()=>document.querySelector('.bridge-advanced-view')?.textContent.includes('无法确认'));
+  await userPortRow.getByText('尚未读取配置',{exact:true}).waitFor();
   assert.equal(await userPortRow.locator('.check-status').getAttribute('data-state'),'idle','Unknown user settings must not be shown as a failed runtime probe');
   assert.equal(await authRow.locator('.check-status').getAttribute('data-state'),'idle','No green authentication check without backend evidence');
   await page.evaluate(()=>{window.bridgeFixture.runtimeProxyMatch='mismatch';window.bridgeFixture.sshAuth.authenticated=true;});
-  await page.waitForFunction(() => document.querySelector('.advanced-command')?.textContent.includes('检测中'));
-  await page.evaluate(() => window.finishEnvironment(true));
   await page.locator('.advanced-command code').waitFor();
   assert.equal(await page.locator('.advanced-command code').innerText(),'source "$HOME/.config/proxyenv/session-preview/env.sh"','Command preview uses the actual existing API, never a fabricated session path');
   const longCommand = `source "$HOME/.config/proxyenv/${'long-session-'.repeat(100)}/env.sh"`;
@@ -269,9 +289,12 @@ try {
     await page.setViewportSize({width,height:720});
     const before = await commandRow.boundingBox();
     await page.locator('.remote-view-switch button').first().click();
+    await resetCommand();
     const callsBefore = await page.evaluate(() => window.environmentCalls);
     await page.locator('.remote-view-switch button').nth(1).click();
-    await page.waitForFunction(count => window.environmentCalls > count,callsBefore);
+    assert.equal(await page.evaluate(() => window.environmentCalls), callsBefore, 'Viewing a preparing snapshot does not start provisioning');
+    await page.evaluate(() => { window.bridgeFixture.sessionEnvironmentState = 'ready'; });
+    await page.waitForFunction(count => window.environmentCalls === count + 1,callsBefore);
     assert.deepEqual(await commandRow.boundingBox(),before,'Loading does not resize the terminal command row');
     await page.evaluate(command => window.finishEnvironment(true,command),longCommand);
     await page.waitForFunction(command => document.querySelector('.advanced-command code')?.textContent === command,longCommand);
@@ -288,28 +311,29 @@ try {
     assert.equal(buttonBox.width,32,'Copy icon keeps a fixed width');
   }
   const copiesBeforeLong = await page.evaluate(() => window.copiedCommands.length);
-  const feedbackBeforeCopy = await page.locator('.remote-bridge-page .remote-feedback').allTextContents();
+  const feedbackBeforeCopy = await page.locator('.notification-center .notification-card').allTextContents();
   const commandBeforeCopy = await commandRow.boundingBox();
+  const readyCalls = await page.evaluate(() => window.environmentCalls);
   await commandRow.locator('button').click();
   assert.equal(await page.locator('.remote-workspace > .remote-fields').evaluate(element=>element.disabled),false,'Copy must not disable or dim the entire connected page');
   assert.equal(await page.locator('.remote-workspace > .remote-fields').evaluate(element=>getComputedStyle(element).opacity),'1','Pending copy leaves the page opacity unchanged');
   assert.equal(await page.locator('dialog[open]').count(),0,'Copy does not create a blurred modal backdrop');
-  await page.evaluate(command => window.finishEnvironment(true,command),longCommand);
   await page.waitForFunction(count => window.copiedCommands.length===count+1,copiesBeforeLong);
+  assert.equal(await page.evaluate(() => window.environmentCalls),readyCalls,'Copying a ready command does not issue another IPC request');
   assert.equal(await page.evaluate(() => window.copiedCommands.at(-1)),longCommand,'Copy retains the full command, not the truncated preview');
   assert.equal(await commandRow.locator('button').getAttribute('aria-label'),'已复制');
   assert.equal(await commandRow.locator('button').evaluate(button=>button.classList.contains('is-copied')),true,'Only successful copy shows the shared green feedback');
   if(screenshots) await page.screenshot({path:resolve(screenshots,'advanced-copy-success.png')});
-  assert.deepEqual(await page.locator('.remote-bridge-page .remote-feedback').allTextContents(),feedbackBeforeCopy,'Copy feedback stays on the button; existing unrelated feedback is unchanged');
+  assert.deepEqual(await page.locator('.notification-center .notification-card').allTextContents(),feedbackBeforeCopy,'Copy feedback stays on the button; existing unrelated feedback is unchanged');
   assert.deepEqual(await commandRow.boundingBox(),commandBeforeCopy,'Successful copy does not move the command row');
   await page.waitForFunction(()=>!document.querySelector('.advanced-copy').classList.contains('is-copied'),{},{timeout:3000});
   assert.equal(await commandRow.locator('button').getAttribute('aria-label'),'复制终端配置命令','Copy resets without requiring another action');
   await page.setViewportSize({width:880,height:720});
   await page.locator('.remote-view-switch button').first().click();
   await page.locator('.remote-view-switch button').nth(1).click();
-  await page.waitForFunction(() => document.querySelector('.advanced-command')?.textContent.includes('检测中'));
-  await page.evaluate(() => window.finishEnvironment(true));
   await page.locator('.advanced-command code').waitFor();
+  assert.equal(await commandRow.locator('code').innerText(),longCommand,'Navigation keeps the last confirmed command');
+  assert.equal(await page.evaluate(() => window.environmentCalls),readyCalls);
   assert.equal(await advanced.locator('.capability-switch,.switch-input').count(),0);
   assert.equal(await egressRow.locator('.check-status').getAttribute('data-state'),'idle','A connected tunnel is not verified egress');
   assert.equal(await modelRow.locator('.check-status').getAttribute('data-state'),'idle','A configured tool is not a verified model request');
@@ -353,8 +377,8 @@ try {
   await page.waitForFunction(() => window.logsOpened === 1);
   const clearButton=advanced.locator('.advanced-clear-logs');
   const clearDialog=page.locator('.advanced-clear-logs-dialog');
-  assert.equal(await openLogs.evaluate(button=>button.closest('.advanced-log-action').nextElementSibling.classList.contains('advanced-clear-logs')),true,'Clear logs follows Open log folder');
-  assert.equal(await page.locator('.advanced-log-action .help-tooltip').count(),0,'Log help is consolidated in the Diagnostics title');
+  assert.equal(await openLogs.evaluate(button=>button.nextElementSibling?.classList.contains('advanced-clear-logs')),true,'Clear logs follows Open log folder');
+  assert.equal(await advanced.locator('.advanced-diagnostics .advanced-tool-actions .help-tooltip').count(),0,'Log help is consolidated in the Diagnostics title');
   assert.equal(await advanced.locator('.advanced-diagnostics > .advanced-note').count(),0,'Report explanation is not duplicated in the body');
   await clearButton.click();
   if(screenshots) await page.screenshot({path:resolve(screenshots,'clear-logs-confirm-light.png')});
@@ -369,8 +393,10 @@ try {
   await clearDialog.getByRole('button',{name:'正在清除…',exact:true}).evaluate(button=>button.click());
   assert.equal(await page.evaluate(()=>window.clearLogCalls),1,'Pending clears prevent duplicate operations');
   await page.evaluate(()=>window.finishClearLogs(false));
-  await clearDialog.getByRole('alert').waitFor();
-  assert.match(await clearDialog.getByRole('alert').innerText(),/未能清除日志/);
+  const clearFailure = page.locator('.notification-center [role="alert"]').filter({hasText:'未能清除日志'});
+  await clearFailure.waitFor();
+  assert.match(await clearFailure.innerText(),/未能清除日志/);
+  assert.equal(await clearDialog.isVisible(),true,'A failed clear keeps the confirmation open for retry');
   await confirmClear.click();
   await page.waitForFunction(()=>window.clearLogCalls===2);
   await page.evaluate(()=>window.finishClearLogs(true));
@@ -404,7 +430,7 @@ try {
         if(record.type==='childList') for(const node of record.removedNodes) {
           if(node===window.stableEventList || node.contains?.(window.stableEventList)) window.eventListRemovals++;
         }
-        if(record.type==='attributes' && record.target.matches('.advanced-log-action button') && record.target.disabled) window.logDisableFlashes++;
+        if(record.type==='attributes' && record.target.matches('.advanced-diagnostics .advanced-tool-actions button') && record.target.disabled) window.logDisableFlashes++;
       }
     });
     window.advancedObserver.observe(document.querySelector('.bridge-advanced-view'),{subtree:true,childList:true,attributes:true,attributeFilter:['disabled']});
@@ -429,8 +455,8 @@ try {
     assert.equal(await row.locator('.check-status').getAttribute('data-state'),'healthy',`${label} confirms a safe policy with the shared green check`);
   }
   const securityCard=advanced.locator('.advanced-card').filter({has:page.locator('#advanced-security-title')});
-  const manualCard=advanced.locator('.advanced-card').filter({has:page.locator('#advanced-manual-title')});
-  assert.equal((await securityCard.boundingBox()).height,(await manualCard.boundingBox()).height,'Second-row cards stay equal height without a cache action');
+  const eventsCard=advanced.locator('.advanced-events');
+  assert.equal((await securityCard.boundingBox()).height,(await eventsCard.boundingBox()).height,'Security and recent events stay equal height without a cache action');
   await advanced.getByRole('button',{name:'查看运行耗时',exact:true}).click();
   await page.locator('.advanced-timing-dialog[open]').waitFor();
   assert.match(await page.locator('.advanced-timing-dialog').innerText(),/84 ms/);
@@ -488,7 +514,7 @@ try {
   const skillsHelp = page.locator('.bridge-skills-heading .help-tooltip');
   await skillsHelp.hover();
   await page.getByRole('tooltip').waitFor();
-  assert.match(await page.getByRole('tooltip').innerText(), /取消同步仅移除 ProxyEnv 管理的副本/);
+  assert.match(await page.getByRole('tooltip').innerText(), /取消同步仅移除 RouteSpan 管理的副本，不删除本机 Skill 或远端其它文件/);
   await page.mouse.move(0, 0);
   await page.getByRole('tooltip').waitFor({state:'hidden'});
   assert.equal(await manager.isVisible(), false, 'Skills are collapsed by default');
