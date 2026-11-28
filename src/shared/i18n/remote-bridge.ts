@@ -839,6 +839,11 @@ const installationKo:InstallationLabels = {
   rbInstallIntro:"공식 방법을 선택한 후 원격 터미널에서 명령을 실행하세요. RouteSpan는 소프트웨어를 자동으로 설치하거나 업데이트하지 않습니다.", rbInstallNetwork:"서버가 인터넷에 직접 연결할 수 없다면 로컬 네트워크 브리지를 켜고 RouteSpan에서 연 터미널에서 실행하세요.", rbInstallDirect:"네트워크 브리지가 꺼져 있습니다. 터미널은 서버 자체 네트워크를 사용합니다.", rbInstallRequirement:"원격에서 감지되지 않음: {requirement}", rbInstallOfficialError:"문서를 열지 못했습니다. 공식 링크를 복사하여 브라우저에서 여세요.", rbInstallNoSudo:"npm 설치에 sudo를 사용하지 마세요.", rbInstallNode:"Node.js 18+", rbInstallNodeRecommended:"공식 권장: Node.js 22+.", rbInstallRecheckError:"설치 상태를 확인하지 못했습니다. SSH 연결을 확인하고 다시 시도하세요.", rbInstallTerminalError:"터미널을 열지 못했습니다. SSH 연결을 확인하세요.", rbInstallCopyError:"복사하지 못했습니다. 명령을 선택하여 직접 복사하세요.", rbInstallDiscovery:"CLI 감지",
 };
 const en = {
+  rbTargetPlatform: "Target platform", rbPlatformUnknown: "Unknown", rbProbePlatform: "Check platform",
+  rbWindowsBridgeUnavailable: "Windows bridging is unavailable until device validation is complete.",
+  rbManagedTerminal: "Managed terminal", rbPlatformAwaitAuthorization: "Awaiting authorization",
+  rbPlatformClosing: "Closing", rbPlatformCleanupIncomplete: "Cleanup incomplete",
+  rbPlatformAwaitEnvironment: "Waiting for proxy environment", rbPlatformEnvironmentPrepared: "Proxy environment ready",
   ...installationEn,
   ...advancedEn,
   ...overviewEn,
@@ -877,6 +882,11 @@ rbDependencyError: "The remote operation is missing a required capability.", rbR
 };
 type Labels = { [K in keyof typeof en]: K extends "rbStates" ? Record<keyof typeof en.rbStates, string> : string };
 const zh: Labels = {
+  rbTargetPlatform: "目标平台", rbPlatformUnknown: "未知", rbProbePlatform: "检查平台",
+  rbWindowsBridgeUnavailable: "Windows 桥接需通过实机验收后才能使用。",
+  rbManagedTerminal: "托管终端", rbPlatformAwaitAuthorization: "等待授权",
+  rbPlatformClosing: "正在关闭", rbPlatformCleanupIncomplete: "清理尚未完成",
+  rbPlatformAwaitEnvironment: "等待代理环境", rbPlatformEnvironmentPrepared: "代理环境已准备",
   ...advancedZh,
   ...installationZh,
   ...overviewZh,
@@ -901,6 +911,11 @@ const zh: Labels = {
   rbStates:{disconnected:"未连接",connecting:"正在连接",connected:"已连接",stale:"配置已变化",unavailable:"当前不可用",error:"连接失败"},
 };
 const ja: Labels = {
+  rbTargetPlatform: "接続先のプラットフォーム", rbPlatformUnknown: "不明", rbProbePlatform: "プラットフォームを確認",
+  rbWindowsBridgeUnavailable: "Windows ブリッジは実機検証が完了すると利用できます。",
+  rbManagedTerminal: "管理ターミナル", rbPlatformAwaitAuthorization: "許可待ち",
+  rbPlatformClosing: "終了中", rbPlatformCleanupIncomplete: "クリーンアップ未完了",
+  rbPlatformAwaitEnvironment: "プロキシ環境の準備待ち", rbPlatformEnvironmentPrepared: "プロキシ環境の準備完了",
   ...advancedJa,
   ...installationJa,
   ...overviewJa,
@@ -916,6 +931,11 @@ const ja: Labels = {
   rbTitle:"リモート環境ブリッジ",rbHint:"SSH 経由でサーバーや VM と現在のプロキシ・CC Switch を共有します。",rbOpen:"ブリッジを設定",rbView:"ブリッジを表示",rbTarget:"接続先を選択",rbCapabilities:"機能を選択",rbPreview:"設定を確認",rbStatus:"ブリッジの状態",rbAlias:"SSH ホスト別名",rbEmpty:"~/.ssh/config に明示的な Host がありません。OpenSSH で追加して更新してください。",rbRequirements:"既存の鍵と Agent を使用します。先にターミナルでホスト鍵を確認してください。接続先は非 root の Linux、ss・flock・coreutils が必要です。",rbCheck:"接続を確認",rbChecked:"SSH 接続を確認済み",rbRefresh:"ホストを更新",rbNext:"次へ",rbBack:"戻る",rbClose:"閉じる",rbProxy:"現在のローカルプロキシ",rbNoProxy:"プロキシが利用できません。ホームで利用可能なプロキシを選択してください。",rbCc:"CC Switch ローカルルーティング",rbCcHint:"ポートの待ち受けのみ確認します。CC Switch のポートと CLI のルーティング有効化を確認してください。",rbLocalPort:"ローカルポート",rbDetect:"ポートを確認",rbDetected:"ポートは待ち受け中です",rbRemotePort:"リモートポート",rbPortHint:"1024～65535 の異なるポートを指定してください。",rbSafety:"リモートは 127.0.0.1 のみ。RouteSpan の実行中だけ有効です。Shell 起動ファイルは変更しません。",rbConnect:"ブリッジを接続",rbDisconnect:"ブリッジを切断",rbDisconnectHint:"リモートプログラムの接続が失われます。保存済み CLI 設定は復元できます。",rbConfirm:"確認",rbCancel:"キャンセル",rbReconnect:"再設定",rbStaleHint:"現在のプロキシが変更されました。既存の接続先は保持されています。切断してから再接続してください。",rbUnavailableHint:"ローカルの接続先を利用できません。プロキシまたは CC Switch を確認してください。自動切替は行いません。",rbLocal:"ローカル",rbRemote:"リモート",rbCopy:"環境変数をコピー",rbCopied:"コピーしました",rbTest:"ブリッジをテスト",rbTestHint:"この操作のみがリモートプロキシ経由で gstatic.com に接続します。AI リクエストは送りません。",rbTested:"ネットワークテスト成功",rbCodex:"Codex を設定",rbClaude:"Claude Code を設定",rbRestoreCodex:"Codex 設定を復元",rbRestoreClaude:"Claude 設定を復元",rbConfigHint:"選択した CLI 設定を確認して適用します。",rbCodexConfigHint:"Codex CLI 0.134+（0.x）用の専用 Profile を作成し、既定設定と認証情報は変更しません。",rbClaudeConfigHint:"Claude Code 2.x のユーザー設定を更新し、通常の `claude` 起動でブリッジ経路を使います。無関係な設定は保持し、経路と競合する認証キーはバックアップと確認後のみ置換します。",rbBefore:"変更前",rbAfter:"管理対象の変更",rbAbsent:"ファイルなし",rbExistingConfigProtected:"既存設定を検出しました。内容と認証情報は表示せず、リモートバックアップに完全保存します。",rbConfigBackupHint:"書き込み前に元ファイルを保存し、置換後に検証します。失敗時は即時ロールバックし、第三者変更があれば復元せず停止します。",rbApply:"バックアップして適用",rbApplied:"設定を検証済み",rbLaunch:"リモート起動コマンド",rbCopyLaunch:"起動コマンドをコピー",rbRestoreHint:"リモートバックアップから元ファイルを正確に復元します。管理対象ファイルが変更されていれば上書きせず停止します。",rbRestored:"元の設定を復元しました",rbBusy:"処理中…",rbFailed:"操作に失敗しました。SSH とローカル接続先を確認して再試行してください。",rbSshError:"SSH 接続に失敗しました。ターミナルでホスト鍵、認証、設定を確認してください。サーバー設定は変更していません。",rbForwardError:"転送できません。ポートの使用状況と SSH 転送ポリシーを確認してください。サーバー設定は変更していません。",rbBindingError:"Loopback のみの待ち受けを確認できず、新しい接続を閉じました。管理者に GatewayPorts を確認してください。",rbConfigError:"設定が競合するか未対応です。競合を上書きしていません。対象設定と RouteSpan の復元ファイルを確認してください。",rbDependencyError:"現在の操作に必要な機能がありません。",rbRemoteUnsupportedError:"このリモートシステムは未対応です。現在は Linux のみ対応します。",rbDependencyMissingError:"必要なツールがありません。ss、flock、GNU coreutils を導入してください。",rbCliUnsupportedError:"対応 CLI がありません。Codex 0.134+（0.x）または Claude Code 2.x を使用してください。",rbCustomHomeError:"カスタム設定ディレクトリが有効です。RouteSpan はその場所を推測・変更しません。",rbRootForbiddenError:"root アカウントは未対応です。非 root Linux アカウントを使用してください。",rbJsonEditorMissingError:"Claude ユーザー設定の安全な JSON 結合と復元には Python 2.7 または Python 3 が必要です。",rbPortError:"ポートが無効か使用中です。1024～65535 の空きポートを選択してください。",rbActiveError:"プロキシが変更されたか利用できません。ホームで確認して再設定してください。",rbStates:{disconnected:"未接続",connecting:"接続中",connected:"接続済み",stale:"設定変更あり",unavailable:"利用不可",error:"接続失敗"},
 };
 const ko: Labels = {
+  rbTargetPlatform: "대상 플랫폼", rbPlatformUnknown: "알 수 없음", rbProbePlatform: "플랫폼 확인",
+  rbWindowsBridgeUnavailable: "실제 장치 검증이 끝나면 Windows 브리지를 사용할 수 있습니다.",
+  rbManagedTerminal: "관리형 터미널", rbPlatformAwaitAuthorization: "권한 승인 대기",
+  rbPlatformClosing: "종료 중", rbPlatformCleanupIncomplete: "정리 미완료",
+  rbPlatformAwaitEnvironment: "프록시 환경 준비 대기", rbPlatformEnvironmentPrepared: "프록시 환경 준비 완료",
   ...advancedKo,
   ...installationKo,
   ...overviewKo,
@@ -1035,6 +1055,7 @@ export function bridgeError(code: unknown, copy: Labels): string {
   if (["remoteCatalogWriteFailed","remoteConfigWriteFailed"].includes(value)) return copy.rbProfileUnavailable;
   if (value === "codexRestartRequired") return copy.rbProfileRestartRequired;
   if (value === "remoteUnsupported") return copy.rbRemoteUnsupportedError;
+  if (value === "windowsBridgeUnavailable") return copy.rbWindowsBridgeUnavailable;
   if (value === "dependencyMissing") return copy.rbDependencyMissingError;
   if (value === "cliMissing") return copy.rbCliMissingError;
   if (value === "cliUnsupported") return copy.rbCliUnsupportedError;

@@ -16,10 +16,12 @@ import { connectionNameLimit, destinationInputValid, displayNameInputValid, iden
 import { applyTargetCopies, readTargetCopies, writeTargetCopies } from "../target-copies";
 import { useRemoteInteractiveAuth } from "../composables/useRemoteInteractiveAuth";
 import { useRemoteConnectionFlow } from "../composables/useRemoteConnectionFlow";
+import { useRemoteTargetPlatform } from "../composables/useRemoteTargetPlatform";
 import { useRemoteSkills } from "../composables/useRemoteSkills";
 import RemoteTargetGroups from "./RemoteTargetGroups.vue";
 import RemoteEmptyMascot from "./RemoteEmptyMascot.vue";
 import RemoteBridgeOverview from "./RemoteBridgeOverview.vue";
+import RemotePlatformStatus from "./RemotePlatformStatus.vue";
 import { remoteReadiness } from "../readiness-presentation";
 import RemoteBridgeAdvancedView from "./RemoteBridgeAdvancedView.vue";
 import BridgeLaunchBar from "./BridgeLaunchBar.vue";
@@ -158,6 +160,12 @@ const connectionSaveErrorText = computed(() => connectionSaveError.value ? bridg
 type ConnectionField = "displayName" | "destination" | "port" | "identityFile";
 const connectionTouched = ref<Record<ConnectionField, boolean>>({ displayName: false, destination: false, port: false, identityFile: false });
 const selectedTarget = computed(() => targets.value.find((target) => target.id === targetId.value));
+const {
+  platform: selectedPlatform, windowsBridge, checkPlatform, cancelProbe,
+  pending: platformPending, probeError,
+} = useRemoteTargetPlatform(selectedTarget, () => props.summary, remoteBackend.probeTargetPlatform);
+const platformBlocked = computed(() => selectedPlatform.value === "windows" || selectedPlatform.value === "unsupported");
+const platformError = computed(() => probeError.value ? bridgeError(probeError.value, props.copy) : "");
 const reconnecting = computed(() => ["waiting", "retrying"].includes(props.summary.reconnectState ?? ""));
 const needsAttention = computed(() => props.summary.reconnectState === "attentionRequired");
 watch([() => props.summary.status, () => props.summary.reconnectState], ([status, reconnect], [previousStatus]) => {
@@ -165,7 +173,7 @@ watch([() => props.summary.status, () => props.summary.reconnectState], ([status
     readinessAnnouncementTarget.value = undefined;
   }
 });
-const live = computed(() => !establishingBridge.value && (["connected", "stale", "unavailable", "connecting"].includes(props.summary.status) || needsAttention.value) && !!props.summary.target);
+const live = computed(() => props.summary.targetPlatform !== "windows" && !establishingBridge.value && (["connected", "stale", "unavailable", "connecting"].includes(props.summary.status) || needsAttention.value) && !!props.summary.target);
 const sshConnected = computed(() => live.value && props.summary.status !== "connecting" && !needsAttention.value);
 const { skillGroups, skillPending, refreshSkills, scheduleSkillsPolling, disposeSkills, toggleSkill } = useRemoteSkills({
   backend: remoteBackend,
@@ -178,6 +186,7 @@ const { skillGroups, skillPending, refreshSkills, scheduleSkillsPolling, dispose
 const proxyAvailable = computed(() => props.activeProxy.available && !!props.activeProxy.candidate && props.activeProxy.candidate.protocol !== "unknown");
 const ccUsable = computed(() => ccDetection.value.state === "confirmed");
 const canStartConnection = computed(() => !!selectedTarget.value?.available
+  && !platformBlocked.value && !platformPending.value
   && (proxy.value || cc.value)
   && (!proxy.value || proxyAvailable.value)
   && (!cc.value || ccUsable.value)
@@ -324,6 +333,7 @@ function updateLocalProxyCheck() {
 }
 
 async function refreshNetworkChecks() {
+  if (props.summary.targetPlatform === "windows" || selectedPlatform.value === "windows") return;
   const currentTarget = props.summary.target ?? selectedTarget.value;
   if (!currentTarget?.available || networkCheckPending.value) return;
   if (props.reviewPreview) {
@@ -898,7 +908,7 @@ onBeforeUnmount(() => {
       <div v-if="live && activeTarget" class="remote-selected-target">
         <div class="remote-target-identity"><div class="remote-target-name"><strong>{{ activeTarget.displayName }}</strong>
           <StatusIndicator :state="bridgeCheckState(summary.status)" :label="copy.rbStates[summary.status]" />
-          </div><div class="remote-target-metadata"><span>{{ activeTarget.host ? targetAddress(activeTarget) : `SSH Target · ${activeTarget.sshAlias ?? activeTarget.displayName}` }}</span><span>{{ sourceLabel(activeTarget) }}</span><code v-if="activeTarget.source !== 'manual' && activeTarget.configPath" :title="withoutWindowsExtendedPathPrefix(activeTarget.configPath)">{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></div>
+          </div><div class="remote-target-metadata"><span>{{ activeTarget.host ? targetAddress(activeTarget) : `SSH Target · ${activeTarget.sshAlias ?? activeTarget.displayName}` }}</span><span>{{ sourceLabel(activeTarget) }}</span><span v-if="summary.targetPlatform === 'linux'">Linux</span><code v-if="activeTarget.source !== 'manual' && activeTarget.configPath" :title="withoutWindowsExtendedPathPrefix(activeTarget.configPath)">{{ withoutWindowsExtendedPathPrefix(activeTarget.configPath) }}</code></div>
           <span v-if="reconnecting" class="remote-reconnect-inline" role="status">{{ copy.rbReconnectWaiting }}</span>
         </div>
         <div class="remote-server-direct">
@@ -942,8 +952,8 @@ onBeforeUnmount(() => {
           <section class="remote-current-panel">
             <header class="remote-panel-heading remote-current-heading">
               <h2>{{ copy.rbCurrentConnection }}</h2>
-              <span v-if="selectedTarget" class="remote-current-state" :class="{ unavailable: !selectedTarget.available }">
-                <span aria-hidden="true"></span>{{ selectedTarget.available ? copy.rbTargetAvailable : copy.rbTargetUnsupported }}
+              <span v-if="selectedTarget" class="remote-current-state" :class="{ unavailable: platformBlocked }">
+                <span aria-hidden="true"></span>{{ selectedPlatform === 'windows' ? copy.rbStates.unavailable : platformBlocked ? copy.rbTargetUnsupported : copy.rbTargetAvailable }}
               </span>
             </header>
 
@@ -957,8 +967,11 @@ onBeforeUnmount(() => {
                 <button class="text-action" type="button" @click="openEditConnectionDialog(selectedTarget)">{{ copy.rbConnectionEdit }}</button>
               </div>
               <p v-if="!selectedTarget.available" class="notice notice-warning">{{ copy.rbMobaUnsupported }}</p>
+              <RemotePlatformStatus :copy="copy" :platform="selectedPlatform" :windows-bridge="windowsBridge"
+                :pending="platformPending" :error="platformError" :disabled="!selectedTarget.available"
+                @probe="checkPlatform" @cancel="cancelProbe" />
 
-              <section class="remote-setup-panel">
+              <section v-if="!platformBlocked" class="remote-setup-panel">
                 <header><h2>{{ copy.rbCapabilitySelection }}</h2></header>
                 <div class="remote-capability-options">
                 <div class="remote-capability-choice" :class="{ unavailable: !proxyAvailable }">
@@ -988,7 +1001,7 @@ onBeforeUnmount(() => {
             </div>
             <footer class="remote-setup-actions">
             <button class="secondary-action" type="button" :disabled="busy || !selectedTarget" @click="cancelSetup">{{ copy.rbCancel }}</button>
-            <button class="primary-action remote-connect-action" :class="{ 'is-loading': establishingBridge }" type="button" :aria-busy="establishingBridge" :disabled="busy || establishingBridge || !canStartConnection" @click="startConnection"><span>{{ establishingBridge ? copy.rbEstablishingBridge : copy.rbConnect }}</span><svg v-if="establishingBridge" class="remote-button-spinner" aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 3a7 7 0 0 1 7 7"/></svg><svg v-else aria-hidden="true" viewBox="0 0 20 20"><path d="M4 10h11M11 6l4 4-4 4" /></svg></button>
+            <button class="primary-action remote-connect-action" :class="{ 'is-loading': establishingBridge }" type="button" :aria-busy="establishingBridge" :aria-describedby="selectedPlatform === 'windows' ? 'remote-windows-reason' : undefined" :disabled="busy || establishingBridge || !canStartConnection" @click="startConnection"><span>{{ establishingBridge ? copy.rbEstablishingBridge : copy.rbConnect }}</span><svg v-if="establishingBridge" class="remote-button-spinner" aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 3a7 7 0 0 1 7 7"/></svg><svg v-else aria-hidden="true" viewBox="0 0 20 20"><path d="M4 10h11M11 6l4 4-4 4" /></svg></button>
             </footer>
           </section>
         </div>

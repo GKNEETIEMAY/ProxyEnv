@@ -44,6 +44,22 @@ export interface RemoteBridgeModelSettings { followLocalCodexProfile:boolean; pr
 export interface ToolVerificationResult { tool: RemoteToolId; verification: RemoteToolVerification }
 export interface BridgeSummary { status: BridgeStatus; target: RemoteTarget | null; proxy: BridgeEndpoint | null; runtimeExpectedProxyPort?: number | null; runtimeProxyMatch?: UserProxyPortState; cc: BridgeEndpoint | null; proxyStatus: BridgeStatus | null; ccStatus: BridgeStatus | null; activeProxyRevision: number | null; environment: string; codexConfigured: boolean; claudeConfigured: boolean; codexProfileState?: ProfileSyncState; claudeProfileState?: ProfileSyncState; tools?: RemoteToolState[]; codexExtension?: string | null; claudeExtension?: string | null; error: string | null; sshAuth: SshAuthState; postConnectStatus?:PostConnectStatus; sessionEnvironmentState?:RemoteRuntimeState; vscodeState?:RemoteRuntimeState; codexState?:RemoteRuntimeState; claudeState?:RemoteRuntimeState; skillsState?:RemoteRuntimeState; postConnectError?:string|null; timings?:PhaseTiming[] }
 export interface BridgeRequest { targetId: string; proxyPort: number | null; ccPort: number | null; ccLocalPort: number; expectedRevision: number }
+export type TargetPlatform = "linux" | "windows" | "unknown" | "unsupported";
+export interface WindowsBridgeView {
+  transport: "notPrepared" | "preparing" | "awaitingAuthorization" | "unavailable" | "closing" | "disconnected" | "closedAbnormally" | "cleanupIncomplete";
+  terminal: "unprepared" | "awaitingEnvironment" | "prepared" | "unavailable" | "closed";
+}
+export interface TargetPlatformProbe {
+  targetId: string;
+  platform: TargetPlatform;
+  status: "confirmed" | "unknown";
+  shell?: "cmd" | "powerShell";
+  windowsBridge?: WindowsBridgeView;
+}
+export interface BridgeSummary {
+  targetPlatform?: TargetPlatform;
+  windowsBridge?: WindowsBridgeView;
+}
 export type BridgeCapability = "proxy" | "cc";
 export interface BridgeCapabilityChange { targetId: string; capability: BridgeCapability; enabled: boolean; expectedRevision: number; ccLocalPort: number }
 export interface PortAllocation { proxyPort: number; ccPort: number; runtimeExpectedProxyPort?: number | null; runtimePortConflict?: boolean }
@@ -97,6 +113,7 @@ export const remoteBackend = {
   extensionPreview: (selection: { alias: string; tool: RemoteToolId; contextHash: string; remoteConfirmed: boolean; restore: boolean }) => invoke<ExtensionPreview>("remote_bridge_extension_preview", { selection }),
   extensionApply: (id: string) => invoke<void>("remote_bridge_extension_apply", { id, confirmed: true }),
   targets: () => invoke<RemoteTarget[]>("remote_bridge_targets"),
+  probeTargetPlatform: (targetId: string) => invoke<TargetPlatformProbe>("remote_bridge_probe_target_os", { targetId }),
   addConnection: (input:ManualConnectionInput) => invoke<RemoteTarget>("remote_bridge_add_connection", { input }),
   pickIdentityFile: (initialPath: string | null = null) => invoke<string | null>("remote_bridge_pick_identity_file", { initialPath }),
   updateConnection: (id:string, input:ManualConnectionInput) => invoke<RemoteTarget>("remote_bridge_update_connection", { id, input }),
@@ -145,7 +162,12 @@ export function useRemoteBridge() {
   let disposed=false;
   async function refresh() {
     if (!isTauri()) return;
-    try { const next=await remoteBackend.summary(); if (!disposed) summary.value=next; }
+    try {
+      const next = await remoteBackend.summary();
+      if (!disposed) summary.value = next.targetPlatform === "windows"
+        ? { ...next, status: "unavailable", proxy: null, cc: null, proxyStatus: null, ccStatus: null }
+        : next;
+    }
     catch { if (!disposed) summary.value={...summary.value,status:"unavailable"}; }
   }
   async function poll() { await refresh(); if (!disposed) timer=setTimeout(poll,2000); }
