@@ -776,12 +776,6 @@ fn target_command_with_batch_mode(id: &str, batch_mode: bool) -> BridgeResult<(C
 }
 
 #[cfg(windows)]
-fn remote_target_command(id: &str) -> BridgeResult<(Command, String)> {
-    let fingerprint = fingerprint(id)?;
-    remote_resolved_target_command(&resolve(id)?, &fingerprint)
-}
-
-#[cfg(windows)]
 fn remote_resolved_target_command(
     target: &ResolvedTarget,
     fingerprint: &str,
@@ -799,11 +793,6 @@ fn remote_resolved_target_command(
         .env("SSH_ASKPASS_REQUIRE", "force")
         .env("DISPLAY", "proxyenv:0");
     Ok((command, destination))
-}
-
-#[cfg(not(windows))]
-fn remote_target_command(id: &str) -> BridgeResult<(Command, String)> {
-    target_command_with_mode(id, CommandMode::Batch)
 }
 
 #[cfg(not(windows))]
@@ -1215,20 +1204,24 @@ impl BoundTarget {
 }
 
 #[cfg(windows)]
-pub(super) fn probe_windows_target(id: &str) -> BridgeResult<super::WindowsTargetProbe> {
+pub(super) fn probe_target_platform(id: String) -> BridgeResult<super::TargetPlatformProbe> {
     use super::target_os::windows::{self, WindowsProbeReason, WindowsTargetProbe};
+    use super::{TargetPlatform, TargetPlatformProbe};
 
     let deadline = Instant::now() + windows::PROBE_BUDGET;
-    let detect = || -> BridgeResult<WindowsTargetProbe> {
-        let target = resolve(id)?;
+    let detect = || -> BridgeResult<(TargetPlatform, WindowsTargetProbe)> {
+        let target = resolve(&id)?;
         let effective = effective_resolved_target_before(&target, deadline)?;
         if !windows::allows_direct_probe(&effective) {
-            return Ok(WindowsTargetProbe::Unknown {
-                reason: WindowsProbeReason::SshConfigUnsupported,
-            });
+            return Ok((
+                TargetPlatform::Unknown,
+                WindowsTargetProbe::Unknown {
+                    reason: WindowsProbeReason::SshConfigUnsupported,
+                },
+            ));
         }
         let target = BoundTarget::from_effective(target, &effective)?;
-        let result = windows::probe(|remote_command| {
+        let run = |remote_command: &str| {
             target.check_current_before(deadline)?;
             let (mut command, destination) = target.build_remote_command()?;
             command
@@ -1236,24 +1229,45 @@ pub(super) fn probe_windows_target(id: &str) -> BridgeResult<super::WindowsTarge
                 .arg(destination)
                 .arg(remote_command);
             windows::capture(command, deadline)
-        })?;
-        if matches!(result, WindowsTargetProbe::Confirmed { .. }) {
+        };
+        let platform = run(TargetOs::PROBE_COMMAND)?.uname()?;
+        if platform != TargetPlatform::Unknown {
             target.check_current_before(deadline)?;
+            return Ok((
+                platform,
+                WindowsTargetProbe::Unknown {
+                    reason: WindowsProbeReason::NoReply,
+                },
+            ));
         }
+        let result = windows::probe(run)?;
+        let platform = if matches!(result, WindowsTargetProbe::Confirmed { .. }) {
+            target.check_current_before(deadline)?;
+            TargetPlatform::Windows
+        } else {
+            TargetPlatform::Unknown
+        };
         if Instant::now() >= deadline {
             return Err("sshTimeout".into());
         }
-        Ok(result)
+        Ok((platform, result))
     };
-    detect().or_else(|code| match code.as_str() {
-        "sshTimeout" => Ok(WindowsTargetProbe::Unknown {
-            reason: WindowsProbeReason::Timeout,
-        }),
-        "targetProbeOutputLimit" => Ok(WindowsTargetProbe::Unknown {
-            reason: WindowsProbeReason::OutputLimit,
-        }),
+    let (platform, windows_probe) = detect().or_else(|code| match code.as_str() {
+        "sshTimeout" => Ok((
+            TargetPlatform::Unknown,
+            WindowsTargetProbe::Unknown {
+                reason: WindowsProbeReason::Timeout,
+            },
+        )),
+        "targetProbeOutputLimit" => Ok((
+            TargetPlatform::Unknown,
+            WindowsTargetProbe::Unknown {
+                reason: WindowsProbeReason::OutputLimit,
+            },
+        )),
         _ => Err(code),
-    })
+    })?;
+    Ok(TargetPlatformProbe::new(id, platform, windows_probe))
 }
 
 pub struct OwnedChild {
@@ -1450,7 +1464,32 @@ fn remote_execute(alias: &str, request: &serde_json::Value) -> BridgeResult<serd
 }
 
 fn run_linux_script(alias: &str, source: Zeroizing<String>, seconds: u64) -> BridgeResult<String> {
-    execute_linux_script(remote_target_command(alias)?, source, seconds)
+    let target = BoundTarget::from_resolved(resolve(alias)?)?;
+    require_linux(&target)?;
+    execute_linux_script(target.remote_command()?, source, seconds)
+}
+
+fn require_linux(target: &BoundTarget) -> BridgeResult<()> {
+    let (mut command, destination) = target.remote_command()?;
+    command
+        .args([
+            "-oClearAllForwardings=yes",
+            "-oUpdateHostKeys=no",
+            "-oAddKeysToAgent=no",
+        ])
+        .arg(destination)
+        .arg(TargetOs::PROBE_COMMAND);
+    #[cfg(windows)]
+    let platform =
+        super::target_os::windows::capture(command, Instant::now() + Duration::from_secs(25))?
+            .uname()?;
+    #[cfg(not(windows))]
+    let platform = super::TargetPlatform::from_uname(&output(command, None, 25)?);
+    platform.require_linux()
+}
+
+pub(super) fn require_linux_target(id: &str, fingerprint: &str) -> BridgeResult<()> {
+    require_linux(&BoundTarget::capture_connected(id, fingerprint)?)
 }
 
 fn execute_linux_script(
@@ -1479,6 +1518,7 @@ fn execute_bound_skill(
     request: &serde_json::Value,
 ) -> BridgeResult<serde_json::Value> {
     let source = linux::skill_payload(request)?;
+    require_linux(target)?;
     linux::parse_skill_output(&execute_linux_script(target.remote_command()?, source, 30)?)
 }
 
@@ -1698,7 +1738,9 @@ pub fn tunnel(request: &Request, endpoints: &[(u16, String, u16)]) -> BridgeResu
     // same session authentication source. Otherwise a password-only target
     // can pass preflight through the protected bridge cache, then fail here
     // when the tunnel silently falls back to BatchMode=yes.
-    let (mut cmd, destination) = remote_target_command(&request.target_id)?;
+    let target = BoundTarget::from_resolved(resolve(&request.target_id)?)?;
+    require_linux(&target)?;
+    let (mut cmd, destination) = target.remote_command()?;
     cmd.args(["-N", "-oClearAllForwardings=no"]);
     for (remote, host, local) in endpoints {
         let host = if host.contains(':') {

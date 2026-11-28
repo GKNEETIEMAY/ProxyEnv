@@ -146,6 +146,23 @@ mod implementation {
         stderr: Vec<u8>,
     }
 
+    impl Reply {
+        pub(in crate::features::remote_bridge) fn uname(
+            &self,
+        ) -> BridgeResult<super::super::TargetPlatform> {
+            use super::super::TargetPlatform;
+            match self.exit_code {
+                Some(0) => Ok(TargetPlatform::from_uname(
+                    std::str::from_utf8(&self.stdout).unwrap_or(""),
+                )),
+                Some(255) => Err(ssh::classify_ssh_error(&String::from_utf8_lossy(
+                    &self.stderr,
+                ))),
+                _ => Ok(TargetPlatform::Unknown),
+            }
+        }
+    }
+
     pub(in crate::features::remote_bridge) fn capture(
         mut command: Command,
         deadline: Instant,

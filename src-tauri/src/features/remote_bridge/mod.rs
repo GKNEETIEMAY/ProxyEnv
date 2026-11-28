@@ -52,7 +52,7 @@ mod ssh;
 #[path = "ssh/ssh_auth.rs"]
 pub mod ssh_auth;
 mod target_os;
-pub use target_os::windows::WindowsTargetProbe;
+pub use target_os::{TargetPlatform, TargetPlatformProbe, WindowsBridgeView};
 #[path = "tooling/tool_adapter.rs"]
 pub mod tool_adapter;
 #[path = "tooling/tool_discovery.rs"]
@@ -131,6 +131,10 @@ pub struct Summary {
     pub reconnect_state: reconnect::State,
     pub status: Status,
     pub target: Option<RemoteTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_platform: Option<TargetPlatform>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub windows_bridge: Option<WindowsBridgeView>,
     pub proxy: Option<Endpoint>,
     pub runtime_expected_proxy_port: Option<u16>,
     pub runtime_proxy_match: RuntimeProxyMatch,
@@ -1140,6 +1144,7 @@ fn observe_user_proxy_setting(snapshot: &mut Summary) {
 
 fn exposed_state_summary(state: &Store) -> Summary {
     let mut snapshot = exposed_summary(&state.summary);
+    snapshot.target_platform = state.child.as_ref().map(|_| TargetPlatform::Linux);
     observe_user_proxy_setting(&mut snapshot);
     // Read-only projection: displaying or copying an already-ready command
     // must not launch SSH or prepare env.sh again.
@@ -1626,10 +1631,10 @@ pub fn check(target_id: String) -> BridgeResult<PortAllocation> {
     allocate_ports(target_id, true)
 }
 
-pub fn probe_target_os(target_id: String) -> BridgeResult<WindowsTargetProbe> {
+pub fn probe_target_os(target_id: String) -> BridgeResult<TargetPlatformProbe> {
     #[cfg(windows)]
     {
-        ssh::probe_windows_target(&target_id)
+        ssh::probe_target_platform(target_id)
     }
     #[cfg(not(windows))]
     {
@@ -2366,6 +2371,7 @@ pub(super) fn prepare_interactive_connect(
         }
     }
     let fingerprint = ssh::fingerprint(&request.target_id)?;
+    ssh::require_linux_target(&request.target_id, &fingerprint)?;
     let mut summary = preview(request)?;
     let (proxy_relay, ai_relay) = relays_for(&summary)?;
     let endpoints = forwarding_endpoints(&summary, proxy_relay.as_ref(), ai_relay.as_ref())?;
