@@ -42,6 +42,8 @@ use port_allocation::{derived_port, first_available_port, resolve_port_pair};
 #[path = "observability/projection.rs"]
 mod projection;
 use projection::{project_report, projected_session_command, sync_tool_states};
+#[path = "tooling/cc_service.rs"]
+mod cc_service;
 #[path = "runtime/reconnect.rs"]
 mod reconnect;
 #[path = "configuration/settings.rs"]
@@ -51,6 +53,9 @@ mod skills;
 mod ssh;
 #[path = "ssh/ssh_auth.rs"]
 pub mod ssh_auth;
+#[cfg(test)]
+use cc_service::{cc_route_healthy, cc_route_ports};
+pub use cc_service::{detect_cc, discover_cc, CcDetection, CcDetectionState};
 mod target_os;
 pub use target_os::{TargetPlatform, TargetPlatformProbe, WindowsBridgeView};
 #[path = "tooling/tool_adapter.rs"]
@@ -314,21 +319,6 @@ pub enum RuntimeProxyMatch {
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub enum CcDetectionState {
-    Confirmed,
-    ListeningUnknown,
-    NotDetected,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CcDetection {
-    pub state: CcDetectionState,
-    pub local_port: u16,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
 pub enum RemoteInternetState {
     Reachable,
     Unreachable,
@@ -359,6 +349,7 @@ struct Store {
     pending: Option<Pending>,
     extension_pending: Option<extension::Pending>,
     cc_detected: bool,
+    cc_service: cc_service::CcServiceTracker,
     reachable: bool,
     target_fingerprint: Option<String>,
     tool_discovery_fingerprint: Option<String>,
@@ -397,6 +388,7 @@ impl Default for Store {
             pending: None,
             extension_pending: None,
             cc_detected: false,
+            cc_service: cc_service::CcServiceTracker::default(),
             reachable: false,
             target_fingerprint: None,
             tool_discovery_fingerprint: None,
@@ -1769,111 +1761,6 @@ pub fn allocate_ports(target_id: String, prefer_defaults: bool) -> BridgeResult<
     )
 }
 
-pub fn detect_cc(local_port: u16) -> BridgeResult<CcDetection> {
-    port(local_port)?;
-    let listener = super::proxy::listeners::enumerate()
-        .map_err(|_| "stateUnavailable")?
-        .into_iter()
-        .find(|listener| listener.port == local_port);
-    let state = if let Some(listener) = listener {
-        let processes = super::proxy::processes::enumerate();
-        if listener.pids.iter().any(|pid| {
-            processes.get(pid).is_some_and(|process| {
-                let name = process.name.replace(['-', '_', ' '], "");
-                name.contains("ccswitch")
-            })
-        }) {
-            CcDetectionState::Confirmed
-        } else {
-            CcDetectionState::ListeningUnknown
-        }
-    } else {
-        CcDetectionState::NotDetected
-    };
-    lock()?.cc_detected = state != CcDetectionState::NotDetected;
-    Ok(CcDetection { state, local_port })
-}
-
-// Discovery is setup-only. Established tunnels retain their original endpoint.
-pub fn discover_cc(preferred_port: u16) -> BridgeResult<CcDetection> {
-    port(preferred_port)?;
-    let listeners = super::proxy::listeners::enumerate().map_err(|_| "stateUnavailable")?;
-    let processes = super::proxy::processes::enumerate();
-    let ports = cc_route_ports(&listeners, &processes, preferred_port);
-    let client = reqwest::blocking::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_millis(350))
-        .build()
-        .map_err(|_| "stateUnavailable")?;
-    let found = ports
-        .into_iter()
-        .take(8)
-        .find(|candidate| cc_route_healthy(&client, *candidate));
-    let result = CcDetection {
-        state: if found.is_some() {
-            CcDetectionState::Confirmed
-        } else if listeners
-            .iter()
-            .any(|listener| listener.port == preferred_port)
-        {
-            CcDetectionState::ListeningUnknown
-        } else {
-            CcDetectionState::NotDetected
-        },
-        local_port: found.unwrap_or(preferred_port),
-    };
-    lock()?.cc_detected = result.state == CcDetectionState::Confirmed;
-    Ok(result)
-}
-
-fn cc_route_ports(
-    listeners: &[super::proxy::listeners::TcpListener],
-    processes: &std::collections::HashMap<u32, super::proxy::processes::RunningProcess>,
-    preferred_port: u16,
-) -> Vec<u16> {
-    let mut ports: Vec<u16> = listeners
-        .iter()
-        .filter(|listener| listener.host == "127.0.0.1" && listener.port >= 1024)
-        .filter(|listener| {
-            listener.pids.iter().any(|pid| {
-                processes.get(pid).is_some_and(|process| {
-                    process
-                        .name
-                        .replace(['-', '_', ' '], "")
-                        .contains("ccswitch")
-                })
-            })
-        })
-        .map(|listener| listener.port)
-        .collect();
-    ports.sort_unstable();
-    ports.dedup();
-    ports.sort_by_key(|candidate| (*candidate != preferred_port, *candidate));
-    ports
-}
-
-fn cc_route_healthy(client: &reqwest::blocking::Client, local_port: u16) -> bool {
-    use std::io::Read;
-    let Ok(response) = client
-        .get(format!("http://127.0.0.1:{local_port}/health"))
-        .send()
-    else {
-        return false;
-    };
-    if response.status() != reqwest::StatusCode::OK {
-        return false;
-    }
-    let mut bytes = Vec::new();
-    if response.take(4097).read_to_end(&mut bytes).is_err() || bytes.len() > 4096 {
-        return false;
-    }
-    serde_json::from_slice::<serde_json::Value>(&bytes)
-        .ok()
-        .is_some_and(|body| {
-            body.get("status").and_then(|status| status.as_str()) == Some("healthy")
-        })
-}
 pub fn preview(request: &Request) -> BridgeResult<Summary> {
     let target = ssh::target(&request.target_id)?;
     if !target.available || target.compatibility != RemoteTargetCompatibility::Compatible {
@@ -1911,7 +1798,7 @@ pub fn preview(request: &Request) -> BridgeResult<Summary> {
             port: request.cc_local_port,
             protocol: ProxyProtocol::Http,
         };
-        if !listening(&local) {
+        if !cc_service::endpoint_healthy(local.port)? {
             return Err("ccUnavailable".into());
         }
         Some(Endpoint { local, remote_port })
