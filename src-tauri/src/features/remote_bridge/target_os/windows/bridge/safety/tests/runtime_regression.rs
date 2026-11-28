@@ -134,6 +134,148 @@ fn receive_proof(attempt: &mut LocalVerification, fixture: &Fixture) {
 }
 
 #[test]
+fn offline_ai_follows_verified_owner_consent_and_service_revision() {
+    use crate::features::remote_bridge::{
+        cc_service::{CcDetection, CcDetectionState, CcServiceState},
+        target_os::WindowsAiState,
+    };
+    use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+
+    let upstream = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    upstream.set_nonblocking(true).unwrap();
+    let port = upstream.local_addr().unwrap().port();
+    let service = |revision| CcDetection {
+        state: CcDetectionState::Confirmed,
+        local_port: port,
+        service: CcServiceState::Recognized,
+        revision,
+    };
+    let fixture = Fixture::new();
+    let layout = Layout::new();
+    let plan = fixture.plan();
+    let args = verification_args(&fixture, &plan, &layout);
+    let (mut runtime, task) = prepare(&fixture, &plan, &layout);
+    let witness = activate(&mut runtime, &task, &fixture);
+    assert!(runtime
+        .prepare_ai(&task, fixture.input(), service(1), true, || fixture
+            .clock(1))
+        .is_err());
+    assert!(runtime.ai_relay_fixture().is_none());
+
+    let mut proof = runtime
+        .begin_verification(&task, fixture.input(), &args, || fixture.clock(1))
+        .unwrap();
+    receive_proof(&mut proof, &fixture);
+    runtime
+        .finish_verification(proof, fixture.input(), &args, || fixture.clock(2))
+        .unwrap();
+    assert_eq!(
+        runtime.poll_ai(&task, fixture.input(), service(1), || fixture.clock(2)),
+        Some(WindowsAiState::NotEnabled)
+    );
+    assert_eq!(
+        runtime
+            .prepare_ai(&task, fixture.input(), service(1), false, || fixture
+                .clock(2))
+            .err()
+            .as_deref(),
+        Some("confirmationRequired")
+    );
+    assert_eq!(
+        runtime.poll_ai(&task, fixture.input(), service(1), || fixture.clock(2)),
+        Some(WindowsAiState::AwaitingAuthorization)
+    );
+
+    let old = runtime
+        .prepare_ai(&task, fixture.input(), service(1), true, || {
+            fixture.clock(2)
+        })
+        .unwrap();
+    assert_eq!(
+        runtime.poll_ai(&task, fixture.input(), service(1), || fixture.clock(2)),
+        Some(WindowsAiState::Preparing)
+    );
+    assert!(runtime
+        .prepare_ai(&task, fixture.input(), service(1), true, || fixture
+            .clock(2))
+        .is_err());
+    assert_eq!(runtime.stop_ai(&task), Some(WindowsAiState::Closed));
+    assert_eq!(runtime.stop_ai(&task), Some(WindowsAiState::Closed));
+    let next = runtime
+        .prepare_ai(&task, fixture.input(), service(2), true, || {
+            fixture.clock(2)
+        })
+        .unwrap();
+    assert!(runtime
+        .finish_ai(
+            &task,
+            old,
+            || fixture.input(),
+            || service(1),
+            || fixture.clock(2)
+        )
+        .is_err());
+    runtime
+        .finish_ai(
+            &task,
+            next,
+            || fixture.input(),
+            || service(2),
+            || fixture.clock(2),
+        )
+        .unwrap();
+    let relay_port = runtime.ai_relay_fixture().unwrap().port();
+    assert_eq!(
+        runtime.poll_ai(&task, fixture.input(), service(2), || fixture.clock(2)),
+        Some(WindowsAiState::Prepared)
+    );
+    assert!(
+        upstream.accept().is_err(),
+        "Preparation did not issue an upstream request"
+    );
+
+    assert_eq!(
+        runtime.poll_ai(&task, fixture.input(), service(3), || fixture.clock(2)),
+        Some(WindowsAiState::Invalidated)
+    );
+    assert!(TcpStream::connect_timeout(
+        &SocketAddr::from((Ipv4Addr::LOCALHOST, relay_port)),
+        Duration::from_millis(100)
+    )
+    .is_err());
+    assert!(
+        runtime.available(&task, fixture.clock(2)),
+        "The network lane remains owned"
+    );
+    let next = runtime
+        .prepare_ai(&task, fixture.input(), service(3), true, || {
+            fixture.clock(2)
+        })
+        .unwrap();
+    runtime
+        .finish_ai(
+            &task,
+            next,
+            || fixture.input(),
+            || service(3),
+            || fixture.clock(2),
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.poll_ai(&task, fixture.input(), service(3), || fixture.clock(30)),
+        Some(WindowsAiState::Invalidated)
+    );
+    let closed = runtime
+        .stop(&task, End::Cancelled, shutdown_deadline())
+        .unwrap();
+    assert_eq!(closed.ai, WindowsAiState::Invalidated);
+    assert_eq!(closed.end, End::Expired);
+    assert_eq!(closed.completion, Completion::Complete);
+    assert!(runtime.ai_relay_fixture().is_none());
+    confirm_exit(&witness);
+}
+
+#[test]
 fn desktop_verification_requires_authorized_owned_resources_and_preserves_the_owner() {
     let fixture = Fixture::new();
     let layout = Layout::new();

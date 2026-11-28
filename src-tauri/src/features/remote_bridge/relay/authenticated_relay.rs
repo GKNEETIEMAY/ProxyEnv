@@ -279,15 +279,18 @@ impl AuthenticatedRelay {
                 .as_ref()
                 .is_some_and(|worker| !worker.is_finished())
     }
+    pub(super) fn close(&mut self) -> bool {
+        self.session.revoke();
+        self.worker.take().is_none_or(|worker| {
+            let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, self.port));
+            worker.join().is_ok()
+        })
+    }
 }
 
 impl Drop for AuthenticatedRelay {
     fn drop(&mut self) {
-        self.session.revoke();
-        let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, self.port));
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+        self.close();
     }
 }
 

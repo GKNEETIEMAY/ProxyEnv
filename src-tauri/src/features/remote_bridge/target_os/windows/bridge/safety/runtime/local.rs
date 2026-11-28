@@ -1,4 +1,5 @@
 use super::{Phase, Runtime, Task};
+mod ai;
 pub(in super::super) mod managed;
 use crate::features::remote_bridge::{
     target_os::windows_bridge::safety::{
@@ -13,14 +14,15 @@ use crate::features::remote_bridge::{
         policy_storage::PolicyStorage,
         PreparedForward, Verification, WindowsBridgeInput, WindowsBridgePlan,
     },
+    target_os::WindowsAiState,
     BridgeResult,
 };
-use managed::ManagedPhase;
 use std::{
     io,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+use {ai::AiSession, managed::ManagedPhase};
 
 const CLOSE_BUDGET: Duration = Duration::from_millis(PROCESS_WAIT_MS as u64);
 pub(in super::super) const COORDINATED_EXIT_BUDGET: Duration = Duration::from_secs(3);
@@ -52,6 +54,7 @@ pub(in super::super) struct Shutdown {
     pub completion: Completion,
     pub process: Option<CloseReport>,
     pub terminal: Option<CloseReport>,
+    pub ai: WindowsAiState,
     pub pending: Vec<PendingCleanup>,
     pub setup_error: Option<io::Error>,
 }
@@ -152,6 +155,7 @@ impl LocalResources {
             completion,
             process: processes[0].or(processes[1]),
             terminal: processes[1],
+            ai: WindowsAiState::NotEnabled,
             pending,
             setup_error,
         }
@@ -179,6 +183,8 @@ impl Drop for LocalResources {
 }
 
 pub(in super::super) struct LocalRuntime<'p, 'review> {
+    // Revocation precedes transport teardown even when the owner is dropped.
+    ai: AiSession,
     runtime: Runtime<LocalResources, Shutdown>,
     plan: &'p WindowsBridgePlan<'review>,
     history: PolicyStorage,
@@ -186,6 +192,7 @@ pub(in super::super) struct LocalRuntime<'p, 'review> {
     policy: PolicyLifecycle<'review>,
     profile: Option<(PathBuf, FrozenProfile)>,
     managed: ManagedPhase,
+    transport_verified: bool,
 }
 
 pub(in super::super) struct LocalVerification {
@@ -226,6 +233,7 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         let task = runtime.begin().ok_or("windowsForwardPolicyDenied")?;
         Ok((
             Self {
+                ai: AiSession::default(),
                 runtime,
                 plan,
                 history,
@@ -233,6 +241,7 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
                 policy,
                 profile: None,
                 managed: ManagedPhase::Unprepared,
+                transport_verified: false,
             },
             task,
         ))
@@ -440,6 +449,8 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         let result = proof.finish(&prepared, prepared.profile.files(), args, now);
         if result.is_err() {
             self.stop(&task, End::SetupFailed, cleanup_deadline());
+        } else {
+            self.transport_verified = true;
         }
         result
     }
@@ -573,16 +584,35 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         if !self.runtime.owns(task) {
             return None;
         }
+        if matches!(
+            self.runtime.phase,
+            Phase::Closed(_) | Phase::ClosedAbnormally(_)
+        ) {
+            return self.runtime.close(task, |_| unreachable!("already closed"));
+        }
         let deadline = if end == End::ApplicationExit {
             deadline.min(Instant::now() + COORDINATED_EXIT_BUDGET)
         } else {
             deadline
         };
+        let ai = self
+            .ai
+            .close(if matches!(end, End::Cancelled | End::ApplicationExit) {
+                WindowsAiState::Closed
+            } else {
+                WindowsAiState::Invalidated
+            });
+        self.transport_verified = false;
         self.policy.stop();
         self.profile = None;
         self.managed = ManagedPhase::Unprepared;
         self.runtime.close(task, |owned| {
-            let report = owned.unwrap_or(staged).close(end, deadline, pending, error);
+            let mut report = owned.unwrap_or(staged).close(end, deadline, pending, error);
+            report.ai = ai;
+            if ai == WindowsAiState::CleanupIncomplete && report.completion == Completion::Complete
+            {
+                report.completion = Completion::Partial;
+            }
             let abnormal = report.completion != Completion::Complete
                 || !matches!(
                     end,

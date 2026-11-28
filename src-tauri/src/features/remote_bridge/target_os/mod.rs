@@ -79,6 +79,21 @@ pub enum WindowsTerminalState {
     Closed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub enum WindowsAiState {
+    NotEnabled,
+    AwaitingAuthorization,
+    Preparing,
+    Prepared,
+    Unavailable,
+    ConfigurationConflict,
+    Closed,
+    Invalidated,
+    CleanupIncomplete,
+}
+
 impl TargetPlatform {
     pub(super) fn from_uname(value: &str) -> Self {
         match value.trim_end_matches(['\r', '\n']) {
