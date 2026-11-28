@@ -276,6 +276,179 @@ fn offline_ai_follows_verified_owner_consent_and_service_revision() {
 }
 
 #[test]
+fn offline_ai_tool_overlay_is_bound_to_preview_owner_and_preserves_original() {
+    use crate::features::remote_bridge::target_os::windows_bridge::safety::runtime::local::ai::ToolConfigApply;
+    use crate::features::remote_bridge::{
+        cc_service::{CcDetection, CcDetectionState, CcServiceState},
+        target_os::WindowsAiState,
+        tool_adapter::RemoteToolId,
+    };
+
+    let upstream = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let service = CcDetection {
+        state: CcDetectionState::Confirmed,
+        local_port: upstream.local_addr().unwrap().port(),
+        service: CcServiceState::Recognized,
+        revision: 1,
+    };
+    let fixture = Fixture::new();
+    let layout = Layout::new();
+    let plan = fixture.plan();
+    let args = verification_args(&fixture, &plan, &layout);
+    let (mut runtime, task) = prepare(&fixture, &plan, &layout);
+    let witness = activate(&mut runtime, &task, &fixture);
+    let mut proof = runtime
+        .begin_verification(&task, fixture.input(), &args, || fixture.clock(1))
+        .unwrap();
+    receive_proof(&mut proof, &fixture);
+    runtime
+        .finish_verification(proof, fixture.input(), &args, || fixture.clock(2))
+        .unwrap();
+    let enable = |runtime: &mut LocalRuntime<'_, '_>| {
+        let receipt = runtime
+            .prepare_ai(&task, fixture.input(), service, true, || fixture.clock(2))
+            .unwrap();
+        runtime
+            .finish_ai(
+                &task,
+                receipt,
+                || fixture.input(),
+                || service,
+                || fixture.clock(2),
+            )
+            .unwrap();
+    };
+    enable(&mut runtime);
+
+    let codex = RemoteToolId::Codex;
+    let claude = RemoteToolId::Claude;
+    let source = b"model = \"fixture-local-model\"\n";
+    assert_eq!(
+        runtime
+            .preview_ai_tool(&task, fixture.clock(2), codex, "0.133.0", None)
+            .err()
+            .as_deref(),
+        Some("cliUnsupported")
+    );
+    assert_eq!(
+        runtime
+            .preview_ai_tool(
+                &task,
+                fixture.clock(2),
+                claude,
+                "2.1.227",
+                Some(br#"{"env":{"ANTHROPIC_BASE_URL":"fixture-conflict"}}"#)
+            )
+            .err()
+            .as_deref(),
+        Some("configConflict")
+    );
+    let preview = |runtime: &LocalRuntime<'_, '_>| {
+        runtime
+            .preview_ai_tool(&task, fixture.clock(2), codex, "0.134.0", Some(source))
+            .unwrap()
+    };
+    let apply = |runtime: &mut LocalRuntime<'_, '_>, change| {
+        runtime.apply_ai_tool(&task, fixture.input(), service, || fixture.clock(2), change)
+    };
+    for (current, occupied, confirmed, expected) in [
+        (source.as_slice(), false, false, "confirmationRequired"),
+        (source.as_slice(), true, true, "configConflict"),
+        (
+            b"model = \"fixture-edited\"\n".as_slice(),
+            false,
+            true,
+            "configConflict",
+        ),
+    ] {
+        let pending = preview(&runtime);
+        assert_eq!(
+            apply(
+                &mut runtime,
+                ToolConfigApply {
+                    preview: pending,
+                    source: Some(current),
+                    occupied,
+                    confirmed,
+                }
+            )
+            .err()
+            .as_deref(),
+            Some(expected)
+        );
+    }
+    let pending = preview(&runtime);
+    assert_eq!(pending.filename, "config.toml");
+    assert_eq!(pending.token_env, "PROXYENV_SESSION_TOKEN");
+    let mut applied = apply(
+        &mut runtime,
+        ToolConfigApply {
+            preview: pending,
+            source: Some(source),
+            occupied: false,
+            confirmed: true,
+        },
+    )
+    .unwrap();
+    let contents = applied.content().unwrap().to_vec();
+    let config = std::str::from_utf8(&contents).unwrap();
+    assert!(config.contains("127.0.0.1") && config.contains("wire_api = \"responses\""));
+    assert!(!config.contains("fixture-local-model") && !config.contains("model_catalog_json"));
+    assert!(applied.restore(Some(b"other-owner")).is_err());
+    assert_eq!(applied.content(), Some(contents.as_slice()));
+    applied.restore(Some(&contents)).unwrap();
+    applied.restore(None).unwrap();
+    assert!(applied.content().is_none());
+
+    let stale = preview(&runtime);
+    runtime.stop_ai(&task);
+    enable(&mut runtime);
+    assert_eq!(
+        apply(
+            &mut runtime,
+            ToolConfigApply {
+                preview: stale,
+                source: Some(source),
+                occupied: false,
+                confirmed: true,
+            }
+        )
+        .err()
+        .as_deref(),
+        Some("windowsBridgeContextChanged")
+    );
+    let pending = runtime
+        .preview_ai_tool(&task, fixture.clock(2), claude, "2.1.227", None)
+        .unwrap();
+    assert_eq!(pending.filename, "settings.json");
+    assert_eq!(pending.token_env, "ANTHROPIC_AUTH_TOKEN");
+    let mut applied = apply(
+        &mut runtime,
+        ToolConfigApply {
+            preview: pending,
+            source: None,
+            occupied: false,
+            confirmed: true,
+        },
+    )
+    .unwrap();
+    let contents = applied.content().unwrap().to_vec();
+    let settings: serde_json::Value = serde_json::from_slice(&contents).unwrap();
+    assert!(settings["env"]["ANTHROPIC_BASE_URL"]
+        .as_str()
+        .unwrap()
+        .starts_with("http://127.0.0.1:"));
+    assert!(settings["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
+    assert_eq!(runtime.stop_ai(&task), Some(WindowsAiState::Closed));
+    applied.restore(Some(&contents)).unwrap();
+    assert!(runtime.available(&task, fixture.clock(2)));
+    runtime
+        .stop(&task, End::Cancelled, shutdown_deadline())
+        .unwrap();
+    confirm_exit(&witness);
+}
+
+#[test]
 fn desktop_verification_requires_authorized_owned_resources_and_preserves_the_owner() {
     let fixture = Fixture::new();
     let layout = Layout::new();

@@ -1,5 +1,5 @@
 use super::{Phase, Runtime, Task};
-mod ai;
+pub(in super::super) mod ai;
 pub(in super::super) mod managed;
 use crate::features::remote_bridge::{
     target_os::windows_bridge::safety::{

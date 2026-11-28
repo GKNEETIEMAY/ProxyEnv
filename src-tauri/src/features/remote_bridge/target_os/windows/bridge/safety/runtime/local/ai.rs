@@ -1,3 +1,6 @@
+mod tool_config;
+pub(in super::super::super) use tool_config::ToolConfigApply;
+
 use super::{LocalRuntime, Phase, Task};
 use crate::features::{
     proxy::{ProxyEndpoint, ProxyProtocol},
@@ -5,6 +8,7 @@ use crate::features::{
         authenticated_relay::{AuthenticatedRelay, RelayMode},
         cc_service::{CcDetection, CcDetectionState, CcServiceState},
         target_os::WindowsAiState,
+        tool_adapter::RemoteToolId,
         BridgeResult,
     },
 };
@@ -39,7 +43,7 @@ pub(super) enum AiSession {
     Inactive(WindowsAiState),
     Preparing(Arc<ServiceBinding>),
     Prepared {
-        binding: ServiceBinding,
+        binding: Arc<ServiceBinding>,
         relay: AuthenticatedRelay,
     },
 }
@@ -150,7 +154,7 @@ impl LocalRuntime<'_, '_> {
             return Err("ccUnavailable".into());
         }
         self.ai = AiSession::Prepared {
-            binding: *token,
+            binding: token,
             relay,
         };
         Ok(())
@@ -171,7 +175,7 @@ impl LocalRuntime<'_, '_> {
             let invalid = match &self.ai {
                 AiSession::Preparing(binding) => observed != Some(**binding),
                 AiSession::Prepared { binding, relay } => {
-                    !relay.is_running() || observed != Some(*binding)
+                    !relay.is_running() || observed != Some(**binding)
                 }
                 AiSession::Inactive(_) => false,
             };
@@ -193,6 +197,48 @@ impl LocalRuntime<'_, '_> {
             return Some(self.ai.state());
         }
         Some(self.ai.close(WindowsAiState::Closed))
+    }
+
+    pub(in super::super::super) fn preview_ai_tool(
+        &self,
+        task: &Task,
+        now: ClockSample,
+        tool: RemoteToolId,
+        version: &str,
+        source: Option<&[u8]>,
+    ) -> BridgeResult<tool_config::ToolConfigPreview> {
+        if !self.available(task, now) {
+            return Err("bridgeUnavailable".into());
+        }
+        let AiSession::Prepared { binding, relay } = &self.ai else {
+            return Err("bridgeUnavailable".into());
+        };
+        if !relay.is_running() {
+            return Err("bridgeUnavailable".into());
+        }
+        tool_config::ToolConfigPreview::new(binding, tool, version, source, relay.port())
+    }
+
+    pub(in super::super::super) fn apply_ai_tool(
+        &mut self,
+        task: &Task,
+        current: WindowsBridgeInput<'_>,
+        service: CcDetection,
+        clock: impl FnMut() -> ClockSample,
+        change: ToolConfigApply<'_>,
+    ) -> BridgeResult<tool_config::AppliedToolConfig> {
+        let AiSession::Prepared { binding, .. } = &self.ai else {
+            return Err("bridgeUnavailable".into());
+        };
+        if !self.runtime.owns(task) || !change.preview.belongs_to(binding) {
+            return Err("windowsBridgeContextChanged".into());
+        }
+        if self.poll_ai(task, current, service, clock) != Some(WindowsAiState::Prepared) {
+            return Err("bridgeUnavailable".into());
+        }
+        change
+            .preview
+            .apply(change.source, change.occupied, change.confirmed)
     }
 
     #[cfg(test)]
