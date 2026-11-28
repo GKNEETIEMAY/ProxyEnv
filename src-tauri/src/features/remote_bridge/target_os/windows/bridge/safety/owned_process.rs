@@ -287,6 +287,13 @@ impl OwnedProcess {
         ))
     }
 
+    #[cfg(test)]
+    pub(super) fn job_drain_witness(&self) -> io::Result<impl FnOnce(Instant) -> bool> {
+        let child = self.child.as_ref().ok_or(io::ErrorKind::NotFound)?;
+        let job = child.job.try_clone()?;
+        Ok(move |deadline| wait_empty(&job, deadline).is_ok())
+    }
+
     pub(super) fn close(&mut self) -> CloseReport {
         self.close_until(Instant::now() + Duration::from_millis(u64::from(PROCESS_WAIT_MS)))
     }

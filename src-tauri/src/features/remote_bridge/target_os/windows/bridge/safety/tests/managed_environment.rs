@@ -65,7 +65,7 @@ fn managed_process_has_independent_ownership_from_bridge_transport() {
 }
 
 pub(super) fn check_independent_ownership() {
-    for expired in [false, true] {
+    for end in [End::Cancelled, End::Expired, End::ProcessExited] {
         let fixture = Fixture::new();
         let layout = Layout::new();
         let plan = fixture.plan();
@@ -82,13 +82,18 @@ pub(super) fn check_independent_ownership() {
                 Ok(child)
             }
         ));
-        let (bridge_witness, _bridge_pipes) = bridge.unwrap();
+        let (bridge_witness, mut bridge_pipes) = bridge.unwrap();
         let (receipt, terminal_witness, _terminal_pipes) =
             start_fixture(&mut runtime, &task, &fixture, &layout.history);
         assert!(runtime.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(2)));
         assert!(runtime.available(&task, fixture.clock(2)));
-        if expired {
+        if end == End::Expired {
             assert!(!runtime.poll_managed(&task, fixture.input(), || fixture.clock(30)));
+        } else if end == End::ProcessExited {
+            bridge_pipes.input.write_all(b"e").unwrap();
+            confirm_exit(&bridge_witness);
+            assert!(!runtime.poll_managed(&task, fixture.input(), || fixture.clock(2)));
+            assert!(!runtime.available(&task, fixture.clock(2)));
         } else {
             let closed = runtime
                 .stop_managed(&task, End::Cancelled, shutdown_deadline())
@@ -110,14 +115,7 @@ pub(super) fn check_independent_ownership() {
             .stop(&task, End::Cancelled, shutdown_deadline())
             .unwrap();
         assert_eq!(report.completion, Completion::Complete);
-        assert_eq!(
-            report.end,
-            if expired {
-                End::Expired
-            } else {
-                End::Cancelled
-            }
-        );
+        assert_eq!(report.end, end);
         assert!(report.process.is_some() && report.terminal.is_some());
         confirm_exit(&bridge_witness);
         confirm_exit(&terminal_witness);

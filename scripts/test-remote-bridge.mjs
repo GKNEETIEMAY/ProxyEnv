@@ -725,7 +725,8 @@ test("interactive SSH auth is PTY-backed and only reuses DPAPI-protected bridge 
   assert.match(credentials,/CRYPTPROTECT_UI_FORBIDDEN/);
   assert.match(credentials,/clear_if_matches/);
   const tunnelBody=ssh.slice(ssh.indexOf("pub fn tunnel"),ssh.indexOf("pub(super) fn extension_remote"));
-  assert.match(tunnelBody,/remote_target_command\(&request\.target_id\)/);
+  assert.match(tunnelBody,/BoundTarget::from_resolved\(resolve\(&request\.target_id\)\?\)\?[\s\S]*require_linux\(&target\)\?[\s\S]*let \(mut cmd, destination\) = target\.remote_command\(\)\?/);
+  assert.match(ssh,/fn build_remote_command\([\s\S]*remote_resolved_target_command\(&self\.target, &self\.fingerprint\)\?/);
   assert.doesNotMatch(tunnelBody,/let \(mut cmd, destination\) = target_command/);
   assert.match(credentials,/prompt\.contains\("password"\)/);
   for(const forbiddenPrompt of ["passphrase","verification","one-time","otp"]) {
@@ -1511,7 +1512,7 @@ test("Claude verification is a fixed isolated request and never returns model ou
   assert.match(shell,/Reply with exactly PROXYENV_VERIFY_OK/);
   assert.match(shell,/printf '\{"verification":"%s"\}/);
   assert.match(bridge,/pub fn verify_tool/);
-  assert.match(ssh,/remote_target_command/);
+  assert.match(ssh,/fn run_linux_script\([\s\S]*require_linux\(&target\)\?[\s\S]*execute_linux_script\(target\.remote_command\(\)\?/);
   assert.match(ssh,/credential_cache::terminal_payload/);
   assert.match(ssh,/if operation == "tool-verify" \{ 90 \} else \{ 25 \}/);
   assert.match(commands,/fn remote_bridge_tool_verify/);
@@ -1675,7 +1676,7 @@ test("SSH polling does not steal selection from other authentication text", asyn
 
 test("bridge construction keeps disabled loading actions and omits detached busy text",()=>{
   const page=readFileSync("src/features/remote-bridge/components/RemoteBridgePage.vue","utf8");
-  assert.match(page,/const live = computed\(\(\) => !establishingBridge\.value/);
+  assert.match(page,/const live = computed\(\(\) => props\.summary\.targetPlatform !== "windows" && !establishingBridge\.value/);
   assert.match(page,/:disabled="busy \|\| establishingBridge \|\| !canStartConnection"/);
   assert.match(page,/establishingBridge \? copy\.rbEstablishingBridge : copy\.rbConnect/);
   assert.match(page,/v-if="authInteractionVisible \|\| authSurfaceVisible"/);

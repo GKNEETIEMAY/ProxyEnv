@@ -71,6 +71,15 @@ fn activate_with_pipes(
     task: &Task,
     fixture: &Fixture,
 ) -> (OwnedHandle, ParentPipes) {
+    activate_with_observer(runtime, task, fixture, OwnedProcess::witness)
+}
+
+fn activate_with_observer<T>(
+    runtime: &mut LocalRuntime<'_, '_>,
+    task: &Task,
+    fixture: &Fixture,
+    observe: impl FnOnce(&OwnedProcess) -> io::Result<T>,
+) -> T {
     authorize(runtime, task, fixture);
     let mut witness = None;
     assert!(runtime.activate(
@@ -79,7 +88,7 @@ fn activate_with_pipes(
         || fixture.clock(1),
         || {
             let child = start_child()?;
-            witness = Some(child.witness()?);
+            witness = Some(observe(&child)?);
             Ok(child)
         }
     ));
@@ -503,10 +512,15 @@ pub(super) fn check_application_exit() {
     let layout = Layout::new();
     let plan = fixture.plan();
     let (mut runtime, task) = prepare(&fixture, &plan, &layout);
-    let (witness, mut pipes) = activate_with_pipes(&mut runtime, &task, &fixture);
+    let ((witness, mut pipes), job_drained) =
+        activate_with_observer(&mut runtime, &task, &fixture, |child| {
+            Ok((child.witness()?, child.job_drain_witness()?))
+        });
     pipes.input.write_all(b"e").unwrap();
     drop(pipes);
     confirm_exit(&witness);
+    // Windows may signal a process before the Job accounts for its exit.
+    assert!(job_drained(shutdown_deadline()));
     let report = runtime
         .stop(
             &task,
