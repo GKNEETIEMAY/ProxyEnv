@@ -60,6 +60,72 @@ fn start_fixture(
 }
 
 #[test]
+fn managed_process_has_independent_ownership_from_bridge_transport() {
+    process::run_isolated("managed-independent-ownership");
+}
+
+pub(super) fn check_independent_ownership() {
+    for expired in [false, true] {
+        let fixture = Fixture::new();
+        let layout = Layout::new();
+        let plan = fixture.plan();
+        let (mut runtime, task) = prepare(&fixture, &plan, &layout);
+        authorize(&mut runtime, &task, &fixture);
+        let mut bridge = None;
+        assert!(runtime.activate(
+            &task,
+            fixture.input(),
+            || fixture.clock(1),
+            || {
+                let child = OwnedProcess::start_fixture(&process::test_name("job_pipe_child"))?;
+                bridge = Some(child.witness()?);
+                Ok(child)
+            }
+        ));
+        let (bridge_witness, _bridge_pipes) = bridge.unwrap();
+        let (receipt, terminal_witness, _terminal_pipes) =
+            start_fixture(&mut runtime, &task, &fixture, &layout.history);
+        assert!(runtime.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(2)));
+        assert!(runtime.available(&task, fixture.clock(2)));
+        if expired {
+            assert!(!runtime.poll_managed(&task, fixture.input(), || fixture.clock(30)));
+        } else {
+            let closed = runtime
+                .stop_managed(&task, End::Cancelled, shutdown_deadline())
+                .unwrap();
+            assert!(closed.process_exited && closed.job_empty);
+            assert!(
+                matches!(runtime.managed_status(&task), Some(ManagedStatus::TerminalClosed(report)) if report == closed)
+            );
+            confirm_exit(&terminal_witness);
+            assert!(runtime.poll(&task, fixture.input(), || fixture.clock(2)));
+            assert!(layout.frozen.exists());
+            assert!(!runtime.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(2)));
+            assert_eq!(
+                runtime.stop_managed(&task, End::Cancelled, shutdown_deadline()),
+                Some(closed)
+            );
+        }
+        let report = runtime
+            .stop(&task, End::Cancelled, shutdown_deadline())
+            .unwrap();
+        assert_eq!(report.completion, Completion::Complete);
+        assert_eq!(
+            report.end,
+            if expired {
+                End::Expired
+            } else {
+                End::Cancelled
+            }
+        );
+        assert!(report.process.is_some() && report.terminal.is_some());
+        confirm_exit(&bridge_witness);
+        confirm_exit(&terminal_witness);
+        assert!(!layout.frozen.exists());
+    }
+}
+
+#[test]
 fn managed_process_rejects_early_duplicate_and_stale_operations() {
     process::run_isolated("managed-ownership");
 }

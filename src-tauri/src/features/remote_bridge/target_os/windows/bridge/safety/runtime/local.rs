@@ -51,6 +51,7 @@ pub(in super::super) struct Shutdown {
     pub end: End,
     pub completion: Completion,
     pub process: Option<CloseReport>,
+    pub terminal: Option<CloseReport>,
     pub pending: Vec<PendingCleanup>,
     pub setup_error: Option<io::Error>,
 }
@@ -59,10 +60,19 @@ pub(in super::super) struct Shutdown {
 struct LocalResources {
     files: Option<FrozenResources>,
     process: Option<OwnedProcess>,
+    terminal: Option<OwnedProcess>,
+    terminal_close: Option<CloseReport>,
     released_any: bool,
 }
 
 impl LocalResources {
+    fn close_terminal(&mut self, deadline: Instant) -> Option<CloseReport> {
+        if let Some(mut terminal) = self.terminal.take() {
+            self.terminal_close = Some(terminal.close_until(deadline));
+        }
+        self.terminal_close
+    }
+
     fn close(
         mut self,
         end: End,
@@ -70,6 +80,7 @@ impl LocalResources {
         pending: Vec<PendingCleanup>,
         setup_error: Option<io::Error>,
     ) -> Shutdown {
+        let terminal = self.close_terminal(deadline);
         let process = self
             .process
             .take()
@@ -77,7 +88,7 @@ impl LocalResources {
         Self::summarize(
             end,
             deadline,
-            process,
+            [process, terminal],
             self.files.take(),
             self.released_any,
             pending,
@@ -88,16 +99,16 @@ impl LocalResources {
     fn summarize(
         end: End,
         deadline: Instant,
-        process: Option<CloseReport>,
+        processes: [Option<CloseReport>; 2],
         files: Option<FrozenResources>,
         released_before_close: bool,
         mut pending: Vec<PendingCleanup>,
         setup_error: Option<io::Error>,
     ) -> Shutdown {
-        let mut timed_out = process.is_some_and(|process| process.timed_out);
-        let mut progress =
-            released_before_close || process.is_some_and(|process| process.process_exited);
-        let drained = process.is_none_or(|process| process.process_exited && process.job_empty);
+        let reports = || processes.into_iter().flatten();
+        let mut timed_out = reports().any(|process| process.timed_out);
+        let mut progress = released_before_close || reports().any(|process| process.process_exited);
+        let drained = reports().all(|process| process.process_exited && process.job_empty);
         if let Some(files) = files {
             // The process must be confirmed stopped before its frozen inputs can be removed.
             let (missing, released_any) = if drained {
@@ -124,7 +135,7 @@ impl LocalResources {
             && pending
                 .iter()
                 .any(|entry| entry.error.kind() == io::ErrorKind::TimedOut);
-        let process_reclaimed = process.is_none_or(|process| {
+        let process_reclaimed = reports().all(|process| {
             process.process_exited && process.job_empty && process.termination_error.is_none()
         });
         let completion = if timed_out {
@@ -139,7 +150,8 @@ impl LocalResources {
         Shutdown {
             end,
             completion,
-            process,
+            process: processes[0].or(processes[1]),
+            terminal: processes[1],
             pending,
             setup_error,
         }
@@ -148,11 +160,13 @@ impl LocalResources {
 
 impl Drop for LocalResources {
     fn drop(&mut self) {
-        if self.process.is_none() && self.files.is_none() {
+        if self.process.is_none() && self.terminal.is_none() && self.files.is_none() {
             return;
         }
         let owned = Self {
             process: self.process.take(),
+            terminal: self.terminal.take(),
+            terminal_close: self.terminal_close.take(),
             files: self.files.take(),
             released_any: false,
         };
@@ -326,6 +340,8 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
                     LocalResources {
                         files: None,
                         process: None,
+                        terminal: None,
+                        terminal_close: None,
                         released_any: error.released_any,
                     },
                     error.pending,
@@ -337,9 +353,16 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         let mut resources = LocalResources {
             files: Some(files),
             process: None,
+            terminal: None,
+            terminal_close: None,
             released_any: false,
         };
-        let setup = self.start_owned(&mut resources, &mut clock, start);
+        let setup = self.start_owned(
+            &mut resources.files,
+            &mut resources.process,
+            &mut clock,
+            start,
+        );
         if let Err((end, error)) = setup {
             self.finish(task, end, cleanup_deadline(), resources, Vec::new(), error);
             return false;
@@ -349,13 +372,13 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
 
     fn start_owned(
         &mut self,
-        resources: &mut LocalResources,
+        files: &mut Option<FrozenResources>,
+        slot: &mut Option<OwnedProcess>,
         clock: &mut impl FnMut() -> ClockSample,
         start: impl FnOnce() -> io::Result<OwnedProcess>,
     ) -> Result<(), (End, Option<io::Error>)> {
         let setup_error = |error| (End::SetupFailed, Some(error));
-        let files = resources
-            .files
+        let files = files
             .as_mut()
             .ok_or_else(|| setup_error(io::ErrorKind::NotFound.into()))?;
         files.validate().map_err(setup_error)?;
@@ -363,7 +386,7 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
             return Err((self.policy_end(), None));
         }
         let child = start().map_err(setup_error)?;
-        let child = resources.process.insert(child);
+        let child = slot.insert(child);
         files.validate().map_err(setup_error)?;
         if self.check_policy(clock).is_none() {
             return Err((self.policy_end(), None));
@@ -377,7 +400,8 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
 
     pub fn available(&self, task: &Task, now: ClockSample) -> bool {
         self.runtime.owns(task)
-            && matches!(self.runtime.phase, Phase::Available(_))
+            && matches!(&self.runtime.phase, Phase::Available(resources)
+                if resources.process.as_ref().is_some_and(|process| matches!(process.is_running(), Ok(true))))
             && self.policy.active_at(now)
     }
 
@@ -432,6 +456,13 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         let Phase::Available(resources) = &mut self.runtime.phase else {
             return Err("windowsForwardPolicyDenied".into());
         };
+        if !resources
+            .process
+            .as_ref()
+            .is_some_and(|process| matches!(process.is_running(), Ok(true)))
+        {
+            return Err("bridgeUnavailable".into());
+        }
         let profile = match resources
             .files
             .as_mut()
@@ -474,11 +505,17 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         {
             return false;
         }
-        if self.check_policy(&mut clock).is_some() {
-            return true;
+        if self.check_policy(&mut clock).is_none() {
+            self.stop(task, self.policy_end(), cleanup_deadline());
+            return false;
         }
-        self.stop(task, self.policy_end(), cleanup_deadline());
-        false
+        if matches!(&self.runtime.phase, Phase::Available(resources)
+            if resources.process.as_ref().is_some_and(|process| !matches!(process.is_running(), Ok(true))))
+        {
+            self.stop(task, End::ProcessExited, cleanup_deadline());
+            return false;
+        }
+        true
     }
 
     fn check_policy(
@@ -581,13 +618,16 @@ fn runtime_boundaries_reports_no_progress_as_cleanup_failure() {
     let unstopped = LocalResources::summarize(
         End::ApplicationExit,
         cleanup_deadline(),
-        Some(CloseReport {
-            process_exited: false,
-            job_empty: false,
-            forced: true,
-            termination_error: Some(5),
-            timed_out: false,
-        }),
+        [
+            Some(CloseReport {
+                process_exited: false,
+                job_empty: false,
+                forced: true,
+                termination_error: Some(5),
+                timed_out: false,
+            }),
+            None,
+        ],
         None,
         false,
         Vec::new(),
@@ -598,13 +638,16 @@ fn runtime_boundaries_reports_no_progress_as_cleanup_failure() {
     let root_only = LocalResources::summarize(
         End::ApplicationExit,
         cleanup_deadline(),
-        Some(CloseReport {
-            process_exited: true,
-            job_empty: false,
-            forced: true,
-            termination_error: Some(5),
-            timed_out: false,
-        }),
+        [
+            Some(CloseReport {
+                process_exited: true,
+                job_empty: false,
+                forced: true,
+                termination_error: Some(5),
+                timed_out: false,
+            }),
+            None,
+        ],
         None,
         false,
         Vec::new(),

@@ -240,6 +240,9 @@ fn isolated_job_worker() {
         Ok("runtime-exit-budget") => super::runtime_regression::check_application_exit(),
         Ok("runtime-drop") => super::runtime_regression::check_drop(),
         Ok("managed-ownership") => super::managed_environment::check_managed_ownership(),
+        Ok("managed-independent-ownership") => {
+            super::managed_environment::check_independent_ownership()
+        }
         Ok("managed-loss") => super::managed_environment::check_managed_loss(),
         Ok("managed-startup") => super::managed_environment::check_managed_startup(),
         Ok("managed-cmd") => {

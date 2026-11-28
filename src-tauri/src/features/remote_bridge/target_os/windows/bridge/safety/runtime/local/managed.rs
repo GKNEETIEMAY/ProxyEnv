@@ -1,4 +1,4 @@
-use super::{cleanup_deadline, End, LocalRuntime, Phase, Shutdown, Task};
+use super::{cleanup_deadline, CloseReport, End, LocalRuntime, Phase, Shutdown, Task};
 use crate::features::{
     proxy::ProxyEndpoint,
     remote_bridge::target_os::windows::{process_environment::ProcessEnvironment, WindowsShell},
@@ -8,6 +8,7 @@ use std::{
     io,
     os::windows::ffi::{OsStrExt, OsStringExt},
     path::{Component, Path, PathBuf, Prefix},
+    time::Instant,
 };
 
 use crate::features::remote_bridge::target_os::windows_bridge::safety::{
@@ -18,12 +19,14 @@ pub(super) enum ManagedPhase {
     Unprepared,
     AwaitingReceipt([u8; 16]),
     Prepared,
+    Closed(CloseReport),
 }
 
 pub(in super::super::super) enum ManagedStatus<'a> {
     Unprepared,
     AwaitingReceipt,
     Prepared,
+    TerminalClosed(CloseReport),
     Closed(&'a Shutdown),
 }
 
@@ -41,10 +44,10 @@ impl LocalRuntime<'_, '_> {
         current: WindowsBridgeInput<'_>,
         environment: impl IntoIterator<Item = (OsString, OsString)>,
         directory: &Path,
-        clock: impl FnMut() -> ClockSample,
+        mut clock: impl FnMut() -> ClockSample,
         start: impl FnOnce(ManagedLaunch<'_>) -> io::Result<OwnedProcess>,
     ) -> bool {
-        if !self.runtime.owns(task) || !matches!(self.runtime.phase, Phase::AwaitingResources) {
+        if !self.runtime.owns(task) || !matches!(self.managed, ManagedPhase::Unprepared) {
             return false;
         }
         let endpoint = ProxyEndpoint {
@@ -54,7 +57,7 @@ impl LocalRuntime<'_, '_> {
         };
         let mut nonce = [0; 16];
         let shell = self.plan.input.shell;
-        if !self.activate(task, current, clock, || {
+        let launch = || {
             let directory = working_directory(directory)?;
             let environment = ProcessEnvironment::prepare(&endpoint, environment)
                 .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
@@ -67,8 +70,43 @@ impl LocalRuntime<'_, '_> {
                 directory: &directory,
                 receipt: &receipt,
             })
-        }) {
-            return false;
+        };
+        if matches!(self.runtime.phase, Phase::AwaitingResources) {
+            // Retain the terminal-only offline fixture path from M3.3.
+            if !self.activate(task, current, clock, launch) {
+                return false;
+            }
+            if let Phase::Available(resources) = &mut self.runtime.phase {
+                resources.terminal = resources.process.take();
+            }
+        } else {
+            if !self.poll(task, current, &mut clock) {
+                return false;
+            }
+            let Phase::Available(resources) = &mut self.runtime.phase else {
+                return false;
+            };
+            let mut resources = std::mem::take(resources);
+            let result = self.start_owned(
+                &mut resources.files,
+                &mut resources.terminal,
+                &mut clock,
+                launch,
+            );
+            if let Phase::Available(owned) = &mut self.runtime.phase {
+                *owned = resources;
+            }
+            if let Err((end, error)) = result {
+                self.finish(
+                    task,
+                    end,
+                    cleanup_deadline(),
+                    Default::default(),
+                    Vec::new(),
+                    error,
+                );
+                return false;
+            }
         }
         self.managed = ManagedPhase::AwaitingReceipt(nonce);
         true
@@ -88,7 +126,7 @@ impl LocalRuntime<'_, '_> {
             return false;
         }
         if receipt != receipt_for(nonce) {
-            self.stop(task, End::SetupFailed, cleanup_deadline());
+            self.stop_managed(task, End::SetupFailed, cleanup_deadline());
             return false;
         }
         self.managed = ManagedPhase::Prepared;
@@ -101,19 +139,47 @@ impl LocalRuntime<'_, '_> {
         current: WindowsBridgeInput<'_>,
         clock: impl FnMut() -> ClockSample,
     ) -> bool {
-        if matches!(self.managed, ManagedPhase::Unprepared) || !self.poll(task, current, clock) {
+        if !matches!(
+            self.managed,
+            ManagedPhase::AwaitingReceipt(_) | ManagedPhase::Prepared
+        ) || !self.poll(task, current, clock)
+        {
             return false;
         }
         let Phase::Available(resources) = &self.runtime.phase else {
             return false;
         };
-        let end = match resources.process.as_ref().map(OwnedProcess::is_running) {
+        let end = match resources.terminal.as_ref().map(OwnedProcess::is_running) {
             Some(Ok(true)) => return true,
             Some(Ok(false)) => End::ProcessExited,
             _ => End::SetupFailed,
         };
-        self.stop(task, end, cleanup_deadline());
+        self.stop_managed(task, end, cleanup_deadline());
         false
+    }
+
+    pub(in super::super::super) fn stop_managed(
+        &mut self,
+        task: &Task,
+        end: End,
+        deadline: Instant,
+    ) -> Option<CloseReport> {
+        if !self.runtime.owns(task) {
+            return None;
+        }
+        let Phase::Available(resources) = &mut self.runtime.phase else {
+            return self
+                .stop(task, end, deadline)
+                .and_then(|report| report.terminal);
+        };
+        if resources.process.is_none() {
+            return self
+                .stop(task, end, deadline)
+                .and_then(|report| report.terminal);
+        }
+        let report = resources.close_terminal(deadline)?;
+        self.managed = ManagedPhase::Closed(report);
+        Some(report)
     }
 
     // The owner polls this task when accepting a result or observing process exit.
@@ -129,6 +195,7 @@ impl LocalRuntime<'_, '_> {
                 ManagedPhase::Unprepared => ManagedStatus::Unprepared,
                 ManagedPhase::AwaitingReceipt(_) => ManagedStatus::AwaitingReceipt,
                 ManagedPhase::Prepared => ManagedStatus::Prepared,
+                ManagedPhase::Closed(report) => ManagedStatus::TerminalClosed(report),
             },
         })
     }
