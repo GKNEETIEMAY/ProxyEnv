@@ -69,12 +69,29 @@ struct Session {
 struct TrackedConnection {
     downstream: TcpStream,
     upstream: Option<TcpStream>,
-    request: Option<AbortHandle>,
+    request: AbortHandle,
 }
 
 struct Registration {
     session: Arc<Session>,
     id: u64,
+}
+
+impl Registration {
+    fn attach_upstream(&self, upstream: &TcpStream) -> Result<(), &'static str> {
+        let socket = upstream.try_clone().map_err(|_| "relayUnavailable")?;
+        let mut connections = self
+            .session
+            .connections
+            .lock()
+            .map_err(|_| "relayUnavailable")?;
+        let connection = connections.get_mut(&self.id).ok_or("relayUnavailable")?;
+        if !self.session.available() || connection.request.is_aborted() {
+            return Err("relayUnauthorized");
+        }
+        connection.upstream = Some(socket);
+        Ok(())
+    }
 }
 
 impl Drop for Registration {
@@ -116,15 +133,12 @@ impl Session {
     fn track(
         self: &Arc<Self>,
         downstream: &TcpStream,
-        upstream: Option<&TcpStream>,
-        request: Option<AbortHandle>,
+        request: AbortHandle,
     ) -> Result<Registration, &'static str> {
         let id = self.next_connection.fetch_add(1, Ordering::Relaxed);
         let connection = TrackedConnection {
             downstream: downstream.try_clone().map_err(|_| "relayUnavailable")?,
-            upstream: upstream
-                .map(|upstream| upstream.try_clone().map_err(|_| "relayUnavailable"))
-                .transpose()?,
+            upstream: None,
             request,
         };
         let mut connections = self.connections.lock().map_err(|_| "relayUnavailable")?;
@@ -163,9 +177,7 @@ impl Session {
                 return;
             }
             for connection in connections.values() {
-                if let Some(request) = &connection.request {
-                    request.abort();
-                }
+                connection.request.abort();
                 let _ = connection.downstream.shutdown(Shutdown::Both);
                 if let Some(upstream) = &connection.upstream {
                     let _ = upstream.shutdown(Shutdown::Both);
@@ -245,24 +257,20 @@ impl AuthenticatedRelay {
                             }
                             // Pause also closes clients waiting in an HTTP/SOCKS handshake.
                             let (abort, registration) = AbortHandle::new_pair();
-                            let Ok(owned) =
-                                worker_session.track(&downstream, None, Some(abort.clone()))
-                            else {
+                            let Ok(owned) = worker_session.track(&downstream, abort.clone()) else {
                                 let _ = downstream.shutdown(Shutdown::Both);
                                 continue;
                             };
                             let endpoint = upstream.clone();
-                            let connection_session = Arc::clone(&worker_session);
                             let route = worker_route.lock().ok().and_then(|route| route.clone());
                             let _ = thread::Builder::new()
                                 .name("proxyenv-authenticated-connection".into())
                                 .spawn(move || {
-                                    let _owned = owned;
                                     let _ = handle(
                                         downstream,
                                         endpoint,
                                         mode,
-                                        Arc::clone(&connection_session),
+                                        &owned,
                                         route,
                                         abort,
                                         registration,
@@ -378,7 +386,7 @@ fn handle(
     downstream: TcpStream,
     upstream: ProxyEndpoint,
     mode: RelayMode,
-    session: Arc<Session>,
+    owned: &Registration,
     ai_route: Option<AiRoute>,
     abort: AbortHandle,
     registration: AbortRegistration,
@@ -392,7 +400,7 @@ fn handle(
     match mode {
         RelayMode::AiHttp => {
             super::codex_relay::handle_authenticated(downstream, upstream, registration, |token| {
-                session.accepts(token)
+                owned.session.accepts(token)
             })
         }
         #[cfg(test)]
@@ -404,12 +412,12 @@ fn handle(
             let count = downstream.peek(&mut first).map_err(|_| "invalidRequest")?;
             if count == 1 && first[0] == 5 {
                 if matches!(protocol, ProxyProtocol::Socks5 | ProxyProtocol::Mixed) {
-                    handle_socks5(downstream, upstream, session)
+                    handle_socks5(downstream, upstream, owned)
                 } else {
                     Err("invalidRequest")
                 }
             } else if matches!(protocol, ProxyProtocol::Http | ProxyProtocol::Mixed) {
-                handle_http(downstream, upstream, session, ai_route, abort, registration)
+                handle_http(downstream, upstream, owned, ai_route, abort, registration)
             } else {
                 Err("invalidRequest")
             }
@@ -438,7 +446,7 @@ fn read_head(stream: &mut TcpStream) -> Result<Zeroizing<Vec<u8>>, &'static str>
 fn handle_http(
     mut downstream: TcpStream,
     upstream: ProxyEndpoint,
-    session: Arc<Session>,
+    owned: &Registration,
     ai_route: Option<AiRoute>,
     abort: AbortHandle,
     registration: AbortRegistration,
@@ -478,7 +486,7 @@ fn handle_http(
         output.push_str(line);
         output.push_str("\r\n");
     }
-    if !session.available() {
+    if !owned.session.available() || abort.is_aborted() {
         return Err("relayUnauthorized");
     }
     output.push_str("\r\n");
@@ -496,17 +504,17 @@ fn handle_http(
         // ephemeral listener whose port could be reused after revocation.
         let mut buffered = Zeroizing::new(output.as_bytes().to_vec());
         buffered.extend_from_slice(&received[header_end..]);
-        let _owned = route.session.track(&downstream, None, Some(abort))?;
+        let _owned = route.session.track(&downstream, abort)?;
         return super::codex_relay::handle_authenticated_buffered(
             downstream,
             route.upstream.clone(),
-            |token| route.session.accepts(token) && session.available(),
+            |token| route.session.accepts(token) && owned.session.available(),
             buffered,
             registration,
         );
     }
     let mut upstream_stream = connect_upstream(&upstream)?;
-    let _owned = session.track(&downstream, Some(&upstream_stream), None)?;
+    owned.attach_upstream(&upstream_stream)?;
     upstream_stream
         .write_all(output.as_bytes())
         .and_then(|_| upstream_stream.write_all(&received[header_end..]))
@@ -517,7 +525,7 @@ fn handle_http(
 fn handle_socks5(
     mut downstream: TcpStream,
     upstream: ProxyEndpoint,
-    session: Arc<Session>,
+    owned: &Registration,
 ) -> Result<(), &'static str> {
     let methods = read_socks_frame(&mut downstream, 2, |head| usize::from(head[1]))?;
     if methods[0] != 5 || !methods[2..].contains(&0) {
@@ -529,12 +537,12 @@ fn handle_socks5(
     downstream
         .write_all(&[5, 0])
         .map_err(|_| "relayUnavailable")?;
-    if !session.available() {
+    if !owned.session.available() {
         return Err("relayUnauthorized");
     }
     let request = read_socks_request(&mut downstream)?;
     let mut upstream_stream = connect_upstream(&upstream)?;
-    let _owned = session.track(&downstream, Some(&upstream_stream), None)?;
+    owned.attach_upstream(&upstream_stream)?;
     upstream_stream
         .write_all(&[5, 1, 0])
         .map_err(|_| "relayUnavailable")?;
@@ -683,15 +691,22 @@ mod tests {
         let (downstream, mut client) = pair();
         let (upstream, mut server) = pair();
         let session = Arc::new(Session::new().unwrap());
-        let owned = session.track(&downstream, Some(&upstream), None).unwrap();
+        let owned = session
+            .track(&downstream, AbortHandle::new_pair().0)
+            .unwrap();
+        owned.attach_upstream(&upstream).unwrap();
         session.set_enabled(false);
         let mut byte = [0];
         assert_connection_closed(client.read(&mut byte));
         assert_connection_closed(server.read(&mut byte));
         assert_eq!(session.connections.lock().unwrap().len(), 1);
+        assert!(session
+            .track(&downstream, AbortHandle::new_pair().0)
+            .is_err());
+        session.set_enabled(true);
+        assert_eq!(owned.attach_upstream(&upstream), Err("relayUnauthorized"));
         drop(owned);
         assert!(session.connections.lock().unwrap().is_empty());
-        assert!(session.track(&downstream, Some(&upstream), None).is_err());
     }
 
     #[test]
@@ -1518,7 +1533,10 @@ mod tests {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let _client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (downstream, _) = listener.accept().unwrap();
-        let held = relay.session.track(&downstream, None, None).unwrap();
+        let held = relay
+            .session
+            .track(&downstream, AbortHandle::new_pair().0)
+            .unwrap();
         let first = relay.close_until(Instant::now());
         assert!(!first.complete());
         assert_eq!(first.pending_connections, 1);
