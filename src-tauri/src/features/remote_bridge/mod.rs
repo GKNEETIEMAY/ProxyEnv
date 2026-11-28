@@ -598,8 +598,10 @@ fn refresh(state: &mut Store) {
                 state.summary.status = Status::Connecting;
             } else {
                 state.environment_write = None;
-                state.proxy_relay = None;
-                state.ai_relay = None;
+                let _ = close_bridge_relays(
+                    state,
+                    Instant::now() + authenticated_relay::SHUTDOWN_BUDGET,
+                );
                 state.summary.status = Status::Disconnected;
             }
             state.ssh_auth.authenticated = false;
@@ -2540,8 +2542,10 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
         .map(|relay| relay.session_id().to_owned());
     let environment_write = state.environment_write.take();
     // Revoke both local capabilities before any potentially slow SSH cleanup.
-    state.proxy_relay = None;
-    state.ai_relay = None;
+    let relay_cleanup = close_bridge_relays(
+        &mut state,
+        Instant::now() + authenticated_relay::SHUTDOWN_BUDGET,
+    );
     let vscode_restore_error = restore_vscode_network(&mut state).err();
     if let (Some(target_id), Some(session_id)) = (target_id.as_deref(), session_id.as_deref()) {
         if environment_write.as_deref() != Some(session_id) {
@@ -2574,7 +2578,9 @@ pub fn disconnect(confirmed: bool) -> BridgeResult<Summary> {
     state.summary.diagnostics.general_proxy_egress.reset();
     state.summary.diagnostics.server_direct.reset();
     state.summary.diagnostics.server_internet = None;
-    state.summary.error = vscode_restore_error;
+    state.summary.error = vscode_restore_error.or_else(|| {
+        (relay_cleanup != ShutdownOutcome::Completed).then(|| "relayUnavailable".into())
+    });
     let cleanup_error = state.summary.error.as_deref().map(ErrorCategory::from_code);
     state.events.push(
         EventComponent::Ssh,
@@ -2619,24 +2625,43 @@ pub(crate) enum ShutdownOutcome {
     Failed,
 }
 
+fn close_bridge_relays(state: &mut Store, deadline: Instant) -> ShutdownOutcome {
+    let relays = [state.ai_relay.take(), state.proxy_relay.take()];
+    for relay in relays.iter().flatten() {
+        relay.revoke();
+    }
+    let results = relays.map(|relay| relay.map(|mut relay| relay.close_until(deadline)));
+    if results.iter().flatten().any(|report| report.failed) {
+        ShutdownOutcome::Failed
+    } else if results.iter().flatten().any(|report| !report.complete()) {
+        ShutdownOutcome::TimedOut
+    } else {
+        ShutdownOutcome::Completed
+    }
+}
+
 fn begin_shutdown(deadline: Option<Instant>) -> Option<std::sync::mpsc::Receiver<ShutdownOutcome>> {
     if STOPPING.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return None;
     }
 
     let (finished, completion) = std::sync::mpsc::channel();
+    let relay_deadline = deadline.unwrap_or_else(|| Instant::now() + Duration::from_millis(200));
     std::thread::spawn(move || {
         let drained = deadline.is_none_or(crate::desktop::updates::wait_for_bridge_operations);
-        let retired = store().retire_for_shutdown();
+        let mut retired = store().retire_for_shutdown();
+        let relay_outcome = close_bridge_relays(&mut retired, relay_deadline);
         drop(retired);
         ssh_auth::shutdown();
         if deadline.is_none() {
             logging::shutdown();
         }
-        let outcome = if drained {
-            ShutdownOutcome::Completed
-        } else {
+        let outcome = if relay_outcome == ShutdownOutcome::Failed {
+            ShutdownOutcome::Failed
+        } else if !drained {
             ShutdownOutcome::TimedOut
+        } else {
+            relay_outcome
         };
         let _ = finished.send(outcome);
     });

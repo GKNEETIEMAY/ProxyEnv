@@ -229,8 +229,7 @@ pub(super) fn cancel(state: &mut Store) {
     if state.child.is_none() {
         state.environment_write = None;
         state.additional_tunnels.clear();
-        state.proxy_relay = None;
-        state.ai_relay = None;
+        let _ = close_bridge_relays(state, Instant::now() + authenticated_relay::SHUTDOWN_BUDGET);
         state.paused_proxy = None;
         state.paused_cc = None;
         state.paused_tools.clear();

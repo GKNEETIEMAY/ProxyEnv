@@ -1,7 +1,7 @@
 mod tool_config;
 pub(in super::super::super) use tool_config::ToolConfigApply;
 
-use super::{LocalRuntime, Phase, Task};
+use super::{cleanup_deadline, LocalRuntime, Phase, Task};
 use crate::features::{
     proxy::{ProxyEndpoint, ProxyProtocol},
     remote_bridge::{
@@ -12,7 +12,7 @@ use crate::features::{
         BridgeResult,
     },
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use crate::features::remote_bridge::target_os::windows_bridge::safety::{
     policy::ClockSample, WindowsBridgeInput,
@@ -63,13 +63,12 @@ impl AiSession {
         }
     }
 
-    pub(super) fn close(&mut self, state: WindowsAiState) -> WindowsAiState {
+    pub(super) fn close(&mut self, state: WindowsAiState, deadline: Instant) -> WindowsAiState {
         if self.state() == WindowsAiState::CleanupIncomplete {
             return WindowsAiState::CleanupIncomplete;
         }
         if let Self::Prepared { mut relay, .. } = std::mem::replace(self, Self::Inactive(state)) {
-            relay.set_enabled(false);
-            if !relay.close() {
+            if !relay.close_until(deadline).complete() {
                 *self = Self::Inactive(WindowsAiState::CleanupIncomplete);
             }
         }
@@ -101,11 +100,13 @@ impl LocalRuntime<'_, '_> {
             return Err("bridgeBusy".into());
         }
         if !confirmed {
-            self.ai.close(WindowsAiState::AwaitingAuthorization);
+            self.ai
+                .close(WindowsAiState::AwaitingAuthorization, cleanup_deadline());
             return Err("confirmationRequired".into());
         }
         let Some(binding) = ServiceBinding::recognized(service) else {
-            self.ai.close(WindowsAiState::Unavailable);
+            self.ai
+                .close(WindowsAiState::Unavailable, cleanup_deadline());
             return Err("ccUnavailable".into());
         };
         let binding = Arc::new(binding);
@@ -133,7 +134,8 @@ impl LocalRuntime<'_, '_> {
             return Err("bridgeUnavailable".into());
         }
         if ServiceBinding::recognized(service()) != Some(*token) {
-            self.ai.close(WindowsAiState::Invalidated);
+            self.ai
+                .close(WindowsAiState::Invalidated, cleanup_deadline());
             return Err("ccUnavailable".into());
         }
         let endpoint = ProxyEndpoint {
@@ -142,7 +144,8 @@ impl LocalRuntime<'_, '_> {
             protocol: ProxyProtocol::Http,
         };
         let relay = AuthenticatedRelay::start(endpoint, RelayMode::AiHttp).inspect_err(|_| {
-            self.ai.close(WindowsAiState::Unavailable);
+            self.ai
+                .close(WindowsAiState::Unavailable, cleanup_deadline());
         })?;
         if !self.poll(task, current(), clock) {
             drop(relay);
@@ -150,7 +153,8 @@ impl LocalRuntime<'_, '_> {
         }
         if ServiceBinding::recognized(service()) != Some(*token) {
             drop(relay);
-            self.ai.close(WindowsAiState::Invalidated);
+            self.ai
+                .close(WindowsAiState::Invalidated, cleanup_deadline());
             return Err("ccUnavailable".into());
         }
         self.ai = AiSession::Prepared {
@@ -180,7 +184,8 @@ impl LocalRuntime<'_, '_> {
                 AiSession::Inactive(_) => false,
             };
             if invalid {
-                self.ai.close(WindowsAiState::Invalidated);
+                self.ai
+                    .close(WindowsAiState::Invalidated, cleanup_deadline());
             }
         }
         Some(self.ai.state())
@@ -196,7 +201,7 @@ impl LocalRuntime<'_, '_> {
         ) {
             return Some(self.ai.state());
         }
-        Some(self.ai.close(WindowsAiState::Closed))
+        Some(self.ai.close(WindowsAiState::Closed, cleanup_deadline()))
     }
 
     pub(in super::super::super) fn preview_ai_tool(
@@ -216,7 +221,13 @@ impl LocalRuntime<'_, '_> {
         if !relay.is_running() {
             return Err("bridgeUnavailable".into());
         }
-        tool_config::ToolConfigPreview::new(binding, tool, version, source, relay.port())
+        tool_config::ToolConfigPreview::new(
+            binding,
+            tool,
+            version,
+            source,
+            tool_config::LocalRelayToolEndpoint::from_local_relay(relay),
+        )
     }
 
     pub(in super::super::super) fn apply_ai_tool(

@@ -1,4 +1,6 @@
-use super::{cleanup_deadline, CloseReport, End, LocalRuntime, Phase, Shutdown, Task};
+use super::{
+    cleanup_deadline, CloseReport, End, LocalRuntime, Phase, Shutdown, StartFailure, Task,
+};
 use crate::features::{
     proxy::ProxyEndpoint,
     remote_bridge::target_os::windows::{process_environment::ProcessEnvironment, WindowsShell},
@@ -17,16 +19,21 @@ use crate::features::remote_bridge::target_os::windows_bridge::safety::{
 
 pub(super) enum ManagedPhase {
     Unprepared,
-    AwaitingReceipt([u8; 16]),
+    AwaitingReceipt(ManagedAttempt),
     Prepared,
     Closed(CloseReport),
+    LaunchFailed(Option<CloseReport>),
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in super::super::super) struct ManagedAttempt([u8; 16]);
 
 pub(in super::super::super) enum ManagedStatus<'a> {
     Unprepared,
     AwaitingReceipt,
     Prepared,
     TerminalClosed(CloseReport),
+    LaunchFailed(Option<CloseReport>),
     Closed(&'a Shutdown),
 }
 
@@ -35,6 +42,7 @@ pub(in super::super::super) struct ManagedLaunch<'a> {
     pub environment: &'a ProcessEnvironment,
     pub directory: &'a Path,
     pub receipt: &'a str,
+    pub attempt: ManagedAttempt,
 }
 
 impl LocalRuntime<'_, '_> {
@@ -47,7 +55,17 @@ impl LocalRuntime<'_, '_> {
         mut clock: impl FnMut() -> ClockSample,
         start: impl FnOnce(ManagedLaunch<'_>) -> io::Result<OwnedProcess>,
     ) -> bool {
-        if !self.runtime.owns(task) || !matches!(self.managed, ManagedPhase::Unprepared) {
+        let can_start = match self.managed {
+            ManagedPhase::Unprepared | ManagedPhase::LaunchFailed(None) => true,
+            ManagedPhase::Closed(report) | ManagedPhase::LaunchFailed(Some(report)) => {
+                report.process_exited
+                    && report.job_empty
+                    && report.termination_error.is_none()
+                    && !report.timed_out
+            }
+            ManagedPhase::AwaitingReceipt(_) | ManagedPhase::Prepared => false,
+        };
+        if !self.runtime.owns(task) || !can_start {
             return false;
         }
         let endpoint = ProxyEndpoint {
@@ -69,6 +87,7 @@ impl LocalRuntime<'_, '_> {
                 environment: &environment,
                 directory: &directory,
                 receipt: &receipt,
+                attempt: ManagedAttempt(nonce),
             })
         };
         if matches!(self.runtime.phase, Phase::AwaitingResources) {
@@ -87,16 +106,24 @@ impl LocalRuntime<'_, '_> {
                 return false;
             };
             let mut resources = std::mem::take(resources);
+            resources.terminal_close = None;
             let result = self.start_owned(
                 &mut resources.files,
                 &mut resources.terminal,
                 &mut clock,
                 launch,
             );
+            let terminal_failure = matches!(result, Err(StartFailure::Process(_)))
+                .then(|| resources.close_terminal(cleanup_deadline()));
             if let Phase::Available(owned) = &mut self.runtime.phase {
                 *owned = resources;
             }
-            if let Err((end, error)) = result {
+            if let Some(report) = terminal_failure {
+                self.managed = ManagedPhase::LaunchFailed(report);
+                return false;
+            }
+            if let Err(failure) = result {
+                let (end, error) = failure.shutdown();
                 self.finish(
                     task,
                     end,
@@ -108,7 +135,7 @@ impl LocalRuntime<'_, '_> {
                 return false;
             }
         }
-        self.managed = ManagedPhase::AwaitingReceipt(nonce);
+        self.managed = ManagedPhase::AwaitingReceipt(ManagedAttempt(nonce));
         true
     }
 
@@ -116,16 +143,20 @@ impl LocalRuntime<'_, '_> {
         &mut self,
         task: &Task,
         current: WindowsBridgeInput<'_>,
+        attempt: ManagedAttempt,
         receipt: &str,
         clock: impl FnMut() -> ClockSample,
     ) -> bool {
-        let ManagedPhase::AwaitingReceipt(nonce) = self.managed else {
+        let ManagedPhase::AwaitingReceipt(current_attempt) = self.managed else {
             return false;
         };
+        if current_attempt != attempt {
+            return false;
+        }
         if !self.poll_managed(task, current, clock) {
             return false;
         }
-        if receipt != receipt_for(nonce) {
+        if receipt != receipt_for(attempt.0) {
             self.stop_managed(task, End::SetupFailed, cleanup_deadline());
             return false;
         }
@@ -196,6 +227,7 @@ impl LocalRuntime<'_, '_> {
                 ManagedPhase::AwaitingReceipt(_) => ManagedStatus::AwaitingReceipt,
                 ManagedPhase::Prepared => ManagedStatus::Prepared,
                 ManagedPhase::Closed(report) => ManagedStatus::TerminalClosed(report),
+                ManagedPhase::LaunchFailed(report) => ManagedStatus::LaunchFailed(report),
             },
         })
     }

@@ -1,8 +1,32 @@
 use super::ServiceBinding;
-use crate::features::remote_bridge::{tool_adapter, tool_adapter::RemoteToolId, BridgeResult};
+use crate::features::remote_bridge::{
+    authenticated_relay::AuthenticatedRelay,
+    target_os::windows_bridge::safety::local_files::{delete_by_handle, FileId, PrivateDirectory},
+    tool_adapter,
+    tool_adapter::RemoteToolId,
+    BridgeResult,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::sync::{Arc, Weak};
+use std::{
+    fs::File,
+    io::{self, Read, Seek, SeekFrom, Write},
+    path::Path,
+    sync::{Arc, Weak},
+};
+use windows::Win32::{
+    Foundation::{GENERIC_READ, GENERIC_WRITE},
+    Storage::FileSystem::{DELETE, FILE_SHARE_READ},
+};
+
+// A local test listener cannot be used as a verified remote access endpoint.
+pub(super) struct LocalRelayToolEndpoint(u16);
+
+impl LocalRelayToolEndpoint {
+    pub(super) fn from_local_relay(relay: &AuthenticatedRelay) -> Self {
+        Self(relay.port())
+    }
+}
 
 pub(in super::super::super::super) struct ToolConfigPreview {
     owner: Weak<ServiceBinding>,
@@ -13,7 +37,18 @@ pub(in super::super::super::super) struct ToolConfigPreview {
 }
 
 pub(in super::super::super::super) struct AppliedToolConfig {
+    owner: Weak<ServiceBinding>,
+    source_hash: Option<[u8; 32]>,
+    filename: &'static str,
     content: Option<Vec<u8>>,
+    overlay: Option<OwnedOverlay>,
+}
+
+struct OwnedOverlay {
+    directory: PrivateDirectory,
+    file: File,
+    id: FileId,
+    complete: bool,
 }
 
 pub(in super::super::super::super) struct ToolConfigApply<'a> {
@@ -29,7 +64,7 @@ impl ToolConfigPreview {
         tool: RemoteToolId,
         version: &str,
         source: Option<&[u8]>,
-        port: u16,
+        endpoint: LocalRelayToolEndpoint,
     ) -> BridgeResult<Self> {
         let adapter = tool_adapter::by_id(tool);
         if !adapter.detect(version) {
@@ -38,7 +73,7 @@ impl ToolConfigPreview {
         let original = source
             .map(|bytes| std::str::from_utf8(bytes).map_err(|_| "configConflict"))
             .transpose()?;
-        let preview = adapter.preview(port, None);
+        let preview = adapter.preview(endpoint.0, None);
         let (filename, token_env, content) = match tool {
             RemoteToolId::Codex => (
                 "config.toml",
@@ -77,7 +112,11 @@ impl ToolConfigPreview {
             return Err("configConflict".into());
         }
         Ok(AppliedToolConfig {
+            owner: self.owner,
+            source_hash: self.source_hash,
+            filename: self.filename,
             content: Some(self.content),
+            overlay: None,
         })
     }
 }
@@ -91,6 +130,9 @@ impl AppliedToolConfig {
         &mut self,
         observed: Option<&[u8]>,
     ) -> BridgeResult<()> {
+        if self.overlay.is_some() {
+            return Err("configConflict".into());
+        }
         if let (Some(expected), Some(observed)) = (self.content(), observed) {
             if observed != expected {
                 return Err("configConflict".into());
@@ -98,6 +140,110 @@ impl AppliedToolConfig {
         }
         self.content = None;
         Ok(())
+    }
+
+    pub(in super::super::super::super) fn materialize(
+        &mut self,
+        directory: &Path,
+        source: Option<&[u8]>,
+    ) -> BridgeResult<()> {
+        self.write_overlay(directory, source, |file, bytes| {
+            file.write_all(bytes)?;
+            file.sync_all()
+        })
+    }
+
+    #[cfg(test)]
+    pub(in super::super::super::super) fn materialize_partial_fixture(
+        &mut self,
+        directory: &Path,
+        source: Option<&[u8]>,
+    ) -> BridgeResult<()> {
+        self.write_overlay(directory, source, |file, bytes| {
+            file.write_all(&bytes[..bytes.len() / 2])?;
+            Err(io::ErrorKind::WriteZero.into())
+        })
+    }
+
+    fn write_overlay(
+        &mut self,
+        directory: &Path,
+        source: Option<&[u8]>,
+        write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
+    ) -> BridgeResult<()> {
+        let _owner = self.owner.upgrade().ok_or("windowsBridgeContextChanged")?;
+        if self.overlay.is_some() || source.map(digest) != self.source_hash {
+            return Err("configConflict".into());
+        }
+        let bytes = self.content.as_deref().ok_or("configConflict")?;
+        let directory = PrivateDirectory::new(directory, false, GENERIC_READ.0)
+            .map_err(|_| "configConflict")?;
+        let file = directory
+            .file(
+                self.filename,
+                GENERIC_READ.0 | GENERIC_WRITE.0 | DELETE.0,
+                FILE_SHARE_READ,
+                true,
+            )
+            .map_err(|_| "configConflict")?;
+        let id = directory
+            .validate(&file, false)
+            .map_err(|_| "configConflict")?;
+        let owned = self.overlay.insert(OwnedOverlay {
+            directory,
+            file,
+            id,
+            complete: false,
+        });
+        if write(&mut owned.file, bytes).is_err() {
+            // Retain the open handle for retry if owned partial output cannot be unlinked.
+            self.restore_materialized()?;
+            return Err("stateUnavailable".into());
+        }
+        owned.complete = true;
+        Ok(())
+    }
+
+    pub(in super::super::super::super) fn restore_materialized(&mut self) -> BridgeResult<()> {
+        let Some(overlay) = &mut self.overlay else {
+            return Ok(());
+        };
+        if overlay
+            .directory
+            .validate(&overlay.directory.directory, true)
+            .ok()
+            != Some(overlay.directory.id)
+            || overlay.directory.validate(&overlay.file, false).ok() != Some(overlay.id)
+        {
+            return Err("configConflict".into());
+        }
+        if overlay.complete {
+            let expected = self.content.as_deref().ok_or("configConflict")?;
+            let mut observed = Vec::new();
+            overlay
+                .file
+                .seek(SeekFrom::Start(0))
+                .map_err(|_| "configConflict")?;
+            (&mut overlay.file)
+                .take(expected.len() as u64 + 1)
+                .read_to_end(&mut observed)
+                .map_err(|_| "configConflict")?;
+            if observed != expected {
+                return Err("configConflict".into());
+            }
+        }
+        delete_by_handle(&overlay.file).map_err(|_| "configConflict")?;
+        self.overlay = None;
+        self.content = None;
+        Ok(())
+    }
+}
+
+impl Drop for AppliedToolConfig {
+    fn drop(&mut self) {
+        if self.restore_materialized().is_err() {
+            tracing::warn!("AI configuration cleanup incomplete");
+        }
     }
 }
 

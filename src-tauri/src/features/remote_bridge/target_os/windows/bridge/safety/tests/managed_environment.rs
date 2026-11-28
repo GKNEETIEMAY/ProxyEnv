@@ -7,7 +7,7 @@ use super::{
 use crate::features::remote_bridge::target_os::windows_bridge::safety::{
     owned_process::{shell_fixture::{CWD_WITNESS, OUTPUT_DONE}, OwnedProcess, ParentPipes},
     runtime::{
-        local::{managed::ManagedStatus, Completion, End, LocalRuntime},
+        local::{managed::{ManagedAttempt, ManagedStatus}, Completion, End, LocalRuntime},
         Task,
     },
 };
@@ -38,21 +38,31 @@ fn start_fixture(
     task: &Task,
     fixture: &Fixture,
     directory: &Path,
-) -> (String, OwnedHandle, ParentPipes) {
+) -> ((ManagedAttempt, String), OwnedHandle, ParentPipes) {
+    start_fixture_at(runtime, task, fixture, directory, 1)
+}
+
+fn start_fixture_at(
+    runtime: &mut LocalRuntime<'_, '_>,
+    task: &Task,
+    fixture: &Fixture,
+    directory: &Path,
+    seconds: u64,
+) -> ((ManagedAttempt, String), OwnedHandle, ParentPipes) {
     let mut launched = None;
     assert!(runtime.start_managed(
         task,
         fixture.input(),
         [],
         directory,
-        || fixture.clock(1),
+        || fixture.clock(seconds),
         |launch| {
             let child = OwnedProcess::start_fixture_with_environment(
                 &process::test_name("job_pipe_child"),
                 Some(&launch),
             )?;
             let (witness, pipes) = child.witness()?;
-            launched = Some((launch.receipt.to_owned(), witness, pipes));
+            launched = Some(((launch.attempt, launch.receipt.to_owned()), witness, pipes));
             Ok(child)
         }
     ));
@@ -85,7 +95,10 @@ pub(super) fn check_independent_ownership() {
         let (bridge_witness, mut bridge_pipes) = bridge.unwrap();
         let (receipt, terminal_witness, _terminal_pipes) =
             start_fixture(&mut runtime, &task, &fixture, &layout.history);
-        assert!(runtime.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(2)));
+        assert!(
+            runtime.confirm_managed(&task, fixture.input(), receipt.0, &receipt.1, || fixture
+                .clock(2))
+        );
         assert!(runtime.available(&task, fixture.clock(2)));
         if end == End::Expired {
             assert!(!runtime.poll_managed(&task, fixture.input(), || fixture.clock(30)));
@@ -105,11 +118,55 @@ pub(super) fn check_independent_ownership() {
             confirm_exit(&terminal_witness);
             assert!(runtime.poll(&task, fixture.input(), || fixture.clock(2)));
             assert!(layout.frozen.exists());
-            assert!(!runtime.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(2)));
+            assert!(!runtime.confirm_managed(
+                &task,
+                fixture.input(),
+                receipt.0,
+                &receipt.1,
+                || fixture.clock(2)
+            ));
             assert_eq!(
                 runtime.stop_managed(&task, End::Cancelled, shutdown_deadline()),
                 Some(closed)
             );
+            assert!(!runtime.start_managed(
+                &task,
+                fixture.input(),
+                [],
+                &layout.history,
+                || fixture.clock(2),
+                |_| OwnedProcess::invalid_fixture()
+            ));
+            assert!(matches!(
+                runtime.managed_status(&task),
+                Some(ManagedStatus::LaunchFailed(None))
+            ));
+            assert!(runtime.available(&task, fixture.clock(2)));
+            let (reopened, reopened_witness, _pipes) =
+                start_fixture_at(&mut runtime, &task, &fixture, &layout.history, 2);
+            assert_ne!(reopened.0, receipt.0);
+            assert!(!runtime.confirm_managed(
+                &task,
+                fixture.input(),
+                receipt.0,
+                &receipt.1,
+                || fixture.clock(2)
+            ));
+            assert!(matches!(
+                runtime.managed_status(&task),
+                Some(ManagedStatus::AwaitingReceipt)
+            ));
+            assert!(runtime.confirm_managed(
+                &task,
+                fixture.input(),
+                reopened.0,
+                &reopened.1,
+                || fixture.clock(2)
+            ));
+            assert!(runtime
+                .stop_managed(&task, End::Cancelled, shutdown_deadline())
+                .is_some());
+            confirm_exit(&reopened_witness);
         }
         let report = runtime
             .stop(&task, End::Cancelled, shutdown_deadline())
@@ -159,12 +216,18 @@ pub(super) fn check_managed_ownership() {
         || fixture.clock(1),
         |_| panic!("duplicate launch")
     ));
-    assert!(runtime.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(2)));
+    assert!(
+        runtime.confirm_managed(&task, fixture.input(), receipt.0, &receipt.1, || fixture
+            .clock(2))
+    );
     assert!(matches!(
         runtime.managed_status(&task),
         Some(ManagedStatus::Prepared)
     ));
-    assert!(!runtime.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(2)));
+    assert!(
+        !runtime.confirm_managed(&task, fixture.input(), receipt.0, &receipt.1, || fixture
+            .clock(2))
+    );
 
     let closed = runtime
         .stop(&task, End::Cancelled, shutdown_deadline())
@@ -178,7 +241,10 @@ pub(super) fn check_managed_ownership() {
         .unwrap();
     assert_eq!(repeated.end, End::Cancelled);
     assert_eq!(repeated.completion, Completion::Complete);
-    assert!(!runtime.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(2)));
+    assert!(
+        !runtime.confirm_managed(&task, fixture.input(), receipt.0, &receipt.1, || fixture
+            .clock(2))
+    );
     assert!(!runtime.start_managed(
         &task,
         fixture.input(),
@@ -194,15 +260,21 @@ pub(super) fn check_managed_ownership() {
     let (next_receipt, next_witness, _next_pipes) =
         start_fixture(&mut next, &next_task, &fixture, &next_layout.history);
     assert_ne!(receipt, next_receipt);
-    assert!(!next.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(2)));
+    assert!(
+        !next.confirm_managed(&task, fixture.input(), receipt.0, &receipt.1, || fixture
+            .clock(2))
+    );
     assert!(matches!(
         next.managed_status(&next_task),
         Some(ManagedStatus::AwaitingReceipt)
     ));
-    assert!(
-        next.confirm_managed(&next_task, fixture.input(), &next_receipt, || fixture
-            .clock(2))
-    );
+    assert!(next.confirm_managed(
+        &next_task,
+        fixture.input(),
+        next_receipt.0,
+        &next_receipt.1,
+        || fixture.clock(2)
+    ));
     next.stop(&next_task, End::Cancelled, shutdown_deadline())
         .unwrap();
     confirm_exit(&next_witness);
@@ -229,9 +301,9 @@ pub(super) fn check_managed_loss() {
         } else {
             30
         };
-        assert!(
-            !runtime.confirm_managed(&task, fixture.input(), &receipt, || fixture.clock(seconds))
-        );
+        assert!(!runtime
+            .confirm_managed(&task, fixture.input(), receipt.0, &receipt.1, || fixture
+                .clock(seconds)));
         let Some(ManagedStatus::Closed(report)) = runtime.managed_status(&task) else {
             panic!("managed attempt was left open");
         };
@@ -410,6 +482,7 @@ pub(super) fn check_shell(program: ShellProgram) {
         authorize(&mut runtime, &task, &fixture);
         let mut witness = None;
         let mut challenge = None;
+        let mut attempt = None;
         assert!(runtime.start_managed(
             &task,
             fixture.input(),
@@ -423,6 +496,7 @@ pub(super) fn check_shell(program: ShellProgram) {
                     &process::test_name("isolated_job_worker"),
                 )?;
                 witness = Some(process.witness()?);
+                attempt = Some(launch.attempt);
                 if matches!(program, ShellProgram::Cmd) {
                     challenge = Some(launch.receipt.to_owned());
                 }
@@ -511,13 +585,21 @@ pub(super) fn check_shell(program: ShellProgram) {
                 )),
                 ..fixture.input()
             };
-            assert!(!runtime.confirm_managed(&task, changed, receipt, || fixture.clock(2)));
+            assert!(!runtime
+                .confirm_managed(&task, changed, attempt.unwrap(), receipt, || fixture
+                    .clock(2)));
             let Some(ManagedStatus::Closed(report)) = runtime.managed_status(&task) else {
                 panic!("stale managed environment attempt was left open");
             };
             assert_eq!(report.end, End::AuthorizationUnavailable);
         } else {
-            assert!(runtime.confirm_managed(&task, fixture.input(), receipt, || fixture.clock(2)));
+            assert!(runtime.confirm_managed(
+                &task,
+                fixture.input(),
+                attempt.unwrap(),
+                receipt,
+                || fixture.clock(2)
+            ));
             assert!(matches!(
                 runtime.managed_status(&task),
                 Some(ManagedStatus::Prepared)

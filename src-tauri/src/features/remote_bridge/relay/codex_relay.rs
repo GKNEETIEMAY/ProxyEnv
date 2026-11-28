@@ -1,19 +1,13 @@
-use super::BridgeResult;
 use crate::features::proxy::ProxyEndpoint;
+use futures_util::future::{AbortRegistration, Abortable};
 use reqwest::{
-    blocking::Client,
     header::{HeaderName, HeaderValue},
-    Url,
+    Client, Url,
 };
 use serde_json::json;
 use std::{
     io::{Read, Write},
-    net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    thread::{self, JoinHandle},
+    net::{IpAddr, Shutdown, TcpStream},
     time::Duration,
 };
 use zeroize::Zeroizing;
@@ -23,80 +17,22 @@ const MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CHUNK_FRAMING_BYTES: usize = 1024 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
-pub struct CodexRelay {
-    port: u16,
-    stop: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
-}
+#[cfg(test)]
+pub struct CodexRelay(super::authenticated_relay::AuthenticatedRelay);
 
+#[cfg(test)]
 impl CodexRelay {
-    pub fn start(upstream: ProxyEndpoint) -> BridgeResult<Self> {
-        Self::start_inner(upstream)
-    }
-
-    fn start_inner(upstream: ProxyEndpoint) -> BridgeResult<Self> {
-        let upstream_ip = upstream
-            .host
-            .parse::<IpAddr>()
-            .map_err(|_| "ccUnavailable")?;
-        if !upstream_ip.is_loopback() {
-            return Err("ccUnavailable".into());
-        }
-        let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
-            .map_err(|_| "relayUnavailable")?;
-        let port = listener
-            .local_addr()
-            .map_err(|_| "relayUnavailable")?
-            .port();
-        listener
-            .set_nonblocking(true)
-            .map_err(|_| "relayUnavailable")?;
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = Arc::clone(&stop);
-        let worker = thread::Builder::new()
-            .name("proxyenv-codex-relay".into())
-            .spawn(move || {
-                while !worker_stop.load(Ordering::Acquire) {
-                    match listener.accept() {
-                        Ok((stream, _)) => {
-                            let endpoint = upstream.clone();
-                            let _ = thread::Builder::new()
-                                .name("proxyenv-codex-request".into())
-                                .spawn(move || handle(stream, endpoint));
-                        }
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(20));
-                        }
-                        Err(_) => break,
-                    }
-                }
-            })
-            .map_err(|_| "relayUnavailable")?;
-        Ok(Self {
-            port,
-            stop,
-            worker: Some(worker),
-        })
+    pub fn start(upstream: ProxyEndpoint) -> super::BridgeResult<Self> {
+        use super::authenticated_relay::{AuthenticatedRelay, RelayMode};
+        AuthenticatedRelay::start(upstream, RelayMode::FixtureHttp).map(Self)
     }
 
     pub fn port(&self) -> u16 {
-        self.port
+        self.0.port()
     }
 
     pub fn is_running(&self) -> bool {
-        self.worker
-            .as_ref()
-            .is_some_and(|worker| !worker.is_finished())
-    }
-}
-
-impl Drop for CodexRelay {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Release);
-        let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, self.port));
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+        self.0.is_running()
     }
 }
 
@@ -110,16 +46,34 @@ struct Request {
 
 type TokenVerifier<'a> = &'a dyn Fn(&[u8]) -> bool;
 
-fn handle(downstream: TcpStream, upstream: ProxyEndpoint) {
-    let _ = handle_inner(downstream, upstream, None, Zeroizing::new(Vec::new()));
+#[cfg(test)]
+pub(super) fn handle_fixture(
+    downstream: TcpStream,
+    upstream: ProxyEndpoint,
+    registration: AbortRegistration,
+) -> Result<(), &'static str> {
+    handle_inner(
+        downstream,
+        upstream,
+        None,
+        Zeroizing::new(Vec::new()),
+        registration,
+    )
 }
 
 pub(super) fn handle_authenticated(
     downstream: TcpStream,
     upstream: ProxyEndpoint,
+    registration: AbortRegistration,
     accepts: impl Fn(&[u8]) -> bool,
 ) -> Result<(), &'static str> {
-    handle_authenticated_buffered(downstream, upstream, accepts, Zeroizing::new(Vec::new()))
+    handle_authenticated_buffered(
+        downstream,
+        upstream,
+        accepts,
+        Zeroizing::new(Vec::new()),
+        registration,
+    )
 }
 
 pub(super) fn handle_authenticated_buffered(
@@ -127,8 +81,9 @@ pub(super) fn handle_authenticated_buffered(
     upstream: ProxyEndpoint,
     accepts: impl Fn(&[u8]) -> bool,
     received: Zeroizing<Vec<u8>>,
+    registration: AbortRegistration,
 ) -> Result<(), &'static str> {
-    handle_inner(downstream, upstream, Some(&accepts), received)
+    handle_inner(downstream, upstream, Some(&accepts), received, registration)
 }
 
 fn handle_inner(
@@ -136,6 +91,7 @@ fn handle_inner(
     upstream: ProxyEndpoint,
     accepts: Option<TokenVerifier<'_>>,
     received: Zeroizing<Vec<u8>>,
+    registration: AbortRegistration,
 ) -> Result<(), &'static str> {
     let _ = downstream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = downstream.set_write_timeout(Some(IO_TIMEOUT));
@@ -143,7 +99,13 @@ fn handle_inner(
         .set_nonblocking(false)
         .map_err(|_| "relayUnavailable")
         .and_then(|_| read_buffered_request_with_auth(&mut downstream, accepts, received))
-        .and_then(|request| forward(&mut downstream, upstream, request));
+        .and_then(|request| {
+            tauri::async_runtime::block_on(Abortable::new(
+                forward(&mut downstream, upstream, request),
+                registration,
+            ))
+            .map_err(|_| "relayUnauthorized")?
+        });
     if let Err(code) = result {
         let (status, message) = match code {
             "relayUnauthorized" => (401, "the bridge session is not authorized"),
@@ -440,7 +402,7 @@ fn hop_by_hop(name: &str) -> bool {
     )
 }
 
-fn forward(
+async fn forward(
     downstream: &mut TcpStream,
     upstream: ProxyEndpoint,
     request: Request,
@@ -450,7 +412,6 @@ fn forward(
     let client = Client::builder()
         .no_proxy()
         .connect_timeout(Duration::from_secs(5))
-        .timeout(None)
         .build()
         .map_err(|_| "relayUnavailable")?;
     let method = request.method.parse().map_err(|_| "invalidRequest")?;
@@ -463,7 +424,11 @@ fn forward(
         let value = HeaderValue::from_str(&value).map_err(|_| "invalidRequest")?;
         outgoing = outgoing.header(name, value);
     }
-    let mut response = outgoing.body(body).send().map_err(|_| "relayUnavailable")?;
+    let mut response = outgoing
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| "relayUnavailable")?;
     let status = response.status();
     let reason = status.canonical_reason().unwrap_or("Upstream Response");
     write!(downstream, "HTTP/1.1 {} {}\r\n", status.as_u16(), reason)
@@ -480,14 +445,9 @@ fn forward(
     downstream
         .write_all(b"Connection: close\r\n\r\n")
         .map_err(|_| "relayUnavailable")?;
-    let mut chunk = [0u8; 8192];
-    loop {
-        let count = response.read(&mut chunk).map_err(|_| "relayUnavailable")?;
-        if count == 0 {
-            break;
-        }
+    while let Some(chunk) = response.chunk().await.map_err(|_| "relayUnavailable")? {
         downstream
-            .write_all(&chunk[..count])
+            .write_all(&chunk)
             .and_then(|_| downstream.flush())
             .map_err(|_| "relayUnavailable")?;
     }
@@ -497,7 +457,12 @@ fn forward(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{sync::mpsc, time::Instant};
+    use std::{
+        net::{Ipv4Addr, TcpListener},
+        sync::mpsc,
+        thread,
+        time::Instant,
+    };
 
     fn upstream(
         response_parts: Vec<(&'static [u8], Duration)>,

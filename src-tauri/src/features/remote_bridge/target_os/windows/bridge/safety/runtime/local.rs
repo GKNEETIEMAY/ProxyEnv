@@ -40,6 +40,20 @@ pub(in super::super) enum End {
     ProcessExited,
 }
 
+enum StartFailure {
+    Context(End, Option<io::Error>),
+    Process(io::Error),
+}
+
+impl StartFailure {
+    fn shutdown(self) -> (End, Option<io::Error>) {
+        match self {
+            Self::Context(end, error) => (end, error),
+            Self::Process(error) => (End::SetupFailed, Some(error)),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(in super::super) enum Completion {
     Complete,
@@ -372,7 +386,8 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
             &mut clock,
             start,
         );
-        if let Err((end, error)) = setup {
+        if let Err(failure) = setup {
+            let (end, error) = failure.shutdown();
             self.finish(task, end, cleanup_deadline(), resources, Vec::new(), error);
             return false;
         }
@@ -385,24 +400,24 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         slot: &mut Option<OwnedProcess>,
         clock: &mut impl FnMut() -> ClockSample,
         start: impl FnOnce() -> io::Result<OwnedProcess>,
-    ) -> Result<(), (End, Option<io::Error>)> {
-        let setup_error = |error| (End::SetupFailed, Some(error));
+    ) -> Result<(), StartFailure> {
+        let setup_error = |error| StartFailure::Context(End::SetupFailed, Some(error));
         let files = files
             .as_mut()
             .ok_or_else(|| setup_error(io::ErrorKind::NotFound.into()))?;
         files.validate().map_err(setup_error)?;
         if self.check_policy(clock).is_none() {
-            return Err((self.policy_end(), None));
+            return Err(StartFailure::Context(self.policy_end(), None));
         }
-        let child = start().map_err(setup_error)?;
+        let child = start().map_err(StartFailure::Process)?;
         let child = slot.insert(child);
         files.validate().map_err(setup_error)?;
         if self.check_policy(clock).is_none() {
-            return Err((self.policy_end(), None));
+            return Err(StartFailure::Context(self.policy_end(), None));
         }
-        child.resume().map_err(setup_error)?;
+        child.resume().map_err(StartFailure::Process)?;
         if self.check_policy(clock).is_none() {
-            return Err((self.policy_end(), None));
+            return Err(StartFailure::Context(self.policy_end(), None));
         }
         Ok(())
     }
@@ -595,13 +610,14 @@ impl<'p, 'review> LocalRuntime<'p, 'review> {
         } else {
             deadline
         };
-        let ai = self
-            .ai
-            .close(if matches!(end, End::Cancelled | End::ApplicationExit) {
+        let ai = self.ai.close(
+            if matches!(end, End::Cancelled | End::ApplicationExit) {
                 WindowsAiState::Closed
             } else {
                 WindowsAiState::Invalidated
-            });
+            },
+            deadline,
+        );
         self.transport_verified = false;
         self.policy.stop();
         self.profile = None;

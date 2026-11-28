@@ -323,7 +323,7 @@ fn offline_ai_tool_overlay_is_bound_to_preview_owner_and_preserves_original() {
     let codex = RemoteToolId::Codex;
     let claude = RemoteToolId::Claude;
     let source = b"model = \"fixture-local-model\"\n";
-    struct FixtureFiles([std::path::PathBuf; 2]);
+    struct FixtureFiles([std::path::PathBuf; 3]);
     impl Drop for FixtureFiles {
         fn drop(&mut self) {
             for path in &self.0 {
@@ -334,8 +334,9 @@ fn offline_ai_tool_overlay_is_bound_to_preview_owner_and_preserves_original() {
     let files = FixtureFiles([
         layout.history.join("fixture-codex-original.toml"),
         layout.history.join("fixture-codex-overlay.toml"),
+        layout.history.join("config.toml"),
     ]);
-    let [original_path, overlay_path] = &files.0;
+    let [original_path, overlay_path, private_overlay] = &files.0;
     fs::write(original_path, source).unwrap();
     assert_eq!(
         runtime
@@ -421,6 +422,48 @@ fn offline_ai_tool_overlay_is_bound_to_preview_owner_and_preserves_original() {
     fs::remove_file(overlay_path).unwrap();
     applied.restore(None).unwrap();
     assert!(applied.content().is_none());
+    assert_eq!(fs::read(original_path).unwrap(), source);
+
+    let create = |runtime: &mut LocalRuntime<'_, '_>| {
+        let pending = preview(runtime);
+        apply(
+            runtime,
+            ToolConfigApply {
+                preview: pending,
+                source: Some(source),
+                occupied: false,
+                confirmed: true,
+            },
+        )
+        .unwrap()
+    };
+    let mut materialized = create(&mut runtime);
+    assert!(materialized
+        .materialize(&layout.history, Some(b"changed fixture"))
+        .is_err());
+    fs::write(private_overlay, b"fixture foreign file").unwrap();
+    assert!(materialized
+        .materialize(&layout.history, Some(source))
+        .is_err());
+    assert_eq!(fs::read(private_overlay).unwrap(), b"fixture foreign file");
+    fs::remove_file(private_overlay).unwrap();
+    assert!(materialized
+        .materialize_partial_fixture(&layout.history, Some(source))
+        .is_err());
+    assert!(!private_overlay.exists());
+
+    let mut materialized = create(&mut runtime);
+    materialized
+        .materialize(&layout.history, Some(source))
+        .unwrap();
+    assert_eq!(
+        fs::read(private_overlay).unwrap(),
+        materialized.content().unwrap()
+    );
+    assert!(fs::write(private_overlay, b"fixture external replacement").is_err());
+    materialized.restore_materialized().unwrap();
+    materialized.restore_materialized().unwrap();
+    assert!(!private_overlay.exists());
     assert_eq!(fs::read(original_path).unwrap(), source);
 
     let stale = preview(&runtime);
